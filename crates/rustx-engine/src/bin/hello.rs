@@ -2,16 +2,11 @@
 
 use std::path::Path;
 
-use rustx_engine::{App, AppConfig};
+use rustx_engine::{App, AppConfig, Bootstrap, bootstrap};
 
 fn main() {
-    // Temporary guard: CEF relaunches this executable for each of its
-    // sub-processes, and without this they would each open a window of their
-    // own. Task 2 replaces it with the tested `rustx_engine::bootstrap()`.
-    rustx_engine::declare_api_version();
-    let child = cef::execute_process(Some(cef::args::Args::new().as_main_args()), None, std::ptr::null_mut());
-    if child >= 0 {
-        std::process::exit(child);
+    if let Bootstrap::Child { exit_code } = bootstrap() {
+        std::process::exit(exit_code);
     }
 
     let index = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/hello/index.html");
@@ -24,6 +19,6 @@ fn main() {
     })
     .expect("the bundled example page should be present");
 
-    println!("WINDOW_OPENED");
+    println!("WINDOW_OPENED args={:?}", std::env::args().collect::<Vec<_>>());
     app.run().expect("the engine should start");
 }

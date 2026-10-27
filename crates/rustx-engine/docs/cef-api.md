@@ -99,3 +99,35 @@ Two more that cost less but still cost:
 - `Settings::root_cache_path` must be set per application. The default is
   shared, and Chromium enforces a process singleton per cache directory: a
   second application hands its window to the first and exits.
+
+## The GPU process on legacy hardware
+
+On the development machine (Dell OptiPlex 3010, Intel HD Graphics, driver
+10.18.10.4252) Chromium's GPU process dies on startup with an access
+violation, four times, before falling back to software rendering. The window
+stays blank for those few seconds.
+
+This is not something the host can fix, and it is not the sandbox: the crash
+is identical with `--disable-gpu-sandbox`, and with the `sandbox` feature on
+or off. What does avoid it:
+
+| Switch | Result |
+|---|---|
+| _(none)_ | 4 GPU process crashes, then software fallback |
+| `--disable-gpu-sandbox` | 4 crashes — rules the sandbox out |
+| `--in-process-gpu` | no crash |
+| `--use-angle=swiftshader` | no crash |
+| `--disable-gpu-compositing` | no crash |
+
+`rustx` does **not** set any of these. Hardware acceleration is what the
+design document's performance bar depends on, and crippling it for every
+machine because of one 2012 graphics driver would be the wrong trade. Pass
+`--disable-gpu-compositing` on the command line when developing on such a
+machine.
+
+The `sandbox` feature of the `cef` crate is nonetheless left **off**, for its
+own reason: it is a default feature, it builds the wrapper with
+`USE_SANDBOX=ON`, and CEF then expects the host to create Windows sandbox
+info and pass it to `execute_process` and `initialize`. `rustx` deliberately
+runs an unsandboxed render process (design document §7.1), so declaring a
+sandbox it does not set up would be a lie waiting to crash.

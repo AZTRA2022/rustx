@@ -5,4 +5,11 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-cef = "156.2.0"
+# `sandbox` is on by default and builds the CEF wrapper with USE_SANDBOX=ON,
+# which obliges the host to create Windows sandbox info and hand it to
+# execute_process and initialize. rustx does not: the render process runs the
+# application's own Rust code and is deliberately unsandboxed (see the design
+# document, §7.1), which is only defensible because the engine refuses remote
+# content. Left on, every sandboxed sub-process dies with an access violation
+# and Chromium falls back to software rendering after a visible blank window.
+cef = { version = "156.2.0", default-features = false, features = ["resources"] }
