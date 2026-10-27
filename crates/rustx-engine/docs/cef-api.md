@@ -131,3 +131,31 @@ own reason: it is a default feature, it builds the wrapper with
 info and pass it to `execute_process` and `initialize`. `rustx` deliberately
 runs an unsandboxed render process (design document §7.1), so declaring a
 sandbox it does not set up would be a lie waiting to crash.
+
+## Calling Rust from the page
+
+Three things are not obvious, and each one costs a debugging session.
+
+**Sub-process command lines are rebuilt from scratch.** Nothing the
+application was launched with reaches the render process by itself — the
+renderer's command line is Chromium's own (`--type=renderer`,
+`--user-data-dir=…`, field trial handles). Since the render process is where
+the application's Rust runs, the engine forwards the host's arguments in
+`ImplBrowserProcessHandler::on_before_child_process_launch`.
+
+**A sub-process does not reliably inherit the parent's stdout.** Its stderr
+arrives (a Rust panic in the renderer shows up on the parent's stderr), its
+stdout does not. Anything a test needs out of the render process goes through
+a file, not a pipe.
+
+**`exception` must be written with `try_set`, not assigned.** The handler
+signature hands over `Option<&mut CefString>`, and that `CefString` is a
+`BorrowedMut` view of the caller's `cef_string_t`. Writing
+`*slot = CefString::from(msg)` replaces the Rust-side wrapper and leaves the
+caller's buffer untouched: no exception ever reaches JavaScript, and the call
+silently returns `undefined`. `slot.try_set(&msg)` writes through.
+
+And one that is merely worth knowing: an exception thrown inside a DOM event
+listener does not propagate to whoever called `element.click()`. A page
+driving itself has to read the result out of the DOM rather than expecting a
+throw.

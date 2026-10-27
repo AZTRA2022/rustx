@@ -8,6 +8,7 @@
 //!
 //! [`bootstrap`] must be the first statement of `main`.
 
+use crate::cef_app::child_app;
 use crate::init::declare_api_version;
 
 /// Which half of the relaunch this process is.
@@ -49,7 +50,7 @@ pub fn bootstrap() -> Bootstrap {
     // work is done; -1 when this is the process the user launched.
     let code = cef::execute_process(
         Some(cef::args::Args::new().as_main_args()),
-        None,
+        Some(&mut child_app()),
         std::ptr::null_mut(),
     );
 
