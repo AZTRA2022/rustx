@@ -68,6 +68,16 @@ wrap_render_process_handler! {
                 crate::renderer::install(context);
             }
         }
+
+        fn on_context_released(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _context: Option<&mut V8Context>,
+        ) {
+            // Every DOM handle made in that context is stale from here on.
+            crate::dom::context_released();
+        }
     }
 }
 

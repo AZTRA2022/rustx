@@ -4,10 +4,12 @@
 //! `--scenario=<name>`, the page drives itself and reports what it saw, which
 //! is how the test suite watches the bridge work.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::path::Path;
+use std::rc::Rc;
 
 use rustx_engine::{
+    Document, DomError, Node,
     App, AppConfig, Bootstrap, NativeError, Value, bootstrap, on_context_created, register_native,
 };
 
@@ -94,6 +96,86 @@ fn install_natives() {
     let scenario = argument("--scenario=").unwrap_or_default();
     register_native("rustx_scenario", move |_args| {
         Ok(Value::String(scenario.clone()))
+    });
+
+    install_dom_natives();
+}
+
+/// Everything the page can ask Rust to do to the DOM.
+fn install_dom_natives() {
+    // How many times a context has run the scenario, so the page knows
+    // whether it is before or after the reload.
+    let visits = Cell::new(0_i64);
+    register_native("rustx_visit", move |_args| {
+        visits.set(visits.get() + 1);
+        Ok(Value::Number(visits.get() as f64))
+    });
+
+    // A list built entirely from Rust: create the element, give it text and
+    // a class, attach it.
+    let items = Cell::new(0_i64);
+    register_native("rustx_add_item", move |_args| {
+        let document = Document::current().ok_or(DomError::NoContext)?;
+        items.set(items.get() + 1);
+
+        let item = document.create_element("li")?;
+        item.set_text(&format!("item {}", items.get()))?;
+        item.set_attribute("class", "from-rust")?;
+
+        let list = document
+            .get_element_by_id("list")?
+            .ok_or_else(|| DomError::Failed("no #list in the page".into()))?;
+        list.append_child(&item)?;
+
+        Ok(Value::Null)
+    });
+
+    register_native("rustx_count_items", |_args| {
+        let document = Document::current().ok_or(DomError::NoContext)?;
+        Ok(Value::Number(document.count_matching("#list li")? as f64))
+    });
+
+    register_native("rustx_last_item_class", |_args| {
+        let document = Document::current().ok_or(DomError::NoContext)?;
+        let last = document
+            .query_selector("#list li:last-child")?
+            .ok_or_else(|| DomError::Failed("the list is empty".into()))?;
+        match last.attribute("class")? {
+            Some(class) => Ok(Value::String(class)),
+            None => Ok(Value::Null),
+        }
+    });
+
+    register_native("rustx_remove_last_item", |_args| {
+        let document = Document::current().ok_or(DomError::NoContext)?;
+        let last = document
+            .query_selector("#list li:last-child")?
+            .ok_or_else(|| DomError::Failed("the list is empty".into()))?;
+        last.remove()?;
+        Ok(Value::Null)
+    });
+
+    // A node deliberately kept past the life of its context, to prove that
+    // using it afterwards is an error and not a crash.
+    let kept: Rc<RefCell<Option<Node>>> = Rc::new(RefCell::new(None));
+
+    let keeper = Rc::clone(&kept);
+    register_native("rustx_keep_node", move |_args| {
+        let document = Document::current().ok_or(DomError::NoContext)?;
+        let node = document
+            .get_element_by_id("list")?
+            .ok_or_else(|| DomError::Failed("no #list in the page".into()))?;
+        *keeper.borrow_mut() = Some(node);
+        Ok(Value::Null)
+    });
+
+    register_native("rustx_use_kept_node", move |_args| {
+        let node = kept
+            .borrow()
+            .clone()
+            .ok_or_else(|| DomError::Failed("no node was kept".into()))?;
+        node.set_text("this should never be written")?;
+        Ok(Value::Null)
     });
 }
 

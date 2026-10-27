@@ -59,9 +59,11 @@
       <p id="out">0</p>
       <button id="inc">Count</button>
       <div class="row">
+        <button id="add" class="quiet">Add an item from Rust</button>
         <button id="panic" class="quiet">Panic in Rust</button>
         <button id="bad_args" class="quiet">Call it wrong</button>
       </div>
+      <ul id="list"></ul>
       <p id="error"></p>
     </main>
 
@@ -93,8 +95,54 @@
         }
       });
 
+      // The whole list below is built by Rust: the <li>, its text, its
+      // class and its attachment to #list all happen on the Rust side.
+      document.querySelector("#add").addEventListener("click", () => {
+        try {
+          rustx_add_item();
+        } catch (e) {
+          error.textContent = String(e);
+        }
+      });
+
       // Self-driving run, used by the test suite.
       const click = (selector) => document.querySelector(selector).click();
+
+      // A scenario that throws must say so, not vanish.
+      window.addEventListener("error", (event) => {
+        try {
+          rustx_report("js_error", String(event.message));
+        } catch (_) {}
+      });
+
+      if (rustx_scenario() === "dom") {
+        try {
+        if (rustx_visit() === 1) {
+          click("#add");
+          rustx_report("last_item", document.querySelector("#list li:last-child").textContent);
+          rustx_report("item_class", rustx_last_item_class());
+
+          click("#add");
+          rustx_report("item_count", String(rustx_count_items()));
+
+          rustx_remove_last_item();
+          rustx_report("count_after_remove", String(rustx_count_items()));
+
+          // Hand Rust a node, then take its context away from under it.
+          rustx_keep_node();
+          location.reload();
+        } else {
+          try {
+            rustx_use_kept_node();
+            rustx_report("stale_error", "no exception was thrown");
+          } catch (e) {
+            rustx_report("stale_error", String(e));
+          }
+        }
+        } catch (e) {
+          rustx_report("scenario_error", String(e));
+        }
+      }
 
       if (rustx_scenario() === "natives") {
         click("#inc");
