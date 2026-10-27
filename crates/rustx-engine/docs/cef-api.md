@@ -189,3 +189,22 @@ And one that is merely worth knowing: an exception thrown inside a DOM event
 listener does not propagate to whoever called `element.click()`. A page
 driving itself has to read the result out of the DOM rather than expecting a
 throw.
+
+## Driving a frame loop
+
+`requestAnimationFrame` is the compositor's own vsync signal and it already
+runs on the thread that owns the DOM, so the engine's frame loop rides on it
+rather than inventing a timer that would drift against the screen.
+
+Getting the loop started is the fiddly part. Two ways do **not** work from
+`on_context_created`:
+
+- `V8Context::eval` called bare — it only works inside a V8 callback, or
+  with `enter()`/`exit()` around it.
+- `V8Context::eval` with `enter()`/`exit()` — it runs, but a
+  `requestAnimationFrame` registered that early is dropped and the loop
+  never ticks. This one is particularly unhelpful: nothing fails, no
+  exception appears, the callback simply never fires.
+
+What works is `ImplFrame::execute_java_script`, which schedules the script
+to run in the page itself at a point where rAF registrations stick.

@@ -15,7 +15,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use cef::{CefString, ImplV8Context, ImplV8Value, V8Context, V8Propertyattribute};
+use cef::{
+    CefString, Frame, ImplFrame, ImplV8Context, ImplV8Value, V8Context, V8Propertyattribute,
+};
 
 use crate::value::{NativeError, Value};
 
@@ -60,7 +62,13 @@ fn lookup(name: &str) -> Option<Rc<NativeFn>> {
 }
 
 /// Install every registered function on a freshly created V8 global.
-pub(crate) fn install(context: &V8Context) {
+pub(crate) fn install(frame: Option<&mut Frame>, context: &V8Context) {
+    crate::frame::open();
+    register_native("__rustx_frame", |_args| {
+        crate::frame::tick();
+        Ok(Value::Null)
+    });
+
     HOOKS_RUN.with(|run| {
         if *run.borrow() {
             return;
@@ -92,5 +100,19 @@ pub(crate) fn install(context: &V8Context) {
                 V8Propertyattribute::default(),
             );
         }
+    }
+
+    // Start the frame loop now that `__rustx_frame` exists to be called.
+    //
+    // Injected through the frame rather than evaluated on the context: a
+    // `requestAnimationFrame` registered from inside `on_context_created`
+    // is dropped, and the loop never starts. The frame schedules the script
+    // to run in the page itself.
+    if let Some(frame) = frame {
+        frame.execute_java_script(
+            Some(&CefString::from(crate::frame::DRIVER_SCRIPT)),
+            Some(&CefString::from("rustx://frame-loop")),
+            1,
+        );
     }
 }

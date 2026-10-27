@@ -10,7 +10,8 @@ use std::rc::Rc;
 
 use rustx_engine::{
     Document, DomError, Node,
-    App, AppConfig, Bootstrap, NativeError, Value, bootstrap, on_context_created, process,
+    App, AppConfig, Bootstrap, NativeError, Value, bootstrap, on_context_created, on_frame,
+    poster, process,
     register_native,
 };
 
@@ -101,6 +102,7 @@ fn install_natives() {
     });
 
     install_dom_natives();
+    install_frame_natives();
     install_process_natives();
 }
 
@@ -207,6 +209,99 @@ fn install_process_natives() {
         node.set_text(&text)?;
         Ok(Value::Null)
     });
+}
+
+// Application state lives on the UI thread and nowhere else. A posted job
+// reaches it by running there — never by carrying a reference across.
+thread_local! {
+    static COUNTER: Cell<u64> = const { Cell::new(0) };
+    static DOM_WRITES: Cell<u64> = const { Cell::new(0) };
+    static SHOWN: Cell<u64> = const { Cell::new(u64::MAX) };
+    static JOB_THREAD: RefCell<String> = const { RefCell::new(String::new()) };
+    static WORKER_THREAD: RefCell<String> = const { RefCell::new(String::new()) };
+}
+
+/// The frame loop, a worker thread, and the coalescing between them.
+fn install_frame_natives() {
+    // Rendering happens here and nowhere else: once per frame, showing
+    // whatever the state became in between.
+    on_frame(|| {
+        let counter = COUNTER.with(Cell::get);
+        if SHOWN.with(Cell::get) == counter {
+            return;
+        }
+        let Some(document) = Document::current() else {
+            return;
+        };
+        let Ok(Some(node)) = document.get_element_by_id("out") else {
+            return;
+        };
+        if node.set_text(&counter.to_string()).is_ok() {
+            SHOWN.with(|shown| shown.set(counter));
+            DOM_WRITES.with(|writes| writes.set(writes.get() + 1));
+        }
+    });
+
+    register_native("rustx_start_thread", |_args| {
+        let poster = poster();
+        std::thread::spawn(move || {
+            // Only `Send` data crosses: a string, and a function with no
+            // captures that reaches UI-thread state by running there.
+            let worker = thread_id();
+            let _ = poster.post(move || {
+                WORKER_THREAD.with(|thread| *thread.borrow_mut() = worker);
+            });
+
+            for _ in 0..10_000 {
+                if poster.post(bump_counter).is_err() {
+                    return;
+                }
+            }
+        });
+        Ok(Value::Null)
+    });
+
+    register_native("rustx_ui_thread", |_args| Ok(Value::String(thread_id())));
+    register_native("rustx_frames", |_args| {
+        Ok(Value::String(rustx_engine::frame::frame_count().to_string()))
+    });
+    register_native("rustx_counter", |_args| {
+        Ok(Value::String(COUNTER.with(Cell::get).to_string()))
+    });
+    register_native("rustx_dom_writes", |_args| {
+        Ok(Value::String(DOM_WRITES.with(Cell::get).to_string()))
+    });
+    register_native("rustx_job_thread", |_args| {
+        Ok(Value::String(JOB_THREAD.with(|t| t.borrow().clone())))
+    });
+    register_native("rustx_worker_thread", |_args| {
+        Ok(Value::String(WORKER_THREAD.with(|t| t.borrow().clone())))
+    });
+
+    // What a closing window does to the queue, and what a thread still
+    // producing work is told in return.
+    register_native("rustx_post_after_close", |_args| {
+        rustx_engine::frame::shutdown();
+        Ok(Value::String(match poster().post(|| {}) {
+            Ok(()) => "Ok".to_string(),
+            Err(error) => error.to_string(),
+        }))
+    });
+}
+
+/// Runs on the UI thread, because that is where the queue is drained.
+fn bump_counter() {
+    COUNTER.with(|counter| counter.set(counter.get() + 1));
+    JOB_THREAD.with(|thread| {
+        let mut thread = thread.borrow_mut();
+        if thread.is_empty() {
+            *thread = thread_id();
+        }
+    });
+}
+
+fn thread_id() -> String {
+    format!("{:?}", std::thread::current().id())
 }
 
 /// Appends a line to the report file, from whichever process calls it.

@@ -61,22 +61,24 @@ wrap_render_process_handler! {
         fn on_context_created(
             &self,
             _browser: Option<&mut Browser>,
-            _frame: Option<&mut Frame>,
+            frame: Option<&mut Frame>,
             context: Option<&mut V8Context>,
         ) {
             if let Some(context) = context {
-                crate::renderer::install(context);
+                crate::renderer::install(frame, context);
             }
         }
 
         fn on_context_released(
             &self,
             _browser: Option<&mut Browser>,
-            _frame: Option<&mut Frame>,
+            frame: Option<&mut Frame>,
             _context: Option<&mut V8Context>,
         ) {
-            // Every DOM handle made in that context is stale from here on.
+            // Every DOM handle made in that context is stale from here on,
+            // and a worker thread still posting work must be told to stop.
             crate::dom::context_released();
+            crate::frame::shutdown();
         }
     }
 }

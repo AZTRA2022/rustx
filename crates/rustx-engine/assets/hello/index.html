@@ -144,6 +144,37 @@
         }
       }
 
+      if (rustx_scenario() === "frame") {
+        try {
+          rustx_report("ui_thread", rustx_ui_thread());
+          rustx_start_thread();
+
+          // Wait for every posted update to land, then give the frame loop
+          // one more frame to draw the result.
+          let frames = 0;
+          const settle = () => {
+            if (rustx_counter() === "10000" || ++frames > 600) {
+              requestAnimationFrame(finish);
+            } else {
+              requestAnimationFrame(settle);
+            }
+          };
+          const finish = () => {
+            rustx_report("frames", rustx_frames());
+            rustx_report("counter", rustx_counter());
+            rustx_report("shown", out.textContent);
+            rustx_report("dom_writes", rustx_dom_writes());
+            rustx_report("job_thread", rustx_job_thread());
+            rustx_report("worker_thread", rustx_worker_thread());
+            // Last, because it closes the queue for good.
+            rustx_report("post_after_close", rustx_post_after_close());
+          };
+          requestAnimationFrame(settle);
+        } catch (e) {
+          rustx_report("scenario_error", String(e));
+        }
+      }
+
       if (rustx_scenario() === "no_boundary") {
         try {
           // Which process is the Rust in, and which process is V8 in?
