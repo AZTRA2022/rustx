@@ -80,11 +80,15 @@ pub(crate) fn install(context: &V8Context) {
     let names: Vec<String> = NATIVES.with(|natives| natives.borrow().keys().cloned().collect());
     for name in names {
         let key = CefString::from(name.as_str());
-        let mut handler = native::handler_for(&name);
-        if let Some(mut function) = cef::v8_value_create_function(Some(&key), Some(&mut handler)) {
+        let Some(function) = lookup(&name) else {
+            continue;
+        };
+        let mut handler = native::handler_for(&name, function);
+        if let Some(mut js_function) = cef::v8_value_create_function(Some(&key), Some(&mut handler))
+        {
             global.set_value_bykey(
                 Some(&key),
-                Some(&mut function),
+                Some(&mut js_function),
                 V8Propertyattribute::default(),
             );
         }

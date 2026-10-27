@@ -10,7 +10,8 @@ use std::rc::Rc;
 
 use rustx_engine::{
     Document, DomError, Node,
-    App, AppConfig, Bootstrap, NativeError, Value, bootstrap, on_context_created, register_native,
+    App, AppConfig, Bootstrap, NativeError, Value, bootstrap, on_context_created, process,
+    register_native,
 };
 
 fn main() {
@@ -33,6 +34,7 @@ fn main() {
     })
     .expect("the bundled example page should be present");
 
+    report_line("browser_pid", &std::process::id().to_string());
     println!("WINDOW_OPENED args={:?}", std::env::args().collect::<Vec<_>>());
     app.run().expect("the engine should start");
 }
@@ -99,6 +101,7 @@ fn install_natives() {
     });
 
     install_dom_natives();
+    install_process_natives();
 }
 
 /// Everything the page can ask Rust to do to the DOM.
@@ -177,6 +180,46 @@ fn install_dom_natives() {
         node.set_text("this should never be written")?;
         Ok(Value::Null)
     });
+}
+
+/// Natives that let the page see which process its Rust runs in.
+fn install_process_natives() {
+    register_native("rustx_pid", |_args| {
+        Ok(Value::Number(std::process::id() as f64))
+    });
+
+    register_native("rustx_role", |_args| {
+        Ok(Value::String(format!("{:?}", process::role())))
+    });
+
+    // Does nothing on purpose: what it measures is the cost of the call
+    // itself, which is the whole claim.
+    register_native("rustx_nop", |_args| Ok(Value::Null));
+
+    // Reads the DOM and writes it back, from Rust — the round trip the
+    // design document says must stay in nanoseconds.
+    register_native("rustx_touch_dom", |_args| {
+        let document = Document::current().ok_or(DomError::NoContext)?;
+        let node = document
+            .get_element_by_id("out")?
+            .ok_or_else(|| DomError::Failed("no #out in the page".into()))?;
+        let text = node.text()?;
+        node.set_text(&text)?;
+        Ok(Value::Null)
+    });
+}
+
+/// Appends a line to the report file, from whichever process calls it.
+fn report_line(key: &str, value: &str) {
+    let Some(path) = argument("--report=") else {
+        return;
+    };
+    let line = format!("REPORT {key}={value}\n");
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()));
 }
 
 /// The value of a `--name=value` argument this process was launched with.

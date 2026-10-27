@@ -5,16 +5,18 @@
 //! JavaScript made up is refused before the closure ever sees it.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::rc::Rc;
 
 use cef::{CefString, ImplV8Handler, V8Handler, V8Value, WrapV8Handler, rc::Rc as _, wrap_v8_handler};
 
 use crate::value::{NativeError, Value};
 
-use super::lookup;
+use super::NativeFn;
 
 wrap_v8_handler! {
     struct NativeHandler {
-        name: String,
+        name: Rc<str>,
+        function: Rc<NativeFn>,
     }
 
     impl V8Handler {
@@ -26,18 +28,23 @@ wrap_v8_handler! {
             retval: Option<&mut Option<V8Value>>,
             exception: Option<&mut CefString>,
         ) -> ::std::os::raw::c_int {
-            run(&self.name, arguments, retval, exception)
+            run(&self.name, &self.function, arguments, retval, exception)
         }
     }
 }
 
-/// A V8 function object bound to the native function registered as `name`.
-pub(super) fn handler_for(name: &str) -> V8Handler {
-    NativeHandler::new(name.to_string())
+/// A V8 function object bound to a registered native function.
+///
+/// The closure is held by the handler rather than looked up by name on every
+/// call: this runs on the hot path, and a hash lookup per call is a cost the
+/// framework has no reason to charge.
+pub(super) fn handler_for(name: &str, function: Rc<NativeFn>) -> V8Handler {
+    NativeHandler::new(Rc::from(name), function)
 }
 
 fn run(
     name: &str,
+    function: &Rc<NativeFn>,
     arguments: Option<&[Option<V8Value>]>,
     retval: Option<&mut Option<V8Value>>,
     exception: Option<&mut CefString>,
@@ -60,10 +67,6 @@ fn run(
     let args = match read_arguments(arguments) {
         Ok(args) => args,
         Err(error) => return fail(error.message),
-    };
-
-    let Some(function) = lookup(name) else {
-        return fail(format!("'{name}' is no longer registered"));
     };
 
     // A panic crossing into C is undefined behaviour, and this frame is

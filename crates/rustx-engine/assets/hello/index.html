@@ -144,6 +144,31 @@
         }
       }
 
+      if (rustx_scenario() === "no_boundary") {
+        try {
+          // Which process is the Rust in, and which process is V8 in?
+          rustx_report("rust_pid", String(rustx_pid()));
+          rustx_report("rust_role", rustx_role());
+
+          // V8's own process, read the only way a page can: by asking a
+          // native function that is itself part of this context.
+          window.__v8_pid = rustx_pid();
+          rustx_report("v8_pid", String(window.__v8_pid));
+
+          const mean = (fn, runs) => {
+            for (let i = 0; i < 1000; i++) fn(); // warm up
+            const start = performance.now();
+            for (let i = 0; i < runs; i++) fn();
+            return ((performance.now() - start) * 1e6) / runs;
+          };
+
+          rustx_report("call_ns", mean(rustx_nop, 200000).toFixed(1));
+          rustx_report("dom_round_trip_ns", mean(rustx_touch_dom, 20000).toFixed(1));
+        } catch (e) {
+          rustx_report("scenario_error", String(e));
+        }
+      }
+
       if (rustx_scenario() === "natives") {
         click("#inc");
         click("#inc");

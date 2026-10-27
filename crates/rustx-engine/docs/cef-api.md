@@ -1,3 +1,17 @@
+| Build | Bare native call | DOM → Rust → DOM |
+|---|---|---|
+| release | 1.06 µs | 19.2 µs |
+| debug | 2.68 µs | 31.4 µs |
+
+Measured 2026-10-27 on a Dell OptiPlex 3010 (Ivy Bridge, 2012), averaged
+over 200,000 and 20,000 calls. The DOM figure covers `Document::current()`,
+`getElementById`, a `textContent` read and a `textContent` write — five V8
+operations and two string conversions — so it is a whole round trip, not one
+call. For comparison, an IPC `invoke()` costs tens to hundreds of
+microseconds and cannot be done synchronously at all.
+
+The handler holds its closure directly rather than looking it up by name on
+each call; that one change took the bare call from 9.1 µs to 2.7 µs in debug.
 # CEF API map
 
 The implementation plan names CEF concepts by role. This file maps each role
@@ -65,12 +79,28 @@ The downloaded CEF distribution and the built DLL wrapper live under
 
 ## Measured round-trip
 
-Filled in by Task 5 (`tests/no_boundary.rs`). This number is the project's
-reference figure for "no boundary": a DOM → Rust → DOM round trip.
+The project's reference figures for "no boundary", kept honest by
+`tests/no_boundary.rs`.
 
-| Date | Mean | Machine |
+| Build | Bare native call | DOM → Rust → DOM |
 |---|---|---|
-| _pending_ | | |
+| release | 1.06 µs | 19.2 µs |
+| debug | 2.68 µs | 31.4 µs |
+
+Measured 2026-10-27 on a Dell OptiPlex 3010 (Ivy Bridge, 2012), averaged over
+200,000 and 20,000 calls. The DOM figure covers `Document::current()`,
+`getElementById`, a `textContent` read and a `textContent` write — five V8
+operations and two string conversions — so it is a whole round trip, not one
+call. For comparison, an IPC `invoke()` costs tens to hundreds of
+microseconds and cannot be made synchronously at all.
+
+The V8 handler holds its closure directly instead of looking it up by name on
+every call; that one change took the bare call from 9.1 µs to 2.7 µs in
+debug.
+
+The same run proves where the code runs: the browser process reports its own
+pid, the page reports the pid and role of the process its Rust executes in,
+and they differ — `Renderer`, the same process as V8.
 
 ## The one that costs an afternoon
 
