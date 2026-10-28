@@ -67,21 +67,21 @@ Ce plan nomme ces éléments par leur rôle, pas par leur identifiant exact : le
 ```rust
 // crates/rustx-engine/tests/window.rs
 #[test]
-fn app_refuse_un_index_inexistant() {
+fn app_rejects_a_missing_index() {
     let config = AppConfig {
         title: "t".into(), width: 800, height: 600,
         index: "n-existe-pas.html".into(),
     };
-    assert!(matches!(App::new(config), Err(EngineError::IndexIntrouvable(_))));
+    assert!(matches!(App::new(config), Err(EngineError::IndexNotFound(_))));
 }
 
 #[test]
-fn app_refuse_une_url_distante() {
+fn app_rejects_a_remote_url() {
     let config = AppConfig {
         title: "t".into(), width: 800, height: 600,
         index: "https://example.com".into(),
     };
-    assert!(matches!(App::new(config), Err(EngineError::ContenuDistantInterdit)));
+    assert!(matches!(App::new(config), Err(EngineError::RemoteContentForbidden)));
 }
 ```
 
@@ -147,23 +147,23 @@ C'est la tâche charnière du plan. CEF relance l'exécutable pour chacun de ses
 ```rust
 // crates/rustx-engine/tests/bootstrap.rs
 #[test]
-fn le_processus_parent_est_identifie_comme_navigateur() {
+fn parent_process_is_identified_as_browser() {
     // Aucun argument de type sous-processus present.
     assert!(matches!(bootstrap(), Bootstrap::Browser));
     assert_eq!(process::role(), Role::Browser);
 }
 
 #[test]
-fn les_arguments_de_l_application_survivent_au_bootstrap() {
+fn application_arguments_survive_bootstrap() {
     // Review Focus 1 : bootstrap() ne doit pas consommer les arguments utilisateur.
     // Lance l'exemple `hello` avec `--mon-option=42` et verifie qu'il les voit.
-    let sortie = lancer_exemple_hello(&["--mon-option=42"]);
+    let sortie = run_hello_example(&["--mon-option=42"]);
     assert!(sortie.contains("mon-option=42"));
-    assert_eq!(sortie.matches("FENETRE_OUVERTE").count(), 1);
+    assert_eq!(sortie.matches("WINDOW_OPENED").count(), 1);
 }
 ```
 
-Le second test couvre le Review Focus n°1 : une seule fenêtre doit s'ouvrir, pas une par sous-processus, et les arguments de l'utilisateur doivent lui parvenir intacts. `examples/hello/main.rs` écrit `FENETRE_OUVERTE` et ses arguments sur la sortie standard.
+Le second test couvre le Review Focus n°1 : une seule fenêtre doit s'ouvrir, pas une par sous-processus, et les arguments de l'utilisateur doivent lui parvenir intacts. `examples/hello/main.rs` écrit `WINDOW_OPENED` et ses arguments sur la sortie standard.
 
 - [ ] **Step 2: Lancer les tests pour vérifier qu'ils échouent**
 
@@ -183,7 +183,7 @@ Expected: FAIL (`bootstrap` non défini).
 - [ ] **Step 5: Lancer les tests pour vérifier qu'ils passent**
 
 Run: `cargo test -p rustx-engine --test bootstrap`
-Expected: PASS, et une seule occurrence de `FENETRE_OUVERTE`.
+Expected: PASS, et une seule occurrence de `WINDOW_OPENED`.
 
 - [ ] **Step 6: Commit**
 
@@ -218,34 +218,34 @@ git commit -m "feat(engine): le binaire se relance comme sous-processus de rendu
 ```rust
 // crates/rustx-engine/tests/native_call.rs
 #[test]
-fn un_clic_dom_execute_du_rust_et_recupere_sa_valeur() {
-    let app = exemple_pilote();
-    app.cliquer("#inc");
-    assert_eq!(app.texte("#out"), "1");
-    app.cliquer("#inc");
-    assert_eq!(app.texte("#out"), "2");
+fn a_dom_click_runs_rust_and_returns_its_value() {
+    let app = driver();
+    app.click("#inc");
+    assert_eq!(app.text("#out"), "1");
+    app.click("#inc");
+    assert_eq!(app.text("#out"), "2");
 }
 
 #[test]
-fn un_panic_dans_une_fonction_native_ne_tue_pas_le_processus() {
+fn a_panic_in_a_native_function_does_not_kill_the_process() {
     // Review Focus 2.
-    let app = exemple_pilote();
-    app.cliquer("#panique");
-    assert!(app.texte("#erreur").contains("erreur interne"));
-    app.cliquer("#inc");
-    assert_eq!(app.texte("#out"), "1"); // toujours vivant
+    let app = driver();
+    app.click("#panic");
+    assert!(app.text("#error").contains("internal error"));
+    app.click("#inc");
+    assert_eq!(app.text("#out"), "1"); // toujours vivant
 }
 
 #[test]
-fn des_arguments_mal_types_produisent_une_exception_js_lisible() {
+fn badly_typed_arguments_produce_a_readable_js_exception() {
     // Review Focus 3.
-    let app = exemple_pilote();
-    app.cliquer("#mauvais_args");
-    assert!(app.texte("#erreur").contains("attendu 1 argument"));
+    let app = driver();
+    app.click("#bad_args");
+    assert!(app.text("#error").contains("expected 1 argument"));
 }
 ```
 
-`exemple_pilote()` est un utilitaire de test : il lance l'exemple `hello`, attend que la page soit chargée, et expose `cliquer(selecteur)` et `texte(selecteur)` en injectant du JavaScript. Le choix du mécanisme de pilotage est laissé à l'implémenteur ; le plus simple est de piloter depuis la page elle-même via un script de test et de lire le résultat sur la sortie standard.
+`driver()` est un utilitaire de test : il lance l'exemple `hello`, attend que la page soit chargée, et expose `click(selector)` et `text(selector)` en injectant du JavaScript. Le choix du mécanisme de pilotage est laissé à l'implémenteur ; le plus simple est de piloter depuis la page elle-même via un script de test et de lire le résultat sur la sortie standard.
 
 - [ ] **Step 2: Lancer les tests pour vérifier qu'ils échouent**
 
@@ -260,13 +260,13 @@ Conversion dans les deux sens entre `Value` et les valeurs V8 de CEF. Une valeur
 
 À la création du contexte V8, installer sur l'objet global une fonction par entrée enregistrée. Le gestionnaire V8 appelle la closure Rust. Trois exigences :
 
-- Le corps de la closure est enveloppé dans `std::panic::catch_unwind` ; un panic devient une exception JavaScript (`« erreur interne : … »`) et ne traverse jamais la frontière FFI. C'est une obligation de correction, pas une politesse : un panic qui se propage dans du C est un comportement indéfini.
+- Le corps de la closure est enveloppé dans `std::panic::catch_unwind` ; un panic devient une exception JavaScript (`« internal error : … »`) et ne traverse jamais la frontière FFI. C'est une obligation de correction, pas une politesse : un panic qui se propage dans du C est un comportement indéfini.
 - Une `NativeError` renvoyée devient une exception JavaScript portant son message.
 - Le compte d'arguments et leurs types sont vérifiés par le code appelant la closure ; le message d'erreur nomme ce qui était attendu.
 
 - [ ] **Step 5: Étoffer l'exemple**
 
-`index.html` reçoit `#out`, `#erreur`, et les boutons `#inc`, `#panique`, `#mauvais_args`. `main.rs` enregistre trois fonctions natives via `on_context_created` : un compteur en Rust, une qui panique, une qui exige exactement un argument.
+`index.html` reçoit `#out`, `#error`, et les boutons `#inc`, `#panic`, `#bad_args`. `main.rs` enregistre trois fonctions natives via `on_context_created` : un compteur en Rust, une qui panique, une qui exige exactement un argument.
 
 - [ ] **Step 6: Lancer les tests pour vérifier qu'ils passent**
 
@@ -301,29 +301,29 @@ C'est ce qui rend un réconciliateur écrit en Rust possible : sans écriture da
   - `Node::set_attribute(&self, name: &str, value: &str) -> Result<(), DomError>`
   - `Node::append_child(&self, child: &Node) -> Result<(), DomError>`
   - `Node::remove(&self) -> Result<(), DomError>`
-  - `rustx_engine::dom::DomError` (variante obligatoire : `ContexteDetruit`)
+  - `rustx_engine::dom::DomError` (variante obligatoire : `ContextDestroyed`)
 
 - [ ] **Step 1: Écrire les tests qui échouent**
 
 ```rust
 // crates/rustx-engine/tests/dom.rs
 #[test]
-fn rust_cree_et_modifie_des_noeuds() {
-    let app = exemple_pilote();
-    app.cliquer("#ajouter"); // une fonction native qui construit un <li> en Rust
-    assert_eq!(app.texte("#liste li:last-child"), "element 1");
-    app.cliquer("#ajouter");
-    assert_eq!(app.nombre("#liste li"), 2);
+fn rust_creates_and_mutates_nodes() {
+    let app = driver();
+    app.click("#add"); // une fonction native qui construit un <li> en Rust
+    assert_eq!(app.text("#list li:last-child"), "item 1");
+    app.click("#add");
+    assert_eq!(app.count("#list li"), 2);
 }
 
 #[test]
-fn un_noeud_survivant_a_son_contexte_renvoie_une_erreur() {
+fn a_node_outliving_its_context_returns_an_error() {
     // Review Focus 4 : pas d'usage-apres-liberation, pas de panic, une erreur.
-    let app = exemple_pilote();
-    app.cliquer("#garder_noeud"); // Rust conserve un Node
-    app.recharger();
-    app.cliquer("#utiliser_noeud_garde");
-    assert!(app.texte("#erreur").contains("contexte detruit"));
+    let app = driver();
+    app.click("#keep_node"); // Rust conserve un Node
+    app.reload();
+    app.click("#use_kept_node");
+    assert!(app.text("#error").contains("context destroyed"));
 }
 ```
 
@@ -336,11 +336,11 @@ Expected: FAIL (`dom::Document` non défini).
 
 Les opérations passent par les liaisons V8 du processus, conformément au §6.2 du document — pas d'appel direct à Blink, pas de fork de Chromium.
 
-Le point délicat est la durée de vie, et le Review Focus n°4 en dépend. Un `Node` ne détient pas une référence brute : il retient une identité valide pour un contexte V8 donné, accompagnée d'un jeton de génération du contexte. Toute opération vérifie que la génération courante correspond, et renvoie `DomError::ContexteDetruit` sinon. Aucune référence Rust n'est laissée à V8, aucune référence V8 ne survit dans Rust : c'est la règle du §7.5 du document, appliquée ici, et elle se tient sans `unsafe` dans l'API publique.
+Le point délicat est la durée de vie, et le Review Focus n°4 en dépend. Un `Node` ne détient pas une référence brute : il retient une identité valide pour un contexte V8 donné, accompagnée d'un jeton de génération du contexte. Toute opération vérifie que la génération courante correspond, et renvoie `DomError::ContextDestroyed` sinon. Aucune référence Rust n'est laissée à V8, aucune référence V8 ne survit dans Rust : c'est la règle du §7.5 du document, appliquée ici, et elle se tient sans `unsafe` dans l'API publique.
 
 - [ ] **Step 4: Étoffer l'exemple**
 
-Ajouter `#liste`, et les boutons `#ajouter`, `#garder_noeud`, `#utiliser_noeud_garde`.
+Ajouter `#list`, et les boutons `#add`, `#keep_node`, `#use_kept_node`.
 
 - [ ] **Step 5: Lancer les tests pour vérifier qu'ils passent**
 
@@ -359,7 +359,7 @@ git commit -m "feat(engine): mutation du DOM depuis Rust avec duree de vie verif
 ### Task 5: Prouver l'absence de frontière
 
 **Files:**
-- Create: `crates/rustx-engine/tests/pas_de_frontiere.rs`
+- Create: `crates/rustx-engine/tests/no_boundary.rs`
 - Modify: `examples/hello/main.rs`
 
 La thèse entière du projet est que le Rust s'exécute dans le processus de rendu. Tant qu'un test ne l'affirme pas, une régression peut la défaire en silence — et personne ne s'en apercevra avant de mesurer des latences décevantes six mois plus tard.
@@ -372,43 +372,43 @@ La thèse entière du projet est que le Rust s'exécute dans le processus de ren
 
 ```rust
 #[test]
-fn le_rust_appele_depuis_le_dom_tourne_dans_le_processus_de_rendu() {
-    let app = exemple_pilote();
-    app.cliquer("#pid");
-    let pid_du_rust: u32 = app.texte("#out").parse().unwrap();
-    let pid_du_rendu: u32 = app.evaluer_js("window.__pid_rendu").parse().unwrap();
-    assert_eq!(pid_du_rust, pid_du_rendu);
-    assert_ne!(pid_du_rust, std::process::id()); // ni dans le processus navigateur
+fn rust_called_from_the_dom_runs_in_the_render_process() {
+    let app = driver();
+    app.click("#pid");
+    let rust_pid: u32 = app.text("#out").parse().unwrap();
+    let render_pid: u32 = app.eval_js("window.__render_pid").parse().unwrap();
+    assert_eq!(rust_pid, render_pid);
+    assert_ne!(rust_pid, std::process::id()); // ni dans le processus navigateur
 }
 
 #[test]
-fn un_aller_retour_dom_rust_dom_reste_sous_cinquante_microsecondes() {
-    let app = exemple_pilote();
-    let moyenne_ns = app.mesurer_aller_retour(10_000);
-    assert!(moyenne_ns < 50_000, "aller-retour trop lent : {moyenne_ns} ns");
+fn a_dom_rust_dom_round_trip_stays_under_fifty_microseconds() {
+    let app = driver();
+    let mean_ns = app.measure_round_trip(10_000);
+    assert!(mean_ns < 50_000, "round trip too slow : {mean_ns} ns");
 }
 ```
 
 Le seuil de 50 µs est une barrière anti-régression, pas un objectif : un appel en processus doit se compter en centaines de nanosecondes, un aller-retour IPC en dizaines de microsecondes. Franchir ce seuil signifie qu'une frontière est réapparue.
 
-`window.__pid_rendu` est exposé par une fonction native triviale appelée au chargement ; l'identifiant de processus côté JS n'est pas accessible autrement.
+`window.__render_pid` est exposé par une fonction native triviale appelée au chargement ; l'identifiant de processus côté JS n'est pas accessible autrement.
 
 - [ ] **Step 2: Lancer les tests pour vérifier qu'ils échouent**
 
-Run: `cargo test -p rustx-engine --test pas_de_frontiere`
+Run: `cargo test -p rustx-engine --test no_boundary`
 Expected: FAIL (boutons et fonctions absents de l'exemple).
 
 - [ ] **Step 3: Ajouter à l'exemple la fonction native `#pid` et la boucle de mesure**
 
 - [ ] **Step 4: Lancer les tests pour vérifier qu'ils passent**
 
-Run: `cargo test -p rustx-engine --test pas_de_frontiere`
+Run: `cargo test -p rustx-engine --test no_boundary`
 Expected: PASS. Consigner la moyenne observée dans `crates/rustx-engine/docs/cef-api.md` : c'est le chiffre de référence du projet.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/rustx-engine/tests/pas_de_frontiere.rs examples/ crates/rustx-engine/docs/cef-api.md
+git add crates/rustx-engine/tests/no_boundary.rs examples/ crates/rustx-engine/docs/cef-api.md
 git commit -m "test(engine): prouver que le Rust s'execute dans le processus de rendu"
 ```
 
@@ -429,7 +429,7 @@ Implémente le modèle de threads du §7.4 du document. Les plans suivants (réa
   - `rustx_engine::frame::Poster` — `Clone + Send`, obtenu depuis le thread d'interface.
   - `Poster::post(&self, f: impl FnOnce() + Send + 'static) -> Result<(), PostError>`
   - `rustx_engine::frame::on_frame(f: impl FnMut() + 'static)` — appelé une fois par frame sur le thread d'interface.
-  - `rustx_engine::frame::PostError::FenetreFermee`
+  - `rustx_engine::frame::PostError::WindowClosed`
 
 `Poster` est le seul objet du moteur qui franchit une frontière de thread. Il ne porte aucune donnée du DOM : seulement une fonction qui sera exécutée plus tard sur le thread d'interface.
 
@@ -437,19 +437,19 @@ Implémente le modèle de threads du §7.4 du document. Les plans suivants (réa
 
 ```rust
 #[test]
-fn les_mutations_postees_s_executent_une_fois_par_frame_sur_le_thread_d_interface() {
-    let app = exemple_pilote();
-    app.cliquer("#demarrer_thread"); // un thread poste 10_000 increments
-    app.attendre_frames(60);
-    assert_eq!(app.texte("#out"), "10000");          // tout est applique
-    assert!(app.nombre_de_rendus() <= 70);           // mais pas 10 000 rendus
+fn posted_mutations_run_once_per_frame_on_the_ui_thread() {
+    let app = driver();
+    app.click("#start_thread"); // un thread poste 10_000 increments
+    app.wait_frames(60);
+    assert_eq!(app.text("#out"), "10000");          // tout est applique
+    assert!(app.render_count() <= 70);           // mais pas 10 000 rendus
 }
 
 #[test]
-fn poster_apres_la_fermeture_de_la_fenetre_renvoie_une_erreur() {
+fn posting_after_window_close_returns_an_error() {
     // Review Focus 5.
-    let poster = app_puis_fermer();
-    assert!(matches!(poster.post(|| {}), Err(PostError::FenetreFermee)));
+    let poster = app_then_close();
+    assert!(matches!(poster.post(|| {}), Err(PostError::WindowClosed)));
 }
 ```
 
@@ -462,11 +462,11 @@ Expected: FAIL (`frame::Poster` non défini).
 
 Une file de travaux protégée par un verrou, alimentée par n'importe quel thread, vidée intégralement au début de chaque frame sur le thread d'interface, avant les rappels `on_frame`. La cadence suit le rafraîchissement d'écran via le mécanisme de boucle d'animation du moteur.
 
-Après la fermeture de la fenêtre, la file est marquée close : `post` renvoie `PostError::FenetreFermee` au lieu d'accumuler des travaux qui ne s'exécuteront jamais, et le thread appelant peut s'arrêter proprement.
+Après la fermeture de la fenêtre, la file est marquée close : `post` renvoie `PostError::WindowClosed` au lieu d'accumuler des travaux qui ne s'exécuteront jamais, et le thread appelant peut s'arrêter proprement.
 
 - [ ] **Step 4: Étoffer l'exemple**
 
-Bouton `#demarrer_thread` : lance un thread qui poste 10 000 incréments aussi vite qu'il peut. Un compteur de rendus est exposé par une fonction native.
+Bouton `#start_thread` : lance un thread qui poste 10 000 incréments aussi vite qu'il peut. Un compteur de rendus est exposé par une fonction native.
 
 - [ ] **Step 5: Lancer les tests pour vérifier qu'ils passent**
 

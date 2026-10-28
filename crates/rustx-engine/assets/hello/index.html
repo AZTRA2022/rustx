@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>rustx — hello</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        height: 100vh;
+        background: #16161a;
+        color: #fffffe;
+      }
+      main {
+        display: grid;
+        gap: 1rem;
+        justify-items: center;
+      }
+      h1 {
+        margin: 0;
+      }
+      button {
+        font: inherit;
+        padding: 0.6rem 1.2rem;
+        border: 0;
+        border-radius: 6px;
+        background: #7f5af0;
+        color: #fffffe;
+        cursor: pointer;
+      }
+      button.quiet {
+        background: #242629;
+      }
+      #out {
+        font-size: 2.5rem;
+        margin: 0;
+        font-variant-numeric: tabular-nums;
+      }
+      #error {
+        margin: 0;
+        min-height: 1.2em;
+        color: #ff8906;
+        font-size: 0.9rem;
+      }
+      .row {
+        display: flex;
+        gap: 0.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Hello world</h1>
+      <p id="out">0</p>
+      <button id="inc">Count</button>
+      <div class="row">
+        <button id="add" class="quiet">Add an item from Rust</button>
+        <button id="panic" class="quiet">Panic in Rust</button>
+        <button id="bad_args" class="quiet">Call it wrong</button>
+      </div>
+      <ul id="list"></ul>
+      <p id="error"></p>
+    </main>
+
+    <script>
+      // Every function called here is Rust, installed on this very context by
+      // the render process. There is no bridge object and no message passing.
+      const out = document.querySelector("#out");
+      const error = document.querySelector("#error");
+
+      document.querySelector("#inc").addEventListener("click", () => {
+        out.textContent = rustx_count();
+      });
+
+      document.querySelector("#panic").addEventListener("click", () => {
+        try {
+          rustx_panic();
+          error.textContent = "no exception was thrown";
+        } catch (e) {
+          error.textContent = String(e);
+        }
+      });
+
+      document.querySelector("#bad_args").addEventListener("click", () => {
+        try {
+          rustx_needs_one();
+          error.textContent = "no exception was thrown";
+        } catch (e) {
+          error.textContent = String(e);
+        }
+      });
+
+      // The whole list below is built by Rust: the <li>, its text, its
+      // class and its attachment to #list all happen on the Rust side.
+      document.querySelector("#add").addEventListener("click", () => {
+        try {
+          rustx_add_item();
+        } catch (e) {
+          error.textContent = String(e);
+        }
+      });
+
+      // Self-driving run, used by the test suite.
+      const click = (selector) => document.querySelector(selector).click();
+
+      // A scenario that throws must say so, not vanish.
+      window.addEventListener("error", (event) => {
+        try {
+          rustx_report("js_error", String(event.message));
+        } catch (_) {}
+      });
+
+      if (rustx_scenario() === "dom") {
+        try {
+        if (rustx_visit() === 1) {
+          click("#add");
+          rustx_report("last_item", document.querySelector("#list li:last-child").textContent);
+          rustx_report("item_class", rustx_last_item_class());
+
+          click("#add");
+          rustx_report("item_count", String(rustx_count_items()));
+
+          rustx_remove_last_item();
+          rustx_report("count_after_remove", String(rustx_count_items()));
+
+          // Hand Rust a node, then take its context away from under it.
+          rustx_keep_node();
+          location.reload();
+        } else {
+          try {
+            rustx_use_kept_node();
+            rustx_report("stale_error", "no exception was thrown");
+          } catch (e) {
+            rustx_report("stale_error", String(e));
+          }
+        }
+        } catch (e) {
+          rustx_report("scenario_error", String(e));
+        }
+      }
+
+      if (rustx_scenario() === "local_only") {
+        try {
+          // A remote iframe: the engine must refuse the load, and the
+          // context behind it must never receive a native function.
+          const frame = document.createElement("iframe");
+          frame.src = "https://example.com/";
+          document.body.appendChild(frame);
+
+          // And a navigation away from local content.
+          location.href = "https://example.com/";
+
+          setTimeout(() => {
+            rustx_report("after_navigation", location.href);
+            let blocked = "yes";
+            try {
+              // Same-origin access would throw for a loaded remote page;
+              // a blocked one stays on the initial empty document.
+              const inner = frame.contentDocument;
+              if (inner && inner.location.href.startsWith("https://")) {
+                blocked = "no";
+              }
+            } catch (_) {
+              blocked = "no";
+            }
+            rustx_report("iframe_blocked", blocked);
+            rustx_report("refusals", String(rustx_refusals()));
+          }, 2500);
+        } catch (e) {
+          rustx_report("scenario_error", String(e));
+        }
+      }
+
+      if (rustx_scenario() === "closing") {
+        try {
+          // The real shape of Review Focus #5: a thread that never stops
+          // posting, and a window that closes under it.
+          rustx_start_endless_thread();
+          let frames = 0;
+          const shut = () => {
+            if (++frames < 30) {
+              requestAnimationFrame(shut);
+              return;
+            }
+            rustx_report("posted_before_closing", rustx_counter());
+            rustx_report("closing", "yes");
+            window.close();
+          };
+          requestAnimationFrame(shut);
+        } catch (e) {
+          rustx_report("scenario_error", String(e));
+        }
+      }
+
+      if (rustx_scenario() === "subframe") {
+        try {
+          // Hand Rust a node of the main document, then give a sub-frame a
+          // context of its own and take it away again. Neither the node nor
+          // the job queue belonged to that sub-frame.
+          rustx_keep_node();
+
+          const panel = document.createElement("iframe");
+          panel.src = "about:blank";
+          document.body.appendChild(panel);
+
+          requestAnimationFrame(() => {
+            panel.remove();
+            let waited = 0;
+            const after = () => {
+              if (++waited < 10) {
+                requestAnimationFrame(after);
+                return;
+              }
+              rustx_report("post_after_subframe", rustx_try_post());
+              try {
+                rustx_use_kept_node();
+                rustx_report("kept_node_after_subframe", "usable");
+              } catch (e) {
+                rustx_report("kept_node_after_subframe", String(e));
+              }
+            };
+            requestAnimationFrame(after);
+          });
+        } catch (e) {
+          rustx_report("scenario_error", String(e));
+        }
+      }
+
+      if (rustx_scenario() === "frame") {
+        try {
+          rustx_report("ui_thread", rustx_ui_thread());
+          rustx_start_thread();
+
+          // Wait for every posted update to land, then give the frame loop
+          // one more frame to draw the result.
+          let frames = 0;
+          const settle = () => {
+            if (rustx_counter() === "10000" || ++frames > 600) {
+              requestAnimationFrame(finish);
+            } else {
+              requestAnimationFrame(settle);
+            }
+          };
+          // Two panics on purpose — one in a posted job, one in a frame
+          // callback — then five frames to see whether the loop survived.
+          const finish = () => {
+            rustx_frames_still_climbing();
+            rustx_panic_in_job();
+            rustx_panic_in_frame_callback();
+            let waited = 0;
+            const check = () => {
+              if (++waited < 5) {
+                requestAnimationFrame(check);
+                return;
+              }
+              rustx_report("after_panicking_job", rustx_alive_since_check());
+              rustx_report("callbacks_after_panic", rustx_callbacks_alive_since_check());
+              report_rest();
+            };
+            requestAnimationFrame(check);
+          };
+
+          const report_rest = () => {
+            rustx_report("frames", rustx_frames());
+            rustx_report("counter", rustx_counter());
+            rustx_report("shown", out.textContent);
+            rustx_report("dom_writes", rustx_dom_writes());
+            rustx_report("job_thread", rustx_job_thread());
+            rustx_report("worker_thread", rustx_worker_thread());
+            // Last, because it closes the queue for good.
+            rustx_report("post_after_close", rustx_post_after_close());
+          };
+          requestAnimationFrame(settle);
+        } catch (e) {
+          rustx_report("scenario_error", String(e));
+        }
+      }
+
+      if (rustx_scenario() === "no_boundary") {
+        try {
+          // Which process is the Rust in, and which process is V8 in?
+          rustx_report("rust_pid", String(rustx_pid()));
+          rustx_report("rust_role", rustx_role());
+
+          // A value Rust cannot have known, written to the live document
+          // and read straight back by Rust inside the same tick.
+          const token = "tok-" + Math.random().toString(36).slice(2);
+          const before = out.textContent;
+          out.textContent = token;
+          rustx_report("token", token);
+          rustx_report("token_seen_by_rust", rustx_read_out());
+          out.textContent = before;
+
+          const mean = (fn, runs) => {
+            for (let i = 0; i < 1000; i++) fn(); // warm up
+            const start = performance.now();
+            for (let i = 0; i < runs; i++) fn();
+            return ((performance.now() - start) * 1e6) / runs;
+          };
+
+          rustx_report("call_ns", mean(rustx_nop, 200000).toFixed(1));
+          rustx_report("dom_round_trip_ns", mean(rustx_touch_dom, 20000).toFixed(1));
+        } catch (e) {
+          rustx_report("scenario_error", String(e));
+        }
+      }
+
+      if (rustx_scenario() === "natives") {
+        click("#inc");
+        click("#inc");
+        rustx_report("count", out.textContent);
+
+        click("#panic");
+        rustx_report("panic_error", error.textContent);
+
+        click("#inc");
+        rustx_report("after_panic", out.textContent);
+
+        click("#bad_args");
+        rustx_report("bad_args_error", error.textContent);
+
+        rustx_report("echo", rustx_echo("greet:bonjour", 7, true));
+
+        // The other half of a badly typed call: the right number of
+        // arguments, of a shape the engine does not carry.
+        try {
+          rustx_echo({ a: 1 });
+          rustx_report("wrong_type_error", "no exception was thrown");
+        } catch (e) {
+          rustx_report("wrong_type_error", String(e));
+        }
+
+        // And a shape the engine does carry but the application does not
+        // want: a number where it asked for a string.
+        try {
+          rustx_report(42, 43);
+          rustx_report("wrong_type_app_error", "no exception was thrown");
+        } catch (e) {
+          rustx_report("wrong_type_app_error", String(e));
+        }
+
+        click("#inc");
+        rustx_report("after_bad_types", out.textContent);
+      }
+    </script>
+  </body>
+</html>
