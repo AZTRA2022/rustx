@@ -388,7 +388,7 @@ fn skip_comment(bytes: &[u8], index: usize) -> Option<usize> {
     }
 }
 
-fn is_word_byte(byte: u8) -> bool {
+pub(crate) fn is_word_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_' || byte >= 0x80
 }
 
