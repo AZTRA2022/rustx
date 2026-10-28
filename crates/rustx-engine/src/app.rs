@@ -81,13 +81,15 @@ impl App {
         std::fs::create_dir_all(&cache_dir)
             .map_err(|e| EngineError::EngineInit(format!("cache directory: {e}")))?;
 
-        let mut settings = Settings::default();
-        settings.root_cache_path = CefString::from(cache_dir.to_string_lossy().as_ref());
-        settings.log_file = CefString::from(cache_dir.join("engine.log").to_string_lossy().as_ref());
-        // The render process hosts the application's own Rust code, so it is
-        // not sandboxed. This is only defensible because the engine refuses
-        // remote content — see `App::new`.
-        settings.no_sandbox = 1;
+        let settings = Settings {
+            root_cache_path: CefString::from(cache_dir.to_string_lossy().as_ref()),
+            log_file: CefString::from(cache_dir.join("engine.log").to_string_lossy().as_ref()),
+            // The render process hosts the application's own Rust code, so
+            // it is not sandboxed. This is only defensible because the
+            // engine refuses remote content — see `App::new` and `guard`.
+            no_sandbox: 1,
+            ..Default::default()
+        };
 
         let mut application = engine_app(WindowSpec {
             title: self.config.title.clone(),

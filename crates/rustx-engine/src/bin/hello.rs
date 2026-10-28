@@ -202,6 +202,16 @@ fn install_process_natives() {
     // itself, which is the whole claim.
     register_native("rustx_nop", |_args| Ok(Value::Null));
 
+    // Reads the live document, so the page can hand Rust a value and ask
+    // for it back without anything in between.
+    register_native("rustx_read_out", |_args| {
+        let document = Document::current().ok_or(DomError::NoContext)?;
+        let node = document
+            .get_element_by_id("out")?
+            .ok_or_else(|| DomError::Failed("no #out in the page".into()))?;
+        Ok(Value::String(node.text()?))
+    });
+
     // Reads the DOM and writes it back, from Rust — the round trip the
     // design document says must stay in nanoseconds.
     register_native("rustx_touch_dom", |_args| {
@@ -333,6 +343,18 @@ fn install_frame_natives() {
     });
     register_native("rustx_worker_thread", |_args| {
         Ok(Value::String(WORKER_THREAD.with(|t| t.borrow().clone())))
+    });
+
+    // A capture thread's shape: it never stops on its own, and it is still
+    // producing when the user closes the window.
+    register_native("rustx_start_endless_thread", |_args| {
+        let poster = poster();
+        std::thread::spawn(move || {
+            while poster.post(bump_counter).is_ok() {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        });
+        Ok(Value::Null)
     });
 
     // Is the queue still open? Unlike the one below, this asks without

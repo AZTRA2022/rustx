@@ -176,6 +176,27 @@
         }
       }
 
+      if (rustx_scenario() === "closing") {
+        try {
+          // The real shape of Review Focus #5: a thread that never stops
+          // posting, and a window that closes under it.
+          rustx_start_endless_thread();
+          let frames = 0;
+          const shut = () => {
+            if (++frames < 30) {
+              requestAnimationFrame(shut);
+              return;
+            }
+            rustx_report("posted_before_closing", rustx_counter());
+            rustx_report("closing", "yes");
+            window.close();
+          };
+          requestAnimationFrame(shut);
+        } catch (e) {
+          rustx_report("scenario_error", String(e));
+        }
+      }
+
       if (rustx_scenario() === "subframe") {
         try {
           // Hand Rust a node of the main document, then give a sub-frame a
@@ -266,10 +287,14 @@
           rustx_report("rust_pid", String(rustx_pid()));
           rustx_report("rust_role", rustx_role());
 
-          // V8's own process, read the only way a page can: by asking a
-          // native function that is itself part of this context.
-          window.__v8_pid = rustx_pid();
-          rustx_report("v8_pid", String(window.__v8_pid));
+          // A value Rust cannot have known, written to the live document
+          // and read straight back by Rust inside the same tick.
+          const token = "tok-" + Math.random().toString(36).slice(2);
+          const before = out.textContent;
+          out.textContent = token;
+          rustx_report("token", token);
+          rustx_report("token_seen_by_rust", rustx_read_out());
+          out.textContent = before;
 
           const mean = (fn, runs) => {
             for (let i = 0; i < 1000; i++) fn(); // warm up
@@ -300,6 +325,27 @@
         rustx_report("bad_args_error", error.textContent);
 
         rustx_report("echo", rustx_echo("greet:bonjour", 7, true));
+
+        // The other half of a badly typed call: the right number of
+        // arguments, of a shape the engine does not carry.
+        try {
+          rustx_echo({ a: 1 });
+          rustx_report("wrong_type_error", "no exception was thrown");
+        } catch (e) {
+          rustx_report("wrong_type_error", String(e));
+        }
+
+        // And a shape the engine does carry but the application does not
+        // want: a number where it asked for a string.
+        try {
+          rustx_report(42, 43);
+          rustx_report("wrong_type_app_error", "no exception was thrown");
+        } catch (e) {
+          rustx_report("wrong_type_app_error", String(e));
+        }
+
+        click("#inc");
+        rustx_report("after_bad_types", out.textContent);
       }
     </script>
   </body>

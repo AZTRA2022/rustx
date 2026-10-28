@@ -35,12 +35,19 @@ fn rust_called_from_the_dom_runs_in_the_render_process() {
 }
 
 #[test]
-fn the_dom_and_rust_share_one_process() {
-    // Same process for V8 and for the Rust it calls: that is the thesis.
+fn rust_sees_dom_state_javascript_wrote_in_the_same_tick() {
+    // Asking Rust for its own process id and comparing it to itself proves
+    // nothing. This does: JavaScript writes a value nobody could guess into
+    // the live document, and Rust reads it back in the same synchronous
+    // call, before the tick is over. Across a process boundary that value
+    // would have to be serialized and awaited; there is nowhere for an IPC
+    // round trip to hide inside one tick.
+    let written = report().get("token");
+    assert!(!written.is_empty(), "the page wrote no token:\n{}", report().raw());
     assert_eq!(
-        report().get("rust_pid"),
-        report().get("v8_pid"),
-        "V8 and the Rust it calls are in different processes:\n{}",
+        report().get("token_seen_by_rust"),
+        written,
+        "Rust did not see what JavaScript had just written to the DOM:\n{}",
         report().raw()
     );
 }

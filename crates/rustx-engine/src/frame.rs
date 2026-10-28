@@ -128,7 +128,7 @@ pub(crate) fn tick() {
         for callback in callbacks.iter_mut() {
             report_panic(
                 "a frame callback",
-                catch_unwind(AssertUnwindSafe(|| callback())),
+                catch_unwind(AssertUnwindSafe(callback)),
             );
         }
     }

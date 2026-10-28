@@ -47,6 +47,43 @@ fn badly_typed_arguments_produce_a_readable_js_exception() {
 }
 
 #[test]
+fn an_argument_of_a_shape_rust_cannot_take_never_reaches_the_application() {
+    // JavaScript is untyped and the application's Rust is not. A value the
+    // engine cannot name is refused at the edge, with a message that says
+    // what it does carry — the application never sees a half-read object.
+    let message = report().get("wrong_type_error");
+    assert!(
+        message.contains("unsupported argument"),
+        "an object argument did not produce a typed refusal: {message:?}"
+    );
+    assert!(
+        message.contains("strings"),
+        "the refusal did not say what the engine does accept: {message:?}"
+    );
+}
+
+#[test]
+fn an_argument_of_the_wrong_type_for_the_application_is_its_own_to_refuse() {
+    assert!(
+        report()
+            .get("wrong_type_app_error")
+            .contains("expected 2 string arguments"),
+        "a number where a string was wanted gave: {:?}",
+        report().get("wrong_type_app_error")
+    );
+}
+
+#[test]
+fn the_engine_keeps_working_after_badly_typed_calls() {
+    assert_eq!(
+        report().get("after_bad_types"),
+        "4",
+        "a rejected argument left the engine in a bad state:\n{}",
+        report().raw()
+    );
+}
+
+#[test]
 fn a_native_function_receives_the_arguments_javascript_passed() {
     assert_eq!(
         report().get("echo"),

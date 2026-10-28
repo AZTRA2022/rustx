@@ -5,6 +5,8 @@
 //! that prints `REPORT <key>=<value>` on stdout — from the render process,
 //! which is itself part of what is being proved.
 
+#![allow(dead_code)] // each test binary uses its own corner of this module.
+
 use std::collections::HashMap;
 use std::io::Read;
 use std::process::{Command, Stdio};
@@ -31,7 +33,22 @@ impl Report {
 }
 
 /// Runs the application through a scenario and collects what it reported.
+///
+/// The window stays open until the harness takes it away, which is what a
+/// scenario that only observes wants.
 pub fn run_scenario(name: &str) -> Report {
+    run(name, Ending::Killed).report
+}
+
+/// Who is expected to end the run.
+enum Ending {
+    /// The harness kills the application after it has had its say.
+    Killed,
+    /// The scenario closes the window, and the process is expected to go.
+    ByItself,
+}
+
+fn run(name: &str, ending: Ending) -> Completion {
     let report_file = std::env::temp_dir().join(format!("rustx-report-{name}.txt"));
     let _ = std::fs::remove_file(&report_file);
 
@@ -58,13 +75,15 @@ pub fn run_scenario(name: &str) -> Report {
     }
     drop(sender);
 
-    std::thread::sleep(Duration::from_secs(10));
-    let _ = Command::new("taskkill")
-        .args(["/T", "/F", "/PID", &child.id().to_string()])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    let _ = child.wait();
+    let exit = match ending {
+        Ending::Killed => {
+            std::thread::sleep(Duration::from_secs(10));
+            kill(&child);
+            let _ = child.wait();
+            None
+        }
+        Ending::ByItself => wait_for_exit(&mut child, Duration::from_secs(30)),
+    };
 
     let mut raw = String::new();
     while let Ok(text) = receiver.recv_timeout(Duration::from_secs(10)) {
@@ -80,5 +99,49 @@ pub fn run_scenario(name: &str) -> Report {
         .map(|(key, value)| (key.trim().to_string(), value.trim().to_string()))
         .collect();
 
-    Report { values, raw }
+    Completion {
+        report: Report { values, raw },
+        exit,
+    }
+}
+
+/// Waits for the application to go of its own accord, killing it only if
+/// it never does — a hang is a result worth reporting, not worth waiting
+/// out.
+fn wait_for_exit(child: &mut std::process::Child, patience: Duration) -> Option<i32> {
+    let deadline = std::time::Instant::now() + patience;
+    while std::time::Instant::now() < deadline {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(status.code().unwrap_or(-1)),
+            Ok(None) => std::thread::sleep(Duration::from_millis(100)),
+            Err(_) => break,
+        }
+    }
+    kill(child);
+    let _ = child.wait();
+    None
+}
+
+/// The whole tree: a CEF application is a family of processes.
+fn kill(child: &std::process::Child) {
+    let _ = Command::new("taskkill")
+        .args(["/T", "/F", "/PID", &child.id().to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+/// How a scenario that is meant to end by itself actually ended.
+pub struct Completion {
+    pub report: Report,
+    /// The process's exit code, or `None` if it had to be killed.
+    pub exit: Option<i32>,
+}
+
+/// Runs a scenario that closes its own window, and waits for the process
+/// to go. Unlike [`run_scenario`], the point here is the exit itself: an
+/// application that hangs or crashes on the way out is a failure even if
+/// everything it reported beforehand was right.
+pub fn run_scenario_to_completion(name: &str) -> Completion {
+    run(name, Ending::ByItself)
 }
