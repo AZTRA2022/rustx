@@ -113,7 +113,7 @@ pub fn find_jsx(source: &str) -> Result<Vec<Span>, CompileError> {
 }
 
 /// The second half of the rule: what follows the `<`.
-fn opens_a_tag(bytes: &[u8], index: usize) -> bool {
+pub(crate) fn opens_a_tag(bytes: &[u8], index: usize) -> bool {
     match bytes.get(index + 1) {
         Some(&next) => next.is_ascii_alphabetic() || next == b'_' || next == b'/' || next == b'>',
         None => false,
@@ -144,6 +144,9 @@ fn region(source: &str, start: usize) -> Result<Span, CompileError> {
                     return Ok(Span { start, end: index });
                 }
             }
+            // Inside a region, text is still text: `<p>10 < 20</p>` holds
+            // a comparison sign that opens nothing.
+            b'<' if !opens_a_tag(bytes, index) => index += 1,
             b'<' => {
                 let at = index;
                 let name = tag_name(source, index);

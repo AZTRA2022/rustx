@@ -8,6 +8,8 @@
 //! wrote rather than on a line a build script invented.
 
 mod error;
+pub mod ast;
+pub mod parse;
 pub mod scan;
 
 pub use error::CompileError;
