@@ -13,3 +13,4 @@ license.workspace = true
 # content. Left on, every sandboxed sub-process dies with an access violation
 # and Chromium falls back to software rendering after a visible blank window.
 cef = { version = "156.2.0", default-features = false, features = ["resources"] }
+rustx-dom = { path = "../rustx-dom" }

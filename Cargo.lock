@@ -113,6 +113,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "catalogue"
+version = "0.1.0"
+dependencies = [
+ "rustx-compiler",
+ "rustx-dom",
+ "rustx-engine",
+]
+
+[[package]]
 name = "cc"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -828,10 +837,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
+name = "rustx-compiler"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+]
+
+[[package]]
+name = "rustx-dom"
+version = "0.1.0"
+
+[[package]]
 name = "rustx-engine"
 version = "0.1.0"
 dependencies = [
  "cef",
+ "rustx-dom",
 ]
 
 [[package]]

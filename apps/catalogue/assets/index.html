@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>Catalogue</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        height: 100vh;
+        background: #16161a;
+        color: #fffffe;
+      }
+      .devices { padding-left: 1.2rem; }
+      button {
+        font: inherit;
+        padding: 0.6rem 1.2rem;
+        border: 0;
+        border-radius: 6px;
+        background: #7f5af0;
+        color: #fffffe;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- The page is written in app/page.rsx. Nothing below is. -->
+    <div id="root"></div>
+    <script>
+      if (catalogue_scenario() === "page") {
+        const root = document.querySelector("#root");
+        const settle = () => {
+          if (!root.firstChild) {
+            requestAnimationFrame(settle);
+            return;
+          }
+          catalogue_report("html", root.innerHTML);
+          document.querySelector("#shout").click();
+          catalogue_report("clicked", catalogue_clicked());
+        };
+        requestAnimationFrame(settle);
+      }
+    </script>
+  </body>
+</html>

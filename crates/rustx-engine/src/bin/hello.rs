@@ -8,6 +8,7 @@ use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::rc::Rc;
 
+use rustx_dom::{AttributeValue, Element, Handler};
 use rustx_engine::{
     Document, DomError, Node,
     App, AppConfig, Bootstrap, NativeError, Value, bootstrap, on_context_created, on_frame,
@@ -105,9 +106,67 @@ fn install_natives() {
         Ok(Value::String(scenario.clone()))
     });
 
+    install_mount_natives();
     install_dom_natives();
     install_frame_natives();
     install_process_natives();
+}
+
+/// Trees built in Rust and put on screen, the way the compiler's output
+/// will put them there.
+fn install_mount_natives() {
+    // `<ul><li>a</li><li><b>c</b></li></ul>` — two levels, text at depth,
+    // siblings in the order they were written.
+    register_native("rustx_mount_tree", |_args| {
+        let tree = Element::tag("ul")
+            .child(Element::tag("li").child(Element::Text("a".into())).build())
+            .child(
+                Element::tag("li")
+                    .child(Element::tag("b").child(Element::Text("c".into())).build())
+                    .build(),
+            )
+            .build();
+        mount_into(tree, "tree")
+    });
+
+    register_native("rustx_mount_empty", |_args| {
+        mount_into(Element::Empty, "empty")
+    });
+
+    register_native("rustx_mount_fragment", |_args| {
+        let tree = Element::Fragment(vec![
+            Element::tag("i").child(Element::Text("a".into())).build(),
+            Element::tag("i").child(Element::Text("b".into())).build(),
+        ]);
+        mount_into(tree, "fragment")
+    });
+
+    // The whole claim of the framework, in one button: the closure below
+    // is ordinary Rust, it captures an `Rc` with no thread bound, and a
+    // click runs it on the click's own stack.
+    let clicks = Rc::new(Cell::new(0_u32));
+    let counted = Rc::clone(&clicks);
+    register_native("rustx_mount_button", move |_args| {
+        let counter = Rc::clone(&counted);
+        let tree = Element::tag("button")
+            .attribute("id", AttributeValue::Text("mounted".into()))
+            .handler(
+                "onClick",
+                Handler::new(move |_event| counter.set(counter.get() + 1)),
+            )
+            .child(Element::Text("go".into()))
+            .build();
+        mount_into(tree, "button")
+    });
+
+    register_native("rustx_clicks", move |_args| {
+        Ok(Value::String(clicks.get().to_string()))
+    });
+}
+
+fn mount_into(tree: Element, id: &str) -> Result<Value, NativeError> {
+    rustx_engine::mount_at_id(tree, id)?;
+    Ok(Value::Null)
 }
 
 /// Everything the page can ask Rust to do to the DOM.

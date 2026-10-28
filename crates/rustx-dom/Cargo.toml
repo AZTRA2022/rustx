@@ -1,0 +1,8 @@
+[package]
+name = "rustx-dom"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The element tree a rustx component returns."
+
+[dependencies]

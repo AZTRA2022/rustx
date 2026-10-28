@@ -267,3 +267,30 @@ impl Node {
         }
     }
 }
+
+impl Document {
+    /// A new, unattached text node.
+    ///
+    /// `set_text` replaces everything a node contains, so it cannot place
+    /// a piece of text beside a sibling element. Mounting
+    /// `<li><b>c</b> and more</li>` needs a node of its own for the text.
+    pub fn create_text_node(&self, text: &str) -> Result<Node, DomError> {
+        self.node
+            .call("createTextNode", &[Value::String(text.to_string())])?
+            .ok_or_else(|| DomError::Failed("createTextNode returned nothing".into()))
+    }
+}
+
+impl Node {
+    /// Call a method with V8 values built elsewhere in the engine — a
+    /// function object, for instance, which `Value` deliberately cannot
+    /// represent.
+    pub(crate) fn call_with_v8(
+        &self,
+        method: &str,
+        arguments: Vec<Option<V8Value>>,
+    ) -> Result<(), DomError> {
+        self.invoke(method, arguments)?;
+        Ok(())
+    }
+}
