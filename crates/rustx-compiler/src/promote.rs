@@ -71,14 +71,34 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
         let handlers = handler_closures(source, &returns_jsx);
         let parameters = parameter_names(source, body.start);
 
+        let locals = locals_of(source, body);
+        // Shadowing is idiomatic Rust, and matching occurrences by name
+        // cannot tell two `n`s apart: both would claim the same spans
+        // and the edits would overwrite each other. Refusing is the
+        // honest answer until the rewrite understands scopes.
+        if let Some(second) = shadowed(&locals) {
+            return Err(CompileError::flagged(
+                second.declaration.start,
+                format!(
+                    "`{}` is declared twice in this component. rustx cannot yet tell \
+                     two locals of the same name apart when one of them holds state — \
+                     give the second one a different name.",
+                    second.name
+                )
+                .to_string(),
+            )
+            .resolve(source));
+        }
+
+        let in_code = code_spans(source, body, &returns_jsx);
         let mut promoted = Vec::new();
-        for local in locals_of(source, body) {
+        for local in &locals {
             if parameters.contains(&local.name) {
                 continue;
             }
             let mutations: Vec<Mutation> = handlers
                 .iter()
-                .flat_map(|handler| mutations_in(source, &local.name, *handler))
+                .flat_map(|handler| mutations_in(source, &local.name, *handler, &in_code))
                 .collect();
 
             // "Read in the JSX" means read by what is drawn, not read by
@@ -86,7 +106,7 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             // written between the tags, so without this an `onClick` that
             // only writes would look like a read of itself and promote a
             // variable nobody ever shows.
-            let shown = occurrences(source, &local.name, &returns_jsx)
+            let shown = occurrences(source, &local.name, &in_jsx_code(&in_code, &returns_jsx))
                 .into_iter()
                 .filter(|span| !handlers.iter().any(|handler| contains(*handler, *span)))
                 .count();
@@ -97,19 +117,17 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
 
             // Everywhere the name appears without writing to it — the
             // rewrite turns each into a read of the cell.
-            let reads = occurrences(
-                source,
-                &local.name,
-                &[Span {
-                    start: local.declaration.end,
-                    end: body.end,
-                }],
-            )
-            .into_iter()
-            .filter(|span| !mutations.iter().any(|mutation| mutation.span == *span))
-            .collect();
+            let after_declaration: Vec<Span> = in_code
+                .iter()
+                .filter(|span| span.start >= local.declaration.end)
+                .copied()
+                .collect();
+            let reads = occurrences(source, &local.name, &after_declaration)
+                .into_iter()
+                .filter(|span| !mutations.iter().any(|mutation| mutation.span == *span))
+                .collect();
             promoted.push(Promoted {
-                name: local.name,
+                name: local.name.clone(),
                 declaration: local.declaration,
                 initializer: local.initializer,
                 reads,
@@ -288,7 +306,14 @@ fn handler_closures(source: &str, regions: &[Span]) -> Vec<Span> {
     handlers
 }
 
-/// Every occurrence of `name` as a word inside these spans.
+/// Every occurrence of `name` as a word inside these spans, counting
+/// only the ones that are code.
+///
+/// A name is a name in Rust and a word everywhere else. `count` can be
+/// the state, the CSS class in `className="count"`, and a word in the
+/// sentence `{count} count` — all three on one line. Rewriting the last
+/// two ships a corrupted interface, so string literals, comments and
+/// JSX text are not searched at all.
 fn occurrences(source: &str, name: &str, spans: &[Span]) -> Vec<Span> {
     let mut found = Vec::new();
     for span in spans {
@@ -307,12 +332,106 @@ fn occurrences(source: &str, name: &str, spans: &[Span]) -> Vec<Span> {
     found
 }
 
+/// The parts of a component's body that are Rust, as opposed to the
+/// text and tag syntax of its JSX.
+///
+/// Outside a JSX region everything is code, minus strings and comments.
+/// Inside one, only what is between braces is: an expression child or an
+/// attribute's value. `<span className="count">{count} count</span>`
+/// contributes exactly one span, the one holding `count`.
+fn code_spans(source: &str, body: Span, regions: &[Span]) -> Vec<Span> {
+    let mut spans = Vec::new();
+    let mut cursor = body.start;
+
+    for region in regions {
+        push_code(source, Span { start: cursor, end: region.start }, &mut spans);
+        for braced in braced_spans(source, *region) {
+            push_code(source, braced, &mut spans);
+        }
+        cursor = region.end;
+    }
+    push_code(source, Span { start: cursor, end: body.end }, &mut spans);
+    spans
+}
+
+/// The `{…}` of a region, at its top level — nested braces belong to the
+/// expression that opened them.
+fn braced_spans(source: &str, region: Span) -> Vec<Span> {
+    let bytes = source.as_bytes();
+    let mut spans = Vec::new();
+    let mut index = region.start;
+    while index < region.end {
+        if bytes[index] == b'"' {
+            // An attribute's quotes are HTML's: no escapes, ends at the
+            // next quote.
+            index = source[index + 1..region.end]
+                .find('"')
+                .map_or(region.end, |offset| index + offset + 2);
+            continue;
+        }
+        if bytes[index] == b'{' {
+            match skip_braces(source, index) {
+                Ok(end) => {
+                    spans.push(Span { start: index + 1, end: end - 1 });
+                    index = end;
+                    continue;
+                }
+                Err(_) => break,
+            }
+        }
+        index += 1;
+    }
+    spans
+}
+
+/// Split a run of Rust around its string literals and comments, so that
+/// nothing inside either is ever searched.
+fn push_code(source: &str, span: Span, into: &mut Vec<Span>) {
+    if span.start >= span.end {
+        return;
+    }
+    let bytes = source.as_bytes();
+    let mut start = span.start;
+    let mut index = span.start;
+
+    while index < span.end {
+        let skipped = if let Ok(Some(after)) = crate::scan::skip_raw_string(source, index) {
+            Some(after)
+        } else if bytes[index] == b'"' {
+            crate::scan::skip_string(source, index).ok()
+        } else if bytes[index] == b'\'' {
+            Some(crate::scan::skip_char_or_lifetime(bytes, index))
+        } else {
+            crate::scan::skip_comment(bytes, index)
+        };
+
+        match skipped {
+            Some(after) if after > index => {
+                if index > start {
+                    into.push(Span { start, end: index });
+                }
+                index = after.min(span.end);
+                start = index;
+            }
+            _ => index += 1,
+        }
+    }
+    if span.end > start {
+        into.push(Span { start, end: span.end });
+    }
+}
+
 /// Every occurrence of `name` inside this handler that writes to it.
-fn mutations_in(source: &str, name: &str, handler: Span) -> Vec<Mutation> {
+fn mutations_in(source: &str, name: &str, handler: Span, in_code: &[Span]) -> Vec<Mutation> {
     let bytes = source.as_bytes();
     let mut found = Vec::new();
 
-    for span in occurrences(source, name, &[handler]) {
+    let inside: Vec<Span> = in_code
+        .iter()
+        .filter(|span| contains(handler, **span))
+        .copied()
+        .collect();
+    for span in occurrences(source, name, &inside) {
         let after = skip_spaces(bytes, span.end);
         let kind = match bytes.get(after) {
             // `n = 5`, but not `n == 5`.
@@ -329,7 +448,15 @@ fn mutations_in(source: &str, name: &str, handler: Span) -> Vec<Mutation> {
             }
             // `items.push(1);` as a statement of its own. In expression
             // position it is a read — `items.len()` must not become an
-            // update — so the test is what surrounds it.
+            // update — so the test is what surrounds it. `p.x = 1` and
+            // `v[0] = 1` land here too: they are writes through the
+            // local, and `update` is exactly the right shape for them.
+            // `p.x = 1`, `v[0] = 1`: a write through the local. There is
+            // no ambiguity in an assignment, so it does not need the
+            // statement-position test that a method call needs.
+            Some(b'.') | Some(b'[') if assigns_through_path(bytes, span.end) => {
+                Some(MutationKind::Method)
+            }
             Some(b'.') if is_statement(bytes, span, handler) => Some(MutationKind::Method),
             _ => None,
         };
@@ -474,4 +601,59 @@ impl Component {
             .copied()
             .find(|handler| contains(*handler, span))
     }
+}
+
+/// The code spans that fall inside a JSX region — the braced
+/// expressions, which is where a read can be.
+fn in_jsx_code(code: &[Span], regions: &[Span]) -> Vec<Span> {
+    code.iter()
+        .filter(|span| regions.iter().any(|region| contains(*region, **span)))
+        .copied()
+        .collect()
+}
+
+/// The second declaration of a name already declared in this component.
+fn shadowed(locals: &[Local]) -> Option<&Local> {
+    locals
+        .iter()
+        .enumerate()
+        .find(|(at, local)| locals[..*at].iter().any(|earlier| earlier.name == local.name))
+        .map(|(_, local)| local)
+}
+
+/// Does a path starting here end in an assignment?
+///
+/// `p.x = 1` and `v[0].y = 2` are writes through the local. A method
+/// call in the middle — `v.get(0).x = 1` — is not something that can be
+/// assigned to in Rust, so a `(` ends the walk and the answer is no.
+fn assigns_through_path(bytes: &[u8], from: usize) -> bool {
+    let mut index = from;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'.' => index += 1,
+            b'[' => {
+                let mut depth = 0_i32;
+                while index < bytes.len() {
+                    match bytes[index] {
+                        b'[' => depth += 1,
+                        b']' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                index += 1;
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                    index += 1;
+                }
+            }
+            byte if is_word_byte(byte) => index += 1,
+            b' ' | b'\t' => index += 1,
+            // A plain `=`, and not `==`.
+            b'=' => return bytes.get(index + 1) != Some(&b'='),
+            _ => return false,
+        }
+    }
+    false
 }

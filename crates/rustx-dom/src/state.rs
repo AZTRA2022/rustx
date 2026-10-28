@@ -161,11 +161,14 @@ pub fn cell<T: 'static>(slot: Slot, initial: impl FnOnce() -> T) -> State<T> {
         )
     });
 
+    let key = (slot, key_path());
+    touch(key.clone());
+
     let value = CELLS.with(|cells| {
         let mut cells = cells.borrow_mut();
         let slots = cells.entry(owner).or_default();
         let existing = slots
-            .entry((slot, key_path()))
+            .entry(key)
             .or_insert_with(|| Rc::new(RefCell::new(initial())));
         Rc::clone(existing)
     });
@@ -191,6 +194,7 @@ pub fn take_dirty() -> Vec<InstanceId> {
 /// dropping the cells drops the values, which runs their `Drop`. No
 /// second cleanup mechanism is invented on top.
 pub fn drop_instance(id: InstanceId) {
+    REACHED_BEFORE.with(|before| before.borrow_mut().remove(&id));
     let held = CELLS.with(|cells| cells.borrow_mut().remove(&id));
     drop(held);
     DIRTY.with(|dirty| dirty.borrow_mut().retain(|dirty| *dirty != id));
@@ -212,15 +216,229 @@ pub fn live_instances() -> usize {
 /// The key is the row's identity, the same one the reconciler matches
 /// children by. State follows it rather than following the position.
 pub fn with_key<R>(key: impl std::fmt::Display, body: impl FnOnce() -> R) -> R {
+    // A guard, for the same reason `Scope` is one: a component body can
+    // panic, panics are caught at the frame boundary, and a key left on
+    // the stack would silently detach every later cell on this thread
+    // from the row it belongs to.
+    struct Pop;
+    impl Drop for Pop {
+        fn drop(&mut self) {
+            KEYS.with(|keys| {
+                keys.borrow_mut().pop();
+            });
+        }
+    }
+
     KEYS.with(|keys| keys.borrow_mut().push(key.to_string()));
-    let outcome = body();
-    KEYS.with(|keys| {
-        keys.borrow_mut().pop();
-    });
-    outcome
+    let _pop = Pop;
+    body()
 }
+
+/// Nested keys are joined with a character nobody writes in a key.
+const KEY_SEPARATOR: char = '\x1f';
 
 /// The keys in force, as one string. Empty outside any list.
 fn key_path() -> String {
     KEYS.with(|keys| keys.borrow().join("\u{1f}"))
+}
+
+/// A value built once and held for as long as its component lives.
+///
+/// The same cell a `let mut` becomes, minus the writing. A camera, a
+/// file, a background task's cancellation token: anything a component
+/// opens and should close again. There is no closing to write, because
+/// the value is dropped when the component is, and `Drop` is Rust's own
+/// cleanup — the framework does not invent a second one.
+pub struct Kept<T> {
+    value: Rc<T>,
+}
+
+impl<T> Clone for Kept<T> {
+    fn clone(&self) -> Self {
+        Self {
+            value: Rc::clone(&self.value),
+        }
+    }
+}
+
+impl<T> Kept<T> {
+    /// Read without copying, for a value that is not `Clone` — which a
+    /// camera or a file handle will not be.
+    pub fn with<R>(&self, read: impl FnOnce(&T) -> R) -> R {
+        read(&self.value)
+    }
+}
+
+impl<T: Clone> Kept<T> {
+    pub fn get(&self) -> T {
+        (*self.value).clone()
+    }
+}
+
+/// Build `value` on the first render of this component and hand back the
+/// same one on every render after.
+pub fn keep_at<T: 'static>(slot: Slot, build: impl FnOnce() -> T) -> Kept<T> {
+    let owner = current().unwrap_or_else(|| {
+        panic!(
+            "rustx: a kept value was asked for at {}:{}:{} outside a render.",
+            slot.file, slot.line, slot.column
+        )
+    });
+    let key = (slot, key_path());
+    touch(key.clone());
+
+    let value = CELLS.with(|cells| {
+        let mut cells = cells.borrow_mut();
+        let slots = cells.entry(owner).or_default();
+        let existing = slots
+            .entry(key)
+            .or_insert_with(|| Rc::new(build()) as Rc<dyn Any>);
+        Rc::clone(existing)
+    });
+
+    let value = value
+        .downcast::<T>()
+        .expect("a slot holds one type, because it is one call");
+    Kept { value }
+}
+
+thread_local! {
+    /// Slots reached during the render in progress.
+    static TOUCHED: RefCell<Vec<(Slot, String)>> = const { RefCell::new(Vec::new()) };
+    /// What the previous render of each instance reached.
+    static REACHED_BEFORE: RefCell<HashMap<InstanceId, Vec<(Slot, String)>>> =
+        RefCell::new(HashMap::new());
+}
+
+fn touch(key: (Slot, String)) {
+    TOUCHED.with(|touched| touched.borrow_mut().push(key));
+}
+
+/// Close a render, and say so if it stopped reaching something it used
+/// to reach.
+///
+/// Identity by place assumes the same lines run every time. A `keep`
+/// inside an `if` breaks that assumption quietly: the value comes back
+/// attached to a line that did not ask for it this time, and the bug
+/// surfaces much later as a stale camera or a count that will not
+/// reset. Saying so here costs one comparison per render and turns a
+/// mystery into a sentence.
+///
+/// Called by the engine at the end of each render; public so that it
+/// can be exercised without one.
+pub fn end_render() -> Result<(), String> {
+    let Some(instance) = current() else {
+        return Ok(());
+    };
+    let reached = TOUCHED.with(|touched| std::mem::take(&mut *touched.borrow_mut()));
+
+    // A row that left a keyed list takes its cells with it. That has to
+    // happen before the check below, or a row the developer legitimately
+    // removed would be reported as a value this render forgot to reach.
+    let gone: Vec<String> = REACHED_BEFORE.with(|before| {
+        let before = before.borrow();
+        let Some(previous) = before.get(&instance) else {
+            return Vec::new();
+        };
+        let mut gone: Vec<String> = previous
+            .iter()
+            .filter(|key| !reached.contains(key))
+            .filter_map(|(_, path)| path.split(KEY_SEPARATOR).next())
+            .filter(|row| !row.is_empty())
+            .filter(|row| !reached.iter().any(|(_, path)| path.starts_with(*row)))
+            .map(str::to_string)
+            .collect();
+        gone.sort();
+        gone.dedup();
+        gone
+    });
+    for row in gone {
+        drop_key(instance, &row);
+    }
+
+    // Two calls landing on one cell means two components are sharing a
+    // piece of state that looks private. Saying so is the difference
+    // between a puzzle and a sentence.
+    let shared = reached.iter().enumerate().find_map(|(at, key)| {
+        reached[..at]
+            .iter()
+            .any(|earlier| earlier == key)
+            .then_some(key)
+    });
+    if let Some((slot, _)) = shared {
+        let complaint = format!(
+            "rustx: the state at {}:{}:{} was asked for twice in one render. \n             Two components are sharing it — wrap each call in `with_key` so \n             they get one each.",
+            slot.file, slot.line, slot.column
+        );
+        REACHED_BEFORE.with(|before| before.borrow_mut().insert(instance, reached));
+        return Err(complaint);
+    }
+
+    let complaint = REACHED_BEFORE.with(|before| {
+        let before = before.borrow();
+        let previous = before.get(&instance)?;
+        previous
+            .iter()
+            .find(|key| !reached.contains(key))
+            .map(|(slot, _)| {
+                format!(
+                    "rustx: the value kept at {}:{}:{} was not reached by this render. \n                     A kept value has to be asked for on every render — move it out of \n                     the `if`, or give the branch a key with `with_key`.",
+                    slot.file, slot.line, slot.column
+                )
+            })
+    });
+
+    REACHED_BEFORE.with(|before| before.borrow_mut().insert(instance, reached));
+    match complaint {
+        Some(complaint) => Err(complaint),
+        None => Ok(()),
+    }
+}
+
+/// Release the cells a keyed row held.
+///
+/// A cell is identified by instance, place and key. `drop_instance`
+/// removes a whole instance, but a row leaving a list is not a whole
+/// instance: without this, a list's state map grows for every row that
+/// ever existed, a row that comes back resurrects its old value, and a
+/// row holding a file handle never runs its `Drop`.
+pub fn drop_key(instance: InstanceId, key: &str) {
+    let prefix = key.to_string();
+    let held: Vec<Rc<dyn Any>> = CELLS.with(|cells| {
+        let mut cells = cells.borrow_mut();
+        let Some(slots) = cells.get_mut(&instance) else {
+            return Vec::new();
+        };
+        let going: Vec<(Slot, String)> = slots
+            .keys()
+            .filter(|(_, path)| path == &prefix || path.starts_with(&format!("{prefix}\u{1f}")))
+            .cloned()
+            .collect();
+        going.iter().filter_map(|key| slots.remove(key)).collect()
+    });
+    drop(held);
+
+    REACHED_BEFORE.with(|before| {
+        if let Some(reached) = before.borrow_mut().get_mut(&instance) {
+            reached.retain(|(_, path)| {
+                path != &prefix && !path.starts_with(&format!("{prefix}\u{1f}"))
+            });
+        }
+    });
+}
+
+/// The keys this render has reached, so the engine can tell which rows
+/// of a keyed list have gone.
+pub fn reached_keys() -> Vec<String> {
+    TOUCHED.with(|touched| {
+        let mut keys: Vec<String> = touched
+            .borrow()
+            .iter()
+            .filter(|(_, path)| !path.is_empty())
+            .map(|(_, path)| path.split('\u{1f}').next().unwrap_or_default().to_string())
+            .collect();
+        keys.sort();
+        keys.dedup();
+        keys
+    })
 }

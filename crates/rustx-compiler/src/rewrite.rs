@@ -121,6 +121,23 @@ fn rewrite_handler(source: &str, component: &Component, handler: Span) -> Option
     let mut inner_edits = Vec::new();
     let mut captured: Vec<&str> = Vec::new();
 
+    // Reads are gathered first, because a mutation's replacement copies
+    // its own right-hand side out of the source and any read inside it
+    // has to be applied to that copy. `n = n + 1` is one statement with
+    // both: applying two edits over the same bytes would have each
+    // overwrite the other and produce something that is not Rust.
+    let mut reads: Vec<Edit> = Vec::new();
+    for promoted in &component.promoted {
+        for read in &promoted.reads {
+            if contains(handler, *read) {
+                reads.push(Edit {
+                    span: *read,
+                    text: format!("{}.get()", promoted.name),
+                });
+            }
+        }
+    }
+
     for promoted in &component.promoted {
         let mut touched = false;
         for mutation in &promoted.mutations {
@@ -128,22 +145,18 @@ fn rewrite_handler(source: &str, component: &Component, handler: Span) -> Option
                 continue;
             }
             touched = true;
-            inner_edits.push(rewrite_mutation(source, promoted.name.as_str(), mutation, handler));
+            let edit = rewrite_mutation(source, promoted.name.as_str(), mutation, handler, &reads);
+            reads.retain(|read| !contains(edit.span, read.span));
+            inner_edits.push(edit);
         }
-        for read in &promoted.reads {
-            if !contains(handler, *read) {
-                continue;
-            }
+        if !touched && promoted.reads.iter().any(|read| contains(handler, *read)) {
             touched = true;
-            inner_edits.push(Edit {
-                span: *read,
-                text: format!("{}.get()", promoted.name),
-            });
         }
         if touched {
             captured.push(promoted.name.as_str());
         }
     }
+    inner_edits.append(&mut reads);
     if captured.is_empty() {
         return None;
     }
@@ -171,6 +184,7 @@ fn rewrite_mutation(
     name: &str,
     mutation: &crate::promote::Mutation,
     handler: Span,
+    reads: &[Edit],
 ) -> Edit {
     let bytes = source.as_bytes();
     let after = skip_spaces(bytes, mutation.span.end);
@@ -183,7 +197,7 @@ fn rewrite_mutation(
                     start: mutation.span.start,
                     end: value.end,
                 },
-                text: format!("{name}.set({})", source[value.start..value.end].trim()),
+                text: format!("{name}.set({})", read_patched(source, value, reads)),
             }
         }
         MutationKind::Compound => {
@@ -197,7 +211,7 @@ fn rewrite_mutation(
                 },
                 text: format!(
                     "{name}.update(|__v| *__v {operator} {})",
-                    source[value.start..value.end].trim()
+                    read_patched(source, value, reads)
                 ),
             }
         }
@@ -210,31 +224,39 @@ fn rewrite_mutation(
                 },
                 text: format!(
                     "{name}.update(|__v| __v{})",
-                    source[call.start..call.end].trim()
+                    read_patched(source, call, reads)
                 ),
             }
         }
     }
 }
 
-/// How far an assignment's right-hand side runs: to the `;` that ends the
-/// statement, or to the end of the closure's body when there is none —
-/// `|| n += 1` has no semicolon at all.
+/// How far an assignment's right-hand side runs.
+///
+/// To the `;` that ends the statement, or to the end of the closure's
+/// body when there is none — `|| n += 1` has no semicolon at all. Two
+/// things make this less obvious than it looks: a value can be a
+/// `match` with braces and arms in it, so braces have to nest rather
+/// than terminate; and the expression can sit inside a call the closure
+/// did not open, as in `for_each(|x| n += x)`, so a closing bracket
+/// that would take the depth below zero is the end too.
 fn expression_after(source: &str, from: usize, handler: Span) -> Span {
     let bytes = source.as_bytes();
     let mut depth = 0_i32;
     let mut index = from;
     let limit = handler.end - 1;
+
     while index < limit {
         match bytes[index] {
-            b'(' | b'[' | b'{' => depth += 1,
-            b')' | b']' => depth -= 1,
-            b'}' => {
-                if depth == 0 {
-                    break;
-                }
-                depth -= 1;
+            b'"' => {
+                index = crate::scan::skip_string(source, index).unwrap_or(index + 1);
+                continue;
             }
+            b'(' | b'[' | b'{' => depth += 1,
+            // Past our own nesting: this bracket belongs to whoever
+            // called us, and the expression stopped before it.
+            b')' | b']' | b'}' if depth == 0 => break,
+            b')' | b']' | b'}' => depth -= 1,
             b';' if depth == 0 => break,
             _ => {}
         }
@@ -296,4 +318,27 @@ fn line_and_column(source: &str, offset: usize) -> (usize, usize) {
     let line = before.matches('\n').count() + 1;
     let line_start = before.rfind('\n').map_or(0, |index| index + 1);
     (line, source[line_start..offset].chars().count() + 1)
+}
+
+/// The source of `span`, with every read of a promoted local inside it
+/// already turned into a read of the cell.
+///
+/// This is where `n = n + 1` is resolved: the right-hand side is copied
+/// once, patched once, and placed once. Two edits over the same bytes
+/// would each overwrite the other.
+fn read_patched(source: &str, span: Span, reads: &[Edit]) -> String {
+    let inside: Vec<Edit> = reads
+        .iter()
+        .filter(|read| contains(span, read.span))
+        .map(|read| Edit {
+            span: Span {
+                start: read.span.start - span.start,
+                end: read.span.end - span.start,
+            },
+            text: read.text.clone(),
+        })
+        .collect();
+    apply_relative(&source[span.start..span.end], 0, inside)
+        .trim()
+        .to_string()
 }

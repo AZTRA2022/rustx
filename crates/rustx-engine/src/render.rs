@@ -17,7 +17,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use rustx_dom::diff::{Patch, Path, diff};
-use rustx_dom::state::{InstanceId, Scope, drop_instance, take_dirty};
+use rustx_dom::state::{InstanceId, Scope, drop_instance, end_render, take_dirty};
 use rustx_dom::Element;
 
 use crate::dom::{Document, DomError, Node};
@@ -54,7 +54,9 @@ pub fn mount_app(component: impl Fn() -> Element + 'static, id: &str) -> Result<
 
     let tree = {
         let _scope = Scope::enter(instance);
-        component()
+        let tree = component();
+        report_inconsistency(end_render());
+        tree
     };
     let mounted = crate::mount::mount_tree(tree, &root)?;
     RENDERS.with(|renders| renders.set(renders.get() + 1));
@@ -144,9 +146,17 @@ fn re_render(document: &Document, root: &mut Root) -> Result<(), DomError> {
     RENDERS.with(|renders| renders.set(renders.get() + 1));
 
     let patches = diff(&root.mounted.tree, &fresh);
-    apply(document, &patches, &fresh, &mut root.mounted)?;
+
+    // The tree that is on screen is recorded before the patching, not
+    // after. A patch that fails leaves the DOM half-changed; recording
+    // the new tree only on success would mean the next diff is computed
+    // against a tree matching neither the screen nor the state, and the
+    // page would drift further apart with every render. Recording it
+    // first means the next diff is at least computed against what this
+    // render intended.
+    let outcome = apply(document, &patches, &fresh, &mut root.mounted);
     root.mounted.tree = fresh;
-    Ok(())
+    outcome
 }
 
 /// Carry out the corrections the diff asked for.
@@ -207,6 +217,33 @@ fn replace_handlers(path: &Path, source: &Path, fresh: &Element, mounted: &mut M
     let Some(Element::Tag(tag)) = element_at(fresh, source) else {
         return;
     };
+    // A handler the node did not have at mount has no slot and no
+    // listener, so it needs both — otherwise a button that gains its
+    // `onClick` on a later render is simply dead, which looks like the
+    // handler is wrong rather than missing.
+    let missing: Vec<String> = match mounted.at(path) {
+        Some(node) => tag
+            .handlers
+            .iter()
+            .map(|(name, _)| name.clone())
+            .filter(|name| !node.handlers.iter().any(|(known, _)| known == name))
+            .collect(),
+        None => return,
+    };
+    for name in missing {
+        let Some(dom) = mounted.at(path).and_then(|node| node.dom.clone()) else {
+            continue;
+        };
+        match crate::mount::listen_later(&dom, &name) {
+            Ok(slot) => {
+                if let Some(node) = mounted.at_mut(path) {
+                    node.handlers.push((name, slot));
+                }
+            }
+            Err(error) => eprintln!("rustx: could not attach {name}: {error}"),
+        }
+    }
+
     let Some(node) = mounted.at_mut(path) else {
         return;
     };
@@ -274,13 +311,25 @@ fn insert(
         .cloned()
         .unwrap_or_else(|| mounted.root.clone());
     let built = build_into(document, element, &parent_dom)?;
+    let new = built.dom.clone();
 
-    if let Some(new) = built.dom.clone() {
+    // The bookkeeping is updated before the node is placed, because
+    // `place` reads the sibling that should follow out of it. Placing
+    // first would make it read the node this one has to go *before*,
+    // and the new child would be appended at the end instead — leaving
+    // the DOM in an order the bookkeeping does not describe, and every
+    // later path-addressed patch aimed at the wrong node.
+    let index = match mounted.at_mut(parent) {
+        Some(node) => {
+            let index = index.min(node.children.len());
+            node.children.insert(index, built);
+            index
+        }
+        None => index,
+    };
+
+    if let Some(new) = new {
         place(&parent_dom, &new, index, mounted, parent)?;
-    }
-    if let Some(node) = mounted.at_mut(parent) {
-        let index = index.min(node.children.len());
-        node.children.insert(index, built);
     }
     Ok(())
 }
@@ -323,8 +372,16 @@ fn move_child(parent: &Path, from: usize, to: usize, mounted: &mut Mounted) -> R
 
 /// Put `node` at child position `index` of `parent_dom`.
 ///
+/// **Invariant:** the bookkeeping already holds this node at `index`,
+/// so the child that should follow it is at `index + 1`. All three
+/// callers arrange that before calling — `replace` because the old node
+/// still occupies the slot, `move_child` and `insert` because they
+/// update the list first.
+///
 /// `insertBefore` with a null reference appends, which is exactly what
-/// is wanted past the end.
+/// is wanted past the end. A sibling with no DOM node of its own — a
+/// fragment, or an `Empty` — is skipped over rather than treated as the
+/// end of the list.
 fn place(
     parent_dom: &Node,
     node: &Node,
@@ -332,10 +389,13 @@ fn place(
     mounted: &Mounted,
     parent: &Path,
 ) -> Result<(), DomError> {
-    let before = mounted
-        .at(parent)
-        .and_then(|parent| parent.children.get(index + 1))
-        .and_then(|sibling| sibling.dom.clone());
+    let before = mounted.at(parent).and_then(|parent| {
+        parent
+            .children
+            .iter()
+            .skip(index + 1)
+            .find_map(|sibling| sibling.dom.clone())
+    });
     parent_dom.insert_before(node, before.as_ref())
 }
 
@@ -344,4 +404,14 @@ fn parent_of(path: &Path) -> Option<Path> {
         return None;
     }
     Some(Path(path.0[..path.0.len() - 1].to_vec()))
+}
+
+/// A render that stopped reaching one of its kept values is a bug the
+/// developer can fix, and a silent one they never will. It is printed
+/// rather than raised: the page is still correct enough to look at, and
+/// a panic here would take the window down over a diagnostic.
+fn report_inconsistency(outcome: Result<(), String>) {
+    if let Err(complaint) = outcome {
+        eprintln!("{complaint}");
+    }
 }

@@ -170,8 +170,8 @@ wrap_v8_handler! {
                 // Cloned out of the slot before calling, so a handler
                 // that re-renders — and so replaces itself — does not
                 // find the slot borrowed when it returns.
-                let handler = slot.borrow();
-                if let Some(handler) = handler.as_ref() {
+                let handler = slot.borrow().clone();
+                if let Some(handler) = handler {
                     handler.call(Event { kind });
                 }
             });
@@ -215,4 +215,12 @@ mod tests {
         assert_eq!(event_kind("onMouseEnter"), "mouseenter");
         assert_eq!(event_kind("onDoubleClick"), "dblclick");
     }
+}
+
+/// Attach a listener to a node that is already on screen, for a handler
+/// it did not have when it was built.
+pub(crate) fn listen_later(node: &Node, name: &str) -> Result<HandlerSlot, DomError> {
+    let slot: HandlerSlot = Rc::new(RefCell::new(None));
+    listen(node, name, Rc::clone(&slot))?;
+    Ok(slot)
 }

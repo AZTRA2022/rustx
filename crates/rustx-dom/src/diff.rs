@@ -196,6 +196,15 @@ fn compare_by_position(
     }
 }
 
+/// Match children by key, falling back to position for the ones that
+/// carry none.
+///
+/// A list is rarely all keys. `<ul>Items:<li key={id}>…</li></ul>` has
+/// a heading among its children, and a key read off real data is not
+/// always unique. Neither may drop a child, and neither may be allowed
+/// to address a child that is not there: every index below is an index
+/// into a list this function is also rewriting, which is exactly where
+/// an off-by-one turns into a lost node or a panic.
 fn compare_keyed(
     old: &[Element],
     new: &[Element],
@@ -203,18 +212,35 @@ fn compare_keyed(
     source: &Path,
     patches: &mut Vec<Patch>,
 ) {
-    let old_keys: Vec<Option<Key>> = old.iter().map(key_of).collect();
-    let new_keys: Vec<Option<Key>> = new.iter().map(key_of).collect();
+    // A key that appears twice identifies nothing, so the second one is
+    // treated as unkeyed rather than silently shadowing the first.
+    let old_keys = unique_keys(old);
+    let new_keys = unique_keys(new);
 
-    // What goes, highest index first so the rest keep their numbers.
-    let mut living: Vec<usize> = Vec::new();
-    for (index, key) in old_keys.iter().enumerate() {
-        if key.is_some() && new_keys.contains(key) {
-            living.push(index);
+    // Each new child's old counterpart: by key where there is one, and
+    // otherwise by order of appearance among the unkeyed.
+    let mut spare: Vec<usize> = (0..old.len()).filter(|index| old_keys[*index].is_none()).collect();
+    let mut taken = vec![false; old.len()];
+    let mut partner: Vec<Option<usize>> = Vec::with_capacity(new.len());
+
+    for key in &new_keys {
+        let found = match key {
+            Some(key) => old_keys
+                .iter()
+                .position(|existing| existing.as_ref() == Some(key))
+                .filter(|index| !taken[*index]),
+            None => (!spare.is_empty()).then(|| spare.remove(0)),
+        };
+        if let Some(index) = found {
+            taken[index] = true;
         }
+        partner.push(found);
     }
+
+    // What nobody claimed goes, highest index first so the rest keep
+    // the numbers this loop has already used.
     for index in (0..old.len()).rev() {
-        if !living.contains(&index) {
+        if !taken[index] {
             patches.push(Patch::Remove {
                 parent: at.clone(),
                 index,
@@ -222,15 +248,15 @@ fn compare_keyed(
         }
     }
 
-    // The survivors, in the order they are in now.
-    let mut order: Vec<Key> = living
-        .iter()
-        .filter_map(|index| old_keys[*index].clone())
+    // `order` tracks the children as they now stand, so that every
+    // `from` below is where the node actually is at that moment.
+    let mut order: Vec<Option<usize>> = (0..old.len())
+        .filter(|index| taken[*index])
+        .map(Some)
         .collect();
 
-    for (target, key) in new_keys.iter().enumerate() {
-        let Some(key) = key else { continue };
-        match order.iter().position(|existing| existing == key) {
+    for (target, slot) in partner.iter().enumerate() {
+        match slot.and_then(|old_index| order.iter().position(|held| *held == Some(old_index))) {
             Some(from) if from == target => {}
             Some(from) => {
                 patches.push(Patch::Move {
@@ -239,34 +265,47 @@ fn compare_keyed(
                     to: target,
                 });
                 let moved = order.remove(from);
-                order.insert(target, moved);
+                order.insert(target.min(order.len()), moved);
             }
             None => {
+                let index = target.min(order.len());
                 patches.push(Patch::Insert {
                     parent: at.clone(),
-                    index: target,
+                    index,
                     source: source.child(target),
                 });
-                order.insert(target, key.clone());
+                order.insert(index, None);
             }
         }
     }
 
     // Finally, what each surviving child became.
-    for (target, key) in new_keys.iter().enumerate() {
-        let Some(key) = key else { continue };
-        let Some(before) = old_keys.iter().position(|existing| existing.as_ref() == Some(key))
-        else {
-            continue;
-        };
+    for (target, slot) in partner.iter().enumerate() {
+        let Some(before) = slot else { continue };
         compare(
-            &old[before],
+            &old[*before],
             &new[target],
             &at.child(target),
             &source.child(target),
             patches,
         );
     }
+}
+
+/// The children's keys, with every repeat of a key demoted to `None`.
+fn unique_keys(children: &[Element]) -> Vec<Option<Key>> {
+    let mut seen: Vec<Key> = Vec::new();
+    children
+        .iter()
+        .map(|child| match key_of(child) {
+            Some(key) if seen.contains(&key) => None,
+            Some(key) => {
+                seen.push(key.clone());
+                Some(key)
+            }
+            None => None,
+        })
+        .collect()
 }
 
 fn key_of(element: &Element) -> Option<Key> {

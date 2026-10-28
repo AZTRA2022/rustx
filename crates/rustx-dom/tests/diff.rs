@@ -127,3 +127,121 @@ fn a_handler_is_always_replaced_because_a_closure_has_no_equality() {
         "got {patches:?}"
     );
 }
+
+/// Apply patches to a list of child labels, the way the engine applies
+/// them to DOM nodes, so that the result can be compared with what the
+/// new tree says the children should be.
+fn simulate(old: &[&str], patches: &[Patch]) -> Vec<String> {
+    let mut children: Vec<String> = old.iter().map(|s| s.to_string()).collect();
+    for patch in patches {
+        match patch {
+            Patch::Remove { index, .. } if *index < children.len() => {
+                children.remove(*index);
+            }
+            Patch::Insert { index, source, .. } => {
+                let at = (*index).min(children.len());
+                children.insert(at, format!("#{:?}", source.0));
+            }
+            Patch::Move { from, to, .. } if *from < children.len() => {
+                let moved = children.remove(*from);
+                let at = (*to).min(children.len());
+                children.insert(at, moved);
+            }
+            _ => {}
+        }
+    }
+    children
+}
+
+fn labelled(items: &[(&str, bool)]) -> Element {
+    let mut tag = Element::tag("ul");
+    for (label, keyed) in items {
+        let child = Element::tag("li").child(text(label));
+        tag = tag.child(if *keyed { child.key(*label) } else { child }.build());
+    }
+    tag.build()
+}
+
+fn children_of(element: &Element) -> Vec<String> {
+    let Element::Tag(tag) = element else { panic!() };
+    tag.children
+        .iter()
+        .map(|child| match child {
+            Element::Tag(tag) => match tag.children.first() {
+                Some(Element::Text(text)) => text.clone(),
+                _ => String::new(),
+            },
+            Element::Text(text) => text.clone(),
+            _ => String::new(),
+        })
+        .collect()
+}
+
+#[test]
+fn a_keyed_list_with_an_unkeyed_child_does_not_panic() {
+    // The commonest shape there is: a list with a heading among its
+    // children. This used to panic on a tree compared with itself.
+    let tree = Element::tag("ul")
+        .child(text("Items:"))
+        .child(Element::tag("li").key("a").child(text("A")).build())
+        .build();
+    assert!(diff(&tree, &tree).is_empty(), "nothing changed");
+}
+
+#[test]
+fn an_unkeyed_child_among_keyed_ones_is_not_dropped() {
+    let before = labelled(&[("a", true)]);
+    let after = labelled(&[("a", true), ("tail", false)]);
+    let patches = diff(&before, &after);
+    assert!(!patches.is_empty(), "the new child never reached the screen");
+    assert_eq!(simulate(&["a"], &patches).len(), 2, "got {patches:?}");
+}
+
+#[test]
+fn a_duplicate_key_does_not_leave_an_orphan_behind() {
+    // Real data keyed on a field that turns out not to be unique.
+    let before = labelled(&[("a", true), ("a", true), ("b", true)]);
+    let after = labelled(&[("b", true), ("a", true)]);
+    let patches = diff(&before, &after);
+    assert_eq!(
+        simulate(&["a", "a2", "b"], &patches).len(),
+        2,
+        "the bookkeeping kept a child the new tree does not have: {patches:?}"
+    );
+}
+
+#[test]
+fn applying_the_patches_always_reproduces_the_new_list() {
+    // The property the three tests above are each one case of. Every
+    // pair of keyed lists drawn from the same small alphabet.
+    let alphabet = ["a", "b", "c"];
+    let mut cases = vec![Vec::new()];
+    for _ in 0..3 {
+        let mut grown = Vec::new();
+        for case in &cases {
+            for letter in alphabet {
+                let mut longer: Vec<&str> = case.clone();
+                longer.push(letter);
+                grown.push(longer);
+            }
+        }
+        cases.extend(grown);
+    }
+
+    for before in &cases {
+        for after in &cases {
+            let old: Vec<(&str, bool)> = before.iter().map(|k| (*k, true)).collect();
+            let new: Vec<(&str, bool)> = after.iter().map(|k| (*k, true)).collect();
+            let (old_tree, new_tree) = (labelled(&old), labelled(&new));
+
+            let patches = diff(&old_tree, &new_tree);
+            let simulated = simulate(before, &patches);
+            assert_eq!(
+                simulated.len(),
+                children_of(&new_tree).len(),
+                "{before:?} -> {after:?} left {} children, patches {patches:?}",
+                simulated.len()
+            );
+        }
+    }
+}

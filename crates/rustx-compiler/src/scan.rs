@@ -350,7 +350,7 @@ pub(crate) fn skip_string(source: &str, open: usize) -> Result<usize, CompileErr
 
 /// A `'` starts either a character literal or a lifetime, and the two are
 /// told apart by whether a quote closes it within a few bytes.
-fn skip_char_or_lifetime(bytes: &[u8], open: usize) -> usize {
+pub(crate) fn skip_char_or_lifetime(bytes: &[u8], open: usize) -> usize {
     let mut index = open + 1;
     if bytes.get(index) == Some(&b'\\') {
         index += 2;
@@ -365,7 +365,7 @@ fn skip_char_or_lifetime(bytes: &[u8], open: usize) -> usize {
 }
 
 /// One byte past a `//` or `/* */` comment, or `None` if there is none.
-fn skip_comment(bytes: &[u8], index: usize) -> Option<usize> {
+pub(crate) fn skip_comment(bytes: &[u8], index: usize) -> Option<usize> {
     if bytes.get(index) != Some(&b'/') {
         return None;
     }
