@@ -1,9 +1,10 @@
 //! The element tree, and what may be written inside `{}`.
 
 use std::fmt::Display;
+use std::rc::Rc;
 
 /// A node of the tree a component returns.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Element {
     Tag(TagElement),
     Text(String),
@@ -15,7 +16,7 @@ pub enum Element {
 
 /// A tag, its attributes, its event handlers and its children, in the
 /// order they were written.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TagElement {
     /// Set by a `key={…}` attribute. `None` means "compare by position".
     pub key: Option<Key>,
@@ -46,11 +47,12 @@ pub struct Event {
 /// `Cell`, or anything else the developer already has in hand. Requiring a
 /// thread bound here would make every `onClick` an argument with the
 /// borrow checker over a thread the closure never reaches.
-pub struct Handler(Box<dyn Fn(Event) + 'static>);
+#[derive(Clone)]
+pub struct Handler(Rc<dyn Fn(Event) + 'static>);
 
 impl Handler {
     pub fn new(handler: impl Fn(Event) + 'static) -> Self {
-        Self(Box::new(handler))
+        Self(Rc::new(handler))
     }
 
     pub fn call(&self, event: Event) {

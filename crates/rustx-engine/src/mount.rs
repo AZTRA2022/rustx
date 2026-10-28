@@ -10,75 +10,135 @@
 //! closure, handed straight to `addEventListener`. Nothing is evaluated
 //! as JavaScript, nothing is registered under a generated global name,
 //! and the closure the developer wrote is what runs — in this process, on
-//! this thread, on the click's own stack.
+//! this thread, on the click's own stack. The listener reads the handler
+//! out of a slot, so a re-render replaces the closure without ever
+//! needing to take a listener off a node; see [`crate::tree`].
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use cef::{CefString, ImplV8Handler, V8Handler, V8Value, WrapV8Handler, rc::Rc as _, wrap_v8_handler};
-use rustx_dom::{AttributeValue, Element, Event, Handler, TagElement};
+use rustx_dom::{AttributeValue, Element, Event, TagElement};
 
 use crate::dom::{Document, DomError, Node};
+use crate::tree::{HandlerSlot, Mounted, MountedNode};
 use crate::value::Value;
 
-/// Attach `element` under `into`.
+/// Attach `element` under `into`, forgetting what was built.
+///
+/// The shape plan 2 shipped, kept because a page that never re-renders
+/// has no use for the bookkeeping.
 pub fn mount(element: Element, into: &Node) -> Result<(), DomError> {
     let document = Document::current().ok_or(DomError::NoContext)?;
-    mount_in(&document, element, into)
+    build_into(&document, &element, into)?;
+    Ok(())
 }
 
 /// Attach `element` under the element carrying this `id`.
 pub fn mount_at_id(element: Element, id: &str) -> Result<(), DomError> {
-    let document = Document::current().ok_or(DomError::NoContext)?;
-    let root = document
-        .get_element_by_id(id)?
-        .ok_or_else(|| DomError::Failed(format!("no #{id} in the page")))?;
-    mount_in(&document, element, &root)
+    let root = root_node(id)?;
+    mount(element, &root)
 }
 
-fn mount_in(document: &Document, element: Element, into: &Node) -> Result<(), DomError> {
+/// Attach `element` and remember everything about it, so that the next
+/// render can change only what changed.
+pub fn mount_tree(element: Element, into: &Node) -> Result<Mounted, DomError> {
+    let document = Document::current().ok_or(DomError::NoContext)?;
+    let nodes = build_into(&document, &element, into)?;
+    Ok(Mounted {
+        root: into.clone(),
+        tree: element,
+        nodes,
+    })
+}
+
+/// The element a tree is mounted under.
+pub fn root_node(id: &str) -> Result<Node, DomError> {
+    let document = Document::current().ok_or(DomError::NoContext)?;
+    document
+        .get_element_by_id(id)?
+        .ok_or_else(|| DomError::Failed(format!("no #{id} in the page")))
+}
+
+/// Build `element` and attach it under `parent`, returning what was made.
+///
+/// The subtree is built whole before it is attached, so a failure
+/// partway through leaves nothing behind for the next attempt to
+/// duplicate.
+pub(crate) fn build_into(
+    document: &Document,
+    element: &Element,
+    parent: &Node,
+) -> Result<MountedNode, DomError> {
     match element {
-        Element::Empty => Ok(()),
+        Element::Empty => Ok(MountedNode::empty()),
         Element::Text(text) => {
-            let node = document.create_text_node(&text)?;
-            into.append_child(&node)
+            let node = document.create_text_node(text)?;
+            parent.append_child(&node)?;
+            Ok(MountedNode {
+                dom: Some(node),
+                handlers: Vec::new(),
+                children: Vec::new(),
+            })
         }
         // A fragment has no node of its own: its children become the
         // parent's children, side by side.
         Element::Fragment(children) => {
+            let mut mounted = MountedNode::empty();
             for child in children {
-                mount_in(document, child, into)?;
+                mounted.children.push(build_into(document, child, parent)?);
             }
-            Ok(())
+            Ok(mounted)
         }
         Element::Tag(tag) => {
-            let node = build_tag(document, tag)?;
-            into.append_child(&node)
+            let (node, mounted) = build_tag(document, tag)?;
+            parent.append_child(&node)?;
+            Ok(mounted)
         }
     }
 }
 
-fn build_tag(document: &Document, tag: TagElement) -> Result<Node, DomError> {
+fn build_tag(document: &Document, tag: &TagElement) -> Result<(Node, MountedNode), DomError> {
     let node = document.create_element(&tag.tag)?;
 
-    for (name, value) in tag.attributes {
-        match value {
-            AttributeValue::Text(text) => node.set_attribute(&name, &text)?,
-            // A flag is present or absent; `disabled="false"` is still
-            // disabled in HTML, so absence is the only way to say no.
-            AttributeValue::Flag(true) => node.set_attribute(&name, "")?,
-            AttributeValue::Flag(false) => {}
-        }
+    for (name, value) in &tag.attributes {
+        set_attribute(&node, name, value)?;
     }
 
-    for (name, handler) in tag.handlers {
-        listen(&node, &name, handler)?;
+    let mut handlers = Vec::new();
+    for (name, handler) in &tag.handlers {
+        let slot: HandlerSlot = Rc::new(RefCell::new(Some(handler.clone())));
+        listen(&node, name, Rc::clone(&slot))?;
+        handlers.push((name.clone(), slot));
     }
 
-    for child in tag.children {
-        mount_in(document, child, &node)?;
+    let mut children = Vec::new();
+    for child in &tag.children {
+        children.push(build_into(document, child, &node)?);
     }
 
-    Ok(node)
+    Ok((
+        node.clone(),
+        MountedNode {
+            dom: Some(node),
+            handlers,
+            children,
+        },
+    ))
+}
+
+pub(crate) fn set_attribute(
+    node: &Node,
+    name: &str,
+    value: &AttributeValue,
+) -> Result<(), DomError> {
+    match value {
+        AttributeValue::Text(text) => node.set_attribute(name, text),
+        // A flag is present or absent; `disabled="false"` is still
+        // disabled in HTML, so absence is the only way to say no.
+        AttributeValue::Flag(true) => node.set_attribute(name, ""),
+        AttributeValue::Flag(false) => node.remove_attribute(name),
+    }
 }
 
 // The V8 side of one `onClick`.
@@ -90,7 +150,7 @@ fn build_tag(document: &Document, tag: TagElement) -> Result<Node, DomError> {
 wrap_v8_handler! {
     struct EventHandler {
         kind: Rc<str>,
-        handler: Rc<Handler>,
+        slot: HandlerSlot,
     }
 
     impl V8Handler {
@@ -103,22 +163,28 @@ wrap_v8_handler! {
             _exception: Option<&mut CefString>,
         ) -> ::std::os::raw::c_int {
             let kind = self.kind.to_string();
-            let handler = Rc::clone(&self.handler);
+            let slot = Rc::clone(&self.slot);
             // This frame is called from C, so a panic in the
             // application's closure stops here.
             crate::panics::contain("an event handler", move || {
-                handler.call(Event { kind })
+                // Cloned out of the slot before calling, so a handler
+                // that re-renders — and so replaces itself — does not
+                // find the slot borrowed when it returns.
+                let handler = slot.borrow();
+                if let Some(handler) = handler.as_ref() {
+                    handler.call(Event { kind });
+                }
             });
             1
         }
     }
 }
 
-/// `onClick` → `addEventListener("click", <the Rust closure>)`.
-fn listen(node: &Node, name: &str, handler: Handler) -> Result<(), DomError> {
+/// `onClick` → `addEventListener("click", <the slot's current handler>)`.
+fn listen(node: &Node, name: &str, slot: HandlerSlot) -> Result<(), DomError> {
     let kind = event_kind(name);
 
-    let mut v8_handler = EventHandler::new(Rc::from(kind.as_str()), Rc::new(handler));
+    let mut v8_handler = EventHandler::new(Rc::from(kind.as_str()), slot);
     let callback =
         cef::v8_value_create_function(Some(&CefString::from(name)), Some(&mut v8_handler))
             .ok_or_else(|| DomError::Failed(format!("could not build a function for {name}")))?;

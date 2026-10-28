@@ -69,6 +69,9 @@
       <div id="empty"></div>
       <div id="fragment"></div>
       <div id="button"></div>
+      <!-- Hosts for the re-render scenario. -->
+      <div id="counter"></div>
+      <div id="sibling"></div>
       <p id="error"></p>
     </main>
 
@@ -181,6 +184,44 @@
         }
       }
 
+      if (rustx_scenario() === "render") {
+        try {
+          rustx_mount_counter();
+          rustx_mount_sibling();
+
+          const shown = () => document.querySelector("#tick").textContent;
+          document.querySelector("#tick").click();
+
+          // One frame, and the click must be on screen.
+          requestAnimationFrame(() => {
+            rustx_report("after_one_click", shown());
+
+            const before = Number(rustx_renders());
+            rustx_flood();
+
+            // Wait for all thousand to land, then one more frame to draw.
+            let waited = 0;
+            const settle = () => {
+              if (rustx_counter_state() !== "1001" && ++waited < 600) {
+                requestAnimationFrame(settle);
+                return;
+              }
+              requestAnimationFrame(() => {
+                rustx_report("renders_for_1000", String(Number(rustx_renders()) - before));
+                rustx_report("shown_after_1000", shown());
+                rustx_report("worker_final", rustx_counter_state());
+                rustx_report("worker_shown", shown());
+                rustx_report("sibling_renders", rustx_sibling_renders());
+                rustx_report("untouched_sibling_text", document.querySelector("#fixed").textContent);
+              });
+            };
+            requestAnimationFrame(settle);
+          });
+        } catch (e) {
+          rustx_report("scenario_error", String(e));
+        }
+      }
+
       if (rustx_scenario() === "mount") {
         try {
           rustx_mount_tree();
@@ -191,6 +232,8 @@
           rustx_report("html", document.querySelector("#tree").innerHTML);
           rustx_report("empty_children", String(document.querySelector("#empty").childNodes.length));
           rustx_report("fragment_html", document.querySelector("#fragment").innerHTML);
+          rustx_mount_fragment();
+          rustx_report("after_second_mount", document.querySelector("#fragment").innerHTML);
 
           // The click goes through the DOM, as a user's would.
           document.querySelector("#mounted").click();

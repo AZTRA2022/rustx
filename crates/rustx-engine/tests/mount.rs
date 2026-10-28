@@ -51,3 +51,13 @@ fn a_click_on_a_mounted_node_runs_the_rust_closure() {
         report().raw()
     );
 }
+
+#[test]
+fn mounting_twice_into_the_same_parent_does_not_lose_the_first_tree() {
+    assert_eq!(
+        report().get("after_second_mount"),
+        "<i>a</i><i>b</i><i>a</i><i>b</i>",
+        "the second mount replaced the first instead of joining it:\n{}",
+        report().raw()
+    );
+}

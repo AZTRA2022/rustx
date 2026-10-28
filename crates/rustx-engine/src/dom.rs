@@ -285,12 +285,49 @@ impl Node {
     /// Call a method with V8 values built elsewhere in the engine — a
     /// function object, for instance, which `Value` deliberately cannot
     /// represent.
+    pub(crate) fn call_with_v8_returning(
+        &self,
+        method: &str,
+        arguments: Vec<Option<V8Value>>,
+    ) -> Result<Option<Node>, DomError> {
+        self.invoke(method, arguments)
+    }
+
     pub(crate) fn call_with_v8(
         &self,
         method: &str,
         arguments: Vec<Option<V8Value>>,
     ) -> Result<(), DomError> {
         self.invoke(method, arguments)?;
+        Ok(())
+    }
+}
+
+impl Node {
+    /// Take an attribute off this node.
+    pub fn remove_attribute(&self, name: &str) -> Result<(), DomError> {
+        self.call("removeAttribute", &[Value::String(name.to_string())])?;
+        Ok(())
+    }
+}
+
+impl Node {
+    /// Put `child` before `before`, or at the end when `before` is
+    /// `None` — which is what `insertBefore(node, null)` already means.
+    pub fn insert_before(&self, child: &Node, before: Option<&Node>) -> Result<(), DomError> {
+        child.check()?;
+        match before {
+            Some(before) => {
+                before.check()?;
+                self.call_with_nodes("insertBefore", &[child, before])?;
+            }
+            None => {
+                let null = Value::Null
+                    .into_v8()
+                    .ok_or_else(|| DomError::Failed("could not build null".into()))?;
+                self.call_with_v8_returning("insertBefore", vec![Some(child.value.clone()), Some(null)])?;
+            }
+        }
         Ok(())
     }
 }

@@ -107,6 +107,7 @@ fn install_natives() {
     });
 
     install_mount_natives();
+    install_render_natives();
     install_dom_natives();
     install_frame_natives();
     install_process_natives();
@@ -161,6 +162,100 @@ fn install_mount_natives() {
 
     register_native("rustx_clicks", move |_args| {
         Ok(Value::String(clicks.get().to_string()))
+    });
+}
+
+// A counter and a sibling that never changes, mounted the way a `.rsx`
+// page is mounted — the component function is re-run, and only what
+// changed reaches the DOM.
+thread_local! {
+    static SIBLING_RENDERS: Cell<u64> = const { Cell::new(0) };
+    /// A clone of the counter's handle, so a worker thread can mutate
+    /// the very state the component reads.
+    static COUNTER_STATE: RefCell<Option<rustx_dom::state::State<u64>>> = const { RefCell::new(None) };
+}
+
+fn install_render_natives() {
+    register_native("rustx_mount_counter", |_args| {
+        rustx_engine::render::mount_app(
+            || {
+                let n = rustx_dom::state::cell(
+                    rustx_dom::state::Slot {
+                        file: file!(),
+                        line: line!(),
+                        column: column!(),
+                    },
+                    || 0_u64,
+                );
+                let clicked = n.clone();
+                COUNTER_STATE.with(|slot| *slot.borrow_mut() = Some(n.clone()));
+                Element::tag("div")
+                    .child(
+                        Element::tag("button")
+                            .attribute("id", AttributeValue::Text("tick".into()))
+                            .handler(
+                                "onClick",
+                                Handler::new(move |_| clicked.update(|v| *v += 1)),
+                            )
+                            .child(Element::Text(n.get().to_string()))
+                            .build(),
+                    )
+                    .child(
+                        Element::tag("span")
+                            .attribute("id", AttributeValue::Text("fixed".into()))
+                            .child(Element::Text("fixed".into()))
+                            .build(),
+                    )
+                    .build()
+            },
+            "counter",
+        )?;
+        Ok(Value::Null)
+    });
+
+    // A second root nobody touches. Its render count must not move.
+    register_native("rustx_mount_sibling", |_args| {
+        rustx_engine::render::mount_app(
+            || {
+                SIBLING_RENDERS.with(|count| count.set(count.get() + 1));
+                Element::tag("p").child(Element::Text("still".into())).build()
+            },
+            "sibling",
+        )?;
+        Ok(Value::Null)
+    });
+
+    register_native("rustx_counter_state", |_args| {
+        Ok(Value::String(counter_state_value()))
+    });
+    register_native("rustx_sibling_renders", |_args| {
+        Ok(Value::String(SIBLING_RENDERS.with(Cell::get).to_string()))
+    });
+    register_native("rustx_renders", |_args| {
+        Ok(Value::String(rustx_engine::render::renders().to_string()))
+    });
+
+    // A thousand mutations from a worker thread, as fast as it can.
+    register_native("rustx_flood", |_args| {
+        let poster = poster();
+        std::thread::spawn(move || {
+            for _ in 0..1000 {
+                if poster.post(bump_the_counter).is_err() {
+                    return;
+                }
+            }
+        });
+        Ok(Value::Null)
+    });
+}
+
+/// Runs on the UI thread, which is where the state lives. The worker
+/// thread never touches it — it posts this.
+fn bump_the_counter() {
+    COUNTER_STATE.with(|slot| {
+        if let Some(state) = slot.borrow().as_ref() {
+            state.update(|value| *value += 1);
+        }
     });
 }
 
@@ -475,4 +570,14 @@ fn report_line(key: &str, value: &str) {
 /// The value of a `--name=value` argument this process was launched with.
 fn argument(prefix: &str) -> Option<String> {
     std::env::args().find_map(|arg| arg.strip_prefix(prefix).map(str::to_string))
+}
+
+/// The counter's value, read from the state rather than from the page.
+fn counter_state_value() -> String {
+    COUNTER_STATE.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .map(|state| state.get().to_string())
+            .unwrap_or_default()
+    })
 }

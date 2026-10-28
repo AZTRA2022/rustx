@@ -10,6 +10,8 @@ mod error;
 mod guard;
 pub mod frame;
 mod init;
+pub mod render;
+pub mod tree;
 pub mod mount;
 mod panics;
 pub mod renderer;
