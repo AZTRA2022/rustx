@@ -9,6 +9,9 @@ use std::path::{Path, PathBuf};
 /// A refusal, placed in the source the developer wrote.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompileError {
+    /// Byte offset in the `.rsx`, kept so a line and column can be
+    /// worked out later by whoever holds the source.
+    pub offset: usize,
     pub file: PathBuf,
     pub line: usize,
     pub column: usize,
@@ -26,6 +29,7 @@ impl CompileError {
         let column = source[line_start..offset].chars().count() + 1;
 
         Self {
+            offset,
             file: PathBuf::new(),
             line,
             column,
@@ -55,3 +59,30 @@ impl std::fmt::Display for CompileError {
 }
 
 impl std::error::Error for CompileError {}
+
+impl CompileError {
+    /// A refusal that knows where it happened but not what the source
+    /// looks like. The emitter is in that position: it works on a node
+    /// tree, and the tree carries offsets, not text.
+    pub fn flagged(offset: usize, message: impl Into<String>) -> Self {
+        Self {
+            file: PathBuf::new(),
+            offset,
+            line: 0,
+            column: 0,
+            message: message.into(),
+        }
+    }
+
+    /// Fill in the line and column of a flagged error, once somebody who
+    /// has the source is holding it.
+    pub fn resolve(self, source: &str) -> Self {
+        if self.line != 0 {
+            return self;
+        }
+        Self {
+            file: self.file,
+            ..Self::at(source, self.offset, self.message)
+        }
+    }
+}

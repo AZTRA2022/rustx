@@ -212,7 +212,7 @@ impl Cursor<'_> {
         self.source[start..self.index].to_string()
     }
 
-    fn expect(&mut self, byte: u8, offset: usize) -> Result<(), CompileError> {
+    fn expect(&mut self, byte: u8, _opened_at: usize) -> Result<(), CompileError> {
         if self.peek() == Some(byte) {
             self.index += 1;
             Ok(())

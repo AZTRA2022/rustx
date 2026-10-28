@@ -9,6 +9,8 @@
 
 mod error;
 pub mod ast;
+pub mod attributes;
+pub mod emit;
 pub mod parse;
 pub mod scan;
 
