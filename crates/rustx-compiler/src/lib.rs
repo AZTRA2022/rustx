@@ -15,6 +15,7 @@ pub mod emit;
 pub mod map;
 pub mod parse;
 pub mod promote;
+pub mod rewrite;
 pub mod transpile;
 pub mod scan;
 pub mod tags;

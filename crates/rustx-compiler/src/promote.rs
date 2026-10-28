@@ -26,6 +26,8 @@ pub struct Component {
     pub body: Span,
     /// The JSX regions the body returns.
     pub returns_jsx: Vec<Span>,
+    /// The `{…}` of every `on*` attribute in those regions.
+    pub handlers: Vec<Span>,
     pub promoted: Vec<Promoted>,
 }
 
@@ -116,6 +118,7 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
         }
 
         components.push(Component {
+            handlers,
             name,
             body,
             returns_jsx,
@@ -461,4 +464,14 @@ fn matching_back(bytes: &[u8], close: usize) -> Option<usize> {
 
 fn contains(outer: Span, inner: Span) -> bool {
     inner.start >= outer.start && inner.end <= outer.end
+}
+
+impl Component {
+    /// The handler whose braces enclose `span`, if any.
+    pub fn handler_around(&self, span: Span) -> Option<Span> {
+        self.handlers
+            .iter()
+            .copied()
+            .find(|handler| contains(*handler, span))
+    }
 }

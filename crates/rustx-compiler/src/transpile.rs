@@ -20,6 +20,9 @@ pub struct Transpiled {
 
 /// Translate one `.rsx` source.
 pub fn transpile(source: &str) -> Result<Transpiled, CompileError> {
+    // State promotion runs first: it rewrites Rust, never JSX, and it
+    // never moves a line, so the scan below sees the same shape.
+    let source = &crate::rewrite::promote_state(source)?;
     let spans = find_jsx(source).map_err(|error| error.resolve(source))?;
 
     let mut rust = String::with_capacity(source.len());
