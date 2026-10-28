@@ -10,8 +10,11 @@
 mod error;
 pub mod ast;
 pub mod attributes;
+pub mod build;
 pub mod emit;
+pub mod map;
 pub mod parse;
+pub mod transpile;
 pub mod scan;
 
 pub use error::CompileError;
