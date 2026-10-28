@@ -41,9 +41,19 @@ pub fn transpile(source: &str) -> Result<Transpiled, CompileError> {
 
         let node = parse_jsx(source, span).map_err(|error| error.resolve(source))?;
         let code = emit(&node).map_err(|error| error.resolve(source))?;
-        // One region becomes one line, however many it took to write.
+        // A region is one Rust expression however many lines it took to
+        // write, so the newlines it swallowed are put back after it. That
+        // keeps every later line of the generated file on the number it
+        // has in the `.rsx` — which is what makes a `rustc` error land
+        // where the developer is looking instead of drifting further away
+        // with every region above it.
         rust.push_str(&code);
-        rsx_line += source[span.start..span.end].matches('\n').count();
+        let swallowed = source[span.start..span.end].matches('\n').count();
+        for _ in 0..swallowed {
+            rust.push('\n');
+        }
+        generated_line += swallowed;
+        rsx_line += swallowed;
 
         points.push(Breakpoint {
             generated: generated_line,

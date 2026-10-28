@@ -16,6 +16,7 @@ pub mod map;
 pub mod parse;
 pub mod transpile;
 pub mod scan;
+pub mod tags;
 
 pub use error::CompileError;
 pub use scan::Span;

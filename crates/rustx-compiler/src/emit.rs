@@ -46,6 +46,9 @@ fn expression(node: &Node) -> Result<TokenStream, CompileError> {
 }
 
 fn tag_expression(tag: &TagNode) -> Result<TokenStream, CompileError> {
+    if !crate::tags::is_known(&tag.name) {
+        return Err(unknown_tag(tag));
+    }
     let name = Literal::string(&tag.name);
     let mut steps: Vec<TokenStream> = Vec::new();
 
@@ -86,7 +89,7 @@ fn event_step(attribute: &Attribute) -> Result<TokenStream, CompileError> {
 }
 
 fn attribute_step(attribute: &Attribute) -> Result<TokenStream, CompileError> {
-    let in_dom = Literal::string(dom_name(&attribute.name));
+    let in_dom = Literal::string(&dom_name(&attribute.name));
     let value = match &attribute.value {
         AttributeSource::Literal(text) => {
             let text = Literal::string(text);
@@ -106,6 +109,23 @@ fn rust(code: &str, offset: usize) -> Result<TokenStream, CompileError> {
     code.parse::<TokenStream>().map_err(|error| {
         CompileError::flagged(offset, format!("this Rust does not parse: {error}"))
     })
+}
+
+fn unknown_tag(tag: &TagNode) -> CompileError {
+    let message = if crate::tags::looks_like_a_component(&tag.name) {
+        format!(
+            "`{}` looks like a component, and components are not supported yet — \
+             a tag has to be an HTML or SVG element for now",
+            tag.name
+        )
+    } else {
+        let mut message = format!("unknown tag `{}`", tag.name);
+        if let Some(suggestion) = crate::tags::nearest(&tag.name) {
+            message.push_str(&format!(" — did you mean `{suggestion}`?"));
+        }
+        message
+    };
+    CompileError::flagged(tag.offset, message)
 }
 
 fn unknown_attribute(attribute: &Attribute) -> CompileError {

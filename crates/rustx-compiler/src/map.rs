@@ -38,8 +38,12 @@ impl PositionMap {
         Some(point.rsx + (generated_line - point.generated))
     }
 
-    /// Where a `.rsx` line ended up. A line inside a JSX region collapses
-    /// into the single generated line that region became.
+    /// Where a `.rsx` line ended up.
+    ///
+    /// The two files have the same number of lines — a region puts back
+    /// the newlines its expression swallowed — so this is the identity
+    /// today. It stays here because the day a region places its children
+    /// on their own lines, it will not be.
     pub fn to_generated(&self, rsx_line: usize) -> Option<usize> {
         let point = self.points.iter().rev().find(|point| point.rsx <= rsx_line)?;
         Some(point.generated + (rsx_line - point.rsx))

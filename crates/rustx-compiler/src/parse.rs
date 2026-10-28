@@ -7,7 +7,9 @@
 use crate::ast::{Attribute, AttributeSource, Node, TagNode};
 use crate::error::CompileError;
 use crate::emit::emit;
-use crate::scan::{Span, find_jsx_range, opens_a_tag, skip_braces, skip_string};
+use crate::scan::{
+    Span, find_jsx_range, opens_a_tag, skip_attribute_string, skip_braces,
+};
 
 /// Parse one JSX region, as found by [`crate::scan::find_jsx`].
 pub fn parse_jsx(source: &str, span: Span) -> Result<Node, CompileError> {
@@ -140,10 +142,7 @@ impl Cursor<'_> {
             }
             self.index += 1;
         }
-        // Edge whitespace is layout, not content: JSX drops it, and so do
-        // we, so that an indented tree does not print its own indentation.
-        let text = self.source[start..self.index].trim();
-        (!text.is_empty()).then(|| text.to_string())
+        collapse(&self.source[start..self.index])
     }
 
     fn attributes(&mut self) -> Result<Vec<Attribute>, CompileError> {
@@ -168,7 +167,7 @@ impl Cursor<'_> {
                 match self.peek() {
                     Some(b'"') => {
                         let open = self.index;
-                        self.index = skip_string(self.source, open)?;
+                        self.index = skip_attribute_string(self.source, open)?;
                         AttributeSource::Literal(self.source[open + 1..self.index - 1].to_string())
                     }
                     Some(b'{') => AttributeSource::Expression(self.braced_rust()?),
@@ -241,6 +240,56 @@ impl Cursor<'_> {
             ))
         }
     }
+}
+
+/// JSX's whitespace rule, which is not "trim".
+///
+/// Whitespace that crosses a newline is layout: the developer indented
+/// their tree, and that indentation must not be printed. Whitespace that
+/// does not is content: in `a <b>bold</b> word` the two spaces are the
+/// only thing keeping the words apart, and dropping them renders
+/// "aboldword".
+///
+/// So: lines are trimmed and joined with one space, and a run of
+/// whitespace at either edge becomes a single space when it stayed on
+/// one line and nothing when it crossed a newline.
+fn collapse(text: &str) -> Option<String> {
+    if text.trim().is_empty() {
+        return None;
+    }
+
+    let leading = edge_space(text.chars().take_while(|c| c.is_whitespace()));
+    let trailing = edge_space(text.chars().rev().take_while(|c| c.is_whitespace()));
+
+    let mut collapsed = String::with_capacity(text.len());
+    collapsed.push_str(leading);
+    let mut first = true;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if !first {
+            collapsed.push(' ');
+        }
+        collapsed.push_str(line);
+        first = false;
+    }
+    collapsed.push_str(trailing);
+    Some(collapsed)
+}
+
+/// What a run of edge whitespace is worth: a space if it stayed on one
+/// line, nothing if it crossed a newline.
+fn edge_space(run: impl Iterator<Item = char>) -> &'static str {
+    let mut seen = false;
+    for character in run {
+        if character == '\n' {
+            return "";
+        }
+        seen = true;
+    }
+    if seen { " " } else { "" }
 }
 
 fn display_name(name: &str) -> String {

@@ -66,6 +66,11 @@ fn scan_range(source: &str, start: usize, end: usize) -> Result<Vec<Span>, Compi
             index = after;
             continue;
         }
+        if let Some(after) = skip_raw_string(source, index)? {
+            index = after;
+            previous = Previous::Anything;
+            continue;
+        }
         if byte == b'"' {
             index = skip_string(source, index)?;
             previous = Previous::Anything;
@@ -123,9 +128,93 @@ fn scan_range(source: &str, start: usize, end: usize) -> Result<Vec<Span>, Compi
 /// The second half of the rule: what follows the `<`.
 pub(crate) fn opens_a_tag(bytes: &[u8], index: usize) -> bool {
     match bytes.get(index + 1) {
-        Some(&next) => next.is_ascii_alphabetic() || next == b'_' || next == b'/' || next == b'>',
-        None => false,
+        Some(&next) if next == b'/' || next == b'>' => true,
+        Some(&next) if next.is_ascii_alphabetic() || next == b'_' => {
+            !is_qualified_path(bytes, index + 1)
+        }
+        _ => false,
     }
+}
+
+/// `<T as Trait>::method()` and `<T>::method()` — Rust's qualified path.
+///
+/// It passes both halves of the rule: it can follow `return`, a comma or
+/// an open paren, and the byte after the `<` is a letter. Only what comes
+/// after the name tells the two apart, so this is the one place the rule
+/// needs to look further than one byte.
+fn is_qualified_path(bytes: &[u8], name_start: usize) -> bool {
+    let mut index = name_start;
+    // The type's name. A path may be `<a::B as …>`, so `:` belongs to it.
+    while index < bytes.len() && (is_word_byte(bytes[index]) || bytes[index] == b':') {
+        index += 1;
+    }
+    // `<T>::` — a qualified path with no trait named.
+    if bytes.get(index) == Some(&b'>') {
+        return bytes[index + 1..].starts_with(b"::");
+    }
+    // `<T as `
+    let mut after = index;
+    while after < bytes.len() && bytes[after].is_ascii_whitespace() {
+        after += 1;
+    }
+    if !bytes[after..].starts_with(b"as") {
+        return false;
+    }
+    // `as` must be a word of its own, not the start of `aside`.
+    bytes
+        .get(after + 2)
+        .is_some_and(|byte| byte.is_ascii_whitespace())
+}
+
+/// One byte past a raw or byte string — `r"…"`, `r#"…"#`, `b"…"`,
+/// `br#"…"#` — or `None` if there is no such literal here.
+///
+/// A raw string has no escapes at all and ends only at a quote followed
+/// by as many `#` as opened it. Reading one as an ordinary string turns
+/// `r"C:\temp\"` — a Windows path, on a Windows-only framework — into an
+/// unterminated string that is in fact perfectly terminated.
+pub(crate) fn skip_raw_string(source: &str, index: usize) -> Result<Option<usize>, CompileError> {
+    let bytes = source.as_bytes();
+    let mut cursor = index;
+
+    if bytes.get(cursor) == Some(&b'b') {
+        cursor += 1;
+    }
+    let raw = bytes.get(cursor) == Some(&b'r');
+    if raw {
+        cursor += 1;
+    }
+    // A prefix only counts when it is not part of a longer word.
+    if cursor > index && index > 0 && is_word_byte(bytes[index - 1]) {
+        return Ok(None);
+    }
+
+    let hashes_at = cursor;
+    while bytes.get(cursor) == Some(&b'#') {
+        cursor += 1;
+    }
+    let hashes = cursor - hashes_at;
+    if bytes.get(cursor) != Some(&b'"') {
+        return Ok(None);
+    }
+    // `b"…"` without an `r` is an ordinary string with escapes.
+    if !raw {
+        return if cursor == index {
+            Ok(None)
+        } else {
+            skip_string(source, cursor).map(Some)
+        };
+    }
+
+    let closing: Vec<u8> = std::iter::once(b'"').chain(std::iter::repeat_n(b'#', hashes)).collect();
+    let mut cursor = cursor + 1;
+    while cursor < bytes.len() {
+        if bytes[cursor..].starts_with(&closing) {
+            return Ok(Some(cursor + closing.len()));
+        }
+        cursor += 1;
+    }
+    Err(CompileError::at(source, index, "unterminated raw string"))
 }
 
 /// The whole region, from the opening `<` to the `>` that closes the
@@ -202,7 +291,7 @@ fn end_of_tag(source: &str, open: usize) -> Result<usize, CompileError> {
     while index < bytes.len() {
         match bytes[index] {
             b'>' => return Ok(index + 1),
-            b'"' => index = skip_string(source, index)?,
+            b'"' => index = skip_attribute_string(source, index)?,
             b'{' => index = skip_braces(source, index)?,
             _ => index += 1,
         }
@@ -234,6 +323,11 @@ pub(crate) fn skip_braces(source: &str, open: usize) -> Result<usize, CompileErr
             }
             b'"' => index = skip_string(source, index)?,
             b'\'' => index = skip_char_or_lifetime(bytes, index),
+            // A raw string may hold braces and quotes that mean nothing.
+            b'r' | b'b' => match skip_raw_string(source, index)? {
+                Some(after) => index = after,
+                None => index += 1,
+            },
             _ => index += 1,
         }
     }
@@ -308,4 +402,24 @@ pub(crate) fn find_jsx_range(
     end: usize,
 ) -> Result<Vec<Span>, CompileError> {
     scan_range(source, start, end)
+}
+
+/// One byte past the closing quote of an **attribute's** string.
+///
+/// An attribute's quotes are HTML's, not Rust's. `title="C:\"` is a
+/// Windows path and a complete attribute; reading the backslash as an
+/// escape makes it an unterminated string that is perfectly terminated,
+/// and `title="a\"b"` grow a backslash it never had. A quote inside an
+/// attribute is written the JSX way, `title={"a\"b"}`, where it is Rust
+/// again and escapes are back.
+pub(crate) fn skip_attribute_string(source: &str, open: usize) -> Result<usize, CompileError> {
+    let bytes = source.as_bytes();
+    let mut index = open + 1;
+    while index < bytes.len() {
+        if bytes[index] == b'"' {
+            return Ok(index + 1);
+        }
+        index += 1;
+    }
+    Err(CompileError::at(source, open, "unterminated attribute value"))
 }

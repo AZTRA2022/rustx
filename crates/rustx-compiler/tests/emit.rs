@@ -67,3 +67,44 @@ fn an_expression_child_needs_no_conversion_from_the_developer() {
         "the developer's expression was rewritten: {rust}"
     );
 }
+
+#[test]
+fn an_unknown_tag_is_refused_by_name() {
+    // Props fail closed; tags must too. `<dvi>` becomes an inert
+    // HTMLUnknownElement and a blank area on screen — silence is exactly
+    // what the document forbids.
+    let error = emit_one_err(r#"<dvi className="x"></dvi>"#);
+    assert!(error.message.contains("dvi"), "got {}", error.message);
+    assert!(error.message.contains("div"), "no suggestion: {}", error.message);
+}
+
+#[test]
+fn a_component_tag_says_components_are_not_here_yet() {
+    // Every TSX author will try `<Card />` on the first day. Telling them
+    // it is an unknown HTML tag would send them looking for a typo.
+    let error = emit_one_err("<Card />");
+    assert!(
+        error.message.contains("component"),
+        "an unhelpful message for a PascalCase tag: {}",
+        error.message
+    );
+}
+
+#[test]
+fn an_icon_can_be_drawn() {
+    // No SVG attributes meant no icon could be drawn at all.
+    let rust = emit_one(r#"<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M1 1 L8 8" stroke="currentColor" fill="none" /></svg>"#);
+    assert!(rust.contains("viewBox"), "got {rust}");
+    assert!(rust.contains("stroke"), "got {rust}");
+}
+
+#[test]
+fn a_suggestion_is_only_offered_when_it_is_plausible() {
+    // `bar` once suggested `dir`, which helps nobody.
+    let error = emit_one_err(r#"<div bar="1"></div>"#);
+    assert!(
+        !error.message.contains("did you mean"),
+        "noise instead of silence: {}",
+        error.message
+    );
+}

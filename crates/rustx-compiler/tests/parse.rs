@@ -64,3 +64,57 @@ fn a_mismatched_closing_tag_says_which_two_disagree() {
     assert!(error.message.contains("div"), "got {}", error.message);
     assert!(error.message.contains("span"), "got {}", error.message);
 }
+
+#[test]
+fn a_space_between_text_and_an_inline_tag_survives() {
+    // `a <b>bold</b> word` is the most ordinary markup there is, and
+    // trimming every text node renders it "aboldword".
+    let node = parse_one("<p>Hello <b>world</b> again</p>");
+    let Node::Tag(tag) = node else { panic!() };
+    assert!(
+        matches!(&tag.children[0], Node::Text(t) if t == "Hello "),
+        "got {:?}",
+        tag.children[0]
+    );
+    assert!(
+        matches!(&tag.children[2], Node::Text(t) if t == " again"),
+        "got {:?}",
+        tag.children[2]
+    );
+}
+
+#[test]
+fn indentation_does_not_leak_into_the_rendered_text() {
+    // Whitespace that crosses a newline is layout, not content: JSX drops
+    // it, and a tree written over several indented lines must not print
+    // its own indentation.
+    let node = parse_one("<p>\n    line one\n    line two\n</p>");
+    let Node::Tag(tag) = node else { panic!() };
+    assert_eq!(tag.children.len(), 1);
+    assert!(
+        matches!(&tag.children[0], Node::Text(t) if t == "line one line two"),
+        "got {:?}",
+        tag.children[0]
+    );
+}
+
+#[test]
+fn whitespace_between_tags_on_separate_lines_is_dropped() {
+    let node = parse_one("<ul>\n    <li>a</li>\n    <li>b</li>\n</ul>");
+    let Node::Tag(tag) = node else { panic!() };
+    assert_eq!(tag.children.len(), 2, "got {:?}", tag.children);
+}
+
+#[test]
+fn an_attribute_string_has_no_escapes_just_like_in_jsx() {
+    // A Windows path in a tooltip. The scanner reads Rust escapes, but
+    // an attribute's quotes are HTML's, not Rust's: a backslash is a
+    // backslash, and the value must not grow one.
+    let node = parse_one(r#"<div title="C:\"></div>"#);
+    let Node::Tag(tag) = node else { panic!() };
+    assert!(
+        matches!(&tag.attributes[0].value, AttributeSource::Literal(v) if v == "C:\\"),
+        "got {:?}",
+        tag.attributes[0].value
+    );
+}

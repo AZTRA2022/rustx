@@ -96,3 +96,82 @@ vrai : c'est là qu'un appel qui lève cesse d'être hypothétique.
 Si `run_message_loop` panique, l'arrêt propre de CEF n'a pas lieu.
 Cosmétique pour un binaire de démonstration ; à revoir quand `App` sera
 l'API publique que des logiciels tiers utilisent.
+
+---
+
+## Compilateur `.rsx` (plan 2, revue de branche du 2026-10-28)
+
+La revue a classé seize points. Les deux critiques et les six importants
+sont corrigés. Les huit mineurs sont ici, plus une limite que la passe de
+correction a laissée volontairement en place.
+
+### 9. Une erreur `rustc` nomme le bon numéro de ligne, pas le bon fichier
+
+Le `.rs` engendré a maintenant exactement le même nombre de lignes que le
+`.rsx`, et chaque ligne porte le même numéro : une erreur de `rustc` à la
+ligne 10 est bien à la ligne 10 du `.rsx`. Mais le chemin affiché reste
+celui du fichier d'`OUT_DIR`, que le développeur n'a pas écrit.
+
+Il manque la réécriture du chemin dans la sortie de `cargo`, et
+`PositionMap` n'a donc toujours aucun lecteur.
+
+**On s'en occupe au plan 8**, avec la CLI `rustx` : c'est elle qui
+enveloppe `cargo` et qui est le seul endroit d'où on peut réécrire ses
+messages. D'ici là, le numéro de ligne est juste et c'est l'essentiel.
+
+### 10. Une ligne à l'intérieur d'une région se résout au début de la région
+
+Une région reste une seule expression Rust sur une seule ligne, suivie des
+retours à la ligne qu'elle a avalés. Donc une erreur écrite à la ligne 10
+d'une région qui commence ligne 6 est rapportée ligne 6 — au début du
+`return`, où l'on voit l'ensemble, et non plus à la fin comme avant.
+
+Pour tomber sur la ligne exacte il faudrait poser chaque enfant émis sur
+la ligne où commençait sa source, ce qui demande un décalage sur
+`Node::Text` et `Node::Expression`. **On s'en occupe quand** le plan 8
+aura besoin de colonnes exactes pour l'extension d'éditeur.
+
+### 11. Une balise fermante orpheline après une région est recopiée telle quelle
+
+`return <div></div></span>;` produit `… .build()</span>;`, donc une erreur
+de syntaxe de `rustc` dans le fichier engendré au lieu d'un message en
+coordonnées du `.rsx`. **On s'en occupe** à la prochaine passe sur
+`scan.rs`.
+
+### 12. Un attribut répété est accepté en silence
+
+`<div id="a" id="b"/>` émet les deux ; le dernier gagne dans le DOM. Et
+`value={x} defaultValue="y"` se résolvent tous deux en `value` et se
+marchent dessus sans un mot. **On s'en occupe quand** on touchera à
+`emit.rs` pour les composants.
+
+### 13. `trim_end` mort dans la détection d'une balise auto-fermante
+
+`source[..index].trim_end().ends_with("/>")` ne peut jamais voir
+`<div/ >`, parce que `index` est toujours une position après le `>`. Sans
+effet aujourd'hui ; le `trim_end` laisse croire qu'un espace est toléré
+alors qu'il ne l'est pas.
+
+### 14. `PositionMap::from_text` n'a ni appelant ni test
+
+Mort tant que le point 9 n'est pas traité.
+
+### 15. `mount_in` n'a pas de retour en arrière
+
+Un échec à mi-parcours laisse un demi-arbre attaché. Combiné au montage
+réessayé à chaque frame dans `apps/catalogue`, le préfixe réussi serait
+rattaché une seconde fois. Peu probable, pas cher à garder : construire
+le sous-arbre entier puis l'attacher d'un coup. **On s'en occupe au plan
+3**, qui réécrit de toute façon le montage pour le re-rendu.
+
+### 16. Les attributs passent tous par `setAttribute`
+
+`value` et `checked` posent donc la valeur *par défaut* et non la
+propriété vivante. Correct pour un montage statique ; faux dès qu'un
+champ contrôlé sera re-rendu. **On s'en occupe au plan 3.**
+
+### 17. `tag_name` et `Cursor::name` ne s'accordent pas sur le non-ASCII
+
+`scan.rs` accepte les octets `>= 0x80` dans un nom de balise, `parse.rs`
+non. Ne produit qu'une erreur un peu confuse. Les deux devraient partager
+une seule fonction.
