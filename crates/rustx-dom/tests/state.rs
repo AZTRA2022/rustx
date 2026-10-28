@@ -87,3 +87,38 @@ fn two_cells_on_different_lines_of_one_component_stay_apart() {
     a.set(10);
     assert_eq!(b.get(), 2);
 }
+
+#[test]
+fn the_same_declaration_under_two_keys_is_two_cells() {
+    // §7.4 bis: a cell identified by its place in the code is not enough
+    // for n rows built from one `Vec`. Without the key, every row of a
+    // list shares one piece of state.
+    let _scope = Scope::enter(InstanceId(8));
+    let slot = here!();
+
+    rustx_dom::state::with_key("a", || cell(slot, || 0_i32).set(1));
+    rustx_dom::state::with_key("b", || cell(slot, || 0_i32).set(2));
+
+    assert_eq!(rustx_dom::state::with_key("a", || cell(slot, || 0_i32).get()), 1);
+    assert_eq!(rustx_dom::state::with_key("b", || cell(slot, || 0_i32).get()), 2);
+}
+
+#[test]
+fn a_key_follows_the_row_when_the_list_is_reordered() {
+    let _scope = Scope::enter(InstanceId(9));
+    let slot = here!();
+
+    for key in ["a", "b", "c"] {
+        rustx_dom::state::with_key(key, || cell(slot, || 0_i32));
+    }
+    rustx_dom::state::with_key("c", || cell(slot, || 0_i32).set(7));
+
+    // The list is now c, a, b — the key is what is asked for, not the
+    // position, so the value has to come back with it.
+    let order = ["c", "a", "b"];
+    let values: Vec<i32> = order
+        .iter()
+        .map(|key| rustx_dom::state::with_key(key, || cell(slot, || 0_i32).get()))
+        .collect();
+    assert_eq!(values, [7, 0, 0]);
+}

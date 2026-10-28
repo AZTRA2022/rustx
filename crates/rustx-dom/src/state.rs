@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 /// One instance's cells, by the declaration they came from.
-type Slots = HashMap<Slot, Rc<dyn Any>>;
+type Slots = HashMap<(Slot, String), Rc<dyn Any>>;
 
 /// Where a `let mut` was written. Built by the generated code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -51,6 +51,8 @@ thread_local! {
     static RENDERING: RefCell<Vec<InstanceId>> = const { RefCell::new(Vec::new()) };
     /// Instances whose state changed since the last frame.
     static DIRTY: RefCell<Vec<InstanceId>> = const { RefCell::new(Vec::new()) };
+    /// The keys of the rows being rendered, outermost first.
+    static KEYS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Makes `id` the instance being rendered until this guard is dropped.
@@ -163,7 +165,7 @@ pub fn cell<T: 'static>(slot: Slot, initial: impl FnOnce() -> T) -> State<T> {
         let mut cells = cells.borrow_mut();
         let slots = cells.entry(owner).or_default();
         let existing = slots
-            .entry(slot)
+            .entry((slot, key_path()))
             .or_insert_with(|| Rc::new(RefCell::new(initial())));
         Rc::clone(existing)
     });
@@ -197,4 +199,28 @@ pub fn drop_instance(id: InstanceId) {
 /// How many instances hold state. For tests and diagnostics.
 pub fn live_instances() -> usize {
     CELLS.with(|cells| cells.borrow().len())
+}
+
+/// Render `body` as the row identified by `key`.
+///
+/// A cell is identified by where it is written, which tells one `let
+/// mut` from another. That is not enough for a list: ten rows built from
+/// one `Vec` are one `let mut`, written once, and without a key they
+/// would share one cell — so what was typed in the third field would
+/// appear in the first the moment the list reordered.
+///
+/// The key is the row's identity, the same one the reconciler matches
+/// children by. State follows it rather than following the position.
+pub fn with_key<R>(key: impl std::fmt::Display, body: impl FnOnce() -> R) -> R {
+    KEYS.with(|keys| keys.borrow_mut().push(key.to_string()));
+    let outcome = body();
+    KEYS.with(|keys| {
+        keys.borrow_mut().pop();
+    });
+    outcome
+}
+
+/// The keys in force, as one string. Empty outside any list.
+fn key_path() -> String {
+    KEYS.with(|keys| keys.borrow().join("\u{1f}"))
 }
