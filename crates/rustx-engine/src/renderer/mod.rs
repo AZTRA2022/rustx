@@ -63,6 +63,19 @@ fn lookup(name: &str) -> Option<Rc<NativeFn>> {
 
 /// Install every registered function on a freshly created V8 global.
 pub(crate) fn install(frame: Option<&mut Frame>, context: &V8Context) {
+    // Second barrier, independent of the navigation guard. A context whose
+    // frame is not local gets nothing: no native functions, no frame loop.
+    // Belt and braces, because what is on the other side of this `if` is
+    // the application's unsandboxed Rust.
+    let url = frame
+        .as_ref()
+        .map(|frame| CefString::from(&frame.url()).to_string())
+        .unwrap_or_default();
+    if !crate::guard::is_local(&url) {
+        crate::guard::refuse(&url);
+        return;
+    }
+
     crate::frame::open();
     register_native("__rustx_frame", |_args| {
         crate::frame::tick();

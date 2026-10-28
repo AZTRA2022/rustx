@@ -17,6 +17,7 @@
 //! throttling API to learn.
 
 use std::cell::RefCell;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Mutex, OnceLock};
 
 /// Work to run on the UI thread.
@@ -96,6 +97,12 @@ pub fn frame_count() -> u64 {
 
 /// One frame: drain everything the workers posted, then let the frame
 /// callbacks draw the result of all of it at once.
+///
+/// Every job and every callback is isolated. A panic in one of them must
+/// not end the frame loop: the window would freeze with nothing on screen
+/// to explain it, the queue would grow without bound behind it, and the
+/// application the framework is built for — one that drives hardware —
+/// is precisely the kind where a job panics sooner or later.
 pub(crate) fn tick() {
     let jobs = {
         let mut guard = queue().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -105,22 +112,49 @@ pub(crate) fn tick() {
         }
     };
     for job in jobs {
-        job();
+        report_panic("a job posted to the frame queue", catch_unwind(AssertUnwindSafe(job)));
     }
 
     FRAMES.with(|frames| frames.set(frames.get() + 1));
 
-    // Taken out of the cell for the duration of the call: a callback is
-    // free to register another one without deadlocking on the borrow.
-    let mut callbacks = ON_FRAME.with(|callbacks| std::mem::take(&mut *callbacks.borrow_mut()));
-    for callback in callbacks.iter_mut() {
-        callback();
+    // The callbacks are taken out of the cell for the duration of the call,
+    // so that one of them may register another without deadlocking on the
+    // borrow. `Restore` puts them back even if a callback unwinds — without
+    // it, one panic would drop every registered callback for good.
+    let callbacks = ON_FRAME.with(|callbacks| std::mem::take(&mut *callbacks.borrow_mut()));
+    let mut taken = Restore(Some(callbacks));
+
+    if let Some(callbacks) = taken.0.as_mut() {
+        for callback in callbacks.iter_mut() {
+            report_panic(
+                "a frame callback",
+                catch_unwind(AssertUnwindSafe(|| callback())),
+            );
+        }
     }
-    ON_FRAME.with(|existing| {
-        let mut existing = existing.borrow_mut();
-        callbacks.append(&mut existing);
-        *existing = callbacks;
-    });
+    drop(taken);
+}
+
+/// Puts the frame callbacks back on the way out, panic or not.
+struct Restore(Option<Vec<Box<dyn FnMut()>>>);
+
+impl Drop for Restore {
+    fn drop(&mut self) {
+        let Some(mut taken) = self.0.take() else {
+            return;
+        };
+        ON_FRAME.with(|existing| {
+            let mut existing = existing.borrow_mut();
+            taken.append(&mut existing);
+            *existing = taken;
+        });
+    }
+}
+
+fn report_panic(what: &str, outcome: Result<(), Box<dyn std::any::Any + Send>>) {
+    if outcome.is_err() {
+        eprintln!("rustx: {what} panicked; the frame loop carried on");
+    }
 }
 
 /// Stop accepting work. Anything posted afterwards is refused rather than
@@ -147,11 +181,16 @@ pub(crate) fn open() {
 /// `requestAnimationFrame` is the compositor's own vsync signal, and it
 /// already runs on the thread that owns the DOM, so the frame loop rides on
 /// it rather than inventing a timer that would drift against the screen.
+/// The next frame is scheduled in a `finally`: if `__rustx_frame` ever
+/// throws, the loop must limp on rather than stop for good.
 pub(crate) const DRIVER_SCRIPT: &str = "\
 (function () {
   function frame() {
-    __rustx_frame();
-    requestAnimationFrame(frame);
+    try {
+      __rustx_frame();
+    } finally {
+      requestAnimationFrame(frame);
+    }
   }
   requestAnimationFrame(frame);
 })();

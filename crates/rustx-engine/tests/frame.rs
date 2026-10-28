@@ -69,6 +69,29 @@ fn worker_threads_never_touch_the_dom_themselves() {
 }
 
 #[test]
+fn a_panic_in_a_posted_job_does_not_stop_the_frame_loop() {
+    // The proof application touches hardware, so jobs will panic. If one
+    // panic ended the loop, the window would freeze with no error anywhere
+    // and the queue would grow without bound behind it.
+    assert_eq!(
+        report().get("after_panicking_job"),
+        "alive",
+        "a panicking job killed the frame loop:\n{}",
+        report().raw()
+    );
+}
+
+#[test]
+fn a_panic_in_a_frame_callback_does_not_unregister_the_others() {
+    assert_eq!(
+        report().get("callbacks_after_panic"),
+        "alive",
+        "a panicking frame callback took the others with it:\n{}",
+        report().raw()
+    );
+}
+
+#[test]
 fn posting_after_the_window_closes_returns_an_error() {
     // A capture thread outliving the window must be told to stop, not
     // pile up work that will never run, and not bring the process down.

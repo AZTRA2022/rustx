@@ -144,6 +144,38 @@
         }
       }
 
+      if (rustx_scenario() === "local_only") {
+        try {
+          // A remote iframe: the engine must refuse the load, and the
+          // context behind it must never receive a native function.
+          const frame = document.createElement("iframe");
+          frame.src = "https://example.com/";
+          document.body.appendChild(frame);
+
+          // And a navigation away from local content.
+          location.href = "https://example.com/";
+
+          setTimeout(() => {
+            rustx_report("after_navigation", location.href);
+            let blocked = "yes";
+            try {
+              // Same-origin access would throw for a loaded remote page;
+              // a blocked one stays on the initial empty document.
+              const inner = frame.contentDocument;
+              if (inner && inner.location.href.startsWith("https://")) {
+                blocked = "no";
+              }
+            } catch (_) {
+              blocked = "no";
+            }
+            rustx_report("iframe_blocked", blocked);
+            rustx_report("refusals", String(rustx_refusals()));
+          }, 2500);
+        } catch (e) {
+          rustx_report("scenario_error", String(e));
+        }
+      }
+
       if (rustx_scenario() === "frame") {
         try {
           rustx_report("ui_thread", rustx_ui_thread());
@@ -159,7 +191,26 @@
               requestAnimationFrame(settle);
             }
           };
+          // Two panics on purpose — one in a posted job, one in a frame
+          // callback — then five frames to see whether the loop survived.
           const finish = () => {
+            rustx_frames_still_climbing();
+            rustx_panic_in_job();
+            rustx_panic_in_frame_callback();
+            let waited = 0;
+            const check = () => {
+              if (++waited < 5) {
+                requestAnimationFrame(check);
+                return;
+              }
+              rustx_report("after_panicking_job", rustx_alive_since_check());
+              rustx_report("callbacks_after_panic", rustx_callbacks_alive_since_check());
+              report_rest();
+            };
+            requestAnimationFrame(check);
+          };
+
+          const report_rest = () => {
             rustx_report("frames", rustx_frames());
             rustx_report("counter", rustx_counter());
             rustx_report("shown", out.textContent);

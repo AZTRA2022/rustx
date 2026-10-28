@@ -49,6 +49,10 @@ fn install_natives() {
         Ok(Value::Number(counter.get() as f64))
     });
 
+    register_native("rustx_refusals", |_args| {
+        Ok(Value::String(rustx_engine::refusals().to_string()))
+    });
+
     register_native("rustx_panic", |_args| -> Result<Value, NativeError> {
         panic!("this native function panics on purpose");
     });
@@ -219,6 +223,11 @@ thread_local! {
     static SHOWN: Cell<u64> = const { Cell::new(u64::MAX) };
     static JOB_THREAD: RefCell<String> = const { RefCell::new(String::new()) };
     static WORKER_THREAD: RefCell<String> = const { RefCell::new(String::new()) };
+    static FRAMES_AT_CHECK: Cell<u64> = const { Cell::new(0) };
+    // A frame callback registered before the panicking one. If a panic
+    // dropped the registered callbacks, this one would stop climbing.
+    static SENTINEL: Cell<u64> = const { Cell::new(0) };
+    static SENTINEL_AT_CHECK: Cell<u64> = const { Cell::new(0) };
 }
 
 /// The frame loop, a worker thread, and the coalescing between them.
@@ -242,6 +251,8 @@ fn install_frame_natives() {
         }
     });
 
+    on_frame(|| SENTINEL.with(|count| count.set(count.get() + 1)));
+
     register_native("rustx_start_thread", |_args| {
         let poster = poster();
         std::thread::spawn(move || {
@@ -259,6 +270,52 @@ fn install_frame_natives() {
             }
         });
         Ok(Value::Null)
+    });
+
+    // A job that panics, and a frame callback that panics once. Both are
+    // the shape a hardware-driven application hits sooner or later.
+    register_native("rustx_panic_in_job", |_args| {
+        poster()
+            .post(|| panic!("a posted job panicked on purpose"))
+            .map_err(|error| NativeError::new(error.to_string()))?;
+        Ok(Value::Null)
+    });
+
+    register_native("rustx_panic_in_frame_callback", |_args| {
+        let fired = Cell::new(false);
+        on_frame(move || {
+            if !fired.get() {
+                fired.set(true);
+                panic!("a frame callback panicked on purpose");
+            }
+        });
+        Ok(Value::Null)
+    });
+
+    // Proof the loop is still turning: the frame counter has to keep
+    // climbing after the panics.
+    register_native("rustx_frames_still_climbing", |_args| {
+        FRAMES_AT_CHECK.with(|at| at.set(rustx_engine::frame::frame_count()));
+        SENTINEL_AT_CHECK.with(|at| at.set(SENTINEL.with(Cell::get)));
+        Ok(Value::Null)
+    });
+
+    // Did the loop itself survive the panics?
+    register_native("rustx_alive_since_check", |_args| {
+        let before = FRAMES_AT_CHECK.with(Cell::get);
+        Ok(Value::String(alive_or_frozen(
+            before,
+            rustx_engine::frame::frame_count(),
+        )))
+    });
+
+    // And did the callbacks standing next to the panicking one survive?
+    register_native("rustx_callbacks_alive_since_check", |_args| {
+        let before = SENTINEL_AT_CHECK.with(Cell::get);
+        Ok(Value::String(alive_or_frozen(
+            before,
+            SENTINEL.with(Cell::get),
+        )))
     });
 
     register_native("rustx_ui_thread", |_args| Ok(Value::String(thread_id())));
@@ -287,6 +344,14 @@ fn install_frame_natives() {
             Err(error) => error.to_string(),
         }))
     });
+}
+
+fn alive_or_frozen(before: u64, now: u64) -> String {
+    if now > before {
+        "alive".to_string()
+    } else {
+        format!("frozen at {now}")
+    }
 }
 
 /// Runs on the UI thread, because that is where the queue is drained.
