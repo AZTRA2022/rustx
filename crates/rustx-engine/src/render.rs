@@ -33,6 +33,8 @@ thread_local! {
 
 struct Root {
     id: InstanceId,
+    /// The id of the element it hangs under, so it can be taken off.
+    id_name: String,
     component: Rc<dyn Fn() -> Element>,
     mounted: Mounted,
 }
@@ -60,6 +62,7 @@ pub fn mount_app(component: impl Fn() -> Element + 'static, id: &str) -> Result<
     ROOTS.with(|roots| {
         roots.borrow_mut().push(Root {
             id: instance,
+            id_name: id.to_string(),
             component,
             mounted,
         })
@@ -77,6 +80,28 @@ pub fn mount_app(component: impl Fn() -> Element + 'static, id: &str) -> Result<
 /// How many times a component has been rendered on this page.
 pub fn renders() -> u64 {
     RENDERS.with(Cell::get)
+}
+
+/// Take a mounted component off the page.
+///
+/// Its cells go with it, so whatever they held is dropped — a file
+/// handle, an open capture session, anything with a `Drop`. That is the
+/// cleanup mechanism, and it is Rust's own; the framework does not
+/// invent a second one.
+pub fn unmount(id: &str) -> Result<bool, DomError> {
+    let removed = ROOTS.with(|roots| {
+        let mut roots = roots.borrow_mut();
+        roots
+            .iter()
+            .position(|root| root.id_name == id)
+            .map(|at| roots.remove(at))
+    });
+    let Some(root) = removed else {
+        return Ok(false);
+    };
+    root.mounted.root.set_text("")?;
+    drop_instance(root.id);
+    Ok(true)
 }
 
 /// Release everything mounted on this page. Runs every component's

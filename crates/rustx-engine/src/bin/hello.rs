@@ -108,6 +108,7 @@ fn install_natives() {
 
     install_mount_natives();
     install_render_natives();
+    install_lifecycle_natives();
     install_dom_natives();
     install_frame_natives();
     install_process_natives();
@@ -570,6 +571,117 @@ fn report_line(key: &str, value: &str) {
 /// The value of a `--name=value` argument this process was launched with.
 fn argument(prefix: &str) -> Option<String> {
     std::env::args().find_map(|arg| arg.strip_prefix(prefix).map(str::to_string))
+}
+
+/// A value whose only job is to say when it was dropped — the shape of
+/// a capture session or a file handle a component holds.
+struct Releases(&'static std::thread::LocalKey<Cell<u64>>);
+
+impl Drop for Releases {
+    fn drop(&mut self) {
+        self.0.with(|count| count.set(count.get() + 1));
+    }
+}
+
+thread_local! {
+    static DROPS: Cell<u64> = const { Cell::new(0) };
+    /// Which device name the props component is showing.
+    static SELECTED: RefCell<Option<rustx_dom::state::State<usize>>> =
+        const { RefCell::new(None) };
+}
+
+const DEVICES: [&str; 3] = ["Webcam", "Micro", "Écran"];
+
+/// A plain function taking a parameter. Not a component, not state —
+/// just a value flowing in, which is all a prop is.
+fn device_row(label: &str) -> Element {
+    Element::tag("li")
+        .attribute("id", AttributeValue::Text("row".into()))
+        .child(Element::Text(label.to_string()))
+        .build()
+}
+
+fn install_lifecycle_natives() {
+    register_native("rustx_mount_holder", |_args| {
+        rustx_engine::render::mount_app(
+            || {
+                let held = rustx_dom::state::cell(
+                    rustx_dom::state::Slot {
+                        file: file!(),
+                        line: line!(),
+                        column: column!(),
+                    },
+                    || Releases(&DROPS),
+                );
+                let ticks = rustx_dom::state::cell(
+                    rustx_dom::state::Slot {
+                        file: file!(),
+                        line: line!(),
+                        column: column!(),
+                    },
+                    || 0_u64,
+                );
+                // `held` is not Clone, so it is read without copying.
+                held.with(|_| ());
+                let bumped = ticks.clone();
+                Element::tag("button")
+                    .attribute("id", AttributeValue::Text("holder".into()))
+                    .handler("onClick", Handler::new(move |_| bumped.update(|v| *v += 1)))
+                    .child(Element::Text(ticks.get().to_string()))
+                    .build()
+            },
+            "holder",
+        )?;
+        Ok(Value::Null)
+    });
+
+    register_native("rustx_unmount_holder", |_args| {
+        Ok(Value::String(
+            rustx_engine::render::unmount("holder")?.to_string(),
+        ))
+    });
+    register_native("rustx_drops", |_args| {
+        Ok(Value::String(DROPS.with(Cell::get).to_string()))
+    });
+    register_native("rustx_live_instances", |_args| {
+        Ok(Value::String(
+            rustx_dom::state::live_instances().to_string(),
+        ))
+    });
+
+    register_native("rustx_mount_props", |_args| {
+        rustx_engine::render::mount_app(
+            || {
+                let selected = rustx_dom::state::cell(
+                    rustx_dom::state::Slot {
+                        file: file!(),
+                        line: line!(),
+                        column: column!(),
+                    },
+                    || 0_usize,
+                );
+                SELECTED.with(|slot| *slot.borrow_mut() = Some(selected.clone()));
+                Element::tag("ul")
+                    .child(device_row(DEVICES[selected.get().min(2)]))
+                    .build()
+            },
+            "props",
+        )?;
+        Ok(Value::Null)
+    });
+
+    register_native("rustx_select", |args| {
+        let [Value::Number(index)] = args else {
+            return Err(NativeError::new("expected one number"));
+        };
+        let index = *index as usize;
+        SELECTED.with(|slot| {
+            if let Some(state) = slot.borrow().as_ref() {
+                state.set(index);
+            }
+        });
+        Ok(Value::Null)
+    });
 }
 
 /// The counter's value, read from the state rather than from the page.

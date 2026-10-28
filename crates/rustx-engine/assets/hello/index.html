@@ -72,6 +72,9 @@
       <!-- Hosts for the re-render scenario. -->
       <div id="counter"></div>
       <div id="sibling"></div>
+      <!-- Hosts for the lifecycle scenario. -->
+      <div id="holder"></div>
+      <div id="props"></div>
       <p id="error"></p>
     </main>
 
@@ -179,6 +182,42 @@
             rustx_report("iframe_blocked", blocked);
             rustx_report("refusals", String(rustx_refusals()));
           }, 2500);
+        } catch (e) {
+          rustx_report("scenario_error", String(e));
+        }
+      }
+
+      if (rustx_scenario() === "lifecycle") {
+        try {
+          rustx_mount_holder();
+          rustx_mount_props();
+
+          const row = () => document.querySelector("#row").textContent;
+
+          // A re-render must keep what the component holds.
+          document.querySelector("#holder").click();
+          requestAnimationFrame(() => {
+            rustx_report("dropped_after_rerender", rustx_drops());
+
+            // A prop flowing in, twice.
+            rustx_select(1);
+            requestAnimationFrame(() => {
+              rustx_report("after_prop_change", row());
+              rustx_select(2);
+              requestAnimationFrame(() => {
+                rustx_report("prop_after_two_changes", row());
+
+                // And now the component leaves.
+                const before = Number(rustx_live_instances());
+                rustx_unmount_holder();
+                rustx_report("dropped", rustx_drops());
+                rustx_report(
+                  "live_after_unmount",
+                  String(before - Number(rustx_live_instances()) - 1)
+                );
+              });
+            });
+          });
         } catch (e) {
           rustx_report("scenario_error", String(e));
         }
