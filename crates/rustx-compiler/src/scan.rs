@@ -33,6 +33,7 @@ enum Previous {
     OpenParen,
     Comma,
     Equals,
+    Pipe,
     Anything,
 }
 
@@ -45,10 +46,14 @@ impl Previous {
 
 /// The top-level JSX regions of `source`, in the order they appear.
 pub fn find_jsx(source: &str) -> Result<Vec<Span>, CompileError> {
-    let bytes = source.as_bytes();
+    scan_range(source, 0, source.len())
+}
+
+fn scan_range(source: &str, start: usize, end: usize) -> Result<Vec<Span>, CompileError> {
+    let bytes = &source.as_bytes()[..end];
     let mut spans = Vec::new();
     let mut previous = Previous::StartOfFile;
-    let mut index = 0;
+    let mut index = start;
 
     while index < bytes.len() {
         let byte = bytes[index];
@@ -101,6 +106,9 @@ pub fn find_jsx(source: &str) -> Result<Vec<Span>, CompileError> {
             // only a bare `=` and a `=>` are in the rule, and `==` is rare
             // enough before JSX that treating it the same costs nothing.
             b'=' => Previous::Equals,
+            // The end of a closure's parameter list, as in
+            // `items.iter().map(|name| <li>{name}</li>)`.
+            b'|' => Previous::Pipe,
             _ => Previous::Anything,
         };
         if previous == Previous::FatArrow {
@@ -288,4 +296,16 @@ fn skip_comment(bytes: &[u8], index: usize) -> Option<usize> {
 
 fn is_word_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_' || byte >= 0x80
+}
+
+/// The regions inside a byte range, with offsets still counted from the
+/// start of `source`. An expression between braces may hold JSX of its
+/// own — `{items.iter().map(|name| <li>{name}</li>)}` — and the positions
+/// of what is inside it have to stay the positions of the real file.
+pub(crate) fn find_jsx_range(
+    source: &str,
+    start: usize,
+    end: usize,
+) -> Result<Vec<Span>, CompileError> {
+    scan_range(source, start, end)
 }

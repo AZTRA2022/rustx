@@ -1,0 +1,13 @@
+[package]
+name = "catalogue"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A rustx application whose page is written in .rsx."
+
+[dependencies]
+rustx-dom = { path = "../../crates/rustx-dom" }
+rustx-engine = { path = "../../crates/rustx-engine" }
+
+[build-dependencies]
+rustx-compiler = { path = "../../crates/rustx-compiler" }

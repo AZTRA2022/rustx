@@ -6,7 +6,8 @@
 
 use crate::ast::{Attribute, AttributeSource, Node, TagNode};
 use crate::error::CompileError;
-use crate::scan::{Span, opens_a_tag, skip_braces, skip_string};
+use crate::emit::emit;
+use crate::scan::{Span, find_jsx_range, opens_a_tag, skip_braces, skip_string};
 
 /// Parse one JSX region, as found by [`crate::scan::find_jsx`].
 pub fn parse_jsx(source: &str, span: Span) -> Result<Node, CompileError> {
@@ -108,10 +109,8 @@ impl Cursor<'_> {
                     children.push(self.element()?);
                 }
                 Some(b'{') => {
-                    let open = self.index;
-                    self.index = skip_braces(self.source, open)?;
-                    let inner = &self.source[open + 1..self.index - 1];
-                    children.push(Node::Expression(inner.to_string()));
+                    let code = self.braced_rust()?;
+                    children.push(Node::Expression(code));
                 }
                 Some(_) => {
                     if let Some(text) = self.text() {
@@ -172,13 +171,7 @@ impl Cursor<'_> {
                         self.index = skip_string(self.source, open)?;
                         AttributeSource::Literal(self.source[open + 1..self.index - 1].to_string())
                     }
-                    Some(b'{') => {
-                        let open = self.index;
-                        self.index = skip_braces(self.source, open)?;
-                        AttributeSource::Expression(
-                            self.source[open + 1..self.index - 1].to_string(),
-                        )
-                    }
+                    Some(b'{') => AttributeSource::Expression(self.braced_rust()?),
                     _ => {
                         return Err(self.error(
                             self.index,
@@ -196,6 +189,31 @@ impl Cursor<'_> {
                 offset,
             });
         }
+    }
+
+    /// The Rust between a `{` and its matching `}`, with any JSX inside
+    /// it already turned into Rust.
+    ///
+    /// `{items.iter().map(|name| <li>{name}</li>).collect::<Vec<_>>()}`
+    /// is a Rust expression that happens to build elements, and a list is
+    /// written that way in TSX too. The substitution happens here, where
+    /// offsets are still offsets into the real file, so that an error
+    /// inside a nested tag lands on the line it was written on.
+    fn braced_rust(&mut self) -> Result<String, CompileError> {
+        let open = self.index;
+        self.index = skip_braces(self.source, open)?;
+        let (from, to) = (open + 1, self.index - 1);
+
+        let mut code = String::new();
+        let mut cursor = from;
+        for span in find_jsx_range(self.source, from, to)? {
+            code.push_str(&self.source[cursor..span.start]);
+            let node = parse_jsx(self.source, span)?;
+            code.push_str(&emit(&node)?);
+            cursor = span.end;
+        }
+        code.push_str(&self.source[cursor..to]);
+        Ok(code)
     }
 
     /// A tag or attribute name, possibly empty — a fragment has none.
