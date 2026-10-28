@@ -176,6 +176,40 @@
         }
       }
 
+      if (rustx_scenario() === "subframe") {
+        try {
+          // Hand Rust a node of the main document, then give a sub-frame a
+          // context of its own and take it away again. Neither the node nor
+          // the job queue belonged to that sub-frame.
+          rustx_keep_node();
+
+          const panel = document.createElement("iframe");
+          panel.src = "about:blank";
+          document.body.appendChild(panel);
+
+          requestAnimationFrame(() => {
+            panel.remove();
+            let waited = 0;
+            const after = () => {
+              if (++waited < 10) {
+                requestAnimationFrame(after);
+                return;
+              }
+              rustx_report("post_after_subframe", rustx_try_post());
+              try {
+                rustx_use_kept_node();
+                rustx_report("kept_node_after_subframe", "usable");
+              } catch (e) {
+                rustx_report("kept_node_after_subframe", String(e));
+              }
+            };
+            requestAnimationFrame(after);
+          });
+        } catch (e) {
+          rustx_report("scenario_error", String(e));
+        }
+      }
+
       if (rustx_scenario() === "frame") {
         try {
           rustx_report("ui_thread", rustx_ui_thread());

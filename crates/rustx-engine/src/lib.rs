@@ -10,6 +10,7 @@ mod error;
 mod guard;
 pub mod frame;
 mod init;
+mod panics;
 pub mod renderer;
 mod value;
 

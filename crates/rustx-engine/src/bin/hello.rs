@@ -335,6 +335,15 @@ fn install_frame_natives() {
         Ok(Value::String(WORKER_THREAD.with(|t| t.borrow().clone())))
     });
 
+    // Is the queue still open? Unlike the one below, this asks without
+    // closing anything.
+    register_native("rustx_try_post", |_args| {
+        Ok(Value::String(match poster().post(|| {}) {
+            Ok(()) => "Ok".to_string(),
+            Err(error) => error.to_string(),
+        }))
+    });
+
     // What a closing window does to the queue, and what a thread still
     // producing work is told in return.
     register_native("rustx_post_after_close", |_args| {

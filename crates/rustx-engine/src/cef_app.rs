@@ -9,12 +9,14 @@
 use cef::{
     App, Browser, BrowserProcessHandler, BrowserSettings, CefString, CommandLine, Frame, ImplApp,
     ImplCommandLine,
-    ImplBrowserProcessHandler, ImplRenderProcessHandler, Rect, RenderProcessHandler, RuntimeStyle,
+    ImplBrowserProcessHandler, ImplFrame, ImplRenderProcessHandler, Rect, RenderProcessHandler,
+    RuntimeStyle,
     V8Context, WindowInfo, WrapApp, WrapBrowserProcessHandler, WrapRenderProcessHandler,
     rc::Rc as _, wrap_app, wrap_browser_process_handler, wrap_render_process_handler,
 };
 
 use crate::client::window_client;
+use crate::panics::contain;
 
 /// What `on_context_initialized` needs in order to open the window.
 #[derive(Clone)]
@@ -32,13 +34,16 @@ wrap_browser_process_handler! {
 
     impl BrowserProcessHandler {
         fn on_context_initialized(&self) {
-            open_window(&self.spec);
+            let spec = self.spec.clone();
+            contain("on_context_initialized", || open_window(&spec));
         }
 
         fn on_before_child_process_launch(&self, command_line: Option<&mut CommandLine>) {
-            if let Some(command_line) = command_line {
-                forward_application_arguments(command_line);
-            }
+            contain("on_before_child_process_launch", || {
+                if let Some(command_line) = command_line {
+                    forward_application_arguments(command_line);
+                }
+            });
         }
     }
 }
@@ -48,11 +53,31 @@ wrap_browser_process_handler! {
 /// Since the render process is where the application's Rust code runs, its
 /// arguments have to travel with it: a switch means the same thing in every
 /// process, or it means nothing.
+///
+/// Only the render process, though. The GPU, network and utility processes
+/// run Chromium's code and none of the application's; an application switch
+/// means nothing to them, and handing one to a process that parses its own
+/// command line strictly is a way to lose that process for a reason nobody
+/// will find.
 fn forward_application_arguments(command_line: &CommandLine) {
-    for argument in std::env::args().skip(1) {
-        command_line.append_argument(Some(&CefString::from(argument.as_str())));
+    let kind = command_line.switch_value(Some(&CefString::from(PROCESS_TYPE_SWITCH)));
+    if CefString::from(&kind).to_string() != RENDERER_PROCESS_TYPE {
+        return;
+    }
+    // `args_os` rather than `args`: a path with a lone surrogate in it is a
+    // reason to skip an argument, not to bring the application down.
+    for argument in std::env::args_os().skip(1) {
+        let Some(argument) = argument.to_str() else {
+            eprintln!("rustx: skipped an argument that is not valid Unicode");
+            continue;
+        };
+        command_line.append_argument(Some(&CefString::from(argument)));
     }
 }
+
+/// Chromium's own switch naming the kind of a sub-process.
+const PROCESS_TYPE_SWITCH: &str = "type";
+const RENDERER_PROCESS_TYPE: &str = "renderer";
 
 wrap_render_process_handler! {
     struct EngineRenderProcessHandler;
@@ -64,9 +89,11 @@ wrap_render_process_handler! {
             frame: Option<&mut Frame>,
             context: Option<&mut V8Context>,
         ) {
-            if let Some(context) = context {
-                crate::renderer::install(frame, context);
-            }
+            contain("on_context_created", || {
+                if let Some(context) = context {
+                    crate::renderer::install(frame, context);
+                }
+            });
         }
 
         fn on_context_released(
@@ -75,10 +102,21 @@ wrap_render_process_handler! {
             frame: Option<&mut Frame>,
             _context: Option<&mut V8Context>,
         ) {
-            // Every DOM handle made in that context is stale from here on,
-            // and a worker thread still posting work must be told to stop.
-            crate::dom::context_released();
-            crate::frame::shutdown();
+            // A context going away ends what belonged to that context, and
+            // nothing else. A sub-frame has one of its own — an iframe, a
+            // preview pane, a widget being swapped out — and it comes and
+            // goes while the application keeps running.
+            //
+            // The job queue belongs to the application, so it is closed
+            // when the window closes (`LifeSpanHandler::on_before_close`),
+            // not here. The DOM handles belong to the main frame's
+            // document, so only the main frame's release makes them stale.
+            contain("on_context_released", || {
+                let is_main = frame.is_some_and(|frame| frame.is_main() != 0);
+                if is_main {
+                    crate::dom::context_released();
+                }
+            });
         }
     }
 }
