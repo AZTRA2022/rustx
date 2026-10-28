@@ -7,6 +7,7 @@
 //! and the engine must not depend on a parser.
 
 mod element;
+pub mod state;
 
 
 pub use element::{
