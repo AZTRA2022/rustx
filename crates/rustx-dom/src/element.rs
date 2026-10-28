@@ -17,6 +17,8 @@ pub enum Element {
 /// order they were written.
 #[derive(Debug)]
 pub struct TagElement {
+    /// Set by a `key={…}` attribute. `None` means "compare by position".
+    pub key: Option<Key>,
     pub tag: String,
     pub attributes: Vec<(String, AttributeValue)>,
     pub handlers: Vec<(String, Handler)>,
@@ -66,6 +68,7 @@ impl Element {
     /// Start building a tag. This is the call the compiler emits.
     pub fn tag(name: &str) -> TagElement {
         TagElement {
+            key: None,
             tag: name.to_string(),
             attributes: Vec::new(),
             handlers: Vec::new(),
@@ -75,6 +78,12 @@ impl Element {
 }
 
 impl TagElement {
+    /// Identify this child across a reorder of its siblings.
+    pub fn key(mut self, key: impl Into<Key>) -> Self {
+        self.key = Some(key.into());
+        self
+    }
+
     pub fn attribute(mut self, name: &str, value: AttributeValue) -> Self {
         self.attributes.push((name.to_string(), value));
         self
@@ -141,4 +150,25 @@ impl<T: Display> IntoElement<IsDisplay> for T {
 /// Turn whatever was written between braces into a node.
 pub fn into_element<Marker, T: IntoElement<Marker>>(value: T) -> Element {
     value.into_element()
+}
+
+/// What identifies a child across a reorder.
+///
+/// Position is not enough. A list whose rows carry state — a text field,
+/// an expanded panel — reordered by position moves the state with the
+/// position rather than with the row, so what was typed in the third
+/// field appears in the first. A key says which row is which.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Key(String);
+
+impl<T: std::fmt::Display> From<T> for Key {
+    fn from(value: T) -> Self {
+        Self(value.to_string())
+    }
+}
+
+impl Key {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }

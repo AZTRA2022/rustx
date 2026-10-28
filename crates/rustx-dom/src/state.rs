@@ -26,6 +26,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+/// One instance's cells, by the declaration they came from.
+type Slots = HashMap<Slot, Rc<dyn Any>>;
+
 /// Where a `let mut` was written. Built by the generated code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Slot {
@@ -41,7 +44,7 @@ pub struct InstanceId(pub u64);
 thread_local! {
     /// Every live instance's cells. Dropping an entry drops its values,
     /// which is how a component's `Drop` runs at unmount.
-    static CELLS: RefCell<HashMap<InstanceId, HashMap<Slot, Rc<dyn Any>>>> =
+    static CELLS: RefCell<HashMap<InstanceId, Slots>> =
         RefCell::new(HashMap::new());
     /// The instance being rendered. A stack, because a component renders
     /// inside its parent's render.

@@ -7,9 +7,11 @@
 //! and the engine must not depend on a parser.
 
 mod element;
+pub mod diff;
 pub mod state;
 
 
 pub use element::{
+    Key,
     AttributeValue, Element, Event, Handler, IntoElement, TagElement, into_element,
 };
