@@ -64,6 +64,11 @@
         <button id="bad_args" class="quiet">Call it wrong</button>
       </div>
       <ul id="list"></ul>
+      <!-- Hosts for the trees the mount scenario builds in Rust. -->
+      <div id="tree"></div>
+      <div id="empty"></div>
+      <div id="fragment"></div>
+      <div id="button"></div>
       <p id="error"></p>
     </main>
 
@@ -171,6 +176,25 @@
             rustx_report("iframe_blocked", blocked);
             rustx_report("refusals", String(rustx_refusals()));
           }, 2500);
+        } catch (e) {
+          rustx_report("scenario_error", String(e));
+        }
+      }
+
+      if (rustx_scenario() === "mount") {
+        try {
+          rustx_mount_tree();
+          rustx_mount_empty();
+          rustx_mount_fragment();
+          rustx_mount_button();
+
+          rustx_report("html", document.querySelector("#tree").innerHTML);
+          rustx_report("empty_children", String(document.querySelector("#empty").childNodes.length));
+          rustx_report("fragment_html", document.querySelector("#fragment").innerHTML);
+
+          // The click goes through the DOM, as a user's would.
+          document.querySelector("#mounted").click();
+          rustx_report("clicked", rustx_clicks());
         } catch (e) {
           rustx_report("scenario_error", String(e));
         }
