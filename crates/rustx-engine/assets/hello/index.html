@@ -377,6 +377,38 @@
                   rustx_report("unknown_component", rustx_foreign_complaint());
                   rustx_report("unknown_container_empty",
                     document.querySelector("#rustx-js-nope").textContent === "" ? "yes" : "no");
+
+                  // The other direction: React owns a node, and asks
+                  // rustx for a component to put inside it.
+                  rustx_report("roots_before_mount", rustx_roots());
+                  const owned = document.createElement("div");
+                  owned.id = "react-owned";
+                  document.querySelector("#chart").appendChild(owned);
+
+                  rustx_component("Counter", "react-owned");
+                  waitFor(() => document.querySelector("#inside-react") !== null, () => {
+                    const inside = () => document.querySelector("#inside-react");
+                    rustx_report("rustx_inside_react", inside().textContent);
+
+                    inside().click();
+                    waitFor(() => inside().textContent === "1", () => {
+                      rustx_report("rustx_inside_react_after_click", inside().textContent);
+
+                      // React takes its node back. What the component
+                      // held goes with it.
+                      rustx_release("react-owned");
+                      setTimeout(() => {
+                        rustx_report("released_inside_react", rustx_released_inside_react());
+                        rustx_report("roots_after_release", rustx_roots());
+                        try {
+                          rustx_component("Nope", "react-owned");
+                          rustx_report("unknown_rustx_component", "nothing was thrown");
+                        } catch (e) {
+                          rustx_report("unknown_rustx_component", String(e));
+                        }
+                      }, 200);
+                    });
+                  });
                 }, 300);
               });
             });

@@ -106,3 +106,47 @@ fn complain(message: String) {
     eprintln!("{message}");
     COMPLAINT.with(|complaint| *complaint.borrow_mut() = Some(message));
 }
+
+// ---------------------------------------------------------------------
+// The other direction: a rustx component inside a node React owns.
+// ---------------------------------------------------------------------
+
+use std::collections::HashMap;
+use std::rc::Rc;
+
+use rustx_dom::Element;
+
+type Builder = Rc<dyn Fn() -> Element>;
+
+thread_local! {
+    /// The components an application is willing to let React mount.
+    static COMPONENTS: RefCell<HashMap<String, Builder>> = RefCell::new(HashMap::new());
+}
+
+/// Let the page mount `component` by that name.
+///
+/// What React gets is not a snapshot: the component becomes a root of
+/// its own, re-rendered by the same frame as everything else on the
+/// page, with its own cells, effects and tasks. Releasing the node
+/// releases all of it, the way unmounting any root does.
+pub fn register_component(name: &str, component: impl Fn() -> Element + 'static) {
+    COMPONENTS.with(|components| {
+        components
+            .borrow_mut()
+            .insert(name.to_string(), Rc::new(component))
+    });
+}
+
+/// Mount the registered component `name` under the element `id`.
+pub(crate) fn mount_registered(name: &str, id: &str) -> Result<(), crate::NativeError> {
+    let Some(component) = COMPONENTS.with(|components| components.borrow().get(name).cloned())
+    else {
+        return Err(crate::NativeError::new(format!(
+            "rustx: no component named '{name}' has been registered — \
+             an application says what React may mount by calling \
+             `rustx_engine::foreign::register_component`"
+        )));
+    };
+    crate::render::mount_app(move || component(), id)?;
+    Ok(())
+}

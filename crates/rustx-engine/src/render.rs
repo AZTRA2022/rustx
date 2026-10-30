@@ -465,3 +465,9 @@ fn give_back_boundaries(node: &crate::tree::MountedNode) {
         crate::foreign::give_back(&container);
     }
 }
+
+/// How many components are mounted on this page. For tests and
+/// diagnostics: a root that was released and still counted is a leak.
+pub fn roots() -> usize {
+    ROOTS.with(|roots| roots.borrow().len())
+}

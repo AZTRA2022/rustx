@@ -83,6 +83,33 @@ pub(crate) fn install(frame: Option<&mut Frame>, context: &V8Context) {
         Ok(Value::Null)
     });
 
+    // The other direction of the React boundary. The engine installs
+    // these itself: an application chooses which components React may
+    // mount, not whether the page is able to ask.
+    //
+    // Both take the id of the element rather than the element, because
+    // a `Value` carries null, a boolean, a number or a string and
+    // nothing else — widening it to carry a DOM object would widen
+    // exactly the boundary this exists to keep narrow.
+    register_native("rustx_component", |args| {
+        let [Value::String(name), Value::String(id)] = args else {
+            return Err(NativeError::new(
+                "rustx_component takes a component name and the id of the element it goes in",
+            ));
+        };
+        crate::foreign::mount_registered(name, id)?;
+        Ok(Value::Null)
+    });
+
+    register_native("rustx_release", |args| {
+        let [Value::String(id)] = args else {
+            return Err(NativeError::new(
+                "rustx_release takes the id of the element to release",
+            ));
+        };
+        Ok(Value::Bool(crate::render::unmount(id)?))
+    });
+
     HOOKS_RUN.with(|run| {
         if *run.borrow() {
             return;

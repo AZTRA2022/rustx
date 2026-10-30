@@ -86,3 +86,51 @@ fn a_component_the_page_never_registered_says_so() {
         report().raw()
     );
 }
+
+#[test]
+fn react_can_mount_a_rustx_component_into_a_node_it_owns() {
+    assert_eq!(
+        report().get("rustx_inside_react"),
+        "0",
+        "the page could not mount a rustx component in a node React owns:\n{}",
+        report().raw()
+    );
+}
+
+#[test]
+fn that_component_is_live_and_not_a_snapshot() {
+    // The same frame loop as everything else: a component inside a node
+    // React owns is a root of its own, re-rendered by the same tick.
+    assert_eq!(
+        report().get("rustx_inside_react_after_click"),
+        "1",
+        "the component was a snapshot, not a component:\n{}",
+        report().raw()
+    );
+}
+
+#[test]
+fn releasing_the_node_releases_the_component_and_its_tasks() {
+    assert_eq!(
+        report().get("released_inside_react"),
+        "yes",
+        "what the component held was never dropped:\n{}",
+        report().raw()
+    );
+    assert_eq!(
+        report().get("roots_after_release"),
+        report().get("roots_before_mount"),
+        "the root stayed on the page after being released:\n{}",
+        report().raw()
+    );
+}
+
+#[test]
+fn mounting_an_unregistered_rustx_component_is_an_error_the_page_can_catch() {
+    assert!(
+        report().get("unknown_rustx_component").contains("Nope"),
+        "got {}:\n{}",
+        report().get("unknown_rustx_component"),
+        report().raw()
+    );
+}

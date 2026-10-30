@@ -117,6 +117,7 @@ fn install_natives() {
     install_router_natives();
     install_process_natives();
     install_foreign_natives();
+    install_reverse_natives();
 }
 
 // The screens of the `router` scenario, written by hand where an
@@ -1226,5 +1227,69 @@ fn install_foreign_natives() {
 
     register_native("rustx_given_back", |_args| {
         Ok(Value::String(rustx_engine::foreign::given_back().to_string()))
+    });
+}
+
+// What React is allowed to mount: a counter, so that the page can see it
+// is a live component and not a snapshot, holding a value that says when
+// it was released.
+static RELEASED_INSIDE_REACT: AtomicBool = AtomicBool::new(false);
+
+thread_local! {
+    static INSIDE_REACT: RefCell<Option<rustx_dom::state::State<u64>>> = const { RefCell::new(None) };
+}
+
+/// Says when the component React mounted was released.
+struct ReleasesInsideReact;
+
+impl Drop for ReleasesInsideReact {
+    fn drop(&mut self) {
+        RELEASED_INSIDE_REACT.store(true, Ordering::Release);
+    }
+}
+
+fn counter_for_react() -> Element {
+    let clicks = rustx_dom::state::cell(
+        rustx_dom::state::Slot {
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        },
+        || 0_u64,
+    );
+    let held = rustx_dom::state::keep_at(
+        rustx_dom::state::Slot {
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        },
+        || ReleasesInsideReact,
+    );
+    held.with(|_| ());
+    INSIDE_REACT.with(|slot| *slot.borrow_mut() = Some(clicks.clone()));
+
+    let clicked = clicks.clone();
+    Element::tag("button")
+        .attribute("id", AttributeValue::Text("inside-react".into()))
+        .handler("onClick", Handler::new(move |_| clicked.update(|v| *v += 1)))
+        .child(Element::Text(clicks.get().to_string()))
+        .build()
+}
+
+fn install_reverse_natives() {
+    rustx_engine::foreign::register_component("Counter", counter_for_react);
+
+    register_native("rustx_roots", |_args| {
+        Ok(Value::String(rustx_engine::render::roots().to_string()))
+    });
+
+    register_native("rustx_released_inside_react", |_args| {
+        Ok(Value::String(
+            if RELEASED_INSIDE_REACT.load(Ordering::Acquire) {
+                "yes".to_string()
+            } else {
+                "no".to_string()
+            },
+        ))
     });
 }
