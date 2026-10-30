@@ -1,15 +1,25 @@
 //! `#[rustx::main]`: everything an application should not have to write.
 //!
 //! A `main.rs` is a window's title and its size. Compiling the pages of
-//! `app/` into the binary, telling the router about them, and leaving a
-//! sub-process before it touches anything are the framework's work, and
-//! a developer who has to write them is reading the framework's own
-//! plumbing in their own file.
+//! `app/` into the binary, telling the router about them, letting React
+//! know what it may mount, and leaving a sub-process before it touches
+//! anything are the framework's work. A developer who writes them is
+//! reading the framework's own plumbing in their own file.
 //!
-//! The attribute is deliberately thin: it adds two things above `main`
-//! and one line inside it. Everything it adds is ordinary code that
-//! could have been written by hand — which is what makes an application
-//! that outgrows it able to stop using it.
+//! There is no build script. The pages are compiled **here**, while the
+//! attribute expands, because that is the one moment that happens every
+//! time the crate is compiled and never otherwise. Each `.rsx` is then
+//! named by an `include_bytes!`, which is what makes cargo and `rustc`
+//! watch it: change a page, and the application is rebuilt.
+//!
+//! The generated Rust is still written to files, and included by path.
+//! It would have been shorter to paste it in as tokens, but then a
+//! `rustc` error about a developer's own Rust would point at this
+//! attribute instead of at the line they wrote. The file keeps the line
+//! numbers of the `.rsx` (§7.3), so the error lands where they are
+//! looking.
+
+use std::path::{Path, PathBuf};
 
 use proc_macro::TokenStream;
 use proc_macro2::{Delimiter, Group, TokenStream as TokenStream2, TokenTree};
@@ -17,10 +27,10 @@ use quote::quote;
 
 /// Write the ceremony of a rustx application around `main`.
 ///
-/// `#[rustx::main]` compiles the pages under `app/` into the binary and
-/// hands the generated route table to the router. `#[rustx::main(pages)]`
-/// compiles them without routing, for an application that mounts its
-/// components by hand.
+/// `#[rustx::main]` compiles the pages under `app/` and hands the
+/// generated route table to the router. `#[rustx::main(pages)]` compiles
+/// them without routing, for an application that mounts its own
+/// components.
 #[proc_macro_attribute]
 pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
     let routed = match attribute.to_string().trim() {
@@ -43,25 +53,74 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
         );
     };
 
-    // Where the application's own files are, said in the application's
-    // own crate: `env!` here reads the variables of whoever is being
-    // compiled, which is exactly the crate that owns `assets/`.
-    let prelude = if routed {
-        quote! {
-            rustx::install_manifest_dir(env!("CARGO_MANIFEST_DIR"));
-            rustx::install_routes(route_table());
-            rustx::install_components(component_table());
-        }
-    } else {
-        quote! {
-            rustx::install_manifest_dir(env!("CARGO_MANIFEST_DIR"));
-        }
+    let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") else {
+        return error(
+            "`#[rustx::main]` could not tell which crate it is in: cargo sets \
+             CARGO_MANIFEST_DIR, so this is a build run by something else."
+                .to_string(),
+        );
     };
+    let manifest = PathBuf::from(manifest);
+    let app = manifest.join("app");
 
-    let pages = quote! {
-        // The pages of `app/`, as Rust. Written by the build script into
-        // `OUT_DIR`, compiled in here, and named by nobody.
-        include!(concat!(env!("OUT_DIR"), "/pages.rs"));
+    let (pages, prelude) = if app.is_dir() {
+        let out = generated_directory(&manifest);
+        if let Err(complaint) = compile(&app, &out, routed) {
+            // The function is still emitted, untouched. A mistake in a
+            // page is one error; without this, the developer also gets
+            // "`main` function not found", which is about nothing they
+            // did and sends them looking in the wrong file.
+            let body = body.stream();
+            return quote! {
+                compile_error!(#complaint);
+                #signature { #body }
+            }
+            .into();
+        }
+
+        // Every source named, so that changing one rebuilds the
+        // application. `include_bytes!` is the only way to say "this
+        // file is part of me" that both cargo and `rustc` follow.
+        let watched: Vec<TokenStream2> = sources(&app)
+            .iter()
+            .map(|source| {
+                let path = slashed(source);
+                quote! {
+                    const _: &[u8] = include_bytes!(#path);
+                }
+            })
+            .collect();
+
+        let generated = slashed(&out.join(rustx_compiler::build::PAGES));
+
+        let prelude = if routed {
+            quote! {
+                rustx::install_manifest_dir(env!("CARGO_MANIFEST_DIR"));
+                rustx::install_routes(route_table());
+                rustx::install_components(component_table());
+            }
+        } else {
+            quote! {
+                rustx::install_manifest_dir(env!("CARGO_MANIFEST_DIR"));
+            }
+        };
+
+        (
+            quote! {
+                include!(#generated);
+                #(#watched)*
+            },
+            prelude,
+        )
+    } else {
+        // An application with no `app/` directory is a window and
+        // nothing else — which is a legitimate place to start.
+        (
+            TokenStream2::new(),
+            quote! {
+                rustx::install_manifest_dir(env!("CARGO_MANIFEST_DIR"));
+            },
+        )
     };
 
     let body = body.stream();
@@ -74,6 +133,66 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
     .into()
+}
+
+/// Compile the pages, turning a mistake in a `.rsx` into a sentence in
+/// the coordinates of the `.rsx`.
+fn compile(app: &Path, out: &Path, routed: bool) -> Result<(), String> {
+    if let Err(error) = std::fs::create_dir_all(out) {
+        return Err(format!(
+            "rustx could not make a place for the compiled pages at {}: {error}",
+            out.display()
+        ));
+    }
+    let outcome = if routed {
+        rustx_compiler::build::compile_app(app, out)
+    } else {
+        rustx_compiler::build::compile_pages(app, out)
+    };
+    outcome.map(|_| ()).map_err(|complaint| complaint.to_string())
+}
+
+/// Where the compiled pages of this crate live.
+///
+/// Not in the source tree, which is the developer's; not in `OUT_DIR`,
+/// which only a build script has. A directory of this crate's own, named
+/// after where it is, so that two applications compiling at once never
+/// write the same file.
+fn generated_directory(manifest: &Path) -> PathBuf {
+    let name = manifest
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| "app".to_string());
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in manifest.to_string_lossy().as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+    std::env::temp_dir()
+        .join("rustx-pages")
+        .join(format!("{name}-{hash:016x}"))
+}
+
+/// Every `.rsx` under `app/`, in a stable order.
+fn sources(app: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    collect(app, &mut found);
+    found.sort();
+    found
+}
+
+fn collect(directory: &Path, into: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect(&path, into);
+        } else if path.extension().is_some_and(|extension| extension == "rsx") {
+            into.push(path);
+        }
+    }
 }
 
 /// The function's tokens, split into everything before its block and
@@ -91,4 +210,10 @@ fn split_body(item: TokenStream2) -> Option<(TokenStream2, Group)> {
 
 fn error(message: String) -> TokenStream {
     quote! { compile_error!(#message); }.into()
+}
+
+/// A path an `include!` will take, on a system whose separator it will
+/// not.
+fn slashed(path: &Path) -> String {
+    path.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/")
 }

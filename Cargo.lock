@@ -117,7 +117,6 @@ name = "capture"
 version = "0.1.0"
 dependencies = [
  "rustx",
- "rustx-build",
  "rustx-dom",
  "rustx-engine",
 ]
@@ -127,7 +126,6 @@ name = "catalogue"
 version = "0.1.0"
 dependencies = [
  "rustx",
- "rustx-build",
  "rustx-dom",
  "rustx-engine",
 ]
@@ -274,7 +272,6 @@ name = "counter"
 version = "0.1.0"
 dependencies = [
  "rustx",
- "rustx-build",
  "rustx-dom",
  "rustx-engine",
 ]
@@ -469,7 +466,6 @@ name = "hybrid"
 version = "0.1.0"
 dependencies = [
  "rustx",
- "rustx-build",
  "rustx-dom",
  "rustx-engine",
 ]
@@ -691,7 +687,6 @@ name = "monitor"
 version = "0.1.0"
 dependencies = [
  "rustx",
- "rustx-build",
  "rustx-dom",
  "rustx-engine",
 ]
@@ -887,13 +882,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustx-build"
-version = "0.1.0"
-dependencies = [
- "rustx-compiler",
-]
-
-[[package]]
 name = "rustx-compiler"
 version = "0.1.0"
 dependencies = [
@@ -919,6 +907,7 @@ version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
+ "rustx-compiler",
 ]
 
 [[package]]

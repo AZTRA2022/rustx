@@ -11,3 +11,4 @@ proc-macro = true
 [dependencies]
 proc-macro2 = "1"
 quote = "1"
+rustx-compiler = { path = "../rustx-compiler" }

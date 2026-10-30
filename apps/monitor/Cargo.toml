@@ -10,6 +10,3 @@ rustx = { path = "../../crates/rustx" }
 rustx-dom = { path = "../../crates/rustx-dom" }
 # Named by the generated pages, never by a line a developer writes.
 rustx-engine = { path = "../../crates/rustx-engine" }
-
-[build-dependencies]
-rustx-build = { path = "../../crates/rustx-build" }
