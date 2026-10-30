@@ -468,14 +468,21 @@ fn crossing_value(attribute: &Attribute) -> Result<TokenStream, CompileError> {
             if written.ends_with(".to_string()") || written.ends_with(".into()") {
                 return Ok(quote! { rustx_dom::Value::String(#inner) });
             }
+            // A number the page computed says so in the page. The
+            // compiler does not know the types of the developer's Rust,
+            // and `as f64` is the developer saying it in Rust's own
+            // words rather than the compiler guessing.
+            if written.ends_with("as f64") {
+                return Ok(quote! { rustx_dom::Value::Number(#inner) });
+            }
             Err(CompileError::flagged(
                 attribute.offset,
                 format!(
                     "`{}` has to cross into React as a value, and rustx cannot tell what \
                      `{written}` is. What crosses is a string, a number, a boolean or \
-                     nothing — write `{}={{{written}.to_string()}}` if it is a string, or \
-                     a number or boolean literal.",
-                    attribute.name, attribute.name
+                     nothing: write `{}={{{written}.to_string()}}` for a string, or \
+                     `{}={{{written} as f64}}` for a number.",
+                    attribute.name, attribute.name, attribute.name
                 ),
             ))
         }

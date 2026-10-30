@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hybrid</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { margin: 0; font: 15px/1.5 system-ui, sans-serif; background: #16161a; color: #fffffe; }
+      main { padding: 1.4rem; display: grid; gap: 1rem; justify-items: start; }
+      h1 { font-size: 1.2rem; margin: 0; }
+      .panel { background: #242629; padding: 0.7rem 1rem; border-radius: 8px; }
+      .chart { font-variant-numeric: tabular-nums; }
+      button { font: inherit; border: 0; border-radius: 6px; background: #7f5af0; color: #fffffe; padding: 0.45rem 0.9rem; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <!-- The JavaScript half of the boundary goes in before the host it
+         will be asked about. rustx mounts the page as soon as `#app`
+         exists, and a page that owns half a boundary has to have
+         installed its half by then — otherwise the first render hands a
+         node to nobody and the container stays empty for good. -->
+    <script src="components.js"></script>
+
+    <!-- The page is `app/page.rsx` and the frame around it is
+         `app/layout.rsx`. Nothing here is. -->
+    <div id="app"></div>
+    <script>
+      if (hybrid_scenario() === "page") {
+        const waitFor = (ready, then) => {
+          const look = () => {
+            if (!ready()) {
+              requestAnimationFrame(look);
+              return;
+            }
+            then();
+          };
+          look();
+        };
+
+        const chart = () => document.querySelector(".chart");
+        const counter = () => document.querySelector("#counter-in-panel");
+        const state = () => window.__rustx_hybrid;
+
+        // The page arrives, and with it the container rustx handed over.
+        waitFor(() => chart() !== null, () => {
+          // JavaScript builds its panel, and the panel asks rustx for a
+          // component of its own.
+          window.__rustx_panel(document.querySelector("#panel-host"));
+
+          waitFor(() => counter() !== null, () => {
+            document.querySelector("#add").click();
+            document.querySelector("#add").click();
+
+            // One value, two owners. When both sides show 2, one frame
+            // drew the chart React owns and the component rustx owns.
+            waitFor(
+              () => chart().textContent === "2 points" && counter().textContent === "2",
+              () => {
+                hybrid_report("chart", chart().textContent);
+                hybrid_report("counter_in_panel", counter().textContent);
+                hybrid_report("drawn_on_one_frame", "yes");
+                hybrid_report("js_mounts", String(state().mounts));
+
+                // Leaving the page takes the container with it, and
+                // JavaScript is told while it is still in the document.
+                document.querySelector("#leave").click();
+                waitFor(() => state().unmounts > 0, () => {
+                  hybrid_report(
+                    "js_unmounted",
+                    state().unmountedWhileAttached ? "yes" : "after it had gone"
+                  );
+                });
+              }
+            );
+          });
+        });
+      }
+    </script>
+  </body>
+</html>

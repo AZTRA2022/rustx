@@ -37,6 +37,10 @@ thread_local! {
     /// The last thing the boundary had to complain about, for a test or
     /// a diagnostic to read.
     static COMPLAINT: RefCell<Option<String>> = const { RefCell::new(None) };
+    /// Boundaries rendered while the page had no bridge, waiting for
+    /// one to appear.
+    static PENDING: RefCell<Vec<(String, Node, Vec<(String, Value)>)>> =
+        const { RefCell::new(Vec::new()) };
 }
 
 /// How many times a node has been handed to React.
@@ -60,6 +64,17 @@ pub fn last_complaint() -> Option<String> {
 /// what tells an update from a mount.
 pub(crate) fn hand_over(component: &str, container: &Node, props: &[(String, Value)]) {
     let Some(bridge) = Node::on_window("__rustx_react") else {
+        // Held, not dropped. A page installs its half of the boundary in
+        // a script, and rustx renders as soon as the host element
+        // exists: whichever came first, the container is handed over on
+        // the frame the bridge appears.
+        PENDING.with(|pending| {
+            pending.borrow_mut().push((
+                component.to_string(),
+                container.clone(),
+                props.to_vec(),
+            ))
+        });
         report_missing_bridge();
         return;
     };
@@ -149,4 +164,23 @@ pub(crate) fn mount_registered(name: &str, id: &str) -> Result<(), crate::Native
     };
     crate::render::mount_app(move || component(), id)?;
     Ok(())
+}
+
+/// Hand over anything that was rendered before the bridge existed.
+///
+/// Called on every frame, and costs a look at an empty list when there
+/// is nothing waiting — which is every frame of an application that
+/// loads its script before its host element, and every frame of one
+/// that has no boundary at all.
+pub(crate) fn hand_over_pending() {
+    if PENDING.with(|pending| pending.borrow().is_empty()) {
+        return;
+    }
+    if Node::on_window("__rustx_react").is_none() {
+        return;
+    }
+    let waiting = PENDING.with(|pending| std::mem::take(&mut *pending.borrow_mut()));
+    for (component, container, props) in waiting {
+        hand_over(&component, &container, &props);
+    }
 }

@@ -118,6 +118,11 @@ pub fn unmount_all() {
 
 /// The frame callback. Nothing here runs unless something changed.
 fn render_dirty() {
+    // A boundary that was rendered before the page had a bridge is
+    // handed over here, on the first frame there is somebody to hand it
+    // to. Nothing else in this function runs unless something changed.
+    crate::foreign::hand_over_pending();
+
     // A child component that changed is redrawn by rendering the root
     // above it: the root is what owns a host element, and the diff is
     // what finds the one text that moved. Without this step a dirty

@@ -406,6 +406,32 @@
                         } catch (e) {
                           rustx_report("unknown_rustx_component", String(e));
                         }
+
+                        // Last: a boundary rendered while the page has
+                        // no bridge at all. It must not stay empty for
+                        // good — otherwise a `<script>` written after
+                        // the host is an empty container nobody can
+                        // explain. The engine holds it and hands it
+                        // over on the frame the bridge appears.
+                        const bridge = window.__rustx_react;
+                        delete window.__rustx_react;
+                        rustx_show_chart();
+                        setTimeout(() => {
+                          rustx_report(
+                            "empty_while_no_bridge",
+                            document.querySelector("#rustx-js-chart").textContent === ""
+                              ? "yes"
+                              : "no"
+                          );
+                          window.__rustx_react = bridge;
+                          waitFor(
+                            () => {
+                              const box = document.querySelector("#rustx-js-chart");
+                              return box !== null && box.textContent !== "";
+                            },
+                            () => rustx_report("handed_over_late", "yes")
+                          );
+                        }, 300);
                       }, 200);
                     });
                   });

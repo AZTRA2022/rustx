@@ -134,3 +134,24 @@ fn mounting_an_unregistered_rustx_component_is_an_error_the_page_can_catch() {
         report().raw()
     );
 }
+
+#[test]
+fn a_boundary_rendered_before_the_bridge_exists_is_handed_over_when_it_appears() {
+    // A page installs its half of the boundary in a script, and rustx
+    // renders as soon as the host element exists. A container that was
+    // handed to nobody must not stay empty for good — otherwise a
+    // `<script>` written after the host is an empty box nobody can
+    // explain.
+    assert_eq!(
+        report().get("empty_while_no_bridge"),
+        "yes",
+        "full output:\n{}",
+        report().raw()
+    );
+    assert_eq!(
+        report().get("handed_over_late"),
+        "yes",
+        "the container was never handed over once the bridge appeared:\n{}",
+        report().raw()
+    );
+}

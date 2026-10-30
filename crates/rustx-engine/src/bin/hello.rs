@@ -1191,6 +1191,15 @@ fn install_foreign_natives() {
         Ok(Value::Null)
     });
 
+    register_native("rustx_show_chart", |_args| {
+        CHART_SHOWN.with(|slot| {
+            if let Some(cell) = slot.borrow().as_ref() {
+                cell.set(true);
+            }
+        });
+        Ok(Value::Null)
+    });
+
     register_native("rustx_hide_chart", |_args| {
         CHART_SHOWN.with(|slot| {
             if let Some(cell) = slot.borrow().as_ref() {

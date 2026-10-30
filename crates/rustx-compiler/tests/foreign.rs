@@ -70,3 +70,13 @@ fn an_event_on_a_js_tag_is_refused() {
     let message = refusal("fn P() -> Element {\n    return <js::Chart onClick={|_| ()} />;\n}");
     assert!(message.contains("onClick"), "got {message}");
 }
+
+#[test]
+fn a_number_a_page_computed_crosses_when_it_says_it_is_a_number() {
+    // The compiler does not know the types of the developer's Rust, so
+    // `as f64` is how a computed number says what it is — explicitly,
+    // in the page, rather than by a guess in the compiler.
+    let rust = rewrite_one("fn P() -> Element {\n    return <js::Chart points={count() as f64} />;\n}");
+    assert!(rust.contains("Value :: Number"), "got {rust}");
+    assert!(rust.contains("count () as f64"), "got {rust}");
+}
