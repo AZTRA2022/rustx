@@ -8,6 +8,7 @@
 
 mod element;
 pub mod diff;
+pub mod route;
 pub mod state;
 pub mod store;
 
