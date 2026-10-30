@@ -16,6 +16,7 @@ pub mod map;
 pub mod parse;
 pub mod promote;
 pub mod rewrite;
+pub mod routes;
 pub mod transpile;
 pub mod scan;
 pub mod tags;

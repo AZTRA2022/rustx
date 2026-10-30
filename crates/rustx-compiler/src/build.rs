@@ -41,6 +41,29 @@ pub fn compile_directory(from: &Path, to: &Path) -> Result<Vec<PathBuf>, Compile
     Ok(written)
 }
 
+/// The same, plus the route table — for an application whose screens
+/// are its files.
+///
+/// Routing is asked for rather than assumed: under `compile_directory` a
+/// `page.rsx` is just a file, and an application that mounts its
+/// components by hand (the counter, the monitor) keeps doing so. Under
+/// this one, every `page.rsx` is a screen and must declare `fn Page`,
+/// which is what makes a missing declaration a sentence instead of a
+/// screen that never appears.
+///
+/// The table is written beside the pages it names, so its `include!`
+/// paths are the paths they were written as, and an application
+/// includes one file rather than one per screen.
+pub fn compile_app(from: &Path, to: &Path) -> Result<Vec<PathBuf>, CompileError> {
+    let mut written = compile_directory(from, to)?;
+
+    let table = to.join("routes.rs");
+    write(&table, &crate::routes::table_for(from)?)?;
+    written.push(table);
+
+    Ok(written)
+}
+
 fn collect(directory: &Path, into: &mut Vec<PathBuf>) -> Result<(), CompileError> {
     let entries = std::fs::read_dir(directory).map_err(|error| io(directory, error))?;
     for entry in entries {
