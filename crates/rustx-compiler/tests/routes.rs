@@ -210,3 +210,33 @@ fn a_layout_that_does_not_take_its_children_is_refused_by_name() {
         "the complaint should name `children`, got {message}"
     );
 }
+
+#[test]
+fn every_component_without_parameters_is_in_the_component_table() {
+    // React mounts a rustx component by name. Which components an
+    // application is willing to let it mount is not a decision worth
+    // asking for: a component written in `app/` is a component.
+    let generated = table(&[(
+        "page.rsx",
+        "fn Page() -> Element {\n    return <p>page</p>;\n}\n\
+         fn Panel() -> Element {\n    return <p>panel</p>;\n}\n",
+    )]);
+    assert!(
+        generated.contains("pub fn component_table()"),
+        "got {generated}"
+    );
+    assert!(generated.contains("(\"Panel\""), "got {generated}");
+    assert!(generated.contains("(\"Page\""), "got {generated}");
+}
+
+#[test]
+fn a_component_with_parameters_is_not_in_the_component_table() {
+    // React has nothing to fill them with, and a mount that could only
+    // fail is worse than one that is not offered.
+    let generated = table(&[(
+        "page.rsx",
+        "fn Page() -> Element {\n    return <p>page</p>;\n}\n\
+         fn Row(label: String) -> Element {\n    return <li>{label}</li>;\n}\n",
+    )]);
+    assert!(!generated.contains("(\"Row\""), "got {generated}");
+}

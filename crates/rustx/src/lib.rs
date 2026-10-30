@@ -45,6 +45,9 @@ thread_local! {
     static MANIFEST_DIR: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
     /// The route table the build script wrote.
     static ROUTES: Cell<Option<&'static [route::Route]>> = const { Cell::new(None) };
+    /// Every component the pages declare, for React to mount by name.
+    static COMPONENTS: RefCell<Vec<(&'static str, fn() -> Element)>> =
+        const { RefCell::new(Vec::new()) };
 }
 
 /// Said by `#[rustx::main]`, which is where `env!` reads the
@@ -58,6 +61,16 @@ pub fn install_manifest_dir(directory: &str) {
 #[doc(hidden)]
 pub fn install_routes(routes: &'static [route::Route]) {
     ROUTES.with(|held| held.set(Some(routes)));
+}
+
+/// Said by `#[rustx::main]`, with every component the pages declare.
+///
+/// An application does not choose which ones React may mount: a
+/// component written in `app/` is a component, and a name nobody wrote
+/// is an error React can catch.
+#[doc(hidden)]
+pub fn install_components(components: Vec<(&'static str, fn() -> Element)>) {
+    COMPONENTS.with(|held| *held.borrow_mut() = components);
 }
 
 /// A window, and where its screens come from.
@@ -164,6 +177,7 @@ impl App {
     /// because the render process is where those hooks run.
     pub fn new(config: Config) -> Result<Self, Error> {
         let routes = ROUTES.with(Cell::get);
+        let components = COMPONENTS.with(|held| held.borrow().clone());
         let host = config.host.clone();
         let start = config.start.clone();
         let not_found = config.not_found.unwrap_or(no_such_page);
@@ -171,6 +185,11 @@ impl App {
         if let Some(routes) = routes {
             rustx_engine::on_context_created(move || start_router(routes, &host, &start, not_found));
         }
+        rustx_engine::on_context_created(move || {
+            for (name, component) in &components {
+                foreign::register_component(name, *component);
+            }
+        });
         for (id, component) in config.mounts {
             rustx_engine::on_context_created(move || mount_when_ready(id.clone(), component));
         }

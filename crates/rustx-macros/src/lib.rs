@@ -50,6 +50,7 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
         quote! {
             rustx::install_manifest_dir(env!("CARGO_MANIFEST_DIR"));
             rustx::install_routes(route_table());
+            rustx::install_components(component_table());
         }
     } else {
         quote! {

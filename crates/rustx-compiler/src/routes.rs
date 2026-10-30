@@ -26,6 +26,9 @@ struct Page {
     include: String,
     /// The parameters `fn Page` declared, in order.
     parameters: Vec<String>,
+    /// Every component this file declares that takes nothing, which
+    /// is every component React could be given the name of.
+    components: Vec<String>,
     /// Indices into the layout list, outermost first.
     layouts: Vec<usize>,
 }
@@ -108,10 +111,17 @@ pub fn table_for(from: &Path) -> Result<String, CompileError> {
             .map(|(at, _)| at)
             .collect();
 
+        let components = component_signatures(&std::fs::read_to_string(source).unwrap_or_default())
+            .into_iter()
+            .filter(|(_, parameters)| parameters.is_empty())
+            .map(|(name, _)| name)
+            .collect();
+
         pages.push(Page {
             pattern,
             include: include_path(relative),
             parameters,
+            components,
             layouts: enclosing,
         });
     }
@@ -148,13 +158,23 @@ fn render(pages: &[Page], layouts: &[PathBuf], from: &Path) -> String {
             .iter()
             .map(|parameter| format!("params.get(\"{parameter}\").to_string()"))
             .collect();
+        let components: Vec<String> = page
+            .components
+            .iter()
+            .map(|name| {
+                format!("(\"{name}\", {name} as fn() -> rustx_dom::Element)")
+            })
+            .collect();
         out.push_str(&format!(
             "mod page_{at} {{\n    use super::*;\n    include!(\"{}\");\n\n\
              \x20   pub(super) fn screen(params: &rustx_dom::route::Params) \
              -> rustx_dom::Element {{\n\
-             \x20       let _ = params;\n        Page({})\n    }}\n}}\n\n",
+             \x20       let _ = params;\n        Page({})\n    }}\n\n\
+             \x20   pub(super) fn components() -> Vec<(&'static str, fn() -> rustx_dom::Element)> \
+             {{\n        vec![{}]\n    }}\n}}\n\n",
             page.include,
-            arguments.join(", ")
+            arguments.join(", "),
+            components.join(", ")
         ));
     }
 
@@ -177,7 +197,21 @@ fn render(pages: &[Page], layouts: &[PathBuf], from: &Path) -> String {
             enclosing.join(", ")
         ));
     }
-    out.push_str("    ]\n}\n");
+    out.push_str("    ]\n}\n\n");
+
+    // Every component the application declares, by name. An application
+    // does not say which ones React may mount: a component written in
+    // `app/` is a component, and a name nobody wrote is an error React
+    // can catch.
+    out.push_str(
+        "/// Every component of this application that takes nothing, by name.\n\
+         pub fn component_table() -> Vec<(&'static str, fn() -> rustx_dom::Element)> {\n\
+         \x20   let mut all = Vec::new();\n",
+    );
+    for at in 0..pages.len() {
+        out.push_str(&format!("    all.extend(page_{at}::components());\n"));
+    }
+    out.push_str("    all\n}\n");
     out
 }
 
