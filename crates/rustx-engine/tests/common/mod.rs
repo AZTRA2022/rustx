@@ -77,12 +77,15 @@ fn run(name: &str, ending: Ending) -> Completion {
 
     let exit = match ending {
         Ending::Killed => {
-            std::thread::sleep(Duration::from_secs(10));
+            wait_for_quiet(&report_file, Duration::from_secs(120), Duration::from_secs(8));
             kill(&child);
             let _ = child.wait();
             None
         }
-        Ending::ByItself => wait_for_exit(&mut child, Duration::from_secs(30)),
+        // Long, because the patience has to cover Chromium's start-up
+        // and not only the shutdown being measured: on a machine with
+        // no GPU the first frame is most of a minute away.
+        Ending::ByItself => wait_for_exit(&mut child, Duration::from_secs(150)),
     };
 
     let mut raw = String::new();
@@ -102,6 +105,40 @@ fn run(name: &str, ending: Ending) -> Completion {
     Completion {
         report: Report { values, raw },
         exit,
+    }
+}
+
+/// Waits for the scenario to have had its say, rather than for a fixed
+/// number of seconds.
+///
+/// Starting Chromium takes two seconds on one machine and forty on
+/// another — a virtual desktop with no GPU spends most of a minute
+/// falling back to software rendering before the first frame. A flat
+/// sleep turns that into a suite that fails with every report empty,
+/// which looks like a broken engine and is a broken stopwatch. So the
+/// report file is watched instead: once it has stopped growing for
+/// `quiet`, the scenario is done.
+fn wait_for_quiet(report: &std::path::Path, patience: Duration, quiet: Duration) {
+    let deadline = std::time::Instant::now() + patience;
+    let mut lines = 0;
+    let mut last_change = std::time::Instant::now();
+
+    while std::time::Instant::now() < deadline {
+        // The browser process writes its pid before the window is even
+        // asked for, so that line is not counted: what is being waited
+        // for is the page, which runs in the render process.
+        let now = std::fs::read_to_string(report)
+            .unwrap_or_default()
+            .lines()
+            .filter(|line| !line.starts_with("REPORT browser_pid="))
+            .count();
+        if now != lines {
+            lines = now;
+            last_change = std::time::Instant::now();
+        } else if lines > 0 && last_change.elapsed() >= quiet {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(200));
     }
 }
 
