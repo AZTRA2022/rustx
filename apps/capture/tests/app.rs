@@ -67,3 +67,29 @@ fn the_two_screens_share_the_selected_device() {
         report().raw()
     );
 }
+
+#[test]
+fn the_preview_follows_the_parameter_it_was_given() {
+    // I4 of the plan 5 review, and Review Focus 3 with a proof app
+    // behind it at last. `/device/Webcam` and `/device/Micro` are one
+    // route, so one component rendered twice — the preview showed the
+    // device the first render opened.
+    assert_eq!(
+        report().get("preview_after_param_change"),
+        "Micro",
+        "the preview kept the first device:\n{}",
+        report().raw()
+    );
+}
+
+#[test]
+fn a_parameter_change_closes_what_the_last_one_opened() {
+    // Two streams have been closed by now: the one the first visit
+    // opened and left, and the one this visit replaced.
+    assert_eq!(
+        report().get("closed_after_param_change"),
+        "2",
+        "the stream of the device that was left stayed open:\n{}",
+        report().raw()
+    );
+}

@@ -49,7 +49,19 @@ enum Ending {
 }
 
 fn run(name: &str, ending: Ending) -> Completion {
-    let report_file = std::env::temp_dir().join(format!("rustx-report-{name}.txt"));
+    // A name nobody else can be holding. A fixed one was removed at
+    // the start of a run, and on Windows that removal fails silently
+    // while a process from the last run still has the file open — so
+    // the tests read a stale report and passed in under two seconds.
+    let report_file = std::env::temp_dir().join(format!(
+        "rustx-report-{}-{}-{}.txt",
+        name,
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_nanos())
+            .unwrap_or(0)
+    ));
     let _ = std::fs::remove_file(&report_file);
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_hello"))

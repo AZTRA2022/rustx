@@ -72,7 +72,13 @@ impl Scope {
         // child's cells would be counted as the parent's and the
         // reach-check of plan 4 would accuse both of forgetting the
         // other's values.
-        FRAMES.with(|frames| frames.borrow_mut().push(Frame::default()));
+        let keys_at = KEYS.with(|keys| keys.borrow().len());
+        FRAMES.with(|frames| {
+            frames.borrow_mut().push(Frame {
+                keys_at,
+                ..Frame::default()
+            })
+        });
         Self { _private: () }
     }
 }
@@ -95,6 +101,18 @@ struct Frame {
     touched: Vec<(Slot, String)>,
     /// The components declared, in the order they were written.
     children: Vec<InstanceId>,
+    /// How many keys were already in force when this render began.
+    ///
+    /// A component's cells are keyed by the keys *it* opened, not by the
+    /// ones it was rendered under. The router renders every page inside
+    /// `with_key(pattern)`, and without this baseline the page's own
+    /// keyed rows all began with the pattern: a row that left the list
+    /// was then looked for by the outermost key, so removing one row
+    /// would have taken every value the page held. The key it was
+    /// rendered under is already in its instance number — that is what
+    /// `component_at` keys a child by — so it has no business being in
+    /// its cells' keys as well.
+    keys_at: usize,
 }
 
 thread_local! {
@@ -355,6 +373,11 @@ pub fn drop_instance(id: InstanceId) {
     // The identities of the children it declared go too, or the map
     // would keep a row for every component the application ever showed.
     CHILD_IDS.with(|ids| ids.borrow_mut().retain(|(parent, _, _), _| *parent != id));
+    // And the row that names this instance as somebody's child. Pruning
+    // by parent alone left one row for every key the application had
+    // ever shown — a page visited and left stayed on record for as long
+    // as the window was open.
+    CHILD_IDS.with(|ids| ids.borrow_mut().retain(|_, child| *child != id));
     PARENTS.with(|parents| parents.borrow_mut().remove(&id));
 
     REACHED_BEFORE.with(|before| before.borrow_mut().remove(&id));
@@ -404,6 +427,13 @@ pub fn live_instances() -> usize {
     CELLS.with(|cells| cells.borrow().len())
 }
 
+/// How many child identities are on record. For tests and diagnostics:
+/// a number that grows with every key an application has ever shown is
+/// a leak, however small each row is.
+pub fn live_child_ids() -> usize {
+    CHILD_IDS.with(|ids| ids.borrow().len())
+}
+
 /// Render `body` as the row identified by `key`.
 ///
 /// A cell is identified by where it is written, which tells one `let
@@ -436,9 +466,16 @@ pub fn with_key<R>(key: impl std::fmt::Display, body: impl FnOnce() -> R) -> R {
 /// Nested keys are joined with a character nobody writes in a key.
 const KEY_SEPARATOR: char = '\x1f';
 
-/// The keys in force, as one string. Empty outside any list.
+/// The keys this render opened, as one string. Empty outside any list.
+///
+/// Keys that were already in force when the render began belong to the
+/// component above — see `Frame::keys_at`.
 fn key_path() -> String {
-    KEYS.with(|keys| keys.borrow().join("\u{1f}"))
+    let from = FRAMES.with(|frames| frames.borrow().last().map_or(0, |frame| frame.keys_at));
+    KEYS.with(|keys| {
+        let keys = keys.borrow();
+        keys.get(from..).unwrap_or(&[]).join("\u{1f}")
+    })
 }
 
 /// A value built once and held for as long as its component lives.

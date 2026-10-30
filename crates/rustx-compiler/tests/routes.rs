@@ -192,3 +192,21 @@ fn route_named<'a>(generated: &'a str, pattern: &str) -> &'a str {
         .find(|route| route.contains(&format!("pattern: \"{pattern}\",")))
         .unwrap_or_else(|| panic!("no `{pattern}` route in {generated}"))
 }
+
+#[test]
+fn a_layout_that_does_not_take_its_children_is_refused_by_name() {
+    // I7 of the plan 5 review. The parameters of a `layout.rsx` were
+    // read and discarded, so `fn Layout()` compiled into a call with
+    // one argument and the developer met a rustc arity error inside
+    // OUT_DIR — a file they never wrote and cannot find.
+    let error = table_for(Path::new(&tree(&[
+        ("layout.rsx", "fn Layout() -> Element { return <main>x</main>; }"),
+        ("page.rsx", PAGE),
+    ])))
+    .expect_err("should be refused");
+    let message = error.message;
+    assert!(
+        message.contains("children"),
+        "the complaint should name `children`, got {message}"
+    );
+}

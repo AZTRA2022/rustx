@@ -111,7 +111,7 @@ impl Cursor<'_> {
                     children.push(self.element()?);
                 }
                 Some(b'{') => {
-                    let code = self.braced_rust()?;
+                    let code = self.braced_rust(None)?;
                     children.push(Node::Expression(code));
                 }
                 Some(_) => {
@@ -170,7 +170,9 @@ impl Cursor<'_> {
                         self.index = skip_attribute_string(self.source, open)?;
                         AttributeSource::Literal(self.source[open + 1..self.index - 1].to_string())
                     }
-                    Some(b'{') => AttributeSource::Expression(self.braced_rust()?),
+                    Some(b'{') => AttributeSource::Expression(
+                        self.braced_rust(crate::attributes::is_event(&name).then_some(name.as_str()))?,
+                    ),
                     _ => {
                         return Err(self.error(
                             self.index,
@@ -198,7 +200,11 @@ impl Cursor<'_> {
     /// written that way in TSX too. The substitution happens here, where
     /// offsets are still offsets into the real file, so that an error
     /// inside a nested tag lands on the line it was written on.
-    fn braced_rust(&mut self) -> Result<String, CompileError> {
+    /// `event` names the event, when these braces hold a handler: a
+    /// handler runs between renders, so a component written inside one
+    /// has no render to belong to and is refused here rather than
+    /// panicking under the developer's finger.
+    fn braced_rust(&mut self, event: Option<&str>) -> Result<String, CompileError> {
         let open = self.index;
         self.index = skip_braces(self.source, open)?;
         let (from, to) = (open + 1, self.index - 1);
@@ -211,6 +217,19 @@ impl Cursor<'_> {
             // A region written inside a handler sees the same
             // components as the one around it: they are the file's.
             let components = crate::promote::component_signatures(self.source);
+            if let Some(event) = event
+                && let Some(component) = component_in(&node)
+            {
+                return Err(CompileError::flagged(
+                    span.start,
+                    format!(
+                        "`<{component} />` is written inside `{event}`, and a handler runs \
+                         between two renders — there is no render for the component to \
+                         belong to. Put it in what the component returns, and let the \
+                         handler change the state it reads."
+                    ),
+                ));
+            }
             let context = crate::emit::Context {
                 components: &components,
                 source: self.source,
@@ -304,5 +323,20 @@ fn display_name(name: &str) -> String {
         "the fragment <>".to_string()
     } else {
         format!("<{name}>")
+    }
+}
+
+/// The first component tag in this region, however deep: a component
+/// written inside a plain element inside a handler is still a component
+/// inside a handler.
+fn component_in(node: &Node) -> Option<String> {
+    match node {
+        Node::Tag(tag) => {
+            if crate::tags::looks_like_a_component(&tag.name) {
+                return Some(tag.name.clone());
+            }
+            tag.children.iter().find_map(component_in)
+        }
+        _ => None,
     }
 }

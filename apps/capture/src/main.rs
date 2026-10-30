@@ -26,6 +26,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use rustx_dom::Element;
+use rustx_dom::state::with_key;
 use rustx_dom::store::store;
 use rustx_engine::{
     App, AppConfig, Bootstrap, NativeError, Value, bootstrap, on_context_created, register_native,

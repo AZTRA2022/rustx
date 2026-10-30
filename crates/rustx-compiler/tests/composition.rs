@@ -114,3 +114,22 @@ fn composing_keeps_the_file_the_same_length() {
         source.lines().count()
     );
 }
+
+#[test]
+fn a_component_tag_inside_a_handler_is_refused_where_it_was_written() {
+    // I6 of the plan 5 review. It compiled, and the panic came at click
+    // time with a message about the renderer — for code the developer
+    // wrote. A component is rendered by the render that declares it,
+    // and a handler runs between renders, so there is no render to
+    // belong to.
+    let source = "fn Row(name: String) -> Element {\n    return <li>{name}</li>;\n}\n\n\
+                  fn P() -> Element {\n    \
+                  return <button onClick={move |_| { let _ = <Row name={\"a\".to_string()} />; }}>go</button>;\n}\n";
+    let error = rustx_compiler::transpile::transpile(source).expect_err("should be refused");
+    assert!(
+        error.message.contains("Row") && error.message.contains("handler"),
+        "got {}",
+        error.message
+    );
+    assert_eq!(error.line, 6, "it was written on line 6: {}", error.message);
+}

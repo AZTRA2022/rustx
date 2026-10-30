@@ -143,3 +143,71 @@ fn render_parent(with_child: Option<Rc<Cell<bool>>>) {
     }
     end_render().expect("a parent may declare a different child each render");
 }
+
+#[test]
+fn a_childs_keyed_rows_are_its_own_and_not_the_key_it_was_rendered_under() {
+    // I1 of the plan 5 review. The router renders every page inside
+    // `with_key(pattern)`, so inside the page the key path began with
+    // the pattern. A row the page then removed was looked for by the
+    // outermost key — the pattern — and dropping it would have taken
+    // every cell the page held, not the row's.
+    use rustx_dom::state::with_key;
+
+    let released = Rc::new(Cell::new(false));
+
+    let render = |rows: &[&str], released: &Rc<Cell<bool>>| {
+        let _scope = Scope::enter(parent());
+        with_key("/device/[id]", || {
+            component_at(here!(), || {
+                for row in rows {
+                    with_key(*row, || {
+                        let kept = rustx_dom::state::keep_at(here!(), || {
+                            Noisy(Rc::clone(released))
+                        });
+                        kept.with(|_| ());
+                    });
+                }
+                // `component_at` closes the child's render itself.
+            });
+        });
+        end_render().expect("the parent reached its own values");
+    };
+
+    render(&["a", "b"], &released);
+    assert!(!released.get(), "nothing left the list yet");
+
+    // `b` is gone and `a` is still there: `a`'s value has to survive.
+    render(&["a"], &released);
+    assert!(released.get(), "the row that left should have been released");
+    assert!(
+        rustx_dom::state::live_instances() > 0,
+        "the row that stayed should still hold its value"
+    );
+}
+
+#[test]
+fn a_child_that_left_the_tree_leaves_no_row_behind_it() {
+    // I2 of the plan 5 review. The identity map was pruned by parent,
+    // so the row that named a released child stayed: one row per key
+    // the application had ever shown, for as long as it ran.
+    let before = rustx_dom::state::live_child_ids();
+
+    for key in ["a", "b", "c"] {
+        let _scope = Scope::enter(parent());
+        rustx_dom::state::with_key(key, || {
+            component_at(here!(), || {
+                let kept = rustx_dom::state::keep_at(here!(), || 1_u8);
+                kept.with(|_| ());
+            });
+        });
+        // Nothing was declared under the next key, so the child under
+        // the last one left the tree.
+        end_render().expect("the parent reached its own values");
+    }
+
+    assert_eq!(
+        rustx_dom::state::live_child_ids(),
+        before + 1,
+        "only the child of the last render is still in the tree"
+    );
+}

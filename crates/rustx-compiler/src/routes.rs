@@ -53,7 +53,25 @@ pub fn table_for(from: &Path) -> Result<String, CompileError> {
         .collect();
     layouts.sort_by_key(|path| (path.components().count(), path.clone()));
     for layout in &layouts {
-        declares(layout, "Layout")?;
+        // A layout is a component that wraps what is below it, so it
+        // has to take it. Reading the parameters and discarding them
+        // sent the developer a `rustc` arity error about a call written
+        // in `OUT_DIR` — a file they never wrote.
+        let parameters = declares(layout, "Layout")?;
+        if parameters != ["children"] {
+            return Err(flag(
+                layout,
+                format!(
+                    "`fn Layout` takes `children: Element` and nothing else — it takes {}. \
+                     A layout wraps the screens below it, and `children` is what it wraps.",
+                    if parameters.is_empty() {
+                        "nothing".to_string()
+                    } else {
+                        parameters.join(", ")
+                    }
+                ),
+            ));
+        }
     }
 
     let mut pages = Vec::new();

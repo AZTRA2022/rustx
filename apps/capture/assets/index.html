@@ -33,6 +33,21 @@
         const devices = () => document.querySelectorAll(".device");
         const frame = (then) => requestAnimationFrame(() => requestAnimationFrame(then));
 
+        // Waited for, not assumed. Two frames are usually enough for a
+        // navigation to land, and a machine where they are not cost
+        // every test in this file sixty seconds and said nothing about
+        // why.
+        const waitFor = (selector, then) => {
+          const look = () => {
+            if (document.querySelector(selector) === null) {
+              requestAnimationFrame(look);
+              return;
+            }
+            then();
+          };
+          look();
+        };
+
         const settle = () => {
           if (devices().length < 3) {
             requestAnimationFrame(settle);
@@ -42,7 +57,7 @@
           // opens: the list calls `navigate`.
           devices()[0].click();
 
-          frame(() => {
+          waitFor("#preview", () => {
             capture_report("preview_title", preview().textContent);
             capture_report("selected_in_preview", document.querySelector("#selected-in-preview").textContent);
 
@@ -50,7 +65,7 @@
             // opened — because the preview was holding it, not because
             // anybody said so.
             document.querySelector("#back").click();
-            frame(() => {
+            waitFor("#selected-in-list", () => {
               capture_report("selected_in_list", document.querySelector("#selected-in-list").textContent);
 
               // Waited for rather than assumed: the bar ticks every 50ms
@@ -63,6 +78,24 @@
                 capture_report("ticks_after_navigate", capture_ticks());
                 capture_report("layout_starts", capture_layout_starts());
                 capture_report("closed_streams", capture_closed_streams());
+
+                // One more leg: the same route with another parameter.
+                // `/device/Webcam` to `/device/Micro` is one component
+                // rendered twice, so what the first device opened has
+                // to close before the second one is shown.
+                devices()[0].click();
+                waitFor("#other", () => {
+                  document.querySelector("#other").click();
+                  const switched = () => {
+                    if (preview() === null || preview().textContent !== "Micro") {
+                      requestAnimationFrame(switched);
+                      return;
+                    }
+                    capture_report("preview_after_param_change", preview().textContent);
+                    capture_report("closed_after_param_change", capture_closed_streams());
+                  };
+                  switched();
+                });
               };
               ticked();
             });

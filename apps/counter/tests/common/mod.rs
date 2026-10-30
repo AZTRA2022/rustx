@@ -27,7 +27,19 @@ impl Report {
 
 /// Run the application on its only scenario and collect what it reported.
 pub fn run_counter_scenario() -> Report {
-    let report_file = std::env::temp_dir().join("rustx-report-counter.txt");
+    // A name nobody else can be holding. A fixed one was removed at
+    // the start of a run, and on Windows that removal fails silently
+    // while a process from the last run still has the file open — so
+    // the tests read a stale report and passed in under two seconds.
+    let report_file = std::env::temp_dir().join(format!(
+        "rustx-report-{}-{}-{}.txt",
+        "counter",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_nanos())
+            .unwrap_or(0)
+    ));
     let _ = std::fs::remove_file(&report_file);
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_counter"))
@@ -57,7 +69,7 @@ pub fn run_counter_scenario() -> Report {
     // number of seconds: starting Chromium takes much longer on a machine
     // that has just run the engine's own suite, and a flat sleep turns
     // that into a failure that looks like a bug in the application.
-    wait_for_report(&report_file, "moved_item_count", Duration::from_secs(60));
+    wait_for_report(&report_file, "moved_item_count", Duration::from_secs(150));
 
     let _ = Command::new("taskkill")
         .args(["/T", "/F", "/PID", &child.id().to_string()])
