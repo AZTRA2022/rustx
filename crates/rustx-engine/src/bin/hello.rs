@@ -114,7 +114,197 @@ fn install_natives() {
     install_dom_natives();
     install_frame_natives();
     install_task_natives();
+    install_router_natives();
     install_process_natives();
+}
+
+// The screens of the `router` scenario, written by hand where an
+// application would have them generated from its `app/` directory. What
+// they prove is what survives a navigation and what does not.
+static LAYOUT_TASK_STOPPED: AtomicBool = AtomicBool::new(false);
+static PAGE_TASK_STOPPED: AtomicBool = AtomicBool::new(false);
+
+thread_local! {
+    /// What the device page's effect opened and closed, in order.
+    static EFFECT_ORDER: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    /// How many times the home page has been built from nothing.
+    static HOME_BUILDS: Cell<u64> = const { Cell::new(0) };
+}
+
+/// The bar above every screen. It counts clicks, and the count is what
+/// says whether it survived the navigation under it.
+fn bar(children: Element) -> Element {
+    let clicks = rustx_dom::state::cell(
+        rustx_dom::state::Slot {
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        },
+        || 0_u64,
+    );
+    let clicked = clicks.clone();
+
+    Element::tag("div")
+        .child(
+            Element::tag("button")
+                .attribute("id", AttributeValue::Text("bar".into()))
+                .handler("onClick", Handler::new(move |_| clicked.update(|v| *v += 1)))
+                .child(Element::Text(clicks.get().to_string()))
+                .build(),
+        )
+        .child(children)
+        .build()
+}
+
+/// The home screen. It keeps a value and starts a task, so that leaving
+/// it can be seen to release both.
+fn home(_params: &rustx_dom::route::Params) -> Element {
+    let held = rustx_dom::state::keep_at(
+        rustx_dom::state::Slot {
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        },
+        || {
+            HOME_BUILDS.with(|builds| builds.set(builds.get() + 1));
+            rustx_engine::task::spawn(|alive| {
+                while alive.get() {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                PAGE_TASK_STOPPED.store(true, Ordering::Release);
+            })
+        },
+    );
+    held.with(|_| ());
+
+    Element::tag("p")
+        .attribute("id", AttributeValue::Text("screen".into()))
+        .child(Element::Text("home".into()))
+        .build()
+}
+
+/// The device screen, which takes the path's `id` as a prop and watches
+/// it with an effect — a camera closing before the next one opens.
+fn device(params: &rustx_dom::route::Params) -> Element {
+    let id = params.get("id").to_string();
+    rustx_dom::state::effect_at(
+        rustx_dom::state::Slot {
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        },
+        id.clone(),
+        {
+            let id = id.clone();
+            move || {
+                EFFECT_ORDER.with(|order| order.borrow_mut().push(format!("open {id}")));
+                Closes(id)
+            }
+        },
+    );
+
+    Element::tag("p")
+        .attribute("id", AttributeValue::Text("screen".into()))
+        .child(Element::Text(format!("device {id}")))
+        .build()
+}
+
+/// What an effect's guard does on the way out.
+struct Closes(String);
+
+impl Drop for Closes {
+    fn drop(&mut self) {
+        let id = self.0.clone();
+        EFFECT_ORDER.with(|order| order.borrow_mut().push(format!("close {id}")));
+    }
+}
+
+fn missing() -> Element {
+    Element::tag("p")
+        .attribute("id", AttributeValue::Text("screen".into()))
+        .child(Element::Text("not found".into()))
+        .build()
+}
+
+static ROUTES: &[rustx_dom::route::Route] = &[
+    rustx_dom::route::Route {
+        pattern: "/",
+        render: home,
+        layouts: &[bar],
+    },
+    rustx_dom::route::Route {
+        pattern: "/device/[id]",
+        render: device,
+        layouts: &[bar],
+    },
+];
+
+fn install_router_natives() {
+    register_native("rustx_start_router", |_args| {
+        rustx_engine::router::start(ROUTES, "screens", "/", missing)?;
+        Ok(Value::Null)
+    });
+
+    register_native("rustx_navigate", |args| {
+        let [Value::String(path)] = args else {
+            return Err(NativeError::new("expected one path"));
+        };
+        rustx_engine::router::navigate(path.clone());
+        Ok(Value::Null)
+    });
+
+    // The same, from a worker thread: a navigation is a mutation, so it
+    // travels the way every other mutation does.
+    register_native("rustx_navigate_from_a_thread", |args| {
+        let [Value::String(path)] = args else {
+            return Err(NativeError::new("expected one path"));
+        };
+        let path = path.clone();
+        let poster = poster();
+        std::thread::spawn(move || {
+            let _ = poster.post(move || rustx_engine::router::navigate(path));
+        });
+        Ok(Value::Null)
+    });
+
+    register_native("rustx_back", |_args| {
+        Ok(Value::String(rustx_engine::router::back().to_string()))
+    });
+
+    register_native("rustx_route", |_args| {
+        Ok(Value::String(rustx_engine::router::current()))
+    });
+
+    register_native("rustx_effect_order", |_args| {
+        Ok(Value::String(
+            EFFECT_ORDER.with(|order| order.borrow().join(",")),
+        ))
+    });
+
+    // A page that was released and built again would count twice.
+    register_native("rustx_home_builds", |_args| {
+        Ok(Value::String(HOME_BUILDS.with(Cell::get).to_string()))
+    });
+
+    register_native("rustx_page_task", |_args| {
+        Ok(Value::String(
+            if PAGE_TASK_STOPPED.load(Ordering::Acquire) {
+                "stopped".to_string()
+            } else {
+                "running".to_string()
+            },
+        ))
+    });
+
+    register_native("rustx_layout_task", |_args| {
+        Ok(Value::String(
+            if LAYOUT_TASK_STOPPED.load(Ordering::Acquire) {
+                "stopped".to_string()
+            } else {
+                "running".to_string()
+            },
+        ))
+    });
 }
 
 // What the background tasks of the `task` scenario report about

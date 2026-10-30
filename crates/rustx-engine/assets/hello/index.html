@@ -76,6 +76,8 @@
       <div id="holder"></div>
       <div id="props"></div>
       <div id="rows"></div>
+      <!-- The one host the router mounts its screens under. -->
+      <div id="screens"></div>
       <!-- Host for the component that starts a background task. -->
       <div id="ticker"></div>
       <p id="error"></p>
@@ -268,6 +270,70 @@
               });
             };
             requestAnimationFrame(settle);
+          });
+        } catch (e) {
+          rustx_report("scenario_error", String(e));
+        }
+      }
+
+      if (rustx_scenario() === "router") {
+        try {
+          rustx_start_router();
+
+          const screen = () => document.querySelector("#screen").textContent;
+          const bar = () => document.querySelector("#bar").textContent;
+          const frame = (then) => requestAnimationFrame(() => requestAnimationFrame(then));
+
+          frame(() => {
+            rustx_report("first_screen", screen());
+
+            // Three clicks on the bar, which is the layout's own state.
+            document.querySelector("#bar").click();
+            document.querySelector("#bar").click();
+            document.querySelector("#bar").click();
+
+            frame(() => {
+              rustx_navigate("/device/7");
+              frame(() => {
+                rustx_report("after_navigate", screen());
+                // The bar is above both screens, so it kept counting.
+                rustx_report("layout_state_after_navigate", bar());
+
+                // Same page, other parameter.
+                rustx_navigate("/device/8");
+                frame(() => {
+                  rustx_report("after_param_change", screen());
+                  rustx_report("effect_order", rustx_effect_order());
+
+                  // The home page was released when it was left: the
+                  // task it held had to stop, and coming back has to
+                  // build it from nothing rather than find it waiting.
+                  setTimeout(() => {
+                    rustx_report("left_page_task", rustx_page_task());
+
+                    rustx_navigate("/nowhere");
+                    frame(() => {
+                      rustx_report("unknown_path", screen());
+
+                      rustx_back();
+                      frame(() => {
+                        rustx_report("after_back", screen());
+
+                        rustx_navigate_from_a_thread("/");
+                        setTimeout(() => {
+                          rustx_report("after_posted_navigate", screen());
+                          rustx_report(
+                            "left_page_released",
+                            Number(rustx_home_builds()) > 1 ? "yes" : "no"
+                          );
+                          rustx_report("layout_task", rustx_layout_task());
+                        }, 300);
+                      });
+                    });
+                  }, 300);
+                });
+              });
+            });
           });
         } catch (e) {
           rustx_report("scenario_error", String(e));
