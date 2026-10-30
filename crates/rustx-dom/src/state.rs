@@ -109,6 +109,14 @@ thread_local! {
     /// The children each instance declared on its last render.
     static CHILDREN: RefCell<HashMap<InstanceId, Vec<InstanceId>>> =
         RefCell::new(HashMap::new());
+    /// Which instance renders each child.
+    ///
+    /// The engine re-renders roots, because a root is what it mounted
+    /// and what it has a host element for. A child marked dirty — a
+    /// layout whose own cell changed, a row that counts its own clicks
+    /// — therefore has to be turned into the root that draws it, and
+    /// this is what turns it.
+    static PARENTS: RefCell<HashMap<InstanceId, InstanceId>> = RefCell::new(HashMap::new());
 }
 
 /// An instance number nobody else has.
@@ -157,6 +165,8 @@ pub fn component_at<R>(slot: Slot, body: impl FnOnce() -> R) -> R {
         }
     };
 
+    PARENTS.with(|parents| parents.borrow_mut().insert(child, parent));
+
     // Declared, so the parent's `end_render` knows it is still wanted.
     FRAMES.with(|frames| {
         if let Some(frame) = frames.borrow_mut().last_mut()
@@ -192,6 +202,26 @@ pub fn children_of(instance: InstanceId) -> Vec<InstanceId> {
             .cloned()
             .unwrap_or_default()
     })
+}
+
+/// The instance that has to render for `instance` to be redrawn.
+///
+/// For a root, itself. For a child, the root above it: a component does
+/// not own a region of the page, its root does, so redrawing a child
+/// means rendering the root again and letting the diff find what moved.
+/// A cycle is impossible — a child's parent is always an instance that
+/// was already rendering when the child was made — but the walk is
+/// bounded anyway, because a frozen window is a worse failure than a
+/// missed redraw.
+pub fn root_of(instance: InstanceId) -> InstanceId {
+    let mut at = instance;
+    for _ in 0..10_000 {
+        match PARENTS.with(|parents| parents.borrow().get(&at).copied()) {
+            Some(parent) => at = parent,
+            None => return at,
+        }
+    }
+    at
 }
 
 /// The instance currently rendering.
@@ -325,6 +355,7 @@ pub fn drop_instance(id: InstanceId) {
     // The identities of the children it declared go too, or the map
     // would keep a row for every component the application ever showed.
     CHILD_IDS.with(|ids| ids.borrow_mut().retain(|(parent, _, _), _| *parent != id));
+    PARENTS.with(|parents| parents.borrow_mut().remove(&id));
 
     REACHED_BEFORE.with(|before| before.borrow_mut().remove(&id));
     let held = CELLS.with(|cells| cells.borrow_mut().remove(&id));

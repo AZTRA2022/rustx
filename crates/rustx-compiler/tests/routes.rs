@@ -141,3 +141,54 @@ fn a_directory_with_no_page_at_all_is_an_empty_table() {
     assert!(generated.contains("route_table"), "got {generated}");
     assert!(!generated.contains("pattern:"), "got {generated}");
 }
+
+#[test]
+fn the_outermost_layout_is_the_first_index_for_every_page_below_it() {
+    // C1 of the plan 5 review. The index list was built from an
+    // alphabetical sort, where `device/layout.rsx` sorts before
+    // `layout.rsx`, so the list ran innermost-first and the root layout
+    // changed index between `/` and `/device` — changing its key, which
+    // releases and rebuilds the component holding the navigation bar.
+    // Asserting on the substring `&[layout_0, layout_1]` could not see
+    // it: it is true in either ordering. So this test names the file
+    // each index includes.
+    let generated = table(&[
+        ("layout.rsx", LAYOUT),
+        ("device/layout.rsx", LAYOUT),
+        ("page.rsx", PAGE),
+        ("device/page.rsx", PAGE),
+    ]);
+
+    let first = generated
+        .split("mod layout_0_file {")
+        .nth(1)
+        .unwrap_or_else(|| panic!("no layout_0 in {generated}"));
+    assert!(
+        first.contains("include!(\"layout.rs\")"),
+        "layout_0 should be the outermost layout, got {first}"
+    );
+    let second = generated
+        .split("mod layout_1_file {")
+        .nth(1)
+        .unwrap_or_else(|| panic!("no layout_1 in {generated}"));
+    assert!(
+        second.contains("include!(\"device/layout.rs\")"),
+        "layout_1 should be the inner layout, got {second}"
+    );
+
+    let root = route_named(&generated, "/");
+    assert!(root.contains("layouts: &[layout_0],"), "got {root}");
+    let device = route_named(&generated, "/device");
+    assert!(
+        device.contains("layouts: &[layout_0, layout_1],"),
+        "the root layout keeps index 0 under a page it also encloses, got {device}"
+    );
+}
+
+/// The `Route` block for one pattern.
+fn route_named<'a>(generated: &'a str, pattern: &str) -> &'a str {
+    generated
+        .split("rustx_dom::route::Route {")
+        .find(|route| route.contains(&format!("pattern: \"{pattern}\",")))
+        .unwrap_or_else(|| panic!("no `{pattern}` route in {generated}"))
+}

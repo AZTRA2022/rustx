@@ -129,6 +129,10 @@ thread_local! {
     static EFFECT_ORDER: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     /// How many times the home page has been built from nothing.
     static HOME_BUILDS: Cell<u64> = const { Cell::new(0) };
+    /// How many times the bar — the outermost layout — has been built
+    /// from nothing. It encloses every screen, so the answer is 1 for
+    /// the whole life of the window, however deep the screen under it.
+    static BAR_BUILDS: Cell<u64> = const { Cell::new(0) };
 }
 
 /// The bar above every screen. It counts clicks, and the count is what
@@ -144,6 +148,20 @@ fn bar(children: Element) -> Element {
     );
     let clicked = clicks.clone();
 
+    // Built once, counted once: a layout that is rebuilt at a
+    // navigation increments this, whatever its state says afterwards.
+    let built = rustx_dom::state::keep_at(
+        rustx_dom::state::Slot {
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        },
+        || {
+            BAR_BUILDS.with(|builds| builds.set(builds.get() + 1));
+        },
+    );
+    built.with(|_| ());
+
     Element::tag("div")
         .child(
             Element::tag("button")
@@ -152,6 +170,17 @@ fn bar(children: Element) -> Element {
                 .child(Element::Text(clicks.get().to_string()))
                 .build(),
         )
+        .child(children)
+        .build()
+}
+
+/// A second level of layout, over the device screens only. It is what
+/// makes the bar an *outer* layout rather than the only one: the bar has
+/// to stay at depth 0 whether the screen below it has one enclosing
+/// layout or two, or its key changes and it is rebuilt.
+fn inner(children: Element) -> Element {
+    Element::tag("section")
+        .attribute("id", AttributeValue::Text("inner".into()))
         .child(children)
         .build()
 }
@@ -235,7 +264,7 @@ static ROUTES: &[rustx_dom::route::Route] = &[
     rustx_dom::route::Route {
         pattern: "/device/[id]",
         render: device,
-        layouts: &[bar],
+        layouts: &[bar, inner],
     },
 ];
 
@@ -284,6 +313,11 @@ fn install_router_natives() {
     // A page that was released and built again would count twice.
     register_native("rustx_home_builds", |_args| {
         Ok(Value::String(HOME_BUILDS.with(Cell::get).to_string()))
+    });
+
+    // The outermost layout, built once whatever happens below it.
+    register_native("rustx_bar_builds", |_args| {
+        Ok(Value::String(BAR_BUILDS.with(Cell::get).to_string()))
     });
 
     register_native("rustx_page_task", |_args| {

@@ -293,6 +293,12 @@
             document.querySelector("#bar").click();
 
             frame(() => {
+              // Read BEFORE any navigation. The layout is a child
+              // component, and a child's own state changing has to
+              // reach the screen on its own — not because a navigation
+              // happened to re-render the root.
+              rustx_report("layout_state_before_navigate", bar());
+
               rustx_navigate("/device/7");
               frame(() => {
                 rustx_report("after_navigate", screen());
@@ -310,6 +316,12 @@
                   // build it from nothing rather than find it waiting.
                   setTimeout(() => {
                     rustx_report("left_page_task", rustx_page_task());
+                    // One screen had two enclosing layouts, the other
+                    // one. The bar is outermost in both, so it stays at
+                    // depth 0 and was never rebuilt. Read here, before
+                    // the detour through a path with no layout at all,
+                    // where the bar legitimately leaves the screen.
+                    rustx_report("bar_builds", rustx_bar_builds());
 
                     rustx_navigate("/nowhere");
                     frame(() => {

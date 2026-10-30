@@ -39,11 +39,19 @@ pub fn table_for(from: &Path) -> Result<String, CompileError> {
     // transpilation and a route table is part of it.
     sources.sort();
 
-    let layouts: Vec<PathBuf> = sources
+    // Outermost first, by how deep the folder is — not by name. Sorted
+    // alphabetically, `device/layout.rsx` comes before `layout.rsx`,
+    // which both inverts the nesting and moves the root layout from
+    // index 0 under `/` to index 1 under `/device`. The router keys a
+    // layout by its depth, so a layout whose index changed between two
+    // pages was released and rebuilt on navigation — the opposite of
+    // what a layout is for.
+    let mut layouts: Vec<PathBuf> = sources
         .iter()
         .filter(|path| file_name(path) == "layout.rsx")
         .cloned()
         .collect();
+    layouts.sort_by_key(|path| (path.components().count(), path.clone()));
     for layout in &layouts {
         declares(layout, "Layout")?;
     }

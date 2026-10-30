@@ -116,7 +116,15 @@ pub fn unmount_all() {
 
 /// The frame callback. Nothing here runs unless something changed.
 fn render_dirty() {
-    let dirty = take_dirty();
+    // A child component that changed is redrawn by rendering the root
+    // above it: the root is what owns a host element, and the diff is
+    // what finds the one text that moved. Without this step a dirty
+    // child matched no root, and its mark was taken and thrown away —
+    // a layout's own counter would change in memory and never on screen.
+    let dirty: Vec<_> = take_dirty()
+        .into_iter()
+        .map(rustx_dom::state::root_of)
+        .collect();
     if dirty.is_empty() {
         return;
     }

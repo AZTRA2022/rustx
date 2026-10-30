@@ -481,22 +481,6 @@ fn distance(left: &str, right: &str) -> usize {
     grid[left.len()][right.len()]
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_typo_finds_its_neighbour() {
-        assert_eq!(nearest("classname"), Some("className"));
-        assert_eq!(nearest("onclick"), Some("onClick"));
-    }
-
-    #[test]
-    fn something_unrelated_suggests_nothing() {
-        assert_eq!(nearest("zzzzzzzzzzzz"), None);
-    }
-}
-
 /// `{ backgroundColor: "#09090b", gap: "12px" }` → `background-color: #09090b; gap: 12px`
 ///
 /// The object of styles is the one piece of React's prop dialect that
@@ -591,3 +575,20 @@ fn top_level_commas(inside: &str) -> Vec<&str> {
     entries.push(&inside[start..]);
     entries
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_typo_finds_its_neighbour() {
+        assert_eq!(nearest("classname"), Some("className"));
+        assert_eq!(nearest("onclick"), Some("onClick"));
+    }
+
+    #[test]
+    fn something_unrelated_suggests_nothing() {
+        assert_eq!(nearest("zzzzzzzzzzzz"), None);
+    }
+}
+
