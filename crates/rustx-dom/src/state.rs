@@ -302,6 +302,80 @@ pub fn keep_at<T: 'static>(slot: Slot, build: impl FnOnce() -> T) -> Kept<T> {
     Kept { value }
 }
 
+/// What an effect's cell holds: the value it watches, and whatever its
+/// last run left open.
+type Effect<D, G> = RefCell<(D, Option<G>)>;
+
+/// Run `run` when `watched` is not what it was last render.
+///
+/// The value `run` returns is a guard. It is held for as long as the
+/// watched value stays the same, dropped before the next run, and
+/// dropped when the component leaves the tree — so an effect that opens
+/// something has nothing to write about closing it.
+///
+/// There is no dependency array to keep in step with the body: the one
+/// value the effect watches is the argument.
+///
+/// # Panics
+///
+/// Outside a [`Scope`], for the same reason [`cell`] does.
+pub fn effect_at<D: PartialEq + 'static, G: 'static>(
+    slot: Slot,
+    watched: D,
+    run: impl FnOnce() -> G,
+) {
+    let owner = current().unwrap_or_else(|| {
+        panic!(
+            "rustx: an effect was asked for at {}:{}:{} outside a render. \
+             A component function has to be called through the renderer.",
+            slot.file, slot.line, slot.column
+        )
+    });
+
+    let key = (slot, key_path());
+    touch(key.clone());
+
+    // Taken out of the map rather than read through it: `run` is the
+    // developer's code and may declare state of its own, which borrows
+    // the same map.
+    let existing = CELLS.with(|cells| {
+        cells
+            .borrow()
+            .get(&owner)
+            .and_then(|slots| slots.get(&key))
+            .map(Rc::clone)
+    });
+
+    let Some(existing) = existing else {
+        let guard = run();
+        let memo: Rc<dyn Any> = Rc::new(RefCell::new((watched, Some(guard))));
+        CELLS.with(|cells| {
+            cells.borrow_mut().entry(owner).or_default().insert(key, memo);
+        });
+        return;
+    };
+
+    let memo = existing
+        .downcast::<Effect<D, G>>()
+        .expect("a slot holds one type, because it is one call");
+
+    if memo.borrow().0 == watched {
+        return;
+    }
+
+    // Close before opening. A camera does not open twice, so the old
+    // guard goes before `run` is called — and it goes outside the borrow,
+    // because its `Drop` is the developer's code too.
+    let previous = memo.borrow_mut().1.take();
+    drop(previous);
+
+    // `watched` is stored only once `run` has returned: an effect that
+    // panics leaves the old value behind, so the next render tries again
+    // rather than treating the failed run as done.
+    let guard = run();
+    *memo.borrow_mut() = (watched, Some(guard));
+}
+
 thread_local! {
     /// Slots reached during the render in progress.
     static TOUCHED: RefCell<Vec<(Slot, String)>> = const { RefCell::new(Vec::new()) };
