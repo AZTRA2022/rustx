@@ -29,7 +29,7 @@ fn text_children_keep_their_punctuation() {
 fn an_expression_child_keeps_its_rust_verbatim() {
     let node = parse_one("<p>{ user.name.to_uppercase() }</p>");
     let Node::Tag(tag) = node else { panic!() };
-    assert!(matches!(&tag.children[0], Node::Expression(e) if e.trim() == "user.name.to_uppercase()"));
+    assert!(matches!(&tag.children[0], Node::Expression { code, .. } if code.trim() == "user.name.to_uppercase()"));
 }
 
 #[test]

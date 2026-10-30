@@ -111,8 +111,9 @@ impl Cursor<'_> {
                     children.push(self.element()?);
                 }
                 Some(b'{') => {
+                    let offset = self.index;
                     let code = self.braced_rust(None)?;
-                    children.push(Node::Expression(code));
+                    children.push(Node::Expression { code, offset });
                 }
                 Some(_) => {
                     if let Some(text) = self.text() {

@@ -56,11 +56,27 @@ fn expression(node: &Node, context: &Context<'_>) -> Result<TokenStream, Compile
             let text = Literal::string(text);
             Ok(quote! { rustx_dom::Element::Text(#text.to_string()) })
         }
-        Node::Expression(code) => {
+        Node::Expression { code, offset } => {
+            // `{Device("Webcam".to_string())}` is how Rust calls a
+            // function, and a reader of Rust will write it that way.
+            // Called plainly it would run in the middle of its parent's
+            // render, so its cells would be the parent's and two calls
+            // would share one state. It is an instance, like the tag.
+            if whole_call_to_a_component(code, context) {
+                let call = rust(code, *offset)?;
+                let (line, column) = context.line_and_column(*offset);
+                return Ok(quote! {
+                    rustx_dom::state::component_at(
+                        rustx_dom::state::Slot { file: file!(), line: #line, column: #column },
+                        || #call,
+                    )
+                });
+            }
+
             // Verbatim. `{clicks}` is `clicks`, and `into_element` is what
             // spares the developer a conversion they should never have to
             // write.
-            let inner = rust(code, 0)?;
+            let inner = rust(code, *offset)?;
             Ok(quote! { rustx_dom::into_element(#inner) })
         }
         Node::Tag(tag) if tag.is_fragment() => Ok(fragment(&tag.children, context)?),
@@ -294,4 +310,40 @@ fn unknown_attribute(attribute: &Attribute) -> CompileError {
         message.push_str(&format!(" — did you mean `{suggestion}`?"));
     }
     CompileError::flagged(attribute.offset, message)
+}
+
+/// Is this expression nothing but a call to a component of this file?
+///
+/// The whole shape has to match: `Name(…)` where `Name` is declared
+/// here and where the closing parenthesis ends the expression. A call
+/// buried in something larger — `vec![Row()]`, an `if` with a branch
+/// each — is left alone, because what surrounds it may call it zero
+/// times or ten and identity by the place it is written would stop
+/// meaning anything.
+fn whole_call_to_a_component(code: &str, context: &Context<'_>) -> bool {
+    let code = code.trim();
+    let Some(open) = code.find('(') else {
+        return false;
+    };
+    let name = &code[..open];
+    if !crate::tags::looks_like_a_component(name) || context.parameters_of(name).is_none() {
+        return false;
+    }
+
+    // The call's own parenthesis has to be the last thing in the
+    // expression: `Row().into()` is a call and then something else.
+    let mut depth = 0_i32;
+    for (at, character) in code.char_indices().skip(open) {
+        match character {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return code[at + 1..].trim().is_empty();
+                }
+            }
+            _ => {}
+        }
+    }
+    false
 }

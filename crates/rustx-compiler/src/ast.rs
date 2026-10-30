@@ -12,7 +12,12 @@ pub enum Node {
     /// interface text is text — "10 < 20", "Dupont & Fils".
     Text(String),
     /// Rust between braces, kept verbatim. The compiler never rewrites it.
-    Expression(String),
+    ///
+    /// The offset is where the brace opened. A whole-expression call to
+    /// a component of this file is an instance of its own, and an
+    /// instance is identified by the place it is written — so two calls
+    /// on one line have to be told apart.
+    Expression { code: String, offset: usize },
 }
 
 /// A tag, or a fragment when `name` is empty.

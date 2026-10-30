@@ -133,3 +133,66 @@ fn a_component_tag_inside_a_handler_is_refused_where_it_was_written() {
     );
     assert_eq!(error.line, 6, "it was written on line 6: {}", error.message);
 }
+
+/// The columns the `Slot`s in this generated Rust were given, in order.
+fn columns_of(rust: &str) -> Vec<String> {
+    rust.split("column : ")
+        .skip(1)
+        .map(|rest| {
+            rest.chars()
+                .take_while(|character| character.is_ascii_digit())
+                .collect()
+        })
+        .collect()
+}
+
+#[test]
+fn a_call_in_braces_to_a_component_of_this_file_is_an_instance_of_its_own() {
+    // A component is called the way Rust calls a function. What that
+    // needs is not the syntax — `{Row(…)}` already compiled — but the
+    // instance: called plainly, the function runs in the middle of its
+    // parent's render and its cells belong to the parent.
+    let rust = rewrite_one(
+        "fn Row(label: String) -> Element {\n    return <li>{label}</li>;\n}\n\
+         fn Page() -> Element {\n    return <ul>{Row(\"a\".to_string())}</ul>;\n}",
+    );
+    assert!(rust.contains("component_at"), "got {rust}");
+    assert!(rust.contains("Row (\"a\" . to_string ())"), "got {rust}");
+}
+
+#[test]
+fn two_calls_in_braces_are_two_instances() {
+    let rust = rewrite_one(
+        "fn Row() -> Element {\n    return <li>x</li>;\n}\n\
+         fn Page() -> Element {\n    return <ul>{Row()}{Row()}</ul>;\n}",
+    );
+    assert_eq!(rust.matches("component_at").count(), 2, "got {rust}");
+    let columns = columns_of(&rust);
+    assert_ne!(
+        columns[0], columns[1],
+        "two places, two instances: {rust}"
+    );
+}
+
+#[test]
+fn a_call_to_something_that_is_not_a_component_is_left_alone() {
+    let rust = rewrite_one("fn helper() -> u8 { 1 }\nfn Page() -> Element {\n    return <p>{helper()}</p>;\n}");
+    assert!(!rust.contains("component_at"), "got {rust}");
+}
+
+#[test]
+fn a_read_that_only_looks_like_a_call_is_left_alone() {
+    let rust = rewrite_one("fn Page() -> Element {\n    let n = 1;\n    return <p>{n.to_string()}</p>;\n}");
+    assert!(!rust.contains("component_at"), "got {rust}");
+}
+
+#[test]
+fn a_call_inside_a_larger_expression_is_left_alone() {
+    // What surrounds it can call it zero times or ten, and identity by
+    // the place it is written would stop meaning anything.
+    let rust = rewrite_one(
+        "fn Row() -> Element {\n    return <li>x</li>;\n}\n\
+         fn Page() -> Element {\n    return <ul>{vec![Row()]}</ul>;\n}",
+    );
+    assert!(!rust.contains("component_at"), "got {rust}");
+}
