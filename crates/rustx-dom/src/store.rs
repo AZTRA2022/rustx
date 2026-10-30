@@ -37,12 +37,12 @@ use crate::state::{InstanceId, current, forget_on_drop, mark_dirty};
 type Readers = Rc<RefCell<Vec<InstanceId>>>;
 
 /// The value, and who is showing it.
-struct Shared<T> {
+struct Held<T> {
     value: RefCell<T>,
     readers: Readers,
 }
 
-/// A handle on the store of one type.
+/// A handle on one shared value.
 ///
 /// The same shape as `State<T>`, minus the owner: nobody holds it, so
 /// nothing drops it, and it outlives every component that reads it.
@@ -69,7 +69,7 @@ impl<T: Default + Clone + 'static> Store<T> {
     /// component as a reader, which is what makes a later write reach
     /// the screen.
     pub fn get(&self) -> T {
-        let shared = shared::<T>();
+        let shared = held::<T, T>(T::default);
         enrol(&shared);
         shared.value.borrow().clone()
     }
@@ -78,7 +78,7 @@ impl<T: Default + Clone + 'static> Store<T> {
 impl<T: Default + 'static> Store<T> {
     /// Read without copying, for a value that is not `Clone`.
     pub fn with<R>(&self, read: impl FnOnce(&T) -> R) -> R {
-        let shared = shared::<T>();
+        let shared = held::<T, T>(T::default);
         enrol(&shared);
         read(&shared.value.borrow())
     }
@@ -88,7 +88,7 @@ impl<T: Default + 'static> Store<T> {
     /// The value that was there is dropped once the borrow is over: a
     /// `Drop` is the developer's code, and it may well read this store.
     pub fn set(&self, value: T) {
-        let shared = shared::<T>();
+        let shared = held::<T, T>(T::default);
         let previous = std::mem::replace(&mut *shared.value.borrow_mut(), value);
         drop(previous);
         soil(&shared);
@@ -99,7 +99,7 @@ impl<T: Default + 'static> Store<T> {
     /// `change` runs while the store is borrowed, so it must not read
     /// the same store — the way a `RefCell` has always behaved.
     pub fn update(&self, change: impl FnOnce(&mut T)) {
-        let shared = shared::<T>();
+        let shared = held::<T, T>(T::default);
         change(&mut shared.value.borrow_mut());
         soil(&shared);
     }
@@ -109,7 +109,7 @@ impl<T: Default + 'static> Store<T> {
 ///
 /// Outside a render there is nobody to remember: a posted job reading
 /// the store is not a component.
-fn enrol<T>(shared: &Shared<T>) {
+fn enrol<T>(shared: &Held<T>) {
     let Some(reader) = current() else {
         return;
     };
@@ -120,7 +120,7 @@ fn enrol<T>(shared: &Shared<T>) {
 }
 
 /// Writing does not draw. It says "these ones, next frame".
-fn soil<T>(shared: &Shared<T>) {
+fn soil<T>(shared: &Held<T>) {
     let readers = shared.readers.borrow().clone();
     for reader in readers {
         mark_dirty(reader);
@@ -129,8 +129,8 @@ fn soil<T>(shared: &Shared<T>) {
 
 /// One store, as the registry holds it.
 struct Entry {
-    /// The `Shared<T>` itself, found again by the type it holds.
-    shared: Rc<dyn Any>,
+    /// The value itself, found again by the marker that named it.
+    held: Rc<dyn Any>,
     /// The same reader list the store has, reachable without `T`.
     readers: Readers,
 }
@@ -147,35 +147,96 @@ thread_local! {
 /// `Default` is what the first ask builds it with: a store nobody has
 /// written to yet is the empty list, the unselected device, the zero.
 pub fn store<T: Default + 'static>() -> Store<T> {
-    forget_unmounted_readers();
-    let _ = shared::<T>();
+    let _ = held::<T, T>(T::default);
     Store { of: PhantomData }
 }
 
-/// The one `Shared<T>` of this thread, created on the first ask.
-fn shared<T: Default + 'static>() -> Rc<Shared<T>> {
+/// The value `K` names, built by `initial` on the first ask.
+///
+/// This is what a `let mut` written at the top of a page becomes. The
+/// marker `K` is a type the compiler makes for that one declaration, so
+/// two values of the same type written in two places are two values —
+/// which a store found by `T` alone could never be.
+///
+/// `initial` runs once per thread, on the first ask. Every ask after
+/// finds what is there, whatever it was given.
+pub fn shared<K: 'static, T: 'static>(initial: impl FnOnce() -> T) -> Shared<T> {
+    Shared {
+        held: held::<K, T>(initial),
+    }
+}
+
+/// A handle on one shared value.
+///
+/// Reading through it during a render enrols the component, so a later
+/// write reaches the screen; writing marks everyone who read it. It is
+/// the same contract as a component's own cell, which is the point: a
+/// `let mut` is a `let mut` wherever it is written.
+pub struct Shared<T> {
+    held: Rc<Held<T>>,
+}
+
+impl<T> Clone for Shared<T> {
+    fn clone(&self) -> Self {
+        Self {
+            held: Rc::clone(&self.held),
+        }
+    }
+}
+
+impl<T: Clone + 'static> Shared<T> {
+    /// The value, as a copy.
+    pub fn get(&self) -> T {
+        enrol(&self.held);
+        self.held.value.borrow().clone()
+    }
+}
+
+impl<T: 'static> Shared<T> {
+    /// Read without copying, for a value that is not `Clone`.
+    pub fn with<R>(&self, read: impl FnOnce(&T) -> R) -> R {
+        enrol(&self.held);
+        read(&self.held.value.borrow())
+    }
+
+    /// Replace the value and mark everyone who reads it.
+    ///
+    /// What was there is dropped once the borrow is over: a `Drop` is
+    /// the developer's code, and it may well read this value.
+    pub fn set(&self, value: T) {
+        let previous = std::mem::replace(&mut *self.held.value.borrow_mut(), value);
+        drop(previous);
+        soil(&self.held);
+    }
+
+    /// Change the value in place.
+    pub fn update(&self, change: impl FnOnce(&mut T)) {
+        change(&mut self.held.value.borrow_mut());
+        soil(&self.held);
+    }
+}
+
+/// The value itself, created on the first ask.
+fn held<K: 'static, T: 'static>(initial: impl FnOnce() -> T) -> Rc<Held<T>> {
     forget_unmounted_readers();
 
-    let shared = STORES.with(|stores| {
+    let held = STORES.with(|stores| {
         let mut stores = stores.borrow_mut();
-        let existing = stores.entry(TypeId::of::<T>()).or_insert_with(|| {
+        let existing = stores.entry(TypeId::of::<K>()).or_insert_with(|| {
             let readers: Readers = Rc::new(RefCell::new(Vec::new()));
             Entry {
-                shared: Rc::new(Shared {
-                    value: RefCell::new(T::default()),
+                held: Rc::new(Held {
+                    value: RefCell::new(initial()),
                     readers: Rc::clone(&readers),
                 }),
                 readers,
             }
         });
-        Rc::clone(&existing.shared)
+        Rc::clone(&existing.held)
     });
 
-    
-
-    shared
-        .downcast::<Shared<T>>()
-        .expect("a store is found by its type, so it holds that type")
+    held.downcast::<Held<T>>()
+        .expect("a value is found by the marker that named it, and a marker names one type")
 }
 
 /// A store must not be the reason a component that left the tree is
