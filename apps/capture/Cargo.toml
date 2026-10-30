@@ -1,0 +1,13 @@
+[package]
+name = "capture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Two screens, a layout that outlives them, and a stream that closes itself."
+
+[dependencies]
+rustx-dom = { path = "../../crates/rustx-dom" }
+rustx-engine = { path = "../../crates/rustx-engine" }
+
+[build-dependencies]
+rustx-compiler = { path = "../../crates/rustx-compiler" }

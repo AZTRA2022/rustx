@@ -113,6 +113,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "capture"
+version = "0.1.0"
+dependencies = [
+ "rustx-compiler",
+ "rustx-dom",
+ "rustx-engine",
+]
+
+[[package]]
 name = "catalogue"
 version = "0.1.0"
 dependencies = [

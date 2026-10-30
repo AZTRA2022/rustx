@@ -101,20 +101,34 @@ fn render(pages: &[Page], layouts: &[PathBuf], from: &Path) -> String {
          // and every module opens on the application's own scope.\n\n",
     );
 
+    // Each file gets a module, and each module one entry point of its
+    // own: the components a `.rsx` declares are private to it, so the
+    // call has to be written inside the module that can see them.
     for (at, layout) in layouts.iter().enumerate() {
         let relative = layout.strip_prefix(from).unwrap_or(layout);
         out.push_str(&format!(
-            "mod layout_{at}_file {{\n    use super::*;\n    include!(\"{}\");\n}}\n\n\
+            "mod layout_{at}_file {{\n    use super::*;\n    include!(\"{}\");\n\n\
+             \x20   pub(super) fn frame(children: rustx_dom::Element) -> rustx_dom::Element {{\n\
+             \x20       Layout(children)\n    }}\n}}\n\n\
              fn layout_{at}(children: rustx_dom::Element) -> rustx_dom::Element {{\n\
-             \x20   layout_{at}_file::Layout(children)\n}}\n\n",
+             \x20   layout_{at}_file::frame(children)\n}}\n\n",
             include_path(relative)
         ));
     }
 
     for (at, page) in pages.iter().enumerate() {
+        let arguments: Vec<String> = page
+            .parameters
+            .iter()
+            .map(|parameter| format!("params.get(\"{parameter}\").to_string()"))
+            .collect();
         out.push_str(&format!(
-            "mod page_{at} {{\n    use super::*;\n    include!(\"{}\");\n}}\n\n",
-            page.include
+            "mod page_{at} {{\n    use super::*;\n    include!(\"{}\");\n\n\
+             \x20   pub(super) fn screen(params: &rustx_dom::route::Params) \
+             -> rustx_dom::Element {{\n\
+             \x20       let _ = params;\n        Page({})\n    }}\n}}\n\n",
+            page.include,
+            arguments.join(", ")
         ));
     }
 
@@ -124,16 +138,6 @@ fn render(pages: &[Page], layouts: &[PathBuf], from: &Path) -> String {
          pub fn route_table() -> &'static [rustx_dom::route::Route] {\n    &[\n",
     );
     for (at, page) in pages.iter().enumerate() {
-        let arguments: Vec<String> = page
-            .parameters
-            .iter()
-            .map(|parameter| format!("params.get(\"{parameter}\").to_string()"))
-            .collect();
-        let binding = if arguments.is_empty() {
-            "_params"
-        } else {
-            "params"
-        };
         let enclosing: Vec<String> = page
             .layouts
             .iter()
@@ -141,10 +145,9 @@ fn render(pages: &[Page], layouts: &[PathBuf], from: &Path) -> String {
             .collect();
         out.push_str(&format!(
             "        rustx_dom::route::Route {{\n            pattern: \"{}\",\n\
-             \x20           render: |{binding}| page_{at}::Page({}),\n\
+             \x20           render: page_{at}::screen,\n\
              \x20           layouts: &[{}],\n        }},\n",
             page.pattern,
-            arguments.join(", "),
             enclosing.join(", ")
         ));
     }

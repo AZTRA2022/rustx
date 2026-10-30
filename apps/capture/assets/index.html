@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>Console</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        background: #16161a;
+        color: #fffffe;
+      }
+      header {
+        display: block;
+        padding: 0.8rem 1.2rem;
+        border-bottom: 1px solid #2e2f3e;
+        color: #94a1b2;
+      }
+      section { padding: 1.2rem; }
+      ul { list-style: none; padding: 0; display: grid; gap: 0.5rem; }
+      .device { cursor: pointer; background: #242629; padding: 0.6rem 1rem; border-radius: 6px; }
+      button { font: inherit; border: 0; border-radius: 6px; background: #7f5af0; color: #fffffe; padding: 0.5rem 1rem; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <!-- The screens are app/page.rsx and app/device/[id]/page.rsx, and
+         the frame around them is app/layout.rsx. Nothing here is. -->
+    <div id="app"></div>
+    <script>
+      if (capture_scenario() === "page") {
+        const preview = () => document.querySelector("#preview");
+        const devices = () => document.querySelectorAll(".device");
+        const frame = (then) => requestAnimationFrame(() => requestAnimationFrame(then));
+
+        const settle = () => {
+          if (devices().length < 3) {
+            requestAnimationFrame(settle);
+            return;
+          }
+          // Click the first device. Nothing in the page knows what that
+          // opens: the list calls `navigate`.
+          devices()[0].click();
+
+          frame(() => {
+            capture_report("preview_title", preview().textContent);
+            capture_report("selected_in_preview", document.querySelector("#selected-in-preview").textContent);
+
+            // Back to the list, which closes the stream the preview had
+            // opened — because the preview was holding it, not because
+            // anybody said so.
+            document.querySelector("#back").click();
+            frame(() => {
+              capture_report("selected_in_list", document.querySelector("#selected-in-list").textContent);
+              capture_report("ticks_after_navigate", capture_ticks());
+              capture_report("closed_streams", capture_closed_streams());
+            });
+          });
+        };
+        requestAnimationFrame(settle);
+      }
+    </script>
+  </body>
+</html>
