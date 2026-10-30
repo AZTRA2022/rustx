@@ -52,9 +52,19 @@
             document.querySelector("#back").click();
             frame(() => {
               capture_report("selected_in_list", document.querySelector("#selected-in-list").textContent);
-              capture_report("ticks_after_navigate", capture_ticks());
-              capture_report("layout_starts", capture_layout_starts());
-              capture_report("closed_streams", capture_closed_streams());
+
+              // Waited for rather than assumed: the bar ticks every 50ms
+              // and this scenario can get here sooner than that.
+              const ticked = () => {
+                if (Number(capture_ticks()) < 1) {
+                  requestAnimationFrame(ticked);
+                  return;
+                }
+                capture_report("ticks_after_navigate", capture_ticks());
+                capture_report("layout_starts", capture_layout_starts());
+                capture_report("closed_streams", capture_closed_streams());
+              };
+              ticked();
             });
           });
         };
