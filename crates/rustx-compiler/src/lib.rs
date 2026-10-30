@@ -7,7 +7,7 @@
 //! and keeps a map so that a `rustc` error lands on the line the developer
 //! wrote rather than on a line a build script invented.
 
-mod error;
+pub mod error;
 pub mod ast;
 pub mod attributes;
 pub mod build;

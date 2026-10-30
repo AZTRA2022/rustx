@@ -1,0 +1,13 @@
+[package]
+name = "rustx-macros"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The attribute that writes a rustx application's ceremony."
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"

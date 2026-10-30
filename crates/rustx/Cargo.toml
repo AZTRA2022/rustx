@@ -1,0 +1,11 @@
+[package]
+name = "rustx"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "What an application writes: a window, its pages, and nothing else."
+
+[dependencies]
+rustx-dom = { path = "../rustx-dom" }
+rustx-engine = { path = "../rustx-engine" }
+rustx-macros = { path = "../rustx-macros" }

@@ -14,7 +14,7 @@ fn Page(id: String) -> Element {
     return <div>
         <h1 id="preview">{stream.with(|stream| stream.device.clone())}</h1>
         <p id="selected-in-preview">{selected.get().0}</p>
-        <button id="other" onClick={move |_| { rustx_engine::router::navigate(elsewhere.clone()); }}>other</button>
-        <button id="back" onClick={|_| { rustx_engine::router::back(); }}>back</button>
+        <button id="other" onClick={move |_| { rustx::router::navigate(elsewhere.clone()); }}>other</button>
+        <button id="back" onClick={|_| { rustx::router::back(); }}>back</button>
     </div>;
 }

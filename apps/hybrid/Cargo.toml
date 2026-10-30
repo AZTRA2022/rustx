@@ -6,8 +6,10 @@ license.workspace = true
 description = "A page where Rust and JavaScript own one DOM between them."
 
 [dependencies]
+rustx = { path = "../../crates/rustx" }
 rustx-dom = { path = "../../crates/rustx-dom" }
+# Named by the generated pages, never by a line a developer writes.
 rustx-engine = { path = "../../crates/rustx-engine" }
 
 [build-dependencies]
-rustx-compiler = { path = "../../crates/rustx-compiler" }
+rustx-build = { path = "../../crates/rustx-build" }

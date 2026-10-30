@@ -24,6 +24,11 @@ use rustx_dom::Value;
 
 use crate::dom::Node;
 
+/// A boundary that has been rendered and has nobody to be handed to
+/// yet: the component it names, its container, and the props of the
+/// render that built it.
+type Waiting = (String, Node, Vec<(String, Value)>);
+
 /// What an application sees if it renders a boundary before the bridge
 /// to React is installed.
 pub const NOTICE: &str =
@@ -39,8 +44,7 @@ thread_local! {
     static COMPLAINT: RefCell<Option<String>> = const { RefCell::new(None) };
     /// Boundaries rendered while the page had no bridge, waiting for
     /// one to appear.
-    static PENDING: RefCell<Vec<(String, Node, Vec<(String, Value)>)>> =
-        const { RefCell::new(Vec::new()) };
+    static PENDING: RefCell<Vec<Waiting>> = const { RefCell::new(Vec::new()) };
 }
 
 /// How many times a node has been handed to React.

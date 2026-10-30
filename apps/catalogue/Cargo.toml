@@ -3,11 +3,13 @@ name = "catalogue"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "A rustx application whose page is written in .rsx."
+description = "A rustx application, written the way anyone will write one."
 
 [dependencies]
+rustx = { path = "../../crates/rustx" }
 rustx-dom = { path = "../../crates/rustx-dom" }
+# Named by the generated pages, never by a line a developer writes.
 rustx-engine = { path = "../../crates/rustx-engine" }
 
 [build-dependencies]
-rustx-compiler = { path = "../../crates/rustx-compiler" }
+rustx-build = { path = "../../crates/rustx-build" }
