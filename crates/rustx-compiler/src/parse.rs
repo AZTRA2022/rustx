@@ -208,7 +208,14 @@ impl Cursor<'_> {
         for span in find_jsx_range(self.source, from, to)? {
             code.push_str(&self.source[cursor..span.start]);
             let node = parse_jsx(self.source, span)?;
-            code.push_str(&emit(&node)?);
+            // A region written inside a handler sees the same
+            // components as the one around it: they are the file's.
+            let components = crate::promote::component_signatures(self.source);
+            let context = crate::emit::Context {
+                components: &components,
+                source: self.source,
+            };
+            code.push_str(&emit(&node, &context)?);
             cursor = span.end;
         }
         code.push_str(&self.source[cursor..to]);

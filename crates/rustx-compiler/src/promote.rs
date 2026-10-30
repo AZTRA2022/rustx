@@ -355,6 +355,20 @@ struct Local {
 }
 
 /// `fn NAME(…) -> Element {`, and the span of its body.
+/// Every component this file declares, with the names of its
+/// parameters in the order they were written.
+///
+/// What a `<Row count={2} label={…} />` needs in order to become a
+/// call: the props are written by name, the arguments go by position,
+/// and only the declaration knows which position a name has. A
+/// component from another file is therefore not callable as a tag.
+pub fn component_signatures(source: &str) -> Vec<(String, Vec<String>)> {
+    components_of(source)
+        .into_iter()
+        .map(|(name, body)| (name, parameter_names(source, body.start)))
+        .collect()
+}
+
 fn components_of(source: &str) -> Vec<(String, Span)> {
     let bytes = source.as_bytes();
     let mut found = Vec::new();

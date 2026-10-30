@@ -25,6 +25,14 @@ pub fn transpile(source: &str) -> Result<Transpiled, CompileError> {
     let source = &crate::rewrite::promote_state(source)?;
     let spans = find_jsx(source).map_err(|error| error.resolve(source))?;
 
+    // What a capitalised tag needs to become a call: the components
+    // this file declares, and their parameters in order.
+    let components = crate::promote::component_signatures(source);
+    let context = crate::emit::Context {
+        components: &components,
+        source,
+    };
+
     let mut rust = String::with_capacity(source.len());
     let mut points = vec![Breakpoint {
         generated: 1,
@@ -43,7 +51,7 @@ pub fn transpile(source: &str) -> Result<Transpiled, CompileError> {
         rsx_line += crossed;
 
         let node = parse_jsx(source, span).map_err(|error| error.resolve(source))?;
-        let code = emit(&node).map_err(|error| error.resolve(source))?;
+        let code = emit(&node, &context).map_err(|error| error.resolve(source))?;
         // A region is one Rust expression however many lines it took to
         // write, so the newlines it swallowed are put back after it. That
         // keeps every later line of the generated file on the number it

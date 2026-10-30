@@ -1,6 +1,6 @@
 //! The Rust a JSX region becomes.
 
-use rustx_compiler::emit::emit;
+use rustx_compiler::emit::{Context, emit};
 use rustx_compiler::parse::parse_jsx;
 use rustx_compiler::{CompileError, scan::find_jsx};
 
@@ -9,12 +9,21 @@ fn node(source: &str) -> rustx_compiler::ast::Node {
     parse_jsx(source, span).expect("parsable")
 }
 
+/// A file with no components of its own, which is what these tests are
+/// about: the elements.
+fn context(source: &str) -> Context<'_> {
+    Context {
+        components: &[],
+        source,
+    }
+}
+
 fn emit_one(source: &str) -> String {
-    emit(&node(source)).expect("emittable")
+    emit(&node(source), &context(source)).expect("emittable")
 }
 
 fn emit_one_err(source: &str) -> CompileError {
-    emit(&node(source)).expect_err("should refuse")
+    emit(&node(source), &context(source)).expect_err("should refuse")
 }
 
 #[test]
