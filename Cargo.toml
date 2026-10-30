@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["apps/catalogue", "apps/counter", "crates/rustx-compiler", "crates/rustx-dom", "crates/rustx-engine"]
+members = ["apps/catalogue", "apps/counter", "apps/monitor", "crates/rustx-compiler", "crates/rustx-dom", "crates/rustx-engine"]
 
 [workspace.package]
 version = "0.1.0"

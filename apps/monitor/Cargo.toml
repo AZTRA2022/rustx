@@ -1,0 +1,13 @@
+[package]
+name = "monitor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A monitor fed by a background thread, read by two distant components."
+
+[dependencies]
+rustx-dom = { path = "../../crates/rustx-dom" }
+rustx-engine = { path = "../../crates/rustx-engine" }
+
+[build-dependencies]
+rustx-compiler = { path = "../../crates/rustx-compiler" }
