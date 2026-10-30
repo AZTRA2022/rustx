@@ -67,6 +67,12 @@ pub struct Scope {
 impl Scope {
     pub fn enter(id: InstanceId) -> Self {
         RENDERING.with(|stack| stack.borrow_mut().push(id));
+        // One frame per render in progress. A component renders inside
+        // its parent's render, so without a frame of its own the
+        // child's cells would be counted as the parent's and the
+        // reach-check of plan 4 would accuse both of forgetting the
+        // other's values.
+        FRAMES.with(|frames| frames.borrow_mut().push(Frame::default()));
         Self { _private: () }
     }
 }
@@ -76,7 +82,116 @@ impl Drop for Scope {
         RENDERING.with(|stack| {
             stack.borrow_mut().pop();
         });
+        FRAMES.with(|frames| {
+            frames.borrow_mut().pop();
+        });
     }
+}
+
+/// What one render in progress has reached.
+#[derive(Default)]
+struct Frame {
+    /// The cells, kept values and effects asked for.
+    touched: Vec<(Slot, String)>,
+    /// The components declared, in the order they were written.
+    children: Vec<InstanceId>,
+}
+
+thread_local! {
+    /// One frame per render on the stack, innermost last.
+    static FRAMES: RefCell<Vec<Frame>> = const { RefCell::new(Vec::new()) };
+    /// The next instance number, for roots and for children alike.
+    static NEXT_INSTANCE: std::cell::Cell<u64> = const { std::cell::Cell::new(1) };
+    /// A child's identity: the same call site under the same parent is
+    /// the same component, render after render.
+    static CHILD_IDS: RefCell<HashMap<(InstanceId, Slot, String), InstanceId>> =
+        RefCell::new(HashMap::new());
+    /// The children each instance declared on its last render.
+    static CHILDREN: RefCell<HashMap<InstanceId, Vec<InstanceId>>> =
+        RefCell::new(HashMap::new());
+}
+
+/// An instance number nobody else has.
+///
+/// Roots and children draw from one counter: the engine mounts roots and
+/// this module makes children, and two numbering schemes would collide
+/// the moment an application had both.
+pub fn next_instance() -> InstanceId {
+    InstanceId(NEXT_INSTANCE.with(|next| {
+        let id = next.get();
+        next.set(id + 1);
+        id
+    }))
+}
+
+/// Render `body` as a component of its own, inside the instance that is
+/// rendering.
+///
+/// This is what a capitalised tag becomes. The child's identity is
+/// `(parent, call site, keys in force)`, so the same line is the same
+/// component on every render, and the same line written twice is two
+/// components — exactly the rule a cell follows.
+///
+/// # Panics
+///
+/// Outside a [`Scope`]: a component has to be rendered by something.
+pub fn component_at<R>(slot: Slot, body: impl FnOnce() -> R) -> R {
+    let parent = current().unwrap_or_else(|| {
+        panic!(
+            "rustx: the component at {}:{}:{} was rendered outside a render. \
+             A component function has to be called through the renderer.",
+            slot.file, slot.line, slot.column
+        )
+    });
+    let key = (parent, slot, key_path());
+
+    let child = match CHILD_IDS.with(|ids| ids.borrow().get(&key).copied()) {
+        Some(child) => child,
+        None => {
+            // Allocated outside the borrow: the counter is a cell of its
+            // own, and reaching it through this map would nest two
+            // borrows for no reason.
+            let child = next_instance();
+            CHILD_IDS.with(|ids| ids.borrow_mut().insert(key, child));
+            child
+        }
+    };
+
+    // Declared, so the parent's `end_render` knows it is still wanted.
+    FRAMES.with(|frames| {
+        if let Some(frame) = frames.borrow_mut().last_mut()
+            && !frame.children.contains(&child)
+        {
+            frame.children.push(child);
+        }
+    });
+
+    let _scope = Scope::enter(child);
+    let rendered = body();
+    report_child_inconsistency(end_render());
+    rendered
+}
+
+/// A child's reach-check complaint, said where a developer will see it.
+///
+/// It is not returned to the caller: the caller is the parent's body,
+/// which is the developer's code, and the complaint is about the
+/// child's. The engine prints the parent's; this prints the child's.
+fn report_child_inconsistency(outcome: Result<(), String>) {
+    if let Err(complaint) = outcome {
+        eprintln!("{complaint}");
+    }
+}
+
+/// The components an instance declared on its last render.
+pub fn children_of(instance: InstanceId) -> Vec<InstanceId> {
+    CHILDREN.with(|children| {
+        children
+            .borrow()
+            .get(&instance)
+            .cloned()
+            .unwrap_or_default()
+    })
 }
 
 /// The instance currently rendering.
@@ -201,6 +316,16 @@ pub fn take_dirty() -> Vec<InstanceId> {
 /// dropping the cells drops the values, which runs their `Drop`. No
 /// second cleanup mechanism is invented on top.
 pub fn drop_instance(id: InstanceId) {
+    // Depth first: a child's `Drop` runs before its parent's, the way a
+    // tree of values is dropped in Rust.
+    let children = CHILDREN.with(|children| children.borrow_mut().remove(&id));
+    for child in children.unwrap_or_default() {
+        drop_instance(child);
+    }
+    // The identities of the children it declared go too, or the map
+    // would keep a row for every component the application ever showed.
+    CHILD_IDS.with(|ids| ids.borrow_mut().retain(|(parent, _, _), _| *parent != id));
+
     REACHED_BEFORE.with(|before| before.borrow_mut().remove(&id));
     let held = CELLS.with(|cells| cells.borrow_mut().remove(&id));
     drop(held);
@@ -415,15 +540,17 @@ pub fn effect_at<D: PartialEq + 'static, G: 'static>(
 }
 
 thread_local! {
-    /// Slots reached during the render in progress.
-    static TOUCHED: RefCell<Vec<(Slot, String)>> = const { RefCell::new(Vec::new()) };
     /// What the previous render of each instance reached.
     static REACHED_BEFORE: RefCell<HashMap<InstanceId, Vec<(Slot, String)>>> =
         RefCell::new(HashMap::new());
 }
 
 fn touch(key: (Slot, String)) {
-    TOUCHED.with(|touched| touched.borrow_mut().push(key));
+    FRAMES.with(|frames| {
+        if let Some(frame) = frames.borrow_mut().last_mut() {
+            frame.touched.push(key);
+        }
+    });
 }
 
 /// Close a render, and say so if it stopped reaching something it used
@@ -442,7 +569,38 @@ pub fn end_render() -> Result<(), String> {
     let Some(instance) = current() else {
         return Ok(());
     };
-    let reached = TOUCHED.with(|touched| std::mem::take(&mut *touched.borrow_mut()));
+    let (reached, declared) = FRAMES.with(|frames| {
+        let mut frames = frames.borrow_mut();
+        match frames.last_mut() {
+            Some(frame) => (
+                std::mem::take(&mut frame.touched),
+                std::mem::take(&mut frame.children),
+            ),
+            None => (Vec::new(), Vec::new()),
+        }
+    });
+
+    // A component this render did not declare is a component that left
+    // the tree — a page the router no longer shows. Releasing it here is
+    // what makes a navigation drop a page's tasks without anybody
+    // unmounting anything by hand.
+    let left: Vec<InstanceId> = CHILDREN.with(|children| {
+        children
+            .borrow()
+            .get(&instance)
+            .map(|before| {
+                before
+                    .iter()
+                    .filter(|child| !declared.contains(child))
+                    .copied()
+                    .collect()
+            })
+            .unwrap_or_default()
+    });
+    CHILDREN.with(|children| children.borrow_mut().insert(instance, declared));
+    for child in left {
+        drop_instance(child);
+    }
 
     // A row that left a keyed list takes its cells with it. That has to
     // happen before the check below, or a row the developer legitimately
@@ -542,9 +700,12 @@ pub fn drop_key(instance: InstanceId, key: &str) {
 /// The keys this render has reached, so the engine can tell which rows
 /// of a keyed list have gone.
 pub fn reached_keys() -> Vec<String> {
-    TOUCHED.with(|touched| {
-        let mut keys: Vec<String> = touched
-            .borrow()
+    FRAMES.with(|frames| {
+        let frames = frames.borrow();
+        let mut keys: Vec<String> = frames
+            .last()
+            .map(|frame| frame.touched.as_slice())
+            .unwrap_or_default()
             .iter()
             .filter(|(_, path)| !path.is_empty())
             .map(|(_, path)| path.split('\u{1f}').next().unwrap_or_default().to_string())

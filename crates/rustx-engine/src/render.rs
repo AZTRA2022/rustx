@@ -28,7 +28,6 @@ thread_local! {
     /// Everything mounted on this page, by instance.
     static ROOTS: RefCell<Vec<Root>> = const { RefCell::new(Vec::new()) };
     static RENDERS: Cell<u64> = const { Cell::new(0) };
-    static NEXT_INSTANCE: Cell<u64> = const { Cell::new(1) };
 }
 
 struct Root {
@@ -44,11 +43,11 @@ struct Root {
 /// The component function is called once now and again on any frame
 /// where its state changed.
 pub fn mount_app(component: impl Fn() -> Element + 'static, id: &str) -> Result<(), DomError> {
-    let instance = InstanceId(NEXT_INSTANCE.with(|next| {
-        let id = next.get();
-        next.set(id + 1);
-        id
-    }));
+    // From `rustx-dom`'s counter, not a second one of our own: a
+    // component written inside another is given an instance there, and
+    // two numbering schemes would hand the same number to a root and to
+    // a child the moment an application had both.
+    let instance = rustx_dom::state::next_instance();
     let root = root_node(id)?;
     let component: Rc<dyn Fn() -> Element> = Rc::new(component);
 
