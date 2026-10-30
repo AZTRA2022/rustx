@@ -46,6 +46,18 @@ pub struct Selected(pub String);
 /// preview closed the one it had opened.
 static CLOSED: AtomicU32 = AtomicU32::new(0);
 
+/// How many times the layout has started its thread.
+///
+/// This is what says the layout survived the navigation, and it says it
+/// without a stopwatch: a layout that had been released and built again
+/// would have started a second one.
+static LAYOUT_STARTS: AtomicU32 = AtomicU32::new(0);
+
+/// Called by the layout's background task, once per start.
+pub fn started() {
+    LAYOUT_STARTS.fetch_add(1, Ordering::Release);
+}
+
 /// A capture stream, standing in for the hardware the OS layer will
 /// bring. What matters is that it is opened by a component and closed by
 /// nobody.
@@ -127,6 +139,12 @@ fn install_test_natives() {
 
     register_native("capture_ticks", |_args| {
         Ok(Value::String(store::<Ticks>().get().0.to_string()))
+    });
+
+    register_native("capture_layout_starts", |_args| {
+        Ok(Value::String(
+            LAYOUT_STARTS.load(Ordering::Acquire).to_string(),
+        ))
     });
 
     register_native("capture_closed_streams", |_args| {

@@ -22,14 +22,30 @@ fn clicking_a_device_opens_its_preview() {
 }
 
 #[test]
-fn the_navigation_bar_keeps_counting_across_screens() {
-    // The bar's thread belongs to the layout, and the layout is above
-    // both screens — so it is never stopped and never restarted.
+fn the_navigation_bar_is_not_rebuilt_when_the_screen_under_it_changes() {
+    // The bar's thread belongs to the layout, and the layout encloses
+    // both screens — so it is never stopped and never restarted. Said
+    // with a count rather than a stopwatch: a layout that had been
+    // released and built again would have started a second thread.
+    assert_eq!(
+        report().get("layout_starts"),
+        "1",
+        "the layout was rebuilt when the screen under it changed:\n{}",
+        report().raw()
+    );
+}
+
+#[test]
+fn the_navigation_bar_is_driven_by_its_own_thread() {
     let ticks: u32 = report()
         .get("ticks_after_navigate")
         .parse()
         .unwrap_or_else(|_| panic!("ticks was not a number:\n{}", report().raw()));
-    assert!(ticks >= 3, "the bar counted {ticks} times:\n{}", report().raw());
+    assert!(
+        ticks >= 1,
+        "the bar never counted at all:\n{}",
+        report().raw()
+    );
 }
 
 #[test]

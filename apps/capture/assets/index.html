@@ -53,6 +53,7 @@
             frame(() => {
               capture_report("selected_in_list", document.querySelector("#selected-in-list").textContent);
               capture_report("ticks_after_navigate", capture_ticks());
+              capture_report("layout_starts", capture_layout_starts());
               capture_report("closed_streams", capture_closed_streams());
             });
           });
