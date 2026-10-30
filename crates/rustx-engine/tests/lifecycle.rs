@@ -63,3 +63,18 @@ fn a_prop_is_not_turned_into_state() {
         report().raw()
     );
 }
+
+#[test]
+fn a_row_that_leaves_a_keyed_list_releases_what_it_held() {
+    // The cleanup of a keyed row is only reachable from the end of a
+    // render. A render loop that never closes a render leaves it
+    // unreachable: the list's state grows for every row that ever
+    // existed, a row that comes back resurrects its old value, and a
+    // row holding a file handle never runs its `Drop`.
+    assert_eq!(
+        report().get("drops_after_row_left"),
+        "1",
+        "a row left the list without releasing what it held:\n{}",
+        report().raw()
+    );
+}

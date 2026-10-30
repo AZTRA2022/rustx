@@ -26,6 +26,7 @@
 use std::any::{Any, TypeId};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::rc::Rc;
 
 use crate::state::{InstanceId, current, forget_on_drop, mark_dirty};
@@ -45,66 +46,84 @@ struct Shared<T> {
 ///
 /// The same shape as `State<T>`, minus the owner: nobody holds it, so
 /// nothing drops it, and it outlives every component that reads it.
+///
+/// It holds no value of its own — only the type, which is the store's
+/// name. A handle kept by a component or captured in a handler
+/// therefore always reaches the store that is there *now*, and a
+/// [`reset`] cannot leave it writing into an orphan nobody else can
+/// read.
 pub struct Store<T> {
-    shared: Rc<Shared<T>>,
+    of: PhantomData<fn() -> T>,
 }
 
 impl<T> Clone for Store<T> {
     fn clone(&self) -> Self {
-        Self {
-            shared: Rc::clone(&self.shared),
-        }
+        *self
     }
 }
 
-impl<T: Clone> Store<T> {
+impl<T> Copy for Store<T> {}
+
+impl<T: Default + Clone + 'static> Store<T> {
     /// The value, as a copy. Reading during a render enrols the
     /// component as a reader, which is what makes a later write reach
     /// the screen.
     pub fn get(&self) -> T {
-        self.enrol();
-        self.shared.value.borrow().clone()
+        let shared = shared::<T>();
+        enrol(&shared);
+        shared.value.borrow().clone()
     }
 }
 
-impl<T> Store<T> {
+impl<T: Default + 'static> Store<T> {
     /// Read without copying, for a value that is not `Clone`.
     pub fn with<R>(&self, read: impl FnOnce(&T) -> R) -> R {
-        self.enrol();
-        read(&self.shared.value.borrow())
+        let shared = shared::<T>();
+        enrol(&shared);
+        read(&shared.value.borrow())
     }
 
     /// Replace the value and mark everyone who reads it.
+    ///
+    /// The value that was there is dropped once the borrow is over: a
+    /// `Drop` is the developer's code, and it may well read this store.
     pub fn set(&self, value: T) {
-        *self.shared.value.borrow_mut() = value;
-        self.soil();
+        let shared = shared::<T>();
+        let previous = std::mem::replace(&mut *shared.value.borrow_mut(), value);
+        drop(previous);
+        soil(&shared);
     }
 
     /// Change the value in place.
-    pub fn update(&self, change: impl FnOnce(&mut T)) {
-        change(&mut self.shared.value.borrow_mut());
-        self.soil();
-    }
-
-    /// Remember that the component now rendering shows this value.
     ///
-    /// Outside a render there is nobody to remember: a posted job
-    /// reading the store is not a component.
-    fn enrol(&self) {
-        let Some(reader) = current() else {
-            return;
-        };
-        let mut readers = self.shared.readers.borrow_mut();
-        if !readers.contains(&reader) {
-            readers.push(reader);
-        }
+    /// `change` runs while the store is borrowed, so it must not read
+    /// the same store — the way a `RefCell` has always behaved.
+    pub fn update(&self, change: impl FnOnce(&mut T)) {
+        let shared = shared::<T>();
+        change(&mut shared.value.borrow_mut());
+        soil(&shared);
     }
+}
 
-    /// Writing does not draw. It says "these ones, next frame".
-    fn soil(&self) {
-        for reader in self.shared.readers.borrow().iter() {
-            mark_dirty(*reader);
-        }
+/// Remember that the component now rendering shows this value.
+///
+/// Outside a render there is nobody to remember: a posted job reading
+/// the store is not a component.
+fn enrol<T>(shared: &Shared<T>) {
+    let Some(reader) = current() else {
+        return;
+    };
+    let mut readers = shared.readers.borrow_mut();
+    if !readers.contains(&reader) {
+        readers.push(reader);
+    }
+}
+
+/// Writing does not draw. It says "these ones, next frame".
+fn soil<T>(shared: &Shared<T>) {
+    let readers = shared.readers.borrow().clone();
+    for reader in readers {
+        mark_dirty(reader);
     }
 }
 
@@ -129,6 +148,13 @@ thread_local! {
 /// written to yet is the empty list, the unselected device, the zero.
 pub fn store<T: Default + 'static>() -> Store<T> {
     forget_unmounted_readers();
+    let _ = shared::<T>();
+    Store { of: PhantomData }
+}
+
+/// The one `Shared<T>` of this thread, created on the first ask.
+fn shared<T: Default + 'static>() -> Rc<Shared<T>> {
+    forget_unmounted_readers();
 
     let shared = STORES.with(|stores| {
         let mut stores = stores.borrow_mut();
@@ -145,11 +171,11 @@ pub fn store<T: Default + 'static>() -> Store<T> {
         Rc::clone(&existing.shared)
     });
 
-    let shared = shared
-        .downcast::<Shared<T>>()
-        .expect("a store is found by its type, so it holds that type");
+    
 
-    Store { shared }
+    shared
+        .downcast::<Shared<T>>()
+        .expect("a store is found by its type, so it holds that type")
 }
 
 /// A store must not be the reason a component that left the tree is

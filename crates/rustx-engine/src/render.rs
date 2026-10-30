@@ -140,7 +140,14 @@ fn render_dirty() {
 fn re_render(document: &Document, root: &mut Root) -> Result<(), DomError> {
     let fresh = {
         let _scope = Scope::enter(root.id);
-        (root.component)()
+        let fresh = (root.component)();
+        // Every render is closed, not only the first. This is where a
+        // row that left a keyed list releases its cells, where a child
+        // component that is no longer declared is released, and where a
+        // kept value that stopped being reached is reported. A render
+        // loop that closes only the mount leaves all three unreachable.
+        report_inconsistency(end_render());
+        fresh
     };
     RENDERS.with(|renders| renders.set(renders.get() + 1));
 

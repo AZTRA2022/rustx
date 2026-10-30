@@ -164,7 +164,7 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             });
         }
 
-        let calls = calls_of(source, &in_code, &handlers);
+        let calls = calls_of(source, body, &in_code, &handlers)?;
 
         components.push(Component {
             handlers,
@@ -184,9 +184,18 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
 /// after the render returned, where none of the three mean anything, and
 /// the handler is rewritten whole — an edit inside it would collide with
 /// that one.
-fn calls_of(source: &str, in_code: &[Span], handlers: &[Span]) -> Vec<Call> {
+fn calls_of(
+    source: &str,
+    body: Span,
+    in_code: &[Span],
+    handlers: &[Span],
+) -> Result<Vec<Call>, CompileError> {
     let bytes = source.as_bytes();
     let mut calls = Vec::new();
+    // A nested `fn` is not a component. Its `keep` has no instance to
+    // belong to, and attaching it to whichever component happens to be
+    // rendering would be worse than leaving it as the error it is.
+    let nested = nested_functions(source, body);
 
     for (name, kind) in [
         ("keep", CallKind::Keep),
@@ -197,8 +206,12 @@ fn calls_of(source: &str, in_code: &[Span], handlers: &[Span]) -> Vec<Call> {
             if handlers.iter().any(|handler| contains(*handler, span)) {
                 continue;
             }
-            // `camera.keep(…)` is somebody else's method.
-            if span.start > 0 && bytes[span.start - 1] == b'.' {
+            if nested.iter().any(|inner| contains(*inner, span)) {
+                continue;
+            }
+            // `camera.keep(…)`, `Self::keep(…)` and `devices::keep(…)`
+            // are somebody else's.
+            if span.start > 0 && matches!(bytes[span.start - 1], b'.' | b':') {
                 continue;
             }
             let open = skip_spaces(bytes, span.end);
@@ -223,7 +236,115 @@ fn calls_of(source: &str, in_code: &[Span], handlers: &[Span]) -> Vec<Call> {
     }
 
     calls.sort_by_key(|call| call.span.start);
-    calls
+
+    // Two edits over the same bytes shred each other: the inner one is
+    // applied first, and the outer one then replaces a range whose end
+    // has moved. A correct nested rewrite is an expression-tree walk
+    // this file is not built for, so the honest answer is a sentence.
+    if let Some((outer, inner)) = nested_pair(&calls) {
+        return Err(CompileError::flagged(
+            outer.span.start,
+            format!(
+                "rustx cannot yet see a `{}` written inside a `{}`. \
+                 Give the inner one a `let` of its own on the line above, \
+                 and pass that.",
+                name_of(inner.kind),
+                name_of(outer.kind)
+            ),
+        )
+        .resolve(source));
+    }
+
+    // The three names belong to the framework inside a component. A
+    // component that declares one of them *and* calls it would have its
+    // own call rewritten into the framework's, which is a bug nobody
+    // could see in their own source.
+    if let Some(call) = calls
+        .iter()
+        .find(|call| declares_local(source, body, name_of(call.kind)))
+    {
+        return Err(CompileError::flagged(
+            call.span.start,
+            format!(
+                "this component declares a local named `{name}` and also calls `{name}`. \
+                 Inside a component, `{name}` is the framework's — rename the local.",
+                name = name_of(call.kind)
+            ),
+        )
+        .resolve(source));
+    }
+
+    Ok(calls)
+}
+
+/// The first pair where one call is written inside another's arguments.
+fn nested_pair(calls: &[Call]) -> Option<(&Call, &Call)> {
+    calls.iter().find_map(|outer| {
+        calls
+            .iter()
+            .find(|inner| inner.span != outer.span && contains(outer.arguments, inner.span))
+            .map(|inner| (outer, inner))
+    })
+}
+
+/// What the developer wrote, for a message that quotes them.
+fn name_of(kind: CallKind) -> &'static str {
+    match kind {
+        CallKind::Keep => "keep",
+        CallKind::Effect => "effect",
+        CallKind::Task => "task",
+    }
+}
+
+/// Does this body declare a local called `name`?
+fn declares_local(source: &str, body: Span, name: &str) -> bool {
+    let bytes = source.as_bytes();
+    let mut index = body.start;
+    while let Some(at) = find_word(source, "let", index) {
+        if at >= body.end {
+            break;
+        }
+        index = at + 3;
+        let Some(first) = word_after(source, index) else {
+            continue;
+        };
+        let declared = if first.0 == "mut" {
+            word_after(source, first.1)
+        } else {
+            Some(first)
+        };
+        if declared.is_some_and(|(declared, _)| declared == name) {
+            return true;
+        }
+        let _ = bytes;
+    }
+    false
+}
+
+/// The bodies of the `fn`s written inside this body.
+fn nested_functions(source: &str, body: Span) -> Vec<Span> {
+    let bytes = source.as_bytes();
+    let mut found = Vec::new();
+    let mut index = body.start;
+
+    while let Some(at) = find_word(source, "fn", index) {
+        if at >= body.end {
+            break;
+        }
+        index = at + 2;
+        let Some(brace) = next_byte(bytes, index, b'{') else {
+            break;
+        };
+        if brace >= body.end {
+            break;
+        }
+        let Ok(end) = skip_braces(source, brace) else {
+            break;
+        };
+        found.push(Span { start: at, end });
+        index = end;
+    }
+    found
 }
 
 /// A local declared `let mut` at the top level of a component's body.

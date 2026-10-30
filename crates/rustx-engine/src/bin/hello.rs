@@ -732,6 +732,11 @@ impl Drop for Releases {
 
 thread_local! {
     static DROPS: Cell<u64> = const { Cell::new(0) };
+    /// What the rows of the keyed list released.
+    static ROW_DROPS: Cell<u64> = const { Cell::new(0) };
+    /// The rows themselves, so the page can take one away.
+    static ROWS: RefCell<Option<rustx_dom::state::State<Vec<String>>>> =
+        const { RefCell::new(None) };
     /// Which device name the props component is showing.
     static SELECTED: RefCell<Option<rustx_dom::state::State<usize>>> =
         const { RefCell::new(None) };
@@ -794,6 +799,61 @@ fn install_lifecycle_natives() {
         Ok(Value::String(
             rustx_dom::state::live_instances().to_string(),
         ))
+    });
+
+    // A keyed list whose rows hold something with a `Drop`. A row that
+    // leaves has to release it, and that cleanup is only reachable from
+    // the end of a render — which is why this is driven through the
+    // engine rather than by hand.
+    register_native("rustx_mount_rows", |_args| {
+        rustx_engine::render::mount_app(
+            || {
+                let rows = rustx_dom::state::cell(
+                    rustx_dom::state::Slot {
+                        file: file!(),
+                        line: line!(),
+                        column: column!(),
+                    },
+                    || vec!["a".to_string(), "b".to_string()],
+                );
+                ROWS.with(|slot| *slot.borrow_mut() = Some(rows.clone()));
+
+                let mut list = Element::tag("ul");
+                for key in rows.get() {
+                    let row = rustx_dom::state::with_key(&key, || {
+                        let held = rustx_dom::state::cell(
+                            rustx_dom::state::Slot {
+                                file: file!(),
+                                line: line!(),
+                                column: column!(),
+                            },
+                            || Releases(&ROW_DROPS),
+                        );
+                        held.with(|_| ());
+                        Element::Text(key.clone())
+                    });
+                    list = list.child(Element::tag("li").key(key.clone()).child(row).build());
+                }
+                list.build()
+            },
+            "rows",
+        )?;
+        Ok(Value::Null)
+    });
+
+    register_native("rustx_remove_row", |_args| {
+        ROWS.with(|slot| {
+            if let Some(rows) = slot.borrow().as_ref() {
+                rows.update(|rows| {
+                    rows.pop();
+                });
+            }
+        });
+        Ok(Value::Null)
+    });
+
+    register_native("rustx_row_drops", |_args| {
+        Ok(Value::String(ROW_DROPS.with(Cell::get).to_string()))
     });
 
     register_native("rustx_mount_props", |_args| {

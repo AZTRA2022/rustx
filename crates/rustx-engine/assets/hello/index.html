@@ -75,6 +75,7 @@
       <!-- Hosts for the lifecycle scenario. -->
       <div id="holder"></div>
       <div id="props"></div>
+      <div id="rows"></div>
       <!-- Host for the component that starts a background task. -->
       <div id="ticker"></div>
       <p id="error"></p>
@@ -193,6 +194,16 @@
         try {
           rustx_mount_holder();
           rustx_mount_props();
+          rustx_mount_rows();
+
+          // A row leaves the keyed list. What it held has to go with it,
+          // and nothing in the page says so: the render does.
+          rustx_remove_row();
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              rustx_report("drops_after_row_left", rustx_row_drops());
+            });
+          });
 
           const row = () => document.querySelector("#row").textContent;
 

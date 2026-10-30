@@ -89,3 +89,16 @@ fn a_reset_store_starts_again_from_its_default() {
 
     assert_eq!(store::<u32>().get(), 0);
 }
+
+#[test]
+fn a_handle_taken_before_a_reset_sees_the_store_that_came_after() {
+    // A handle kept by a component, or captured in a handler, must not
+    // go on writing into a store nobody else can read: a write nobody
+    // sees is worse than a panic.
+    let held = store::<u32>();
+    held.set(5);
+    reset();
+
+    held.set(9);
+    assert_eq!(store::<u32>().get(), 9, "the handle wrote into an orphan");
+}

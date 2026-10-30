@@ -123,10 +123,29 @@ fn call_edit(source: &str, call: &crate::promote::Call) -> Edit {
         }
     };
 
+    // What rustfmt does to a long argument puts the call across several
+    // lines, and the replacement is one line. Plan 2's position map
+    // rests on the line count, so the newlines the arguments had are
+    // given back at the end of the call — after the closing bracket,
+    // where they change nothing but the line numbering they preserve.
+    let original = &source[call.span.start..call.span.end];
+    let text = pad_to(text, original);
+
     Edit {
         span: call.span,
         text,
     }
+}
+
+/// `text`, with as many trailing newlines as `original` has.
+fn pad_to(text: String, original: &str) -> String {
+    let wanted = original.matches('\n').count();
+    let have = text.matches('\n').count();
+    let mut text = text;
+    for _ in have..wanted {
+        text.push('\n');
+    }
+    text
 }
 
 /// `effect`'s two arguments, split at the comma between them.

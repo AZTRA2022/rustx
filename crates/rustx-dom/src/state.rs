@@ -332,22 +332,27 @@ pub fn drop_instance(id: InstanceId) {
     DIRTY.with(|dirty| dirty.borrow_mut().retain(|dirty| *dirty != id));
 
     // Anything else holding this instance's id has to let go of it, or
-    // the id would be the one thing a component leaves behind. The
-    // hooks are taken out for the call: one of them may ask for a store,
-    // which would borrow the same list.
-    let hooks = FORGET.with(|hooks| std::mem::take(&mut *hooks.borrow_mut()));
+    // the id would be the one thing a component leaves behind.
+    //
+    // The list is cloned rather than taken out: a hook is the
+    // developer's code once removed — it may ask for a store, release
+    // another instance, or panic. Taking the list out would leave it
+    // empty for a nested release and gone for good after a panic, and a
+    // store that silently stops forgetting unmounted readers is the leak
+    // this hook exists to prevent.
+    // Each hook is contained, for the same reason the frame loop
+    // contains a frame callback: one broken hook must not stop the
+    // others from being told, nor take the unmount down with it.
+    let hooks: Vec<ForgetHook> = FORGET.with(|hooks| hooks.borrow().clone());
     for hook in &hooks {
-        hook(id);
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hook(id)));
+        if outcome.is_err() {
+            eprintln!("rustx: a hook watching for released components panicked; carrying on");
+        }
     }
-    FORGET.with(|existing| {
-        let mut existing = existing.borrow_mut();
-        let mut hooks = hooks;
-        hooks.append(&mut existing);
-        *existing = hooks;
-    });
 }
 
-type ForgetHook = Box<dyn Fn(InstanceId)>;
+type ForgetHook = Rc<dyn Fn(InstanceId)>;
 
 thread_local! {
     /// Who else has to be told that an instance is gone.
@@ -360,7 +365,7 @@ thread_local! {
 /// and so will the router. Rather than reach into them from here, they
 /// say so themselves, which keeps this module's one job its only job.
 pub(crate) fn forget_on_drop(hook: impl Fn(InstanceId) + 'static) {
-    FORGET.with(|hooks| hooks.borrow_mut().push(Box::new(hook)));
+    FORGET.with(|hooks| hooks.borrow_mut().push(Rc::new(hook)));
 }
 
 /// How many instances hold state. For tests and diagnostics.
@@ -714,4 +719,52 @@ pub fn reached_keys() -> Vec<String> {
         keys.dedup();
         keys
     })
+}
+
+#[cfg(test)]
+mod tests {
+    //! The list of "tell me when an instance goes" hooks. It is taken
+    //! out of its cell for the call, because a hook may ask for a store
+    //! and the store registers hooks — so the putting back has to
+    //! survive a hook that panics, or a store silently stops forgetting
+    //! unmounted readers for the rest of the process.
+
+    use super::*;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    #[test]
+    fn a_hook_that_panics_does_not_take_the_other_hooks_with_it() {
+        let seen = Rc::new(RefCell::new(Vec::new()));
+
+        forget_on_drop(|_| panic!("a forget hook panicked on purpose"));
+        let witness = Rc::clone(&seen);
+        forget_on_drop(move |gone| witness.borrow_mut().push(gone));
+
+        let _ = catch_unwind(AssertUnwindSafe(|| drop_instance(InstanceId(10))));
+        drop_instance(InstanceId(11));
+
+        assert_eq!(
+            *seen.borrow(),
+            vec![InstanceId(10), InstanceId(11)],
+            "a panicking hook stopped the one standing next to it"
+        );
+    }
+
+    #[test]
+    fn an_instance_dropped_from_inside_a_hook_is_still_announced() {
+        // A cell's `Drop` may release another instance — a child, a row
+        // of a list. The hooks have to be there for that one too.
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let witness = Rc::clone(&seen);
+
+        forget_on_drop(move |gone| {
+            witness.borrow_mut().push(gone);
+            if gone == InstanceId(20) {
+                drop_instance(InstanceId(21));
+            }
+        });
+        drop_instance(InstanceId(20));
+
+        assert_eq!(*seen.borrow(), vec![InstanceId(20), InstanceId(21)]);
+    }
 }
