@@ -75,6 +75,8 @@
       <!-- Hosts for the lifecycle scenario. -->
       <div id="holder"></div>
       <div id="props"></div>
+      <!-- Host for the component that starts a background task. -->
+      <div id="ticker"></div>
       <p id="error"></p>
     </main>
 
@@ -256,6 +258,42 @@
             };
             requestAnimationFrame(settle);
           });
+        } catch (e) {
+          rustx_report("scenario_error", String(e));
+        }
+      }
+
+      if (rustx_scenario() === "task") {
+        try {
+          // Three threads: one endless task the scenario cancels by hand,
+          // one held by a component that gets unmounted, and one that
+          // panics the way a hardware thread eventually does.
+          rustx_task_start();
+          rustx_mount_ticker();
+          rustx_task_panics();
+
+          const framesBeforePanic = Number(rustx_frames());
+
+          // Let them run, then take their tokens away.
+          setTimeout(() => {
+            rustx_report("ticks_while_running", rustx_task_ticks());
+            rustx_report("running_before_cancel", rustx_task_running());
+            rustx_task_cancel();
+            rustx_unmount_ticker();
+
+            // Cancellation is cooperative: each thread notices the next
+            // time it looks, which is within a few milliseconds here.
+            setTimeout(() => {
+              rustx_report("task_stopped", rustx_task_stopped());
+              rustx_report("post_after_cancel", rustx_task_post_after_cancel());
+              rustx_report("task_after_unmount", rustx_task_after_unmount());
+              rustx_report("task_panic_notice", rustx_task_panic_notice());
+              rustx_report(
+                "alive_after_task_panic",
+                Number(rustx_frames()) > framesBeforePanic ? "yes" : "no"
+              );
+            }, 400);
+          }, 400);
         } catch (e) {
           rustx_report("scenario_error", String(e));
         }

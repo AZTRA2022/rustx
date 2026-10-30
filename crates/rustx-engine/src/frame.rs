@@ -42,12 +42,18 @@ thread_local! {
 pub enum PostError {
     /// The window is gone. Stop producing work and shut the thread down.
     WindowClosed,
+    /// The task that posted this has been cancelled: the component that
+    /// started it is on its way out of the tree, so what the task still
+    /// has to say is refused rather than delivered to something that is
+    /// no longer there.
+    Cancelled,
 }
 
 impl std::fmt::Display for PostError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::WindowClosed => f.write_str("WindowClosed"),
+            Self::Cancelled => f.write_str("Cancelled"),
         }
     }
 }

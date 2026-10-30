@@ -15,6 +15,7 @@ pub mod tree;
 pub mod mount;
 mod panics;
 pub mod renderer;
+pub mod task;
 mod value;
 
 pub use app::{App, AppConfig};

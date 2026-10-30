@@ -7,6 +7,8 @@
 use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use rustx_dom::{AttributeValue, Element, Handler};
 use rustx_engine::{
@@ -111,7 +113,152 @@ fn install_natives() {
     install_lifecycle_natives();
     install_dom_natives();
     install_frame_natives();
+    install_task_natives();
     install_process_natives();
+}
+
+// What the background tasks of the `task` scenario report about
+// themselves. They are statics rather than thread-locals because a task
+// body runs on its own thread: it writes here, the UI thread reads.
+static ENDLESS_STOPPED: AtomicBool = AtomicBool::new(false);
+static POST_AFTER_CANCEL: Mutex<Option<&'static str>> = Mutex::new(None);
+static KEPT_TASK_STOPPED: AtomicBool = AtomicBool::new(false);
+
+thread_local! {
+    /// The token of the endless task, held where the scenario can drop it.
+    static ENDLESS: RefCell<Option<rustx_engine::task::Task>> = const { RefCell::new(None) };
+    /// The token of the task that panics, kept so that the panic is the
+    /// only reason the body ever ends.
+    static PANICKER: RefCell<Option<rustx_engine::task::Task>> = const { RefCell::new(None) };
+    static TASK_TICKS: Cell<u64> = const { Cell::new(0) };
+}
+
+/// A capture thread's whole life, as the proof-of-concept software will
+/// write it: it is started by a component, it posts what it produces, and
+/// it stops because its token went away.
+fn install_task_natives() {
+    register_native("rustx_task_start", |_args| {
+        let task = rustx_engine::task::spawn(|alive| {
+            while alive.get() {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                let _ = alive.post(|| TASK_TICKS.with(|ticks| ticks.set(ticks.get() + 1)));
+            }
+            // Past the loop, the token is gone. What the task has left to
+            // say must be refused rather than queued.
+            let refused = match alive.post(|| {}) {
+                Ok(()) => "accepted",
+                Err(_) => "refused",
+            };
+            *POST_AFTER_CANCEL
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(refused);
+            ENDLESS_STOPPED.store(true, Ordering::Release);
+        });
+        ENDLESS.with(|slot| *slot.borrow_mut() = Some(task));
+        Ok(Value::Null)
+    });
+
+    register_native("rustx_task_running", |_args| {
+        Ok(Value::String(
+            ENDLESS
+                .with(|slot| slot.borrow().as_ref().map(rustx_engine::task::Task::is_running))
+                .map(|running| running.to_string())
+                .unwrap_or_else(|| "none".to_string()),
+        ))
+    });
+
+    register_native("rustx_task_ticks", |_args| {
+        Ok(Value::String(TASK_TICKS.with(Cell::get).to_string()))
+    });
+
+    // Dropping the token is the whole cancellation API.
+    register_native("rustx_task_cancel", |_args| {
+        ENDLESS.with(|slot| *slot.borrow_mut() = None);
+        Ok(Value::Null)
+    });
+
+    register_native("rustx_task_stopped", |_args| {
+        Ok(Value::String(
+            if ENDLESS_STOPPED.load(Ordering::Acquire) {
+                "yes".to_string()
+            } else {
+                "no".to_string()
+            },
+        ))
+    });
+
+    register_native("rustx_task_post_after_cancel", |_args| {
+        Ok(Value::String(
+            POST_AFTER_CANCEL
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .unwrap_or("pending")
+                .to_string(),
+        ))
+    });
+
+    register_native("rustx_task_panics", |_args| {
+        let task = rustx_engine::task::spawn(|_alive| {
+            panic!("a background task panicked on purpose");
+        });
+        PANICKER.with(|slot| *slot.borrow_mut() = Some(task));
+        Ok(Value::Null)
+    });
+
+    // The sentence the engine said about it, read from inside the render
+    // process because a CEF sub-process's stderr does not reliably reach
+    // the harness.
+    register_native("rustx_task_panic_notice", |_args| {
+        Ok(Value::String(
+            rustx_engine::task::last_panic().unwrap_or_else(|| "nothing was said".to_string()),
+        ))
+    });
+
+    // A component that starts a thread, holding the token the way the
+    // compiler's `task(…)` will: as a value kept by the component.
+    register_native("rustx_mount_ticker", |_args| {
+        rustx_engine::render::mount_app(
+            || {
+                rustx_dom::state::keep_at(
+                    rustx_dom::state::Slot {
+                        file: file!(),
+                        line: line!(),
+                        column: column!(),
+                    },
+                    || {
+                        rustx_engine::task::spawn(|alive| {
+                            while alive.get() {
+                                std::thread::sleep(std::time::Duration::from_millis(5));
+                            }
+                            KEPT_TASK_STOPPED.store(true, Ordering::Release);
+                        })
+                    },
+                );
+                Element::tag("p")
+                    .attribute("id", AttributeValue::Text("ticker".into()))
+                    .child(Element::Text("ticking".into()))
+                    .build()
+            },
+            "ticker",
+        )?;
+        Ok(Value::Null)
+    });
+
+    register_native("rustx_unmount_ticker", |_args| {
+        Ok(Value::String(
+            rustx_engine::render::unmount("ticker")?.to_string(),
+        ))
+    });
+
+    register_native("rustx_task_after_unmount", |_args| {
+        Ok(Value::String(
+            if KEPT_TASK_STOPPED.load(Ordering::Acquire) {
+                "stopped".to_string()
+            } else {
+                "running".to_string()
+            },
+        ))
+    });
 }
 
 /// Trees built in Rust and put on screen, the way the compiler's output
