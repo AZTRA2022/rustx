@@ -93,6 +93,7 @@ fn expression(node: &Node, context: &Context<'_>) -> Result<TokenStream, Compile
             Ok(quote! { rustx_dom::into_element(#inner) })
         }
         Node::Tag(tag) if tag.is_fragment() => Ok(fragment(&tag.children, context)?),
+        Node::Tag(tag) if tag.name.starts_with("js::") => foreign_expression(tag, context),
         Node::Tag(tag) if crate::tags::looks_like_a_component(&tag.name) => {
             component_expression(tag, context)
         }
@@ -367,4 +368,116 @@ fn whole_call_to_a_component(code: &str, context: &Context<'_>) -> bool {
         }
     }
     false
+}
+
+/// `<js::Chart series={…} />` becomes the container React fills.
+///
+/// rustx says where the component goes and what its props are, and
+/// stops there. So this is where the boundary's rules are enforced: no
+/// children, because React owns what is inside and a child written here
+/// could never be reconciled by either side; no events, because a
+/// handler is a Rust closure and a closure does not cross; and no prop
+/// that is not a value, because what crosses is copied in full and
+/// nothing is borrowed.
+fn foreign_expression(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, CompileError> {
+    let component = &tag.name["js::".len()..];
+    if !crate::tags::looks_like_a_component(component) {
+        return Err(CompileError::flagged(
+            tag.offset,
+            format!(
+                "`{}` names no React component. A React component is capitalised — \
+                 `<js::{}{} />`.",
+                tag.name,
+                component
+                    .chars()
+                    .next()
+                    .map(|first| first.to_uppercase().to_string())
+                    .unwrap_or_default(),
+                component.get(1..).unwrap_or("")
+            ),
+        ));
+    }
+
+    if !tag.children.is_empty() {
+        return Err(CompileError::flagged(
+            tag.offset,
+            format!(
+                "`{}` owns what is inside it, so nothing can be written between its \
+                 tags — children given here would be reconciled by neither side. Pass \
+                 what it should show as a prop.",
+                tag.name
+            ),
+        ));
+    }
+
+    let mut props = Vec::new();
+    for attribute in &tag.attributes {
+        if is_event(&attribute.name) {
+            return Err(CompileError::flagged(
+                attribute.offset,
+                format!(
+                    "`{}` is an event, and a Rust closure does not cross into React. \
+                     Give the component a prop it calls itself.",
+                    attribute.name
+                ),
+            ));
+        }
+        let name = Literal::string(&attribute.name);
+        let value = crossing_value(attribute)?;
+        props.push(quote! { (#name.to_string(), #value) });
+    }
+
+    let (line, column) = context.line_and_column(tag.offset);
+    let component = Literal::string(component);
+    let id = Literal::string(&format!("rustx-js-{line}-{column}"));
+    Ok(quote! {
+        rustx_dom::Element::Foreign {
+            component: #component.to_string(),
+            props: vec![#(#props),*],
+            id: #id.to_string(),
+        }
+    })
+}
+
+/// What one prop of a React component crosses as.
+///
+/// The compiler does not know the types of the developer's Rust, so the
+/// refusal is on what it can see: a literal, a number, a boolean, or an
+/// expression that ends in `.to_string()` or `.into()`. Anything else is
+/// refused by name rather than compiled into a `rustc` error about a
+/// `Value` the developer never wrote.
+fn crossing_value(attribute: &Attribute) -> Result<TokenStream, CompileError> {
+    match &attribute.value {
+        AttributeSource::Flag => Ok(quote! { rustx_dom::Value::Bool(true) }),
+        AttributeSource::Literal(text) => {
+            let text = Literal::string(text);
+            Ok(quote! { rustx_dom::Value::String(#text.to_string()) })
+        }
+        AttributeSource::Expression(code) => {
+            let written = code.trim();
+            let inner = rust(code, attribute.offset)?;
+            if written == "true" || written == "false" {
+                return Ok(quote! { rustx_dom::Value::Bool(#inner) });
+            }
+            if written.parse::<f64>().is_ok() {
+                return Ok(quote! { rustx_dom::Value::Number(#inner as f64) });
+            }
+            if written.starts_with('"') && written.ends_with('"') {
+                return Ok(quote! { rustx_dom::Value::String((#inner).to_string()) });
+            }
+            if written.ends_with(".to_string()") || written.ends_with(".into()") {
+                return Ok(quote! { rustx_dom::Value::String(#inner) });
+            }
+            Err(CompileError::flagged(
+                attribute.offset,
+                format!(
+                    "`{}` has to cross into React as a value, and rustx cannot tell what \
+                     `{written}` is. What crosses is a string, a number, a boolean or \
+                     nothing — write `{}={{{written}.to_string()}}` if it is a string, or \
+                     a number or boolean literal.",
+                    attribute.name, attribute.name
+                ),
+            ))
+        }
+    }
 }
