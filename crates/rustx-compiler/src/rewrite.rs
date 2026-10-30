@@ -17,7 +17,7 @@
 //! every `rustc` error back where it was before that map existed.
 
 use crate::error::CompileError;
-use crate::promote::{Component, MutationKind, analyse};
+use crate::promote::{CallKind, Component, MutationKind, analyse};
 use crate::scan::Span;
 
 /// One replacement, in offsets of the source being rewritten.
@@ -41,6 +41,11 @@ pub fn promote_state(source: &str) -> Result<String, CompileError> {
 
 fn edits_for(source: &str, component: &Component) -> Vec<Edit> {
     let mut edits = Vec::new();
+
+    for call in &component.calls {
+        edits.push(call_edit(source, call));
+    }
+
     if component.promoted.is_empty() {
         return edits;
     }
@@ -84,6 +89,78 @@ fn edits_for(source: &str, component: &Component) -> Vec<Edit> {
     }
 
     edits
+}
+
+/// `keep(EXPR)`, `effect(WATCHED, RUN)` and `task(WORK)`, each given the
+/// place it was written at.
+///
+/// The developer writes `keep(Camera::open())`. The slot is what makes
+/// the value the same value on the next render, and only the compiler
+/// knows where the call sits — so the compiler is what says it, exactly
+/// as it does for a promoted `let mut`.
+///
+/// `task` is the one that carries the whole idea: it becomes a *kept*
+/// token. Nothing else ties the thread to the component — the token is a
+/// value the component holds, so it is dropped at unmount, so the task
+/// stops.
+fn call_edit(source: &str, call: &crate::promote::Call) -> Edit {
+    let (line, column) = line_and_column(source, call.span.start);
+    let slot = format!(
+        "rustx_dom::state::Slot {{ file: file!(), line: {line}u32, column: {column}u32 }}"
+    );
+    let arguments = source[call.arguments.start..call.arguments.end].trim();
+
+    let text = match call.kind {
+        CallKind::Keep => {
+            format!("rustx_dom::state::keep_at({slot}, || {arguments})")
+        }
+        CallKind::Task => {
+            format!("rustx_dom::state::keep_at({slot}, || rustx_engine::task::spawn({arguments}))")
+        }
+        CallKind::Effect => {
+            let (watched, run) = split_first_argument(arguments);
+            format!("rustx_dom::state::effect_at({slot}, {watched}, {run})")
+        }
+    };
+
+    Edit {
+        span: call.span,
+        text,
+    }
+}
+
+/// `effect`'s two arguments, split at the comma between them.
+///
+/// The comma has to be the one at the top level: what is watched can be
+/// a call or a tuple with commas of its own.
+fn split_first_argument(arguments: &str) -> (&str, &str) {
+    let bytes = arguments.as_bytes();
+    let mut depth = 0_i32;
+    let mut index = 0;
+
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' => {
+                index = crate::scan::skip_string(arguments, index).unwrap_or(index + 1);
+                continue;
+            }
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            b',' if depth == 0 => {
+                return (
+                    arguments[..index].trim(),
+                    arguments[index + 1..].trim(),
+                );
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+
+    // One argument where two were expected. Leaving it as written puts
+    // the complaint where the developer can act on it — `rustc` naming
+    // the line — rather than inventing a second argument here.
+    (arguments.trim(), "")
 }
 
 /// The `{…}` of every handler that touches a promoted local.

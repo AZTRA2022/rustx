@@ -29,6 +29,35 @@ pub struct Component {
     /// The `{…}` of every `on*` attribute in those regions.
     pub handlers: Vec<Span>,
     pub promoted: Vec<Promoted>,
+    /// The `keep`, `effect` and `task` calls written in the body.
+    pub calls: Vec<Call>,
+}
+
+/// A call to one of the three names a component is given.
+///
+/// They are found here rather than in the rewrite for the same reason
+/// promotion is: what was decided can be asked about, instead of being
+/// inferred from generated Rust.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Call {
+    pub kind: CallKind,
+    /// The whole call, parentheses included.
+    pub span: Span,
+    /// What is between the parentheses.
+    pub arguments: Span,
+}
+
+/// Which of the three it is. Nothing else is touched: `keep` outside a
+/// `fn … -> Element` is an ordinary name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallKind {
+    /// `keep(EXPR)` — a value built once.
+    Keep,
+    /// `effect(WATCHED, RUN)` — work that happens again when `WATCHED`
+    /// changes.
+    Effect,
+    /// `task(WORK)` — a thread that stops when the component goes.
+    Task,
 }
 
 /// A local that became state.
@@ -135,15 +164,66 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             });
         }
 
+        let calls = calls_of(source, &in_code, &handlers);
+
         components.push(Component {
             handlers,
             name,
             body,
             returns_jsx,
             promoted,
+            calls,
         });
     }
     Ok(components)
+}
+
+/// The three calls, wherever they are written in a component's code.
+///
+/// A call inside an event handler is left alone: a handler runs long
+/// after the render returned, where none of the three mean anything, and
+/// the handler is rewritten whole — an edit inside it would collide with
+/// that one.
+fn calls_of(source: &str, in_code: &[Span], handlers: &[Span]) -> Vec<Call> {
+    let bytes = source.as_bytes();
+    let mut calls = Vec::new();
+
+    for (name, kind) in [
+        ("keep", CallKind::Keep),
+        ("effect", CallKind::Effect),
+        ("task", CallKind::Task),
+    ] {
+        for span in occurrences(source, name, in_code) {
+            if handlers.iter().any(|handler| contains(*handler, span)) {
+                continue;
+            }
+            // `camera.keep(…)` is somebody else's method.
+            if span.start > 0 && bytes[span.start - 1] == b'.' {
+                continue;
+            }
+            let open = skip_spaces(bytes, span.end);
+            if bytes.get(open) != Some(&b'(') {
+                continue;
+            }
+            let Some(close) = matching(bytes, open, b'(', b')') else {
+                continue;
+            };
+            calls.push(Call {
+                kind,
+                span: Span {
+                    start: span.start,
+                    end: close + 1,
+                },
+                arguments: Span {
+                    start: open + 1,
+                    end: close,
+                },
+            });
+        }
+    }
+
+    calls.sort_by_key(|call| call.span.start);
+    calls
 }
 
 /// A local declared `let mut` at the top level of a component's body.
