@@ -18,6 +18,16 @@ use crate::element::{AttributeValue, Element, Key, TagElement};
 pub struct Path(pub Vec<usize>);
 
 impl Path {
+    /// The path of the tree's own root.
+    pub fn root() -> Self {
+        Self(Vec::new())
+    }
+
+    /// How far from the root this path is.
+    pub fn depth(&self) -> usize {
+        self.0.len()
+    }
+
     fn child(&self, index: usize) -> Self {
         let mut path = self.0.clone();
         path.push(index);
@@ -26,7 +36,10 @@ impl Path {
 }
 
 /// One thing to change about what is on screen.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Not `Eq`: a prop of a node React owns may be a number, and a number
+/// is not equal to itself in every case the trait promises it is.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Patch {
     SetText {
         path: Path,
@@ -65,6 +78,33 @@ pub enum Patch {
         path: Path,
         source: Path,
     },
+    /// The props of a node React owns, as this render wrote them.
+    ///
+    /// Whole, not as a difference: React is handed the props it should
+    /// have now, so a prop that went away is simply not in the list.
+    ForeignProps {
+        path: Path,
+        props: Vec<(String, crate::Value)>,
+    },
+}
+
+impl Patch {
+    /// Where in the tree this correction applies.
+    ///
+    /// For the ones that name a parent and an index, that is the
+    /// parent: the node itself is not there yet, or not there any more.
+    pub fn path(&self) -> &Path {
+        match self {
+            Patch::SetText { path, .. }
+            | Patch::SetAttribute { path, .. }
+            | Patch::RemoveAttribute { path, .. }
+            | Patch::Replace { path, .. }
+            | Patch::ReplaceHandlers { path, .. }
+            | Patch::ForeignProps { path, .. } => path,
+            Patch::Insert { parent, .. } | Patch::Remove { parent, .. } => parent,
+            Patch::Move { parent, .. } => parent,
+        }
+    }
 }
 
 /// What to change to turn `old` into `new`.
@@ -95,6 +135,29 @@ fn compare(old: &Element, new: &Element, at: &Path, source: &Path, patches: &mut
         }
         (Element::Tag(before), Element::Tag(after)) if before.tag == after.tag => {
             compare_tag(before, after, at, source, patches);
+        }
+        // Opaque on purpose. The same component is the same container,
+        // so the props are handed over and nothing else is said; a
+        // different component is a different thing in that container,
+        // and the honest answer is to build it.
+        (
+            Element::Foreign {
+                component: before,
+                props: had,
+                ..
+            },
+            Element::Foreign {
+                component: after,
+                props: wants,
+                ..
+            },
+        ) if before == after => {
+            if had != wants {
+                patches.push(Patch::ForeignProps {
+                    path: at.clone(),
+                    props: wants.clone(),
+                });
+            }
         }
         // Anything else is a different kind of node, and the only honest
         // answer is to build the new one.

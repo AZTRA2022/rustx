@@ -1,19 +1,14 @@
-//! The values that cross between Rust and JavaScript.
+//! The values that cross between Rust and JavaScript, and how they are
+//! read from V8 and built back into it.
 //!
-//! Deliberately small. A native function only ever sees one of these, so the
-//! application never has to defend itself against a shape JavaScript made up:
-//! anything the engine cannot name is refused before the call happens.
+//! The type itself lives in `rustx-dom`, because an `Element` carries it
+//! now: the props of a node React owns are values. What stays here is
+//! the V8 half, which is the engine's business — `rustx_engine::Value`
+//! is a re-export, so nothing that used it changed.
 
 use cef::{CefString, ImplV8Value, V8Value};
 
-/// A value a native function can take or return.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Value {
-    Null,
-    Bool(bool),
-    Number(f64),
-    String(String),
-}
+pub use rustx_dom::Value;
 
 /// What a native function says when it cannot do what was asked.
 ///
@@ -40,36 +35,36 @@ impl std::fmt::Display for NativeError {
 
 impl std::error::Error for NativeError {}
 
-impl Value {
-    /// Reads a JavaScript value, refusing anything `Value` cannot represent.
-    pub(crate) fn from_v8(value: &V8Value) -> Result<Self, NativeError> {
-        if value.is_null() != 0 || value.is_undefined() != 0 {
-            return Ok(Value::Null);
-        }
-        if value.is_bool() != 0 {
-            return Ok(Value::Bool(value.bool_value() != 0));
-        }
-        if value.is_int() != 0 {
-            return Ok(Value::Number(f64::from(value.int_value())));
-        }
-        if value.is_double() != 0 {
-            return Ok(Value::Number(value.double_value()));
-        }
-        if value.is_string() != 0 {
-            return Ok(Value::String(CefString::from(&value.string_value()).to_string()));
-        }
-        Err(NativeError::new(
-            "unsupported argument: rustx passes null, booleans, numbers and strings",
-        ))
+/// Reads a JavaScript value, refusing anything `Value` cannot represent.
+pub(crate) fn from_v8(value: &V8Value) -> Result<Value, NativeError> {
+    if value.is_null() != 0 || value.is_undefined() != 0 {
+        return Ok(Value::Null);
     }
+    if value.is_bool() != 0 {
+        return Ok(Value::Bool(value.bool_value() != 0));
+    }
+    if value.is_int() != 0 {
+        return Ok(Value::Number(f64::from(value.int_value())));
+    }
+    if value.is_double() != 0 {
+        return Ok(Value::Number(value.double_value()));
+    }
+    if value.is_string() != 0 {
+        return Ok(Value::String(
+            CefString::from(&value.string_value()).to_string(),
+        ));
+    }
+    Err(NativeError::new(
+        "unsupported argument: rustx passes null, booleans, numbers and strings",
+    ))
+}
 
-    /// Builds the JavaScript value a native function returned.
-    pub(crate) fn into_v8(self) -> Option<V8Value> {
-        match self {
-            Value::Null => cef::v8_value_create_null(),
-            Value::Bool(b) => cef::v8_value_create_bool(i32::from(b)),
-            Value::Number(n) => cef::v8_value_create_double(n),
-            Value::String(s) => cef::v8_value_create_string(Some(&CefString::from(s.as_str()))),
-        }
+/// Builds the JavaScript value a native function returned.
+pub(crate) fn into_v8(value: Value) -> Option<V8Value> {
+    match value {
+        Value::Null => cef::v8_value_create_null(),
+        Value::Bool(b) => cef::v8_value_create_bool(i32::from(b)),
+        Value::Number(n) => cef::v8_value_create_double(n),
+        Value::String(s) => cef::v8_value_create_string(Some(&CefString::from(s.as_str()))),
     }
 }

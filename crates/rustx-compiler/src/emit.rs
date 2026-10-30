@@ -63,12 +63,25 @@ fn expression(node: &Node, context: &Context<'_>) -> Result<TokenStream, Compile
             // render, so its cells would be the parent's and two calls
             // would share one state. It is an instance, like the tag.
             if whole_call_to_a_component(code, context) {
-                let call = rust(code, *offset)?;
                 let (line, column) = context.line_and_column(*offset);
+                // `{Navbar()}` hands over the function itself: `||
+                // Navbar()` is a closure clippy asks the developer to
+                // simplify, in a file they never wrote.
+                let trimmed = code.trim();
+                let body = match trimmed.strip_suffix("()") {
+                    Some(name) if !name.trim_end().is_empty() => {
+                        let name = rust(name.trim_end(), *offset)?;
+                        quote! { #name }
+                    }
+                    _ => {
+                        let call = rust(code, *offset)?;
+                        quote! { || #call }
+                    }
+                };
                 return Ok(quote! {
                     rustx_dom::state::component_at(
                         rustx_dom::state::Slot { file: file!(), line: #line, column: #column },
-                        || #call,
+                        #body,
                     )
                 });
             }
@@ -184,10 +197,18 @@ fn component_expression(tag: &TagNode, context: &Context<'_>) -> Result<TokenStr
 
     let name = crate::emit::rust(&tag.name, tag.offset)?;
     let (line, column) = context.line_and_column(tag.offset);
+    // A component with nothing to pass is handed over as the function
+    // itself. `|| Nav()` would be a closure clippy asks the developer to
+    // simplify, in a file they never wrote and cannot edit.
+    let body = if arguments.is_empty() {
+        quote! { #name }
+    } else {
+        quote! { || #name(#(#arguments),*) }
+    };
     Ok(quote! {
         rustx_dom::state::component_at(
             rustx_dom::state::Slot { file: file!(), line: #line, column: #column },
-            || #name(#(#arguments),*),
+            #body,
         )
     })
 }

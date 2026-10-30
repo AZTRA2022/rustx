@@ -8,6 +8,7 @@ mod client;
 pub mod dom;
 mod error;
 mod guard;
+pub mod foreign;
 pub mod frame;
 mod init;
 pub mod render;

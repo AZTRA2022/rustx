@@ -186,15 +186,14 @@ impl Node {
         let Some(value) = self.value.value_bykey(Some(&CefString::from(name))) else {
             return Ok(None);
         };
-        Value::from_v8(&value)
+        crate::value::from_v8(&value)
             .map(Some)
             .map_err(|error| DomError::Failed(error.message))
     }
 
     fn set_property(&self, name: &str, value: Value) -> Result<(), DomError> {
         self.check()?;
-        let mut value = value
-            .into_v8()
+        let mut value = crate::value::into_v8(value)
             .ok_or_else(|| DomError::Failed(format!("could not build a value for '{name}'")))?;
         let written = self.value.set_value_bykey(
             Some(&CefString::from(name)),
@@ -210,7 +209,7 @@ impl Node {
     /// Call one of this node's own methods with plain values.
     fn call(&self, method: &str, arguments: &[Value]) -> Result<Option<Node>, DomError> {
         let arguments: Vec<Option<V8Value>> =
-            arguments.iter().cloned().map(Value::into_v8).collect();
+            arguments.iter().cloned().map(crate::value::into_v8).collect();
         self.invoke(method, arguments)
     }
 
@@ -257,7 +256,7 @@ impl Node {
     /// The value of an attribute, if the node carries it.
     pub fn attribute(&self, name: &str) -> Result<Option<String>, DomError> {
         match self.call("getAttribute", &[Value::String(name.to_string())])? {
-            Some(node) => match Value::from_v8(&node.value) {
+            Some(node) => match crate::value::from_v8(&node.value) {
                 Ok(Value::String(text)) => Ok(Some(text)),
                 Ok(Value::Null) => Ok(None),
                 Ok(other) => Err(DomError::Failed(format!("attribute was {other:?}"))),
@@ -322,8 +321,7 @@ impl Node {
                 self.call_with_nodes("insertBefore", &[child, before])?;
             }
             None => {
-                let null = Value::Null
-                    .into_v8()
+                let null = crate::value::into_v8(Value::Null)
                     .ok_or_else(|| DomError::Failed("could not build null".into()))?;
                 self.call_with_v8_returning("insertBefore", vec![Some(child.value.clone()), Some(null)])?;
             }

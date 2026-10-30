@@ -76,7 +76,7 @@ fn run(
     match outcome {
         Ok(Ok(value)) => {
             if let Some(slot) = retval {
-                *slot = value.into_v8();
+                *slot = crate::value::into_v8(value);
             }
             HANDLED
         }
@@ -92,7 +92,7 @@ fn read_arguments(arguments: Option<&[Option<V8Value>]>) -> Result<Vec<Value>, N
     arguments
         .iter()
         .map(|argument| match argument {
-            Some(value) => Value::from_v8(value),
+            Some(value) => crate::value::from_v8(value),
             None => Ok(Value::Null),
         })
         .collect()

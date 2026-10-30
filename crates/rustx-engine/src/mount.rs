@@ -90,6 +90,19 @@ pub(crate) fn build_into(
             }
             Ok(mounted)
         }
+        // The container, and nothing in it: what goes inside belongs to
+        // React, and the handover is `crate::foreign`'s business.
+        Element::Foreign { id, .. } => {
+            let node = document.create_element("div")?;
+            node.set_attribute("id", id)?;
+            parent.append_child(&node)?;
+            crate::foreign::report_missing_bridge();
+            Ok(MountedNode {
+                dom: Some(node),
+                handlers: Vec::new(),
+                children: Vec::new(),
+            })
+        }
         Element::Tag(tag) => {
             let (node, mounted) = build_tag(document, tag)?;
             parent.append_child(&node)?;
@@ -189,8 +202,7 @@ fn listen(node: &Node, name: &str, slot: HandlerSlot) -> Result<(), DomError> {
         cef::v8_value_create_function(Some(&CefString::from(name)), Some(&mut v8_handler))
             .ok_or_else(|| DomError::Failed(format!("could not build a function for {name}")))?;
 
-    let kind_value = Value::String(kind)
-        .into_v8()
+    let kind_value = crate::value::into_v8(Value::String(kind))
         .ok_or_else(|| DomError::Failed("could not build the event name".into()))?;
 
     node.call_with_v8("addEventListener", vec![Some(kind_value), Some(callback)])

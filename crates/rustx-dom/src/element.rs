@@ -12,6 +12,19 @@ pub enum Element {
     Fragment(Vec<Element>),
     /// Nothing at all. A component may legitimately render nothing.
     Empty,
+    /// A node React owns.
+    ///
+    /// rustx puts the container on the page, says which React component
+    /// goes in it and with what props, and then does not look inside:
+    /// the diff treats it as opaque, because two reconcilers reaching
+    /// into one subtree is a bug nobody can debug. The `id` is given by
+    /// the compiler, deterministically, the way a `Slot` is — so the
+    /// engine finds the container without searching for it by position.
+    Foreign {
+        component: String,
+        props: Vec<(String, crate::Value)>,
+        id: String,
+    },
 }
 
 /// A tag, its attributes, its event handlers and its children, in the

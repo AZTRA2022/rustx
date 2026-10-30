@@ -204,6 +204,10 @@ pub fn apply(
             Patch::ReplaceHandlers { path, source } => {
                 replace_handlers(path, source, fresh, mounted);
             }
+            // The props of a node React owns. There is nobody to hand
+            // them to until the bridge exists, and a correction that is
+            // quietly dropped is worse than one that says so.
+            Patch::ForeignProps { .. } => crate::foreign::report_missing_bridge(),
             Patch::Replace { path, source } => {
                 replace(document, path, source, fresh, mounted)?;
             }

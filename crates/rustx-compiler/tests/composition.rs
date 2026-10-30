@@ -19,7 +19,10 @@ fn a_capitalised_tag_becomes_a_call_to_the_component() {
         "{NAV}fn Page() -> Element {{\n    return <div><Nav /></div>;\n}}"
     ));
     assert!(rust.contains("component_at"), "got {rust}");
-    assert!(rust.contains("Nav ()"), "got {rust}");
+    // A component with nothing to pass is handed over as the function
+    // itself, not wrapped in a closure clippy would ask the developer to
+    // simplify in a file they never wrote.
+    assert!(rust.contains("} , Nav ,"), "got {rust}");
 }
 
 #[test]

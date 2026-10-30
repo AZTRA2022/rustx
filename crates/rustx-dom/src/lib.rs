@@ -8,11 +8,13 @@
 
 mod element;
 pub mod diff;
+pub mod value;
 pub mod route;
 pub mod state;
 pub mod store;
 
 
+pub use value::Value;
 pub use element::{
     Key,
     AttributeValue, Element, Event, Handler, IntoElement, TagElement, into_element,
