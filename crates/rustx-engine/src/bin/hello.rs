@@ -116,6 +116,7 @@ fn install_natives() {
     install_task_natives();
     install_router_natives();
     install_process_natives();
+    install_foreign_natives();
 }
 
 // The screens of the `router` scenario, written by hand where an
@@ -1123,4 +1124,107 @@ fn counter_state_value() -> String {
             .map(|state| state.get().to_string())
             .unwrap_or_default()
     })
+}
+
+// The `foreign` scenario: a node React owns. What is proved here is the
+// engine's half — that the container is built, that React is handed the
+// component and its props, that a prop change reaches it without
+// rebuilding it, that rustx leaves what React put inside alone, and
+// that React is told **before** its container leaves the document.
+thread_local! {
+    /// The series the chart is given, held where a native can change it.
+    static SERIES: RefCell<Option<rustx_dom::state::State<String>>> = const { RefCell::new(None) };
+    /// Whether the chart is on screen at all.
+    static CHART_SHOWN: RefCell<Option<rustx_dom::state::State<bool>>> = const { RefCell::new(None) };
+}
+
+fn chart_screen() -> Element {
+    let series = rustx_dom::state::cell(
+        rustx_dom::state::Slot {
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        },
+        || "a".to_string(),
+    );
+    let shown = rustx_dom::state::cell(
+        rustx_dom::state::Slot {
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        },
+        || true,
+    );
+    SERIES.with(|slot| *slot.borrow_mut() = Some(series.clone()));
+    CHART_SHOWN.with(|slot| *slot.borrow_mut() = Some(shown.clone()));
+
+    let inside = if shown.get() {
+        Element::Foreign {
+            component: "Chart".to_string(),
+            props: vec![("series".to_string(), Value::String(series.get()))],
+            id: "rustx-js-chart".to_string(),
+        }
+    } else {
+        Element::Text("gone".to_string())
+    };
+
+    Element::tag("div").child(inside).build()
+}
+
+fn install_foreign_natives() {
+    register_native("rustx_mount_chart", |_args| {
+        rustx_engine::render::mount_app(chart_screen, "chart")?;
+        Ok(Value::Null)
+    });
+
+    register_native("rustx_chart_series", |args| {
+        let [Value::String(series)] = args else {
+            return Err(NativeError::new("expected one series"));
+        };
+        let series = series.clone();
+        SERIES.with(|slot| {
+            if let Some(cell) = slot.borrow().as_ref() {
+                cell.set(series);
+            }
+        });
+        Ok(Value::Null)
+    });
+
+    register_native("rustx_hide_chart", |_args| {
+        CHART_SHOWN.with(|slot| {
+            if let Some(cell) = slot.borrow().as_ref() {
+                cell.set(false);
+            }
+        });
+        Ok(Value::Null)
+    });
+
+    // A component the page never registered. The window is not held
+    // hostage by a typo: the container stays empty and the complaint is
+    // said once.
+    register_native("rustx_mount_unknown_chart", |_args| {
+        rustx_engine::render::mount_app(
+            || Element::Foreign {
+                component: "Nope".to_string(),
+                props: Vec::new(),
+                id: "rustx-js-nope".to_string(),
+            },
+            "nope",
+        )?;
+        Ok(Value::Null)
+    });
+
+    register_native("rustx_foreign_complaint", |_args| {
+        Ok(Value::String(
+            rustx_engine::foreign::last_complaint().unwrap_or_default(),
+        ))
+    });
+
+    register_native("rustx_handed_over", |_args| {
+        Ok(Value::String(rustx_engine::foreign::handed_over().to_string()))
+    });
+
+    register_native("rustx_given_back", |_args| {
+        Ok(Value::String(rustx_engine::foreign::given_back().to_string()))
+    });
 }

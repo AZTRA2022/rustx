@@ -68,3 +68,17 @@ pub(crate) fn into_v8(value: Value) -> Option<V8Value> {
         Value::String(s) => cef::v8_value_create_string(Some(&CefString::from(s.as_str()))),
     }
 }
+
+/// The JavaScript object a node React owns is given as its props.
+pub(crate) fn object_of(props: &[(String, Value)]) -> Option<V8Value> {
+    let object = cef::v8_value_create_object(None, None)?;
+    for (name, value) in props {
+        let mut value = into_v8(value.clone())?;
+        object.set_value_bykey(
+            Some(&CefString::from(name.as_str())),
+            Some(&mut value),
+            cef::V8Propertyattribute::default(),
+        );
+    }
+    Some(object)
+}

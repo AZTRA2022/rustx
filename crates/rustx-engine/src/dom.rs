@@ -329,3 +329,31 @@ impl Node {
         Ok(())
     }
 }
+
+impl Node {
+    /// This node's V8 value, for passing it to a function the page owns.
+    pub(crate) fn v8(&self) -> V8Value {
+        self.value.clone()
+    }
+
+    /// What this node is, read as a value — for a return value rather
+    /// than for an element.
+    pub(crate) fn as_value(&self) -> Option<Value> {
+        crate::value::from_v8(&self.value).ok()
+    }
+
+    /// An object the page put on `window`, as a node this module can
+    /// call methods on. `None` when the page has not defined it.
+    pub(crate) fn on_window(name: &str) -> Option<Self> {
+        let context = cef::v8_context_get_current_context()?;
+        let global = context.global()?;
+        let value = global.value_bykey(Some(&CefString::from(name)))?;
+        if value.is_object() == 0 {
+            return None;
+        }
+        Some(Self {
+            value,
+            generation: generation(),
+        })
+    }
+}

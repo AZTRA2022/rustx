@@ -32,6 +32,11 @@ pub struct MountedNode {
     pub(crate) dom: Option<Node>,
     pub(crate) handlers: Vec<(String, HandlerSlot)>,
     pub(crate) children: Vec<MountedNode>,
+    /// The React component in this container, when this node is a
+    /// boundary. React has to be told before the container leaves the
+    /// document, and this is how the engine knows there is anybody to
+    /// tell.
+    pub(crate) foreign: Option<String>,
 }
 
 impl MountedNode {
@@ -40,6 +45,7 @@ impl MountedNode {
             dom: None,
             handlers: Vec::new(),
             children: Vec::new(),
+            foreign: None,
         }
     }
 }
@@ -102,4 +108,19 @@ pub(crate) fn element_at<'a>(tree: &'a Element, path: &Path) -> Option<&'a Eleme
         };
     }
     Some(element)
+}
+
+impl MountedNode {
+    /// Every boundary in this subtree, deepest last — the containers
+    /// React has to be told about before any of them is detached.
+    pub(crate) fn boundaries(&self, into: &mut Vec<(String, Node)>) {
+        if let Some(component) = &self.foreign
+            && let Some(dom) = &self.dom
+        {
+            into.push((component.clone(), dom.clone()));
+        }
+        for child in &self.children {
+            child.boundaries(into);
+        }
+    }
 }

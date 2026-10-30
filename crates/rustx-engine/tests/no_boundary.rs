@@ -65,26 +65,26 @@ fn rust_sees_dom_state_javascript_wrote_in_the_same_tick() {
 
 #[test]
 fn a_dom_rust_dom_round_trip_stays_under_fifty_microseconds() {
-    let mean_ns: f64 = report()
+    let best_ns: f64 = report()
         .get("dom_round_trip_ns")
         .parse()
         .expect("a number of nanoseconds");
 
     assert!(
-        mean_ns < 50_000.0,
-        "round trip too slow: {mean_ns} ns — a boundary has reappeared"
+        best_ns < 50_000.0,
+        "round trip too slow: {best_ns} ns — a boundary has reappeared"
     );
 }
 
 #[test]
 fn a_bare_native_call_stays_in_the_microsecond_range() {
-    let mean_ns: f64 = report()
+    let best_ns: f64 = report()
         .get("call_ns")
         .parse()
         .expect("a number of nanoseconds");
 
     assert!(
-        mean_ns < 10_000.0,
-        "a plain Rust call from JavaScript took {mean_ns} ns, which is IPC territory"
+        best_ns < 10_000.0,
+        "a plain Rust call from JavaScript took {best_ns} ns, which is IPC territory"
     );
 }

@@ -100,6 +100,8 @@ pub fn unmount(id: &str) -> Result<bool, DomError> {
     let Some(root) = removed else {
         return Ok(false);
     };
+    // React is told while its containers are still in the document.
+    give_back_boundaries(&root.mounted.nodes);
     root.mounted.root.set_text("")?;
     drop_instance(root.id);
     Ok(true)
@@ -207,7 +209,17 @@ pub fn apply(
             // The props of a node React owns. There is nobody to hand
             // them to until the bridge exists, and a correction that is
             // quietly dropped is worse than one that says so.
-            Patch::ForeignProps { .. } => crate::foreign::report_missing_bridge(),
+            Patch::ForeignProps { path, props } => {
+                // The component's name comes from what is mounted, not
+                // from the patch: a patch says what changed, and the
+                // component is what did not.
+                if let Some(node) = mounted.at(path)
+                    && let Some(component) = node.foreign.clone()
+                    && let Some(dom) = node.dom.clone()
+                {
+                    crate::foreign::hand_over(&component, &dom, props);
+                }
+            }
             Patch::Replace { path, source } => {
                 replace(document, path, source, fresh, mounted)?;
             }
@@ -287,6 +299,7 @@ fn replace(
     };
     let Some(parent_path) = parent_of(path) else {
         // Replacing the root: clear it and build again.
+        give_back_boundaries(&mounted.nodes);
         mounted.root.set_text("")?;
         mounted.nodes = build_into(document, element, &mounted.root.clone())?;
         return Ok(());
@@ -299,6 +312,10 @@ fn replace(
         .unwrap_or_else(|| mounted.root.clone());
     let built = build_into(document, element, &parent_dom)?;
 
+    if let Some(old) = mounted.at(path) {
+        // Before it leaves the document, not after.
+        give_back_boundaries(old);
+    }
     if let Some(old) = mounted.at(path).and_then(|node| node.dom.clone()) {
         old.remove()?;
     }
@@ -357,10 +374,11 @@ fn remove(parent: &Path, index: usize, mounted: &mut Mounted) -> Result<(), DomE
         .at_mut(parent)
         .filter(|node| index < node.children.len())
         .map(|node| node.children.remove(index));
-    if let Some(gone) = gone
-        && let Some(dom) = gone.dom
-    {
-        dom.remove()?;
+    if let Some(gone) = gone {
+        give_back_boundaries(&gone);
+        if let Some(dom) = &gone.dom {
+            dom.remove()?;
+        }
     }
     Ok(())
 }
@@ -431,5 +449,19 @@ fn parent_of(path: &Path) -> Option<Path> {
 fn report_inconsistency(outcome: Result<(), String>) {
     if let Err(complaint) = outcome {
         eprintln!("{complaint}");
+    }
+}
+
+/// Tell React about every boundary in this subtree, before any of it is
+/// detached.
+///
+/// The order is the point. A React tree told after its container has
+/// left the document never runs its cleanups, and its listeners stay
+/// attached to a node nobody can reach.
+fn give_back_boundaries(node: &crate::tree::MountedNode) {
+    let mut boundaries = Vec::new();
+    node.boundaries(&mut boundaries);
+    for (_, container) in boundaries {
+        crate::foreign::give_back(&container);
     }
 }

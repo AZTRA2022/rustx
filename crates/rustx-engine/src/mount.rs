@@ -79,6 +79,7 @@ pub(crate) fn build_into(
                 dom: Some(node),
                 handlers: Vec::new(),
                 children: Vec::new(),
+                foreign: None,
             })
         }
         // A fragment has no node of its own: its children become the
@@ -92,15 +93,22 @@ pub(crate) fn build_into(
         }
         // The container, and nothing in it: what goes inside belongs to
         // React, and the handover is `crate::foreign`'s business.
-        Element::Foreign { id, .. } => {
+        Element::Foreign {
+            component,
+            props,
+            id,
+        } => {
             let node = document.create_element("div")?;
             node.set_attribute("id", id)?;
+            // Attached first: React is handed a node that is in the
+            // document, which is the only kind it can measure or focus.
             parent.append_child(&node)?;
-            crate::foreign::report_missing_bridge();
+            crate::foreign::hand_over(component, &node, props);
             Ok(MountedNode {
                 dom: Some(node),
                 handlers: Vec::new(),
                 children: Vec::new(),
+                foreign: Some(component.clone()),
             })
         }
         Element::Tag(tag) => {
@@ -136,6 +144,7 @@ fn build_tag(document: &Document, tag: &TagElement) -> Result<(Node, MountedNode
             dom: Some(node),
             handlers,
             children,
+            foreign: None,
         },
     ))
 }
