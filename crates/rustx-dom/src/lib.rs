@@ -9,6 +9,7 @@
 mod element;
 pub mod diff;
 pub mod state;
+pub mod store;
 
 
 pub use element::{

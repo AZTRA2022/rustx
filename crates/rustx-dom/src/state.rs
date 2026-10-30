@@ -135,13 +135,20 @@ impl<T> State<T> {
 
     /// Mutating does not draw. It says "this one, next frame".
     fn soil(&self) {
-        DIRTY.with(|dirty| {
-            let mut dirty = dirty.borrow_mut();
-            if !dirty.contains(&self.owner) {
-                dirty.push(self.owner);
-            }
-        });
+        mark_dirty(self.owner);
     }
+}
+
+/// Say that `id` has to render again on the next frame.
+///
+/// A cell marks its own owner; a store marks everyone who read it.
+pub(crate) fn mark_dirty(id: InstanceId) {
+    DIRTY.with(|dirty| {
+        let mut dirty = dirty.borrow_mut();
+        if !dirty.contains(&id) {
+            dirty.push(id);
+        }
+    });
 }
 
 /// The cell at `slot` for the instance being rendered, created on the
@@ -198,6 +205,37 @@ pub fn drop_instance(id: InstanceId) {
     let held = CELLS.with(|cells| cells.borrow_mut().remove(&id));
     drop(held);
     DIRTY.with(|dirty| dirty.borrow_mut().retain(|dirty| *dirty != id));
+
+    // Anything else holding this instance's id has to let go of it, or
+    // the id would be the one thing a component leaves behind. The
+    // hooks are taken out for the call: one of them may ask for a store,
+    // which would borrow the same list.
+    let hooks = FORGET.with(|hooks| std::mem::take(&mut *hooks.borrow_mut()));
+    for hook in &hooks {
+        hook(id);
+    }
+    FORGET.with(|existing| {
+        let mut existing = existing.borrow_mut();
+        let mut hooks = hooks;
+        hooks.append(&mut existing);
+        *existing = hooks;
+    });
+}
+
+type ForgetHook = Box<dyn Fn(InstanceId)>;
+
+thread_local! {
+    /// Who else has to be told that an instance is gone.
+    static FORGET: RefCell<Vec<ForgetHook>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Be told when an instance leaves the tree.
+///
+/// `state` does not know what else keeps instance ids — the store does,
+/// and so will the router. Rather than reach into them from here, they
+/// say so themselves, which keeps this module's one job its only job.
+pub(crate) fn forget_on_drop(hook: impl Fn(InstanceId) + 'static) {
+    FORGET.with(|hooks| hooks.borrow_mut().push(Box::new(hook)));
 }
 
 /// How many instances hold state. For tests and diagnostics.
