@@ -34,27 +34,30 @@ fn Panel() -> Element {
 
 ## Review Focus
 
-1. **Un sous-arbre React dont le conteneur disparaît d'un rendu `rustx`.** React doit être prévenu avant que le nœud ne quitte le document, sinon ses effets ne se nettoient jamais et ses écouteurs restent sur un nœud détaché. → Tâche 4.
+1. **Un sous-arbre React dont le conteneur disparaît d'un rendu `rustx`.** React doit être prévenu avant que le nœud ne quitte le document, sinon ses effets ne se nettoient jamais et ses écouteurs restent sur un nœud détaché. → Tâche 5.
 2. **Un `style={{…}}` dont une valeur est un nombre, ou dont une clé est déjà en kebab-case.** React ajoute `px` à certains nombres et pas à d'autres ; `rustx` ne doit pas deviner. → Tâche 1.
-3. **Une prop qui n'est pas un scalaire.** `<js::Chart camera={camera} />` ne peut pas traverser, et doit être refusé à la compilation plutôt que de devenir une chaîne « Camera { … } » dans le DOM. → Tâche 3.
-4. **Un composant `rustx` monté dans un nœud React que React enlève ensuite.** L'instance `rustx` doit être libérée, avec ses tâches, et ne pas rester dans la liste des racines à re-rendre à chaque frame. → Tâche 5.
-5. **Un nom de composant JavaScript que la page n'a pas enregistré.** Doit le dire à l'écran et sur stderr, plutôt que laisser un trou. → Tâche 4.
+3. **Une prop qui n'est pas un scalaire.** `<js::Chart camera={camera} />` ne peut pas traverser, et doit être refusé à la compilation plutôt que de devenir une chaîne « Camera { … } » dans le DOM. → Tâche 4.
+4. **Un composant `rustx` monté dans un nœud React que React enlève ensuite.** L'instance `rustx` doit être libérée, avec ses tâches, et ne pas rester dans la liste des racines à re-rendre à chaque frame. → Tâche 6.
+5. **Un nom de composant JavaScript que la page n'a pas enregistré.** Doit le dire à l'écran et sur stderr, plutôt que laisser un trou. → Tâche 5.
 
 ---
 
-### Task 1: Le dialecte de props de React
+### Task 1: Les props d'une balise, celles de HTML et celles de JSX
 
 **Files:**
 - Modify: `crates/rustx-compiler/src/emit.rs`, `crates/rustx-compiler/src/attributes.rs`
-- Test: `crates/rustx-compiler/tests/style.rs`
+- Test: `crates/rustx-compiler/tests/style.rs`, `crates/rustx-compiler/tests/props.rs`
 
-C'est ce qui manque aujourd'hui à une page écrite comme on écrit du TSX : `style={{ display: "flex" }}` est recopié tel quel dans du Rust et produit cent une erreurs `struct literal body without path`.
+Ce que `.rsx` doit accepter sur une balise, c'est **ce que HTML et JSX acceptent** — pas une liste choisie. Aujourd'hui `class`, `for`, `tabindex`, `maxlength` et la plupart des attributs de présentation SVG sont refusés parce que seule l'orthographe camelCase de React est dans la table ; et `style={{ display: "flex" }}` est recopié tel quel dans du Rust, d'où cent une erreurs `struct literal body without path`. Les deux sont la même tâche : la surface des props.
 
 **Interfaces:**
 - Consumes: plan 5 (`emit::Context`, les refus d'attributs).
 - Produces:
   - `rustx_compiler::attributes::style_string(object: &str) -> Result<String, String>` — un objet JSX de style en une déclaration CSS, ou le nom de ce qui ne va pas
   - `emit` accepte `style={{ … }}` sur un élément
+  - `attributes::canonical(name: &str) -> Option<&'static str>` — la table reconnaît les **deux** orthographes de chaque attribut, celle de HTML et celle de JSX, et dit laquelle a été écrite
+  - Les tables couvrent les attributs de HTML et les attributs de présentation de SVG, pas un échantillon ; `data-*`, `aria-*`, `xlink:` et `xml:` restent ouverts comme aujourd'hui
+  - Une faute de frappe est toujours refusée, avec le nom le plus proche : accepter les deux orthographes n'est pas accepter n'importe quoi
 
 - [ ] **Step 1: Écrire les tests qui échouent**
 
@@ -114,7 +117,70 @@ fn a_style_expression_that_is_not_an_object_is_passed_through() {
 
 ---
 
-### Task 2: La frontière de nœud
+### Task 2: Un appel de composant est du Rust ordinaire
+
+**Files:**
+- Modify: `crates/rustx-compiler/src/emit.rs`
+- Modify: `apps/capture/app/page.rsx`
+- Test: `crates/rustx-compiler/tests/composition.rs`
+
+Un composant déclaré dans le fichier s'appelle comme une fonction Rust s'appelle : `{Device("Webcam".to_string())}`. La balise `<Device name={…} />` du plan 5 reste pour un layout et ses `children`, mais elle ne doit pas être la seule façon, et elle n'est pas celle qu'un lecteur de Rust écrira.
+
+Ce qui manque n'est pas la syntaxe — `{Device(…)}` compile déjà — c'est l'**instance** : une expression entre accolades appelle la fonction au milieu du rendu du parent, donc ses cellules appartiennent au parent. Deux appels sur la même ligne partagent alors un état, et le plan 3 appelle ça exactement « deux composants qui se partagent une cellule ».
+
+**Interfaces:**
+- Consumes: plan 5 (`emit::Context`, `component_at`).
+- Produces: rien de public ; `emit` reconnaît un appel de composant dans une expression JSX.
+
+- [ ] **Step 1: Écrire les tests qui échouent**
+
+```rust
+#[test]
+fn a_call_in_braces_to_a_component_of_this_file_is_an_instance_of_its_own() {
+    let rust = rewrite_one("fn Row(label: String) -> Element {\n    return <li>{label}</li>;\n}\nfn Page() -> Element {\n    return <ul>{Row(\"a\".to_string())}</ul>;\n}");
+    assert!(rust.contains("component_at"), "got {rust}");
+    assert!(rust.contains("Row (\"a\" . to_string ())"), "got {rust}");
+}
+
+#[test]
+fn two_calls_in_braces_are_two_instances() {
+    // Review Focus of plan 5, number 2, written the Rust way.
+    let rust = rewrite_one("fn Row() -> Element {\n    return <li>x</li>;\n}\nfn Page() -> Element {\n    return <ul>{Row()}{Row()}</ul>;\n}");
+    assert_eq!(rust.matches("component_at").count(), 2, "got {rust}");
+    assert_ne!(columns_of(&rust)[0], columns_of(&rust)[1], "two places, two instances: {rust}");
+}
+
+#[test]
+fn a_call_to_something_that_is_not_a_component_is_left_alone() {
+    let rust = rewrite_one("fn helper() -> u8 { 1 }\nfn Page() -> Element {\n    return <p>{helper()}</p>;\n}");
+    assert!(!rust.contains("component_at"), "got {rust}");
+}
+
+#[test]
+fn a_read_that_only_looks_like_a_call_is_left_alone() {
+    let rust = rewrite_one("fn Page() -> Element {\n    let n = 1;\n    return <p>{n.to_string()}</p>;\n}");
+    assert!(!rust.contains("component_at"), "got {rust}");
+}
+
+#[test]
+fn a_call_inside_a_larger_expression_is_left_alone() {
+    // `{if ok { Row() } else { Empty() }}` is a branch, and a component
+    // under an `if` is what plan 4's reach-check complains about. The
+    // compiler does not quietly make it an instance.
+    let rust = rewrite_one("fn Row() -> Element {\n    return <li>x</li>;\n}\nfn Page() -> Element {\n    return <ul>{vec![Row()]}</ul>;\n}");
+    assert!(!rust.contains("component_at"), "got {rust}");
+}
+```
+
+- [ ] **Step 2 à 5** : `cargo test -p rustx-compiler --test composition`, puis commit `feat(compiler): a component called the way Rust calls a function`.
+
+**Step 3, la décision :** la reconnaissance porte sur la forme **entière** de l'expression : `Nom(…)` où `Nom` est un composant du fichier et où la parenthèse fermante termine l'expression. Un appel enfoui dans une expression plus grande est laissé tel quel, parce que ce qui l'entoure peut l'appeler zéro ou dix fois et que l'identité par emplacement n'aurait alors plus de sens.
+
+- [ ] **Step 6: Récrire la page de `capture`** avec `{Device(…)}`, et relancer `cargo test -p capture`.
+
+---
+
+### Task 3: La frontière de nœud
 
 **Files:**
 - Modify: `crates/rustx-dom/src/element.rs`, `crates/rustx-dom/src/diff.rs`
@@ -167,7 +233,7 @@ fn a_foreign_node_that_leaves_the_tree_is_a_removal_of_its_container() {
 
 ---
 
-### Task 3: `<js::Nom />`
+### Task 4: `<js::Nom />`
 
 **Files:**
 - Modify: `crates/rustx-compiler/src/parse.rs`, `crates/rustx-compiler/src/emit.rs`, `crates/rustx-compiler/src/tags.rs`
@@ -222,7 +288,7 @@ fn a_lowercase_js_tag_is_still_refused_as_an_unknown_tag() {
 
 ---
 
-### Task 4: Le moteur passe le relais à React
+### Task 5: Le moteur passe le relais à React
 
 **Files:**
 - Create: `crates/rustx-engine/src/foreign.rs`
@@ -276,7 +342,7 @@ fn a_component_the_page_never_registered_says_so() {
 
 ---
 
-### Task 5: Le sens inverse
+### Task 6: Le sens inverse
 
 **Files:**
 - Modify: `crates/rustx-engine/src/foreign.rs`, `crates/rustx-engine/src/renderer/mod.rs`
@@ -320,7 +386,7 @@ fn mounting_an_unregistered_rustx_component_is_an_error_the_page_can_catch() {
 
 ---
 
-### Task 6: Le logiciel de preuve hybride
+### Task 7: Le logiciel de preuve hybride
 
 **Files:**
 - Create: `apps/hybrid/` (`Cargo.toml`, `build.rs`, `app/page.rsx`, `src/main.rs`, `assets/index.html`, `assets/components.js`, `tests/`)
