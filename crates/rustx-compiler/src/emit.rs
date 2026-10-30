@@ -233,6 +233,23 @@ fn event_step(attribute: &Attribute) -> Result<TokenStream, CompileError> {
 
 fn attribute_step(attribute: &Attribute) -> Result<TokenStream, CompileError> {
     let in_dom = Literal::string(&dom_name(&attribute.name));
+
+    // `style={{ … }}` is the one prop of React's dialect that cannot be
+    // passed through: the DOM wants a declaration string and TSX writes
+    // a JavaScript object. An expression that is not an object — a
+    // string the developer built — is passed through as any other.
+    if attribute.name == "style"
+        && let AttributeSource::Expression(code) = &attribute.value
+        && code.trim().starts_with('{')
+    {
+        let declaration = crate::attributes::style_string(code)
+            .map_err(|complaint| CompileError::flagged(attribute.offset, complaint))?;
+        let declaration = Literal::string(&declaration);
+        return Ok(quote! {
+            .attribute(#in_dom, rustx_dom::AttributeValue::Text(#declaration.to_string()))
+        });
+    }
+
     let value = match &attribute.value {
         AttributeSource::Literal(text) => {
             let text = Literal::string(text);
