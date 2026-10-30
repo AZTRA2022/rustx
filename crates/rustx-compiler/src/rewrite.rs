@@ -36,6 +36,25 @@ pub fn promote_state(source: &str) -> Result<String, CompileError> {
     for component in &components {
         edits.extend(edits_for(source, component));
     }
+
+    // A value declared at the top of the page becomes the type that
+    // names it. There is nothing to store here — the value itself is
+    // built on the first ask, in whichever component asks first — so
+    // what is left behind is the name, as a type nobody else can spell.
+    for declaration in crate::promote::shared_of(source) {
+        let original = &source[declaration.declaration.start..declaration.declaration.end];
+        edits.push(Edit {
+            span: declaration.declaration,
+            text: pad_to(
+                format!(
+                    "#[allow(non_camel_case_types)] #[derive(Clone, Copy)] struct {};",
+                    marker(&declaration.name)
+                ),
+                original,
+            ),
+        });
+    }
+
     Ok(apply(source, edits))
 }
 
@@ -53,13 +72,25 @@ fn edits_for(source: &str, component: &Component) -> Vec<Edit> {
     for promoted in &component.promoted {
         let (line, column) = line_and_column(source, promoted.declaration.start);
         let initializer = &source[promoted.initializer.start..promoted.initializer.end];
-        edits.push(Edit {
-            span: promoted.declaration,
-            text: format!(
+        // A value the page declared is found by the type that names it;
+        // a value this component declared is found by the place it was
+        // written. Everything after this line is the same rewrite.
+        let text = if promoted.shared {
+            format!(
+                "let {name} = rustx_dom::store::shared::<{marker}, _>(|| {initializer});",
+                name = promoted.name,
+                marker = marker(&promoted.name),
+            )
+        } else {
+            format!(
                 "let {name} = rustx_dom::state::cell(rustx_dom::state::Slot {{ \
                  file: file!(), line: {line}u32, column: {column}u32 }}, || {initializer});",
                 name = promoted.name,
-            ),
+            )
+        };
+        edits.push(Edit {
+            span: promoted.declaration,
+            text,
         });
     }
 
@@ -437,4 +468,13 @@ fn read_patched(source: &str, span: Span, reads: &[Edit]) -> String {
     apply_relative(&source[span.start..span.end], 0, inside)
         .trim()
         .to_string()
+}
+
+/// The type that names a shared value.
+///
+/// It is a type rather than a key string because the registry finds a
+/// value by `TypeId`, and because a name nobody can spell twice is what
+/// keeps two pages' values apart.
+fn marker(name: &str) -> String {
+    format!("__shared_{name}")
 }

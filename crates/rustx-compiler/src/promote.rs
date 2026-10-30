@@ -64,6 +64,11 @@ pub enum CallKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Promoted {
     pub name: String,
+    /// Whether it was declared at the top of the page rather than in
+    /// this component. A shared value is bound at the start of the
+    /// body instead of where it was written, and everything after is
+    /// the same rewrite a component's own state gets.
+    pub shared: bool,
     /// `let mut n = 0;`, the whole statement.
     pub declaration: Span,
     /// `0` — what the cell starts at.
@@ -157,8 +162,46 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
                 .collect();
             promoted.push(Promoted {
                 name: local.name.clone(),
+                shared: false,
                 declaration: local.declaration,
                 initializer: local.initializer,
+                reads,
+                mutations,
+            });
+        }
+
+        // And the values the page declared above every component. A
+        // component that declares its own `points` is talking about its
+        // own: the local wins, and nothing it writes reaches the shared
+        // one.
+        for declaration in shared_of(source) {
+            if locals.iter().any(|local| local.name == declaration.name)
+                || parameters.contains(&declaration.name)
+            {
+                continue;
+            }
+            let mutations: Vec<Mutation> = handlers
+                .iter()
+                .flat_map(|handler| mutations_in(source, &declaration.name, *handler, &in_code))
+                .collect();
+            let reads: Vec<Span> = occurrences(source, &declaration.name, &in_code)
+                .into_iter()
+                .filter(|span| !mutations.iter().any(|mutation| mutation.span == *span))
+                .collect();
+            if reads.is_empty() && mutations.is_empty() {
+                continue;
+            }
+            promoted.push(Promoted {
+                name: declaration.name,
+                shared: true,
+                // Bound at the top of the body, because that is where a
+                // value the component did not declare has to come into
+                // scope. The span is empty: this is an insertion.
+                declaration: Span {
+                    start: body.start + 1,
+                    end: body.start + 1,
+                },
+                initializer: declaration.initializer,
                 reads,
                 mutations,
             });
@@ -871,4 +914,54 @@ fn assigns_through_path(bytes: &[u8], from: usize) -> bool {
         }
     }
     false
+}
+
+/// A value declared at the top of a page: shared by every component of
+/// that page, owned by none of them.
+///
+/// The same sentence as a component's own state, written one level out.
+/// `let mut n = 0;` inside a component is that component's; the same
+/// line outside one is the page's, and two components that read it see
+/// one value without either having been handed it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SharedDeclaration {
+    pub name: String,
+    /// `let mut points = 0;`, the whole statement.
+    pub declaration: Span,
+    /// `0` — what it starts at, the first time anything asks.
+    pub initializer: Span,
+}
+
+/// Every `let mut` written outside a component.
+///
+/// A page is the unit: two files that each declare `points` declare two
+/// values, the way two modules declaring the same `static` do. Sharing
+/// across files is not this; it is what a parameter or a route is for.
+pub fn shared_of(source: &str) -> Vec<SharedDeclaration> {
+    let bodies: Vec<Span> = components_of(source)
+        .into_iter()
+        .map(|(_, body)| body)
+        .collect();
+
+    // `locals_of` over the whole file, minus everything inside a
+    // component — which is exactly "written at the top level".
+    locals_of(
+        source,
+        Span {
+            start: 0,
+            end: source.len(),
+        },
+    )
+    .into_iter()
+    .filter(|local| {
+        !bodies
+            .iter()
+            .any(|body| contains(*body, local.declaration))
+    })
+    .map(|local| SharedDeclaration {
+        name: local.name,
+        declaration: local.declaration,
+        initializer: local.initializer,
+    })
+    .collect()
 }
