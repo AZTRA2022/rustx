@@ -24,9 +24,11 @@ fn main() {
             eprintln!("`rustx --help` lists them all.");
             2
         }
-        // The two that build, which are their own tasks of the plan.
-        other => {
-            eprintln!("`{other:?}` is not wired up yet.");
+        arguments::Command::Build { release } => make_it(release, false),
+        arguments::Command::Run => make_it(false, true),
+        // The watching loop, which is its own task of the plan.
+        arguments::Command::Dev => {
+            eprintln!("`rustx dev` is not wired up yet. `rustx run` builds and runs once.");
             2
         }
     };
@@ -45,6 +47,33 @@ fn make(name: &str) -> i32 {
         }
         Err(why) => {
             eprintln!("{why}");
+            1
+        }
+    }
+}
+
+/// `rustx build`, and `rustx run` which is the same plus a window.
+fn make_it(release: bool, then_run: bool) -> i32 {
+    let here = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let exe = match rustx_cli::build::run(release, &here) {
+        Ok(exe) => exe,
+        Err(why) => {
+            // Cargo has already said what is wrong, in the coordinates
+            // of the `.rsx`; an empty complaint means "it said it".
+            if !why.is_empty() {
+                eprintln!("{why}");
+            }
+            return 1;
+        }
+    };
+    if !then_run {
+        println!("{}", exe.display());
+        return 0;
+    }
+    match std::process::Command::new(&exe).current_dir(&here).status() {
+        Ok(status) => status.code().unwrap_or(0),
+        Err(error) => {
+            eprintln!("{} could not be started: {error}", exe.display());
             1
         }
     }

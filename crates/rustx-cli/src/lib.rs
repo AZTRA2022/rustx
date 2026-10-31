@@ -10,4 +10,6 @@
 //! which is precisely what this framework refuses.
 
 pub mod arguments;
+pub mod build;
 pub mod new;
+pub mod resources;
