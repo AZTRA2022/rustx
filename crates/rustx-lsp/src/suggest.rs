@@ -192,10 +192,7 @@ pub fn style_keys(typed: &str) -> Vec<Item> {
 /// `<Button>`. The file name is enough — reading the TypeScript to find
 /// its exports is a TypeScript server's work, and that is another plan.
 pub fn page_of(source: &str, path: &Path) -> Page {
-    let components = rustx_compiler::promote::component_signatures(source)
-        .into_iter()
-        .map(|(name, parameters)| (name, parameters))
-        .collect();
+    let components = rustx_compiler::promote::component_signatures(source);
     Page {
         components,
         libraries: installed(path),

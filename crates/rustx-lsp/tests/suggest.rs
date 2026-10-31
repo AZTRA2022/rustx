@@ -170,3 +170,117 @@ fn a_tag_that_was_never_closed_does_not_take_the_server_down() {
         let _ = place(marked);
     }
 }
+
+#[test]
+fn a_components_own_parameters_are_the_attributes_offered() {
+    // Review Focus 3. A component takes what its function takes, and
+    // nothing else — those are the only names the compiler will accept,
+    // so offering `className` on it would be offering an error.
+    let page = Page {
+        components: vec![(
+            "Stat".to_string(),
+            vec!["number: String".to_string(), "unit: String".to_string()],
+        )],
+        libraries: Vec::new(),
+    };
+    let items = suggest::attributes("Stat", "", &page, &[]);
+    let got = labels(&items);
+    assert_eq!(
+        got,
+        vec!["number".to_string(), "unit".to_string()],
+        "got {got:?}"
+    );
+    let number = items.first().expect("number");
+    assert_eq!(number.kind, Kind::Property);
+    assert_eq!(number.detail, "String");
+    assert_eq!(
+        number.insert.as_deref(),
+        Some("number={}"),
+        "a prop is written `name={{…}}`, so that is what is inserted"
+    );
+}
+
+#[test]
+fn an_attribute_already_written_is_not_offered_twice() {
+    let page = empty_page();
+    let got = labels(&suggest::attributes("div", "cl", &page, &[]));
+    assert!(got.contains(&"className".to_string()), "got {got:?}");
+    let again = labels(&suggest::attributes(
+        "div",
+        "cl",
+        &page,
+        &["className".to_string()],
+    ));
+    assert!(
+        !again.contains(&"className".to_string()),
+        "it was offered a second time: {again:?}"
+    );
+}
+
+#[test]
+fn an_event_is_offered_with_the_shape_of_its_handler() {
+    let items = suggest::attributes("button", "onCl", &empty_page(), &[]);
+    let click = items
+        .iter()
+        .find(|item| item.label == "onClick")
+        .expect("onClick");
+    assert_eq!(click.kind, Kind::Event);
+    assert_eq!(
+        click.insert.as_deref(),
+        Some("onClick={move |_| }"),
+        "what a developer has to type next is a closure, so it is written for them"
+    );
+}
+
+#[test]
+fn inside_a_style_object_the_keys_are_css_and_not_attributes() {
+    // Review Focus 4. `style={{ … }}` is a CSS object; `onClick` in
+    // there is a mistake nobody would catch by reading.
+    let marked = "fn P() -> Element {\n    return <div style={{ back| }}>a</div>;\n}";
+    match place(marked) {
+        Place::StyleKey { typed } => assert_eq!(typed, "back"),
+        other => panic!("got {other:?}"),
+    }
+    let got = labels(&suggest::style_keys("back"));
+    assert!(got.contains(&"background".to_string()), "got {got:?}");
+    assert!(got.contains(&"backgroundColor".to_string()), "got {got:?}");
+    assert!(
+        !got.iter().any(|label| label.starts_with("on")),
+        "an event is not a CSS property: {got:?}"
+    );
+    let colour = suggest::style_keys("backgroundC")
+        .into_iter()
+        .next()
+        .expect("backgroundColor");
+    assert_eq!(colour.insert.as_deref(), Some("backgroundColor: "));
+}
+
+#[test]
+fn an_installed_component_says_where_it_comes_from() {
+    let page = Page {
+        components: Vec::new(),
+        libraries: vec!["Button".to_string()],
+    };
+    let items = suggest::attributes("Button", "class", &page, &[]);
+    let class = items
+        .iter()
+        .find(|item| item.label == "className")
+        .expect("className");
+    assert!(
+        class.detail.contains("library"),
+        "a developer has to know the server is guessing: {}",
+        class.detail
+    );
+}
+
+#[test]
+fn an_attribute_on_a_plain_tag_is_an_attribute() {
+    let marked = "fn P() -> Element {\n    return <div class|\n}";
+    match place(marked) {
+        Place::AttributeName { tag, typed, .. } => {
+            assert_eq!(tag, "div");
+            assert_eq!(typed, "class");
+        }
+        other => panic!("got {other:?}"),
+    }
+}
