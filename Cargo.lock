@@ -882,6 +882,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustx-cli"
+version = "0.1.0"
+dependencies = [
+ "rustx-compiler",
+]
+
+[[package]]
 name = "rustx-compiler"
 version = "0.1.0"
 dependencies = [

@@ -12,7 +12,7 @@ fn Page() -> Element {
     let data: Vec<Point> = (0..=points)
         .map(|at| Point { at: at as f64, value: (at * at) as f64 })
         .collect();
-        
+    
     
     return <div className="min-h-screen bg-zinc-950 text-zinc-100 antialiased">
         {Header()}
@@ -44,9 +44,10 @@ fn Page() -> Element {
                                 <Line type="monotone" dataKey="value" stroke="#a78bfa" strokeWidth={2} isAnimationActive={false} />
                             </LineChart>
                         </div>
+                        
 
                         <div className="mt-6 flex items-center gap-3">
-                            <button id="add" className="inline-flex items-center justify-center gap-2 rounded-md bg-violet-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-400" onClick={move |_| points += 1}>
+                            <button id="add" className="inline-flex items-center justify-center gap-2 rounded-md bg-violet-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-400" onClick={move |_| points += 200}>
                                 ajouter un point
                             </button>
                             <span className="text-sm text-zinc-500">{points} déjà posés</span>

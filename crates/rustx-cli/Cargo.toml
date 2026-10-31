@@ -1,0 +1,17 @@
+[package]
+name = "rustx-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "rustx new, rustx dev, rustx build."
+
+[[bin]]
+name = "rustx"
+path = "src/main.rs"
+
+[lib]
+name = "rustx_cli"
+path = "src/lib.rs"
+
+[dependencies]
+rustx-compiler = { path = "../rustx-compiler" }
