@@ -146,3 +146,103 @@ fn somewhere(what: &str) -> std::path::PathBuf {
     std::fs::create_dir_all(&path).expect("a directory");
     path
 }
+
+/// A `node_modules` holding one package at one version.
+fn installed(app: &std::path::Path, package: &str, version: &str) {
+    let directory = package
+        .split('/')
+        .fold(app.join("node_modules"), |at, part| at.join(part));
+    std::fs::create_dir_all(&directory).expect("a package directory");
+    std::fs::write(
+        directory.join("package.json"),
+        format!("{{\n  \"name\": \"{package}\",\n  \"version\": \"{version}\"\n}}\n"),
+    )
+    .expect("a package manifest");
+}
+
+#[test]
+fn the_tailwind_a_project_installed_is_the_tailwind_it_is_driven_as() {
+    use rustx_compiler::bundle::Dialect;
+
+    let three = somewhere("tailwind-3");
+    installed(&three, "tailwindcss", "3.4.17");
+    assert_eq!(rustx_compiler::bundle::dialect_in(&three), Dialect::Content);
+
+    let four = somewhere("tailwind-4");
+    installed(&four, "tailwindcss", "4.1.14");
+    assert_eq!(rustx_compiler::bundle::dialect_in(&four), Dialect::Source);
+
+    let _ = std::fs::remove_dir_all(&three);
+    let _ = std::fs::remove_dir_all(&four);
+}
+
+#[test]
+fn a_version_nobody_can_read_goes_by_the_cli_that_is_installed() {
+    use rustx_compiler::bundle::Dialect;
+
+    // Tailwind 4 moved its command line into a package of its own, so a
+    // project that has `@tailwindcss/cli` is a project on 4 whatever
+    // else can or cannot be read.
+    let app = somewhere("tailwind-unreadable");
+    installed(&app, "@tailwindcss/cli", "4.1.14");
+    assert_eq!(rustx_compiler::bundle::dialect_in(&app), Dialect::Source);
+
+    let nothing = somewhere("tailwind-nothing");
+    assert_eq!(
+        rustx_compiler::bundle::dialect_in(&nothing),
+        Dialect::Content
+    );
+
+    let _ = std::fs::remove_dir_all(&app);
+    let _ = std::fs::remove_dir_all(&nothing);
+}
+
+#[test]
+fn tailwind_4_is_told_its_sources_in_the_stylesheet_and_not_on_the_command_line() {
+    use rustx_compiler::bundle::{arguments_for, input_for, Dialect};
+
+    // `--content` does not exist in 4: the sources are `@source` lines
+    // in the stylesheet, and passing the flag is the error a developer
+    // sees instead of a page.
+    let arguments = arguments_for(Dialect::Source, std::path::Path::new("in.css"), std::path::Path::new("out.css"));
+    assert!(
+        !arguments.iter().any(|argument| argument == "--content"),
+        "got {arguments:?}"
+    );
+    let arguments = arguments_for(Dialect::Content, std::path::Path::new("in.css"), std::path::Path::new("out.css"));
+    assert!(
+        arguments.iter().any(|argument| argument == "--content"),
+        "3 has no other way to be told: {arguments:?}"
+    );
+
+    let generated = input_for(Dialect::Source, false).expect("a generated stylesheet");
+    assert!(generated.contains("@import \"tailwindcss\""), "got {generated}");
+    assert!(
+        generated.contains("@source \"../app/**/*.rsx\""),
+        "the pages must be scanned: {generated}"
+    );
+    assert!(!generated.contains("@tailwind"), "3's syntax: {generated}");
+
+    let generated = input_for(Dialect::Content, false).expect("a generated stylesheet");
+    assert!(generated.contains("@tailwind utilities"), "got {generated}");
+}
+
+#[test]
+fn an_applications_own_stylesheet_is_imported_and_not_replaced() {
+    use rustx_compiler::bundle::{input_for, Dialect};
+
+    // On 3 it is handed to the command line as it is. On 4 it has to be
+    // imported, because the `@source` lines the framework adds have to
+    // live in the same stylesheet — and a theme a developer wrote is
+    // not something to drop on the way.
+    assert_eq!(input_for(Dialect::Content, true), None);
+    let generated = input_for(Dialect::Source, true).expect("a generated stylesheet");
+    assert!(
+        generated.contains("@import \"../assets/tailwind.css\""),
+        "got {generated}"
+    );
+    assert!(
+        !generated.contains("@import \"tailwindcss\""),
+        "the application's own stylesheet imports it: {generated}"
+    );
+}

@@ -49,6 +49,24 @@ fn Page() -> Element {
 }
 ```
 
+## Les bibliothèques JavaScript
+
+Un `npm install` suffit : le framework lit les `dependencies` du
+`package.json`, les met dans le paquet, et une balise majuscule est
+résolue à l'exécution. `<recharts::LineChart>`, `<ui::Button>` posé par
+`npx shadcn add` — aucune ligne de framework ne nomme une bibliothèque
+ni une version, donc rien n'est à mettre à jour ici quand une
+bibliothèque change de version.
+
+La seule exception est un outil que la construction **exécute**, parce
+qu'un programme a une ligne de commande et qu'une ligne de commande a
+une version : Tailwind. Le framework lit celle que `node_modules`
+contient et parle le contrat correspondant — `--content` et
+`@tailwind utilities` pour la 3, `@source` et `@import "tailwindcss"`
+pour la 4. Les deux marchent ; passer une application de l'une à
+l'autre, c'est son `package.json` et son `assets/tailwind.css`, rien du
+framework.
+
 ## Les commandes
 
 | | |

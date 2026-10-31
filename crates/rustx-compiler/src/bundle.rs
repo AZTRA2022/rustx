@@ -55,13 +55,22 @@ const OWN: &[&str] = &["components", "ui"];
 /// React components, which is where every shadcn component keeps its
 /// classes.
 pub fn content_globs() -> String {
+    sources()
+        .iter()
+        .map(|glob| format!("./{glob}"))
+        .collect::<Vec<String>>()
+        .join(",")
+}
+
+/// The same, as the globs themselves: one list, written once, whichever
+/// way the installed Tailwind wants to be told about it.
+fn sources() -> [&'static str; 4] {
     [
-        "./app/**/*.rsx",
-        "./src/**/*.rs",
-        "./components/**/*.{ts,tsx,js,jsx}",
-        "./lib/**/*.{ts,tsx,js,jsx}",
+        "app/**/*.rsx",
+        "src/**/*.rs",
+        "components/**/*.{ts,tsx,js,jsx}",
+        "lib/**/*.{ts,tsx,js,jsx}",
     ]
-    .join(",")
 }
 
 /// A module re-exporting every component the application wrote, or
@@ -300,32 +309,24 @@ fn styles(app: &Path) -> Result<Option<PathBuf>, String> {
     std::fs::create_dir_all(&out)
         .map_err(|error| format!("rustx could not write {}: {error}", out.display()))?;
 
+    // Whichever Tailwind the application installed, spoken to the way
+    // that one is spoken to.
+    let dialect = dialect_in(app);
     let written = app.join("assets").join("tailwind.css");
-    let input = if written.exists() {
-        written
-    } else {
-        let generated = out.join("tailwind.in.css");
-        std::fs::write(&generated, "@tailwind utilities;\n")
-            .map_err(|error| format!("rustx could not write {}: {error}", generated.display()))?;
-        generated
+    let input = match input_for(dialect, written.exists()) {
+        None => written,
+        Some(text) => {
+            let generated = out.join("tailwind.in.css");
+            std::fs::write(&generated, text).map_err(|error| {
+                format!("rustx could not write {}: {error}", generated.display())
+            })?;
+            generated
+        }
     };
 
     let stylesheet = out.join("tailwind.css");
     let finished = std::process::Command::new(&tailwind)
-        .arg("--input")
-        .arg(&input)
-        .arg("--output")
-        .arg(&stylesheet)
-        // The pages, and the application's own Rust: a class name can
-        // be written in a `const` beside the code that uses it, and a
-        // class Tailwind never saw is a class that does not exist.
-        // One `--content`, with both globs in it: the flag does not
-        // repeat, and a second one silently replaced the first — the
-        // pages were never scanned and every utility was missing while
-        // the reset was there.
-        .arg("--content")
-        .arg(content_globs())
-        .arg("--minify")
+        .args(arguments_for(dialect, &input, &stylesheet))
         .current_dir(app)
         .output()
         .map_err(|error| format!("rustx could not run {}: {error}", tailwind.display()))?;
@@ -337,6 +338,116 @@ fn styles(app: &Path) -> Result<Option<PathBuf>, String> {
         ));
     }
     Ok(Some(stylesheet))
+}
+
+/// How the installed Tailwind is told which files to read.
+///
+/// The one thing about a JavaScript library that the framework cannot
+/// discover at runtime: Tailwind is not imported by the page, it is a
+/// program the build *runs*, and a program has a command line. That
+/// command line changed between 3 and 4 — `--content` became `@source`,
+/// `@tailwind utilities` became `@import "tailwindcss"` — so there are
+/// two contracts, and which one is spoken is decided by what the
+/// application installed, never by what the framework prefers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dialect {
+    /// Tailwind 3 and before: the sources on the command line.
+    Content,
+    /// Tailwind 4: the sources in the stylesheet.
+    Source,
+}
+
+/// Which contract this application's Tailwind speaks.
+///
+/// Read from the version `node_modules` actually holds rather than from
+/// the range in `package.json`: `^3.4` and `^4.0` are ranges, and what
+/// is installed is a fact. When there is no version to read, the
+/// command line itself answers: 4 moved it into `@tailwindcss/cli`, so a
+/// project that has that package is a project on 4.
+pub fn dialect_in(app: &Path) -> Dialect {
+    match installed_major(app, "tailwindcss") {
+        Some(major) if major >= 4 => Dialect::Source,
+        Some(_) => Dialect::Content,
+        None => {
+            let own_cli = app
+                .join("node_modules")
+                .join("@tailwindcss")
+                .join("cli")
+                .exists();
+            if own_cli {
+                Dialect::Source
+            } else {
+                Dialect::Content
+            }
+        }
+    }
+}
+
+/// The major version of an installed package, from its own manifest.
+fn installed_major(app: &Path, package: &str) -> Option<u32> {
+    let manifest = package
+        .split('/')
+        .fold(app.join("node_modules"), |at, part| at.join(part))
+        .join("package.json");
+    let text = std::fs::read_to_string(manifest).ok()?;
+    let at = text.find("\"version\"")? + "\"version\"".len();
+    let rest = text[at..].trim_start().strip_prefix(':')?.trim_start();
+    let version = rest.strip_prefix('"')?;
+    let version = &version[..version.find('"')?];
+    version.split('.').next()?.parse().ok()
+}
+
+/// The stylesheet to hand the command line, or `None` to hand it the
+/// one the application wrote.
+///
+/// On 3, an application's own stylesheet goes in as it is: it holds the
+/// `@tailwind` layers itself, and the sources travel on the command
+/// line. On 4 the sources are `@source` lines, which have to live in the
+/// stylesheet being compiled — so the application's own is imported
+/// from a generated one rather than replaced, because the theme a
+/// developer wrote is theirs.
+pub fn input_for(dialect: Dialect, own: bool) -> Option<String> {
+    match (dialect, own) {
+        (Dialect::Content, true) => None,
+        // The utilities alone: a page writes `className="bg-violet-500"`
+        // and Tailwind's base layer would reset the stylesheet the page
+        // already has.
+        (Dialect::Content, false) => Some("@tailwind utilities;\n".to_string()),
+        (Dialect::Source, own) => {
+            let first = if own {
+                // Relative to the generated stylesheet, which sits in
+                // the framework's own directory beside `assets`.
+                "@import \"../assets/tailwind.css\";"
+            } else {
+                "@import \"tailwindcss\";"
+            };
+            let sources: String = sources()
+                .iter()
+                .map(|glob| format!("@source \"../{glob}\";\n"))
+                .collect();
+            Some(format!("{first}\n{sources}"))
+        }
+    }
+}
+
+/// The command line for one run of Tailwind.
+pub fn arguments_for(dialect: Dialect, input: &Path, output: &Path) -> Vec<String> {
+    let mut arguments = vec![
+        "--input".to_string(),
+        input.display().to_string(),
+        "--output".to_string(),
+        output.display().to_string(),
+    ];
+    if dialect == Dialect::Content {
+        // One `--content`, with every glob in it: the flag does not
+        // repeat, and a second one silently replaced the first — the
+        // pages were never scanned and every utility was missing while
+        // the reset was there.
+        arguments.push("--content".to_string());
+        arguments.push(content_globs());
+    }
+    arguments.push("--minify".to_string());
+    arguments
 }
 
 /// The names under `dependencies` in a `package.json`.

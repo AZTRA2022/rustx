@@ -135,11 +135,16 @@ fn a_tailwind_class_written_in_a_page_reaches_the_screen() {
         "the stylesheet never reached the document:\n{}",
         report().raw()
     );
-    // A colour, read on the page's own hero badge.
-    assert_eq!(
-        report().get("hero_badge_background"),
-        "rgba(139, 92, 246, 0.1)",
-        "`bg-violet-500/10` did not reach the screen:\n{}",
+    // A colour, read on the page's own hero badge — violet at a tenth,
+    // written in whichever colour space the installed Tailwind uses.
+    // Tailwind 3 says `rgba(…)`, Tailwind 4 says `oklab(…)`: the same
+    // violet, and which of the two arrives is the application's choice
+    // of version, not something this test has an opinion about.
+    let reported = report();
+    let background = reported.get("hero_badge_background");
+    assert!(
+        ["rgba(139, 92, 246, 0.1)", "oklab(0.606 0.096545 -0.230606 / 0.1)"].contains(&background),
+        "`bg-violet-500/10` did not reach the screen (got {background}):\n{}",
         report().raw()
     );
     // And a utility on a node Radix rendered, which the page never
