@@ -79,9 +79,16 @@ fn install_natives() {
                 Value::Bool(b) => b.to_string(),
                 Value::Number(n) => format!("{n}"),
                 Value::String(s) => s.clone(),
+                Value::List(values) => format!("[{} items]", values.len()),
+                Value::Record(fields) => format!("{{{} fields}}", fields.len()),
             })
             .collect();
         Ok(Value::String(parts.join("/")))
+    });
+
+    // What came down, back up untouched: the round trip a prop makes.
+    register_native("rustx_reflect", |args| {
+        Ok(args.first().cloned().unwrap_or(Value::Null))
     });
 
     // A CEF sub-process does not reliably inherit the parent's stdout, so

@@ -771,12 +771,31 @@
         rustx_report("echo", rustx_echo("greet:bonjour", 7, true));
 
         // The other half of a badly typed call: the right number of
-        // arguments, of a shape the engine does not carry.
+        // arguments, of a shape the engine does not carry. A function is
+        // one: it is code, and code does not leave its own process.
         try {
-          rustx_echo({ a: 1 });
+          rustx_echo(() => 1);
           rustx_report("wrong_type_error", "no exception was thrown");
         } catch (e) {
           rustx_report("wrong_type_error", String(e));
+        }
+
+        // What a chart is given, down into Rust and back up.
+        rustx_report(
+          "round_trip",
+          JSON.stringify(rustx_reflect([{ at: 0, value: 0 }, { at: 1, value: 1 }]))
+        );
+        rustx_report("round_trip_empty", JSON.stringify(rustx_reflect([])));
+
+        // A cycle is not a shape. Following one would run until the
+        // process died.
+        try {
+          const loop = { name: "loop" };
+          loop.self = loop;
+          rustx_reflect(loop);
+          rustx_report("cycle_error", "no exception was thrown");
+        } catch (e) {
+          rustx_report("cycle_error", String(e));
         }
 
         // And a shape the engine does carry but the application does not

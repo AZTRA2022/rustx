@@ -99,3 +99,39 @@ fn a_native_function_receives_the_arguments_javascript_passed() {
         report().raw()
     );
 }
+
+#[test]
+fn a_list_of_records_survives_the_round_trip() {
+    // What a chart is given: rows of named fields. It goes down into
+    // Rust and comes back up, and the page compares it with what it
+    // sent — a prop that cannot make this trip is a prop no library can
+    // be used with.
+    assert_eq!(
+        report().get("round_trip"),
+        r#"[{"at":0,"value":0},{"at":1,"value":1}]"#,
+        "full output:\n{}",
+        report().raw()
+    );
+}
+
+#[test]
+fn an_empty_list_comes_back_as_a_list() {
+    assert_eq!(
+        report().get("round_trip_empty"),
+        "[]",
+        "full output:\n{}",
+        report().raw()
+    );
+}
+
+#[test]
+fn a_prop_nested_past_the_limit_is_refused_rather_than_followed() {
+    // A cycle is not a shape: following one would run until the process
+    // died. The refusal names the depth, so a developer who meant to
+    // nest deeply knows what the limit is.
+    let message = report().get("cycle_error");
+    assert!(
+        message.contains("nested more than 32 deep"),
+        "a cyclic prop did not produce a typed refusal: {message:?}"
+    );
+}
