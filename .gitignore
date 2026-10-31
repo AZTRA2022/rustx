@@ -15,4 +15,4 @@ node_modules/
 rustx-bundle.js
 dist/
 
-**/target
+**/target*.vsix
