@@ -76,6 +76,12 @@
 
                 // What the library told Rust: `onValueChange` is a prop
                 // Radix calls, and the page wrote a closure for it.
+                // What the window says it is, read by the page itself.
+                const about = rustx_about();
+                rustx_report("about_name", about.name);
+                rustx_report("about_version", about.version);
+                rustx_report("about_publisher", about.publisher);
+
                 waitFor(
                   () => document.querySelector("#chosen").textContent === "two",
                   () => rustx_report("chosen", document.querySelector("#chosen").textContent)

@@ -111,3 +111,29 @@ fn a_prop_the_library_calls_reaches_the_page() {
         report().raw()
     );
 }
+
+#[test]
+fn the_window_says_what_the_application_is() {
+    // `Config::new("Zoo").version(env!("CARGO_PKG_VERSION"))`, read back
+    // by the page through `rustx_about()`. A page that shows its own
+    // version does not hold a copy of it: a number written twice is a
+    // number that is wrong in one of the two places.
+    assert_eq!(
+        report().get("about_name"),
+        "Zoo",
+        "full output:\n{}",
+        report().raw()
+    );
+    assert_eq!(
+        report().get("about_version"),
+        env!("CARGO_PKG_VERSION"),
+        "full output:\n{}",
+        report().raw()
+    );
+    assert_eq!(
+        report().get("about_publisher"),
+        "rustx",
+        "full output:\n{}",
+        report().raw()
+    );
+}

@@ -168,9 +168,14 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
             .into();
         }
         Ok(built) => {
-            let bundle = built.bundle.map(|bundle| {
-                let path = slashed(&bundle);
-                quote! { rustx::install_bundle(include_str!(#path)); }
+            // The bundle is a file beside the document now, so what the
+            // binary carries is its name and not its megabyte: a browser
+            // loads a script that size from a URL, and a string that size
+            // handed to `execute_java_script` sometimes does not run at
+            // all.
+            let bundle = built.bundle.map(|_| {
+                let name = rustx_compiler::bundle::SERVED;
+                quote! { rustx::install_bundle(#name); }
             });
             let stylesheet = built.stylesheet.map(|stylesheet| {
                 let path = slashed(&stylesheet);

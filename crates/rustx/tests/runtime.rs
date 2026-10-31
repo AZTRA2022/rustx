@@ -28,16 +28,14 @@ fn the_runtime_is_in_the_binary_not_on_disk() {
 fn ask(script: &str) -> Option<String> {
     let directory = std::env::temp_dir().join(format!("rustx-runtime-{}", std::process::id()));
     std::fs::create_dir_all(&directory).expect("a directory");
-    let runtime = directory.join("runtime.js");
-    std::fs::write(&runtime, RUNTIME).expect("a file");
-    // A file of its own per question: the tests run at once, and three
-    // of them writing one `asked.js` ran node on a file half of another
-    // question had written.
+    // A pair of files of its own per question: the tests run at once,
+    // and all of them writing one `runtime.js` and one `asked.js` ran
+    // node on a file another question was halfway through writing.
     static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-    let asked = directory.join(format!(
-        "asked-{}.js",
-        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    ));
+    let at = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let runtime = directory.join(format!("runtime-{at}.js"));
+    std::fs::write(&runtime, RUNTIME).expect("a file");
+    let asked = directory.join(format!("asked-{at}.js"));
     std::fs::write(
         &asked,
         format!(

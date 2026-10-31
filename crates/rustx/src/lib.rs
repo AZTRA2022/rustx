@@ -97,15 +97,16 @@ pub fn install_shared_values(values: Vec<NamedValue>) {
     SHARED.with(|held| *held.borrow_mut() = values);
 }
 
-/// Said by `#[rustx::main]`, with the application's own JavaScript.
+/// Said by `#[rustx::main]`, with the name of the application's own
+/// JavaScript.
 ///
-/// The attribute generated the entry point from `package.json` and
-/// bundled it; this is the result, compiled into the binary. It goes
-/// into every page, so an application has no `<script>` to write and no
-/// file to ship beside its executable.
+/// The attribute generated the entry point from `package.json`, bundled
+/// it and put it beside the document. What goes in the page is the one
+/// `<script src>` the developer does not have to write — a bundle is a
+/// megabyte of JavaScript, and a browser loads that from a URL.
 #[doc(hidden)]
-pub fn install_bundle(javascript: &'static str) {
-    BUNDLE.with(|held| held.set(Some(javascript)));
+pub fn install_bundle(name: &'static str) {
+    BUNDLE.with(|held| held.set(Some(name)));
 }
 
 /// Said by `#[rustx::main]`, with the stylesheet Tailwind wrote from the
@@ -135,13 +136,16 @@ pub struct Config {
     not_found: Option<fn() -> Element>,
     mounts: Vec<(String, fn() -> Element)>,
     hooks: Vec<std::rc::Rc<dyn Fn()>>,
+    icon: Option<PathBuf>,
+    about: rustx_engine::window::About,
 }
 
 impl Config {
     /// A window with this title, 1024 by 768.
     pub fn new(title: impl Into<String>) -> Self {
+        let title = title.into();
         Self {
-            title: title.into(),
+            title: title.clone(),
             width: 1024,
             height: 768,
             index: None,
@@ -150,6 +154,11 @@ impl Config {
             not_found: None,
             mounts: Vec::new(),
             hooks: Vec::new(),
+            icon: None,
+            about: rustx_engine::window::About {
+                name: title,
+                ..Default::default()
+            },
         }
     }
 
@@ -162,6 +171,38 @@ impl Config {
     /// A document other than `assets/index.html`.
     pub fn index(mut self, path: impl Into<PathBuf>) -> Self {
         self.index = Some(path.into());
+        self
+    }
+
+    /// The window's logo: an `.ico`, relative to the application's own
+    /// directory.
+    ///
+    /// It goes in the title bar and in the taskbar. The *binary's* own
+    /// icon — what a file manager shows before the application has even
+    /// run — is a resource linked into the executable, which is the
+    /// command line's work and not a library's.
+    pub fn icon(mut self, path: impl Into<PathBuf>) -> Self {
+        self.icon = Some(path.into());
+        self
+    }
+
+    /// What the application says it is, for a window that shows it.
+    ///
+    /// A page reads it with `rustx_about()` rather than holding a copy
+    /// of its own version: a number written twice is a number that is
+    /// wrong in one of the two places.
+    pub fn version(mut self, version: impl Into<String>) -> Self {
+        self.about.version = version.into();
+        self
+    }
+
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.about.description = description.into();
+        self
+    }
+
+    pub fn publisher(mut self, publisher: impl Into<String>) -> Self {
+        self.about.publisher = publisher.into();
         self
     }
 
@@ -239,6 +280,7 @@ impl App {
             }
         });
         rustx_engine::on_context_created(install_shared_native);
+        rustx_engine::on_context_created(install_about_native);
         // The other half of the React boundary. An application says
         // which libraries it uses — `rustx.use({ recharts })` — and
         // writes its components in `.rsx`; the bridge between the two
@@ -247,8 +289,18 @@ impl App {
             rustx_engine::inject("react-runtime", include_str!("../assets/runtime.js"));
             // And the application's own libraries, after the runtime
             // that reads them. Both go in through the frame, in order.
-            if let Some(bundle) = BUNDLE.with(Cell::get) {
-                rustx_engine::inject("app-bundle", bundle);
+            if let Some(name) = BUNDLE.with(Cell::get) {
+                rustx_engine::inject(
+                    "app-bundle",
+                    &format!(
+                        "(() => {{ const put = () => {{ \r
+                         if (!document.head) {{ setTimeout(put, 16); return; }} \r
+                         const script = document.createElement('script'); \r
+                         script.id = 'rustx-bundle'; script.src = {}; \r
+                         document.head.appendChild(script); }}; put(); }})();",
+                        javascript_string(name)
+                    ),
+                );
             }
             // And the stylesheet, as a `<style>` the document did not
             // have to name either. JavaScript puts it there because
@@ -281,6 +333,17 @@ impl App {
         for hook in config.hooks {
             rustx_engine::on_context_created(move || hook());
         }
+
+        // The window's own logo and what the application says it is.
+        // Declared before the sub-processes leave, because the render
+        // process answers `rustx_about()` and it never comes back here.
+        rustx_engine::window::declare(
+            config
+                .icon
+                .map(|icon| manifest_dir().join(icon))
+                .or_else(default_icon),
+            config.about,
+        );
 
         if let rustx_engine::Bootstrap::Child { exit_code } = rustx_engine::bootstrap() {
             std::process::exit(exit_code);
@@ -473,5 +536,32 @@ fn install_shared_native() {
                 "no page declares a value called `{name}` that could be shown as text"
             ))),
         }
+    });
+}
+
+/// `assets/icon.ico`, when the application has one and did not say so.
+///
+/// The same courtesy as `assets/index.html`: a file in the obvious place
+/// is a file the framework finds, and an application that wants another
+/// one says which with `Config::icon`.
+fn default_icon() -> Option<PathBuf> {
+    let obvious = manifest_dir().join("assets").join("icon.ico");
+    obvious.exists().then_some(obvious)
+}
+
+/// `rustx_about()`: what the application says it is.
+///
+/// A page that shows its own version reads it from here rather than
+/// holding a copy: a number written twice is a number that is wrong in
+/// one of the two places.
+fn install_about_native() {
+    rustx_engine::register_native("rustx_about", |_arguments| {
+        let about = rustx_engine::window::about();
+        Ok(Value::Record(vec![
+            ("name".to_string(), Value::String(about.name)),
+            ("version".to_string(), Value::String(about.version)),
+            ("description".to_string(), Value::String(about.description)),
+            ("publisher".to_string(), Value::String(about.publisher)),
+        ]))
     });
 }

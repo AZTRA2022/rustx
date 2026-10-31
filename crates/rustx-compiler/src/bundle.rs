@@ -157,11 +157,32 @@ pub fn build(app: &Path) -> Result<Built, String> {
             String::from_utf8_lossy(&finished.stderr).trim()
         ));
     }
+
+    // Beside the document, under a name nobody would write by hand.
+    //
+    // A bundle is a megabyte of JavaScript, and a megabyte handed to
+    // `execute_java_script` as a string is a script that sometimes
+    // simply does not run — the page then has no libraries and every
+    // boundary in it is an empty container. A browser loads a script
+    // that size from a URL, which is what it is good at, so the file
+    // goes where the document can reach it and the framework adds the
+    // one `<script src>` the developer does not have to write.
+    let beside = app.join("assets").join(SERVED);
+    if let Some(assets) = beside.parent() {
+        std::fs::create_dir_all(assets)
+            .map_err(|error| format!("rustx could not write {}: {error}", assets.display()))?;
+    }
+    std::fs::copy(&bundle, &beside)
+        .map_err(|error| format!("rustx could not write {}: {error}", beside.display()))?;
+
     Ok(Built {
-        bundle: Some(bundle),
+        bundle: Some(beside),
         stylesheet,
     })
 }
+
+/// What the bundle is called beside the application's document.
+pub const SERVED: &str = "rustx-bundle.js";
 
 /// The stylesheet Tailwind writes from the classes the pages use.
 ///

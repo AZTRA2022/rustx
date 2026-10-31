@@ -4,10 +4,11 @@
 //! is what tells the message loop that the last window is gone.
 
 use cef::{
-    Browser, CefString, Client, DisplayHandler, Frame, ImplClient, ImplDisplayHandler,
-    ImplLifeSpanHandler, ImplRequest, ImplRequestHandler, LifeSpanHandler, LogSeverity, Request,
-    RequestHandler, WrapClient, WrapDisplayHandler, WrapLifeSpanHandler, WrapRequestHandler,
-    rc::Rc as _, wrap_client, wrap_display_handler, wrap_life_span_handler, wrap_request_handler,
+    Browser, CefString, Client, DisplayHandler, Frame, ImplBrowser, ImplBrowserHost, ImplClient,
+    ImplDisplayHandler, ImplLifeSpanHandler, ImplRequest, ImplRequestHandler, LifeSpanHandler,
+    LogSeverity, Request, RequestHandler, WrapClient, WrapDisplayHandler, WrapLifeSpanHandler,
+    WrapRequestHandler, rc::Rc as _, wrap_client, wrap_display_handler, wrap_life_span_handler,
+    wrap_request_handler,
 };
 
 use crate::guard;
@@ -16,6 +17,20 @@ wrap_life_span_handler! {
     struct WindowLifeSpan;
 
     impl LifeSpanHandler {
+        /// The window exists now, so it can be dressed.
+        ///
+        /// The icon goes on here rather than in the window's
+        /// description, because Chromium makes the window itself and
+        /// the handle is the first thing it hands back.
+        fn on_after_created(&self, browser: Option<&mut Browser>) {
+            let handle = browser
+                .and_then(|browser| browser.host())
+                .map(|host| host.window_handle());
+            if let Some(handle) = handle {
+                crate::window::dress(handle.0.cast());
+            }
+        }
+
         fn on_before_close(&self, _browser: Option<&mut Browser>) {
             // The window is going: stop accepting work from threads that
             // are still producing, then let the loop end.
