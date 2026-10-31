@@ -4,9 +4,10 @@
 //! is what tells the message loop that the last window is gone.
 
 use cef::{
-    Browser, CefString, Client, Frame, ImplClient, ImplLifeSpanHandler, ImplRequest,
-    ImplRequestHandler, LifeSpanHandler, Request, RequestHandler, WrapClient, WrapLifeSpanHandler,
-    WrapRequestHandler, rc::Rc as _, wrap_client, wrap_life_span_handler, wrap_request_handler,
+    Browser, CefString, Client, DisplayHandler, Frame, ImplClient, ImplDisplayHandler,
+    ImplLifeSpanHandler, ImplRequest, ImplRequestHandler, LifeSpanHandler, LogSeverity, Request,
+    RequestHandler, WrapClient, WrapDisplayHandler, WrapLifeSpanHandler, WrapRequestHandler,
+    rc::Rc as _, wrap_client, wrap_display_handler, wrap_life_span_handler, wrap_request_handler,
 };
 
 use crate::guard;
@@ -51,6 +52,42 @@ wrap_request_handler! {
     }
 }
 
+wrap_display_handler! {
+    struct Console;
+
+    impl DisplayHandler {
+        /// Everything the page writes to its console, and every error it
+        /// did not catch.
+        ///
+        /// A page is JavaScript, and JavaScript fails inside the window,
+        /// where nobody is looking. A developer whose bundle threw on
+        /// its first line saw a blank screen and a complaint about a
+        /// container nobody filled — the line that actually broke was in
+        /// a console no terminal was reading. Returning 0 leaves the
+        /// message in the browser's own console too.
+        fn on_console_message(
+            &self,
+            _browser: Option<&mut Browser>,
+            level: LogSeverity,
+            message: Option<&CefString>,
+            source: Option<&CefString>,
+            line: ::std::os::raw::c_int,
+        ) -> ::std::os::raw::c_int {
+            let message = message.map(ToString::to_string).unwrap_or_default();
+            let source = source.map(ToString::to_string).unwrap_or_default();
+            let severity = match level {
+                LogSeverity::ERROR | LogSeverity::FATAL => "error",
+                LogSeverity::WARNING => "warning",
+                _ => "log",
+            };
+            // The file and line as the page sees them, which is what a
+            // source map is read with.
+            eprintln!("page {severity}: {message} ({source}:{line})");
+            0
+        }
+    }
+}
+
 wrap_client! {
     struct WindowClient;
 
@@ -61,6 +98,10 @@ wrap_client! {
 
         fn request_handler(&self) -> Option<RequestHandler> {
             Some(LocalOnly::new())
+        }
+
+        fn display_handler(&self) -> Option<DisplayHandler> {
+            Some(Console::new())
         }
     }
 }

@@ -2,3 +2,7 @@
 /.idea
 /cef
 /.superpowers
+
+# npm, per application. The bundle in `assets/` is committed; what
+# built it is not.
+node_modules/
