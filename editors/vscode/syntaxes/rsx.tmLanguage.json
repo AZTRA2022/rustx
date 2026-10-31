@@ -1,0 +1,129 @@
+{
+  "name": "rsx",
+  "scopeName": "source.rsx",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#tag" },
+    { "include": "#rust" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.double-slash.rsx", "begin": "//", "end": "$" },
+        { "name": "comment.block.rsx", "begin": "/\\*", "end": "\\*/" }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.rsx",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [{ "name": "constant.character.escape.rsx", "match": "\\\\." }]
+        }
+      ]
+    },
+    "tag": {
+      "patterns": [{ "include": "#closing-tag" }, { "include": "#opening-tag" }]
+    },
+    "opening-tag": {
+      "name": "meta.tag.rsx",
+      "begin": "(<)([A-Za-z_][-A-Za-z0-9_.:]*)",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.tag.begin.rsx" },
+        "2": { "name": "entity.name.tag.rsx" }
+      },
+      "end": "(/?>)",
+      "endCaptures": { "1": { "name": "punctuation.definition.tag.end.rsx" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#brace" },
+        { "include": "#attribute" },
+        { "include": "#strings" }
+      ]
+    },
+    "closing-tag": {
+      "name": "meta.tag.rsx",
+      "match": "(</)([A-Za-z_][-A-Za-z0-9_.:]*)?\\s*(>)",
+      "captures": {
+        "1": { "name": "punctuation.definition.tag.begin.rsx" },
+        "2": { "name": "entity.name.tag.rsx" },
+        "3": { "name": "punctuation.definition.tag.end.rsx" }
+      }
+    },
+    "attribute": {
+      "patterns": [
+        {
+          "match": "([A-Za-z_][-A-Za-z0-9_:]*)\\s*(=)?",
+          "captures": {
+            "1": { "name": "entity.other.attribute-name.rsx" },
+            "2": { "name": "punctuation.separator.key-value.rsx" }
+          }
+        }
+      ]
+    },
+    "brace": {
+      "name": "meta.embedded.expression.rsx",
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": { "0": { "name": "punctuation.section.embedded.begin.rsx" } },
+      "endCaptures": { "0": { "name": "punctuation.section.embedded.end.rsx" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#tag" },
+        { "include": "#brace" },
+        { "include": "#rust" }
+      ]
+    },
+    "rust": {
+      "patterns": [
+        { "include": "source.rust" },
+        { "include": "#rust-words" },
+        { "include": "#strings" },
+        { "include": "#rust-numbers" },
+        { "include": "#rust-types" }
+      ]
+    },
+    "rust-words": {
+      "patterns": [
+        {
+          "name": "keyword.control.rsx",
+          "match": "\\b(if|else|match|for|while|loop|break|continue|return|await|yield)\\b"
+        },
+        {
+          "name": "storage.modifier.rsx",
+          "match": "\\b(mut|pub|const|static|ref|unsafe|async|move|dyn)\\b"
+        },
+        {
+          "name": "keyword.other.rsx",
+          "match": "\\b(let|fn|use|mod|impl|trait|struct|enum|type|where|as|in|crate|super|self|Self)\\b"
+        },
+        {
+          "name": "constant.language.rsx",
+          "match": "\\b(true|false|None|Some|Ok|Err)\\b"
+        },
+        {
+          "name": "entity.name.function.macro.rsx",
+          "match": "\\b([a-z_][a-z0-9_]*!)"
+        },
+        {
+          "name": "entity.name.function.rsx",
+          "match": "\\b([a-z_][A-Za-z0-9_]*)(?=\\s*\\()"
+        }
+      ]
+    },
+    "rust-numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.rsx",
+          "match": "\\b(0x[0-9A-Fa-f_]+|0b[01_]+|[0-9][0-9_]*(\\.[0-9][0-9_]*)?([eE][+-]?[0-9_]+)?)([iuf](8|16|32|64|128|size))?\\b"
+        }
+      ]
+    },
+    "rust-types": {
+      "patterns": [
+        { "name": "entity.name.type.rsx", "match": "\\b([A-Z][A-Za-z0-9_]*)\\b" }
+      ]
+    }
+  }
+}
