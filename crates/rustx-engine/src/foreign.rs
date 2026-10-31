@@ -78,6 +78,21 @@ pub(crate) fn hand_over(node: &ForeignNode, container: &Node) {
         complain("rustx: the props of a node React owns could not be built".to_string());
         return;
     };
+    // And the props the library calls. A closure stays in Rust; what
+    // crosses is a function that calls it.
+    for (name, callback) in &node.callbacks {
+        let Some(mut function) = function_for(name, callback) else {
+            complain(format!(
+                "rustx: `{name}` could not be given to React as a function"
+            ));
+            return;
+        };
+        props.set_value_bykey(
+            Some(&cef::CefString::from(name.as_str())),
+            Some(&mut function),
+            cef::V8Propertyattribute::default(),
+        );
+    }
     // The children as a list of descriptions. React builds the tree;
     // what crosses is what to build.
     let Some(children) = crate::value::into_v8(described(&node.children)) else {
@@ -212,4 +227,62 @@ pub(crate) fn hand_over_pending() {
     for (node, container) in waiting {
         hand_over(&node, &container);
     }
+}
+
+// ---------------------------------------------------------------------
+// A prop a library calls.
+// ---------------------------------------------------------------------
+
+use cef::{
+    CefString, ImplV8Handler, ImplV8Value, V8Handler, V8Value, WrapV8Handler, rc::Rc as _,
+    wrap_v8_handler,
+};
+use rustx_dom::Callback;
+
+wrap_v8_handler! {
+    struct Called {
+        callback: Callback,
+    }
+
+    impl V8Handler {
+        /// The library called the prop.
+        ///
+        /// Whatever it passed arrives as values; what cannot cross — an
+        /// event object, a DOM node, another function — arrives as null,
+        /// because a callback that refused the call would be a library
+        /// that stops working halfway through.
+        fn execute(
+            &self,
+            _name: Option<&CefString>,
+            _object: Option<&mut V8Value>,
+            arguments: Option<&[Option<V8Value>]>,
+            _retval: Option<&mut Option<V8Value>>,
+            _exception: Option<&mut CefString>,
+        ) -> ::std::os::raw::c_int {
+            let given: Vec<rustx_dom::Value> = arguments
+                .unwrap_or(&[])
+                .iter()
+                .map(|argument| {
+                    argument
+                        .as_ref()
+                        .and_then(crate::value::read_or_null)
+                        .unwrap_or(rustx_dom::Value::Null)
+                })
+                .collect();
+
+            let callback = self.callback.clone();
+            // Called from C: a panic in the application's closure stops
+            // here, the way it does in an event handler.
+            crate::panics::contain("a callback a library called", move || {
+                callback.call(&given);
+            });
+            1
+        }
+    }
+}
+
+/// The function a library is given for one of its `on…` props.
+pub(crate) fn function_for(name: &str, callback: &Callback) -> Option<V8Value> {
+    let mut handler = Called::new(callback.clone());
+    cef::v8_value_create_function(Some(&CefString::from(name)), Some(&mut handler))
 }

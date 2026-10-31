@@ -12,7 +12,13 @@
 // does not cross. That is written down, not hidden.
 
 let mut clicks = 0;
+let mut chosen = "one".to_string();
 
+/// The page.
+///
+/// `onValueChange` is a prop the library calls: the closure stays in
+/// Rust, and what crosses is a function that calls it — so the page
+/// learns what the user chose inside a tree it does not own.
 fn Page() -> Element {
     return <div id="zoo">
         <h1 id="title">Zoo</h1>
@@ -28,7 +34,11 @@ fn Page() -> Element {
         </section>
 
         <section id="tabs">
-            <Tabs.Root defaultValue="one">
+            <Tabs.Root defaultValue="one" onValueChange={move |value: rustx::Value| {
+                if let rustx::Value::String(value) = value {
+                    chosen = value;
+                }
+            }}>
                 <Tabs.List>
                     <Tabs.Trigger id="tab-one" value="one">un</Tabs.Trigger>
                     <Tabs.Trigger id="tab-two" value="two">deux</Tabs.Trigger>
@@ -43,6 +53,7 @@ fn Page() -> Element {
         </section>
 
         <section id="rust">
+            <span id="chosen">{chosen}</span>
             <button id="click" onClick={move |_| clicks += 1}>cliquer</button>
             <span id="clicks">{clicks}</span>
         </section>

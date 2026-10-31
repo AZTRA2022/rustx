@@ -480,18 +480,42 @@ fn foreign_node(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, Com
     }
 
     let mut props = Vec::new();
+    let mut callbacks = Vec::new();
     for attribute in &tag.attributes {
-        if is_event(&attribute.name) {
-            return Err(CompileError::flagged(
-                attribute.offset,
-                format!(
-                    "`{}` is an event, and a Rust closure does not cross into React. \
-                     Give the component a prop it calls itself.",
-                    attribute.name
-                ),
-            ));
-        }
         let name = Literal::string(&attribute.name);
+        // `onValueChange={move |value| …}`: a prop a library calls when
+        // something happens inside it. The closure stays in Rust — what
+        // crosses is a function that calls it, built the way an
+        // `onClick` on a DOM node is built.
+        //
+        // Any `on…` is one. The DOM's own list of events is not the
+        // right question here: `onValueChange` is not an event, it is a
+        // prop Radix calls, and no table of HTML will ever have it.
+        if is_called(&attribute.name) {
+            let AttributeSource::Expression(code) = &attribute.value else {
+                return Err(CompileError::flagged(
+                    attribute.offset,
+                    format!(
+                        "`{}` is something the library calls, so it takes a closure: \
+                         `{}={{move |value| …}}`.",
+                        attribute.name, attribute.name
+                    ),
+                ));
+            };
+            let inner = rust(code, attribute.offset)?;
+            callbacks.push(quote! {
+                (
+                    #name.to_string(),
+                    rustx_dom::Callback::new({
+                        let __called = #inner;
+                        move |__arguments: &[rustx_dom::Value]| {
+                            __called(rustx_dom::Callback::first(__arguments))
+                        }
+                    }),
+                )
+            });
+            continue;
+        }
         let value = crossing_value(attribute)?;
         props.push(quote! { (#name.to_string(), #value) });
     }
@@ -506,6 +530,7 @@ fn foreign_node(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, Com
         rustx_dom::ForeignNode {
             component: #component.to_string(),
             props: vec![#(#props),*],
+            callbacks: vec![#(#callbacks),*],
             children: vec![#(#children),*],
         }
     })
@@ -578,4 +603,16 @@ fn crossing_value(attribute: &Attribute) -> Result<TokenStream, CompileError> {
             Ok(quote! { rustx_dom::value::ToValue::to_value(&(#inner)) })
         }
     }
+}
+
+/// Is this the name of a prop a library calls?
+///
+/// `on` and then a capital, which is the whole convention in JSX. The
+/// DOM's own list of events is the wrong question for a library: Radix
+/// calls `onValueChange`, a table calls `onRowClick`, and no table of
+/// HTML attributes will ever have either.
+fn is_called(name: &str) -> bool {
+    name.strip_prefix("on")
+        .and_then(|rest| rest.chars().next())
+        .is_some_and(|first| first.is_uppercase())
 }

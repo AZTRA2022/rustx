@@ -146,3 +146,13 @@ pub(crate) fn object_of(props: &[(String, Value)]) -> Option<V8Value> {
     }
     Some(object)
 }
+
+/// What a library passed to a callback, or nothing.
+///
+/// A callback is not a native function: it is called by a library in the
+/// middle of its own work, and an argument the boundary cannot carry —
+/// an event object, a DOM node, another function — is not a reason to
+/// throw back at it. What cannot cross is simply absent.
+pub(crate) fn read_or_null(value: &V8Value) -> Option<Value> {
+    Some(from_v8(value).unwrap_or(Value::Null))
+}

@@ -35,12 +35,64 @@ pub enum Element {
 /// inside a React tree is React's, and a DOM node rustx thinks it owns
 /// in a tree React reconciles is the one thing this boundary exists to
 /// prevent. The type is what says so.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct ForeignNode {
     /// `"recharts::LineChart"`: the module, then the export.
     pub component: String,
     pub props: Vec<(String, crate::Value)>,
+    /// The props that are functions: `onValueChange`, `onSelect`, every
+    /// `on…` a library calls when something happens inside it.
+    pub callbacks: Vec<(String, Callback)>,
     pub children: Vec<ForeignChild>,
+}
+
+/// Two nodes are the same node when they name the same component with
+/// the same props and the same children.
+///
+/// Callbacks are left out, and have to be: a closure is built afresh on
+/// every render, so comparing them would make every boundary different
+/// from itself every frame. What a callback does is run — it is not
+/// something the screen shows.
+impl PartialEq for ForeignNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.component == other.component
+            && self.props == other.props
+            && self.children == other.children
+    }
+}
+
+/// What a library calls when something happens inside it.
+///
+/// The arguments are whatever the library passed, as values: a string
+/// for `onValueChange`, a number for a slider, nothing for a close
+/// button. What cannot cross — an event object, a DOM node, another
+/// function — arrives as `Value::Null`, because a callback that refused
+/// the call would be a library that stops working.
+#[derive(Clone)]
+pub struct Callback(Called);
+
+/// What a library was given, held where it can be called again.
+type Called = Rc<dyn Fn(&[crate::Value]) + 'static>;
+
+impl Callback {
+    pub fn new(callback: impl Fn(&[crate::Value]) + 'static) -> Self {
+        Self(Rc::new(callback))
+    }
+
+    pub fn call(&self, arguments: &[crate::Value]) {
+        (self.0)(arguments)
+    }
+
+    /// The first argument, which is what a library almost always passes.
+    pub fn first(arguments: &[crate::Value]) -> crate::Value {
+        arguments.first().cloned().unwrap_or(crate::Value::Null)
+    }
+}
+
+impl std::fmt::Debug for Callback {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Callback(..)")
+    }
 }
 
 /// What may be written inside a component React owns.

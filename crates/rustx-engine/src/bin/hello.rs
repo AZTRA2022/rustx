@@ -1193,12 +1193,14 @@ fn chart_screen() -> Element {
             node: rustx_dom::ForeignNode {
                 component: "Chart".to_string(),
                 props: vec![("series".to_string(), Value::String(series.get()))],
+                callbacks: Vec::new(),
                 // Written inside the chart, the way a library's
                 // components are: the boundary is the chart and
                 // everything under it.
                 children: vec![rustx_dom::ForeignChild::Node(rustx_dom::ForeignNode {
                     component: "Axis".to_string(),
                     props: vec![("dataKey".to_string(), Value::String(axis.get()))],
+                    callbacks: Vec::new(),
                     children: Vec::new(),
                 })],
             },
@@ -1272,6 +1274,7 @@ fn install_foreign_natives() {
                 node: rustx_dom::ForeignNode {
                     component: "Nope".to_string(),
                     props: Vec::new(),
+                    callbacks: Vec::new(),
                     children: Vec::new(),
                 },
                 id: "rustx-js-nope".to_string(),

@@ -74,6 +74,13 @@
                   document.querySelector("#panel-two")?.getAttribute("data-state") ?? "gone"
                 );
 
+                // What the library told Rust: `onValueChange` is a prop
+                // Radix calls, and the page wrote a closure for it.
+                waitFor(
+                  () => document.querySelector("#chosen").textContent === "two",
+                  () => rustx_report("chosen", document.querySelector("#chosen").textContent)
+                );
+
                 // And rustx's own state, on the same page, in the same
                 // frame loop.
                 document.querySelector("#click").click();

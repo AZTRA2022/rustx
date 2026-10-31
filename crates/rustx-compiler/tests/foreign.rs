@@ -102,11 +102,28 @@ fn a_literal_prop_crosses_as_a_string() {
 }
 
 #[test]
-fn an_event_on_a_js_tag_is_refused() {
-    // A handler is a Rust closure and cannot be given to React through
-    // a container; the component takes a prop and calls it itself.
-    let message = refusal("fn P() -> Element {\n    return <js::Chart onClick={|_| ()} />;\n}");
-    assert!(message.contains("onClick"), "got {message}");
+fn a_prop_the_library_calls_is_a_closure_that_stays_in_rust() {
+    // Every real library has one: `onValueChange`, `onSelect`,
+    // `onRowClick`. The closure is not sent anywhere — what crosses is
+    // a function that calls it.
+    let rust = rewrite_one(
+        "fn P() -> Element {
+    return <Tabs.Root onValueChange={move |value| drop(value)} />;
+}",
+    );
+    assert!(rust.contains("Callback :: new"), "got {rust}");
+    assert!(rust.contains("callbacks"), "got {rust}");
+}
+
+#[test]
+fn a_prop_the_library_calls_with_no_closure_is_refused_by_name() {
+    let message = refusal(
+        "fn P() -> Element {
+    return <Tabs.Root onValueChange=\"two\" />;
+}",
+    );
+    assert!(message.contains("onValueChange"), "got {message}");
+    assert!(message.contains("closure"), "got {message}");
 }
 
 #[test]

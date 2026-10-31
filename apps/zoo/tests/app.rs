@@ -96,3 +96,18 @@ fn the_pages_own_state_works_beside_all_of_them() {
         report().raw()
     );
 }
+
+#[test]
+fn a_prop_the_library_calls_reaches_the_page() {
+    // Radix calls `onValueChange` when the user picks a tab. The page
+    // wrote a Rust closure for it, the closure stayed in Rust, and what
+    // crossed was a function that calls it — so a page learns what
+    // happened inside a tree it does not own, which is what every real
+    // library needs.
+    assert_eq!(
+        report().get("chosen"),
+        "two",
+        "the library's callback never reached Rust:\n{}",
+        report().raw()
+    );
+}

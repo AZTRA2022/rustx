@@ -13,6 +13,7 @@ fn node(component: &str, series: &str) -> ForeignNode {
     ForeignNode {
         component: component.to_string(),
         props: vec![("series".to_string(), Value::String(series.to_string()))],
+        callbacks: Vec::new(),
         children: Vec::new(),
     }
 }
@@ -37,6 +38,7 @@ fn chart_with_axis(key: &str) -> Element {
     chart.children.push(ForeignChild::Node(ForeignNode {
         component: "recharts::XAxis".to_string(),
         props: vec![("dataKey".to_string(), Value::String(key.to_string()))],
+        callbacks: Vec::new(),
         children: Vec::new(),
     }));
     Element::Foreign {
@@ -77,6 +79,7 @@ fn a_child_of_a_foreign_node_whose_props_changed_is_a_patch() {
         vec![ForeignChild::Node(ForeignNode {
             component: "recharts::XAxis".to_string(),
             props: vec![("dataKey".to_string(), Value::String("value".to_string()))],
+            callbacks: Vec::new(),
             children: Vec::new(),
         })]
     );
@@ -127,6 +130,7 @@ fn a_prop_that_was_dropped_is_a_prop_patch_of_what_is_left() {
                 ("series".to_string(), Value::String("a".to_string())),
                 ("live".to_string(), Value::Bool(true)),
             ],
+            callbacks: Vec::new(),
             children: Vec::new(),
         },
         id: "rustx-js-3-12".to_string(),
