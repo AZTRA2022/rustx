@@ -234,3 +234,156 @@ fn slashed(path: &Path) -> String {
     path.to_string_lossy()
         .replace(std::path::MAIN_SEPARATOR, "/")
 }
+
+/// Write a type's `ToValue` from its fields.
+///
+/// ```ignore
+/// #[derive(rustx::ToValue)]
+/// struct Point { at: f64, value: f64 }
+/// ```
+///
+/// A chart's data is rows, and rows are a type the application already
+/// has. The conversion is what it should not have to write. A field
+/// whose JavaScript name is not a Rust identifier says so:
+/// `#[rustx(rename = "data-key")]`.
+#[proc_macro_derive(ToValue, attributes(rustx))]
+pub fn to_value(item: TokenStream) -> TokenStream {
+    let tokens: Vec<TokenTree> = TokenStream2::from(item).into_iter().collect();
+    let Some(name) = type_name(&tokens) else {
+        return error(
+            "#[derive(ToValue)] goes on a struct with named fields: it writes the record a \
+             prop crosses the boundary as."
+                .to_string(),
+        );
+    };
+    let Some(body) = tokens.iter().rev().find_map(|token| match token {
+        TokenTree::Group(group) if group.delimiter() == Delimiter::Brace => Some(group.clone()),
+        _ => None,
+    }) else {
+        return error(format!(
+            "`{name}` has no named fields. #[derive(ToValue)] writes a record of a struct's \
+             fields, and a tuple struct has no names to write — give its fields names, or \
+             implement `ToValue` by hand."
+        ));
+    };
+
+    let fields = fields_of(body.stream());
+    if fields.is_empty() {
+        return error(format!(
+            "`{name}` declares no field. A prop with no fields is an empty object; if that is \
+             what you meant, implement `ToValue` by hand and say so."
+        ));
+    }
+
+    let name = proc_macro2::Ident::new(&name, proc_macro2::Span::call_site());
+    let entries = fields.into_iter().map(|(field, published)| {
+        let field = proc_macro2::Ident::new(&field, proc_macro2::Span::call_site());
+        quote! {
+            (
+                #published.to_string(),
+                ::rustx::ToValue::to_value(&self.#field),
+            )
+        }
+    });
+
+    quote! {
+        impl ::rustx::ToValue for #name {
+            fn to_value(&self) -> ::rustx::Value {
+                ::rustx::Value::Record(::std::vec![#(#entries),*])
+            }
+        }
+    }
+    .into()
+}
+
+/// The name of the struct these tokens declare.
+fn type_name(tokens: &[TokenTree]) -> Option<String> {
+    let mut seen_struct = false;
+    for token in tokens {
+        match token {
+            TokenTree::Ident(ident) if ident.to_string() == "struct" => seen_struct = true,
+            TokenTree::Ident(ident) if seen_struct => return Some(ident.to_string()),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Each field, and the name it crosses under.
+///
+/// Read by hand rather than with `syn`: this crate parses tokens
+/// already, and a parser is cheaper than a dependency the whole
+/// framework would then carry.
+fn fields_of(body: TokenStream2) -> Vec<(String, String)> {
+    let mut fields = Vec::new();
+    let mut renamed: Option<String> = None;
+    let mut expecting_name = true;
+    let mut depth = 0_i32;
+
+    let tokens: Vec<TokenTree> = body.into_iter().collect();
+    let mut at = 0;
+    while at < tokens.len() {
+        match &tokens[at] {
+            // `#[rustx(rename = "data-key")]`
+            TokenTree::Punct(punct) if punct.as_char() == '#' => {
+                if let Some(TokenTree::Group(group)) = tokens.get(at + 1) {
+                    renamed = rename_in(group.stream()).or(renamed);
+                    at += 2;
+                    continue;
+                }
+            }
+            // A type is everything up to the comma that ends the field,
+            // and a type may hold commas of its own.
+            TokenTree::Punct(punct) if punct.as_char() == ',' && depth == 0 => {
+                expecting_name = true;
+            }
+            TokenTree::Punct(punct) if punct.as_char() == '<' => depth += 1,
+            TokenTree::Punct(punct) if punct.as_char() == '>' => depth -= 1,
+            TokenTree::Ident(ident) if expecting_name => {
+                let word = ident.to_string();
+                // `pub`, `pub(crate)` and the rest are not the name.
+                if word == "pub" {
+                    at += 1;
+                    if matches!(tokens.get(at), Some(TokenTree::Group(group))
+                        if group.delimiter() == Delimiter::Parenthesis)
+                    {
+                        at += 1;
+                    }
+                    continue;
+                }
+                let published = renamed.take().unwrap_or_else(|| word.clone());
+                fields.push((word, published));
+                expecting_name = false;
+            }
+            _ => {}
+        }
+        at += 1;
+    }
+    fields
+}
+
+/// `rename = "data-key"` inside a `#[rustx(..)]`.
+fn rename_in(attribute: TokenStream2) -> Option<String> {
+    // `#[rustx(..)]` arrives as the bracket's own stream, which is
+    // `rustx` followed by the parentheses: the pair is nested twice.
+    let tokens: Vec<TokenTree> = attribute.into_iter().collect();
+    let inner = match tokens.iter().find_map(|token| match token {
+        TokenTree::Group(group) => Some(group.stream()),
+        _ => None,
+    }) {
+        Some(stream) => stream.into_iter().collect::<Vec<_>>(),
+        None => tokens,
+    };
+    let mut seen_rename = false;
+    for token in inner {
+        match token {
+            TokenTree::Ident(ident) if ident.to_string() == "rename" => seen_rename = true,
+            TokenTree::Literal(literal) if seen_rename => {
+                let written = literal.to_string();
+                return Some(written.trim_matches('"').to_string());
+            }
+            _ => {}
+        }
+    }
+    None
+}

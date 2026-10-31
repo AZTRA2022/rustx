@@ -26,11 +26,12 @@
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 
-pub use rustx_macros::main;
+pub use rustx_macros::{ToValue, main};
 
+pub use rustx_dom::value::{ToValue, record};
 pub use rustx_dom::{
     AttributeValue, Element, Handler, IntoElement, Key, TagElement, Value, into_element, route,
-    state, store,
+    state, store, value,
 };
 pub use rustx_engine::{
     Document, DomError, NativeError, Node, PostError, Poster, foreign, mount, mount_at_id,
