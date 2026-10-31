@@ -1,0 +1,15 @@
+[package]
+name = "rustx-os"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "What a program needs from the machine: the devices, the camera, the screen, recording."
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.62"
+features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+]
