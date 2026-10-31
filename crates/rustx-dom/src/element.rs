@@ -48,6 +48,13 @@ pub struct ForeignNode {
 pub enum ForeignChild {
     Node(ForeignNode),
     Text(String),
+    /// What `{…}` in the page came to.
+    ///
+    /// A library whose content is its children — a markdown renderer, a
+    /// code viewer, a button's label — is given a value, and React
+    /// renders a string, a number or a list of them as its children
+    /// exactly as it renders an element.
+    Value(crate::Value),
 }
 
 /// A tag, its attributes, its event handlers and its children, in the

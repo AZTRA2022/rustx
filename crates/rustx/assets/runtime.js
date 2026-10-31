@@ -95,10 +95,29 @@
       return inLibrary(name.slice(0, at), name.slice(at + 2));
     }
 
-    // `Dialog.Trigger`: the first segment is the export, the rest is a
-    // path into it. Libraries built that way are everywhere — Radix,
-    // Headless UI — and it is how they are written in JSX.
+    // `Tabs.Root`: the first segment names the library and the rest is
+    // the export, which is how a page that wrote
+    // `import * as Tabs from "@radix-ui/react-tabs"` would read. A
+    // library is named by its package — `radixUiReactTabs` — and by
+    // what its package name ends with, because that is what a developer
+    // calls it.
     const [head, ...rest] = name.split(".");
+    if (rest.length === 1) {
+      const module = libraryCalled(head);
+      if (module !== undefined) {
+        const found = inLibrary(module, rest[0]);
+        // And if that library does not export it, the first segment may
+        // still be a component with parts on it — a library whose name
+        // happens to end the same way must not shadow that.
+        if (found.error === undefined) {
+          return found;
+        }
+      }
+    }
+
+    // Otherwise the first segment is an export and the rest is a path
+    // into it, which is how `Dialog.Trigger` reads when `Dialog` is a
+    // component with parts on it.
     const found = anywhere(head);
     if (found.error !== undefined) {
       return found;
@@ -141,6 +160,22 @@
     return { component };
   };
 
+  /// The library a page calls `name`.
+  ///
+  /// Its own name — `recharts`, `radixUiReactTabs` — or the end of it,
+  /// so that `Tabs` finds `@radix-ui/react-tabs` and `Dialog` finds
+  /// `@radix-ui/react-dialog`. That is what the import line of a page
+  /// written in JSX would have said.
+  const libraryCalled = (name) => {
+    const wanted = name.toLowerCase();
+    const modules = Object.keys(declared()).filter((each) => each !== "components");
+    return (
+      modules.find((each) => each === name) ??
+      modules.find((each) => each.toLowerCase() === wanted) ??
+      modules.find((each) => each.toLowerCase().endsWith(wanted))
+    );
+  };
+
   /// A bare name, looked for where a page's tag could have come from.
   ///
   /// The page's own registered components first, then every library the
@@ -163,6 +198,15 @@
         (library[name] !== undefined || (library.default ?? {})[name] !== undefined)
     );
     if (exporters.length === 0) {
+      // A library whose component *is* the library: `react-markdown`
+      // exports its renderer as its default, and the page writes
+      // `<Markdown>`. The name of the package is what says so.
+      const module = libraryCalled(name);
+      const only = module === undefined ? undefined : declared()[module].default;
+      if (only !== undefined) {
+        return { component: only };
+      }
+
       const installed = Object.keys(libraries)
         .filter((module) => module !== "components")
         .join(", ");
@@ -188,8 +232,14 @@
   /// A described child — a string, or another component — as a React
   /// element.
   const element = (described) => {
-    if (typeof described === "string") {
+    // A string, a number, a boolean, or a list of them: what the page
+    // wrote inside the component as a value. React renders those as
+    // children exactly as it renders an element.
+    if (described === null || typeof described !== "object") {
       return described;
+    }
+    if (Array.isArray(described)) {
+      return described.map(element);
     }
     const found = resolve(described.component);
     if (found.error !== undefined) {
@@ -200,17 +250,69 @@
     return react().createElement(found.component, described.props, ...children);
   };
 
+  // Boundaries whose component was not there yet, and when the first
+  // one started waiting.
+  //
+  // rustx renders as soon as its host element exists, and the
+  // application's libraries arrive in a script the engine puts in the
+  // page — whichever comes first. A boundary that failed once and was
+  // never tried again is an empty container for the life of the window,
+  // which is what happened to a page whose chart rendered before
+  // `react-markdown` had finished loading.
+  const waiting = [];
+  let since = 0;
+  let flushing = false;
+
+  const later = (name, node, props, children) => {
+    waiting.push([name, node, props, children]);
+    if (since === 0) {
+      since = Date.now();
+    }
+    if (!flushing) {
+      flushing = true;
+      setTimeout(flush, 16);
+    }
+  };
+
+  const flush = () => {
+    flushing = false;
+    const held = waiting.splice(0, waiting.length);
+    const late = Date.now() - since > 5000;
+    for (const [name, node, props, children] of held) {
+      const found = resolve(name);
+      if (found.error === undefined) {
+        draw(found.component, node, props, children);
+        continue;
+      }
+      // Five seconds is not a slow bundle any more, it is a name
+      // nobody has.
+      if (late) {
+        console.error(found.error);
+        continue;
+      }
+      later(name, node, props, children);
+    }
+    if (waiting.length === 0) {
+      since = 0;
+    }
+  };
+
   const mount = (name, node, props, children) => {
     const found = resolve(name);
     if (found.error !== undefined) {
-      console.error(found.error);
-      return false;
+      later(name, node, props, children);
+      return true;
     }
+    return draw(found.component, node, props, children);
+  };
+
+  /// Put `component` in the node rustx handed over.
+  const draw = (component, node, props, children) => {
     if (react() === undefined || createRoot() === undefined) {
       console.error(
-        "rustx: a React component was asked for and this application never said it " +
-          'uses React. Add `rustx.use({ react: React, reactDom, reactDomClient })` to ' +
-          "its bundle."
+        "rustx: a React component was asked for and this application has no React. " +
+          "A `package.json` with `react`, `react-dom` and the libraries the pages use " +
+          "is what declares them."
       );
       return false;
     }
@@ -220,11 +322,7 @@
       root = createRoot()(node);
       roots.set(node, root);
     }
-    const tree = react().createElement(
-      found.component,
-      props,
-      ...(children ?? []).map(element)
-    );
+    const tree = react().createElement(component, props, ...(children ?? []).map(element));
     // Synchronously: rustx handed the node over during a render, and the
     // page shows that render at the end of it. React's own batching
     // would put the first paint one frame later.

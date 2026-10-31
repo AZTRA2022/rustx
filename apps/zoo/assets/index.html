@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>Zoo</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      // A scenario waits on time, not on a frame: a window whose
+      // compositor produces no frames never calls
+      // `requestAnimationFrame` back.
+      const rustx_soon = (then) => setTimeout(then, 16);
+
+      if (rustx_scenario() === "page") {
+        const waitFor = (ready, then) => {
+          const look = () => {
+            if (!ready()) {
+              rustx_soon(look);
+              return;
+            }
+            then();
+          };
+          look();
+        };
+
+        waitFor(() => document.querySelector("#icons svg") !== null, () => {
+          // Icons: three components off npm, with numbers and strings
+          // for props.
+          rustx_report("icons", String(document.querySelectorAll("#icons svg").length));
+          const first = document.querySelector("#icons svg");
+          rustx_report("icon_size", first.getAttribute("width") ?? "none");
+          rustx_report("icon_colour", first.getAttribute("stroke") ?? "none");
+
+          waitFor(() => document.querySelector("#markdown h1") !== null, () => {
+            // Markdown: a component whose content is its children, and
+            // whose children here are one Rust string.
+            rustx_report("markdown_title", document.querySelector("#markdown h1").textContent);
+            rustx_report(
+              "markdown_bold",
+              document.querySelector("#markdown strong")?.textContent ?? "none"
+            );
+
+            waitFor(() => document.querySelector("#tab-two") !== null, () => {
+              // Tabs: the library keeps which one is open.
+              rustx_report(
+                "panel_one_open",
+                document.querySelector("#panel-one") === null ? "no" : "yes"
+              );
+              // Radix selects a tab on mousedown and on focus, not on a
+              // bare click: a library decides what counts as a choice.
+              const two = document.querySelector("#tab-two");
+              two.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+              two.focus();
+              two.click();
+              // Radix keeps both panels mounted, so what says the click
+              // landed is the state it marks them with — not their
+              // presence, and not a frame.
+              waitFor(
+                () =>
+                  document.querySelector("#panel-two")?.getAttribute("data-state") ===
+                  "active",
+                () => {
+                rustx_report("panel_two_after_click", "yes");
+                // Radix keeps the panel that is not open mounted and hidden,
+                // which is its business: rustx handed over the tree and
+                // does not look in.
+                rustx_report(
+                  "panel_one_state",
+                  document.querySelector("#panel-one")?.getAttribute("data-state") ?? "gone"
+                );
+                rustx_report(
+                  "panel_two_state",
+                  document.querySelector("#panel-two")?.getAttribute("data-state") ?? "gone"
+                );
+
+                // And rustx's own state, on the same page, in the same
+                // frame loop.
+                document.querySelector("#click").click();
+                document.querySelector("#click").click();
+                waitFor(() => document.querySelector("#clicks").textContent === "2", () => {
+                  rustx_report("clicks", document.querySelector("#clicks").textContent);
+                  rustx_report("done", "yes");
+                });
+              });
+            });
+          });
+        });
+      }
+    </script>
+  </body>
+</html>

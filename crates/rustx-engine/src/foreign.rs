@@ -111,6 +111,7 @@ fn described(children: &[ForeignChild]) -> Value {
             .iter()
             .map(|child| match child {
                 ForeignChild::Text(text) => Value::String(text.clone()),
+                ForeignChild::Value(value) => value.clone(),
                 ForeignChild::Node(node) => Value::Record(vec![
                     (
                         "component".to_string(),

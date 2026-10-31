@@ -1,0 +1,12 @@
+[package]
+name = "zoo"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Many JavaScript libraries, one page, to find out what the boundary cannot do yet."
+
+[dependencies]
+rustx = { path = "../../crates/rustx" }
+rustx-dom = { path = "../../crates/rustx-dom" }
+# Named by the generated pages, never by a line a developer writes.
+rustx-engine = { path = "../../crates/rustx-engine" }

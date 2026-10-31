@@ -1,0 +1,16 @@
+{
+  "name": "zoo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The libraries this application uses. rustx writes the entry point and builds the bundle.",
+  "dependencies": {
+    "@radix-ui/react-tabs": "1.1.0",
+    "lucide-react": "0.436.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-markdown": "9.0.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.23.1"
+  }
+}

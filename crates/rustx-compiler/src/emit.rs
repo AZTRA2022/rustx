@@ -498,7 +498,7 @@ fn foreign_node(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, Com
 
     let mut children = Vec::new();
     for child in &tag.children {
-        children.push(foreign_child(tag, child, context)?);
+        children.push(foreign_child(child, context)?);
     }
 
     let component = Literal::string(path);
@@ -513,11 +513,7 @@ fn foreign_node(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, Com
 
 /// What may be written inside a component React owns: another of its
 /// own, or text.
-fn foreign_child(
-    parent: &TagNode,
-    child: &Node,
-    context: &Context<'_>,
-) -> Result<TokenStream, CompileError> {
+fn foreign_child(child: &Node, context: &Context<'_>) -> Result<TokenStream, CompileError> {
     match child {
         // A capitalised tag, by the same rule as the tag around it: the
         // library's own components, written inside one another.
@@ -543,14 +539,15 @@ fn foreign_child(
             Ok(quote! { rustx_dom::ForeignChild::Node(#node) })
         }
         Node::Tag(tag) => Err(unknown_tag(tag)),
-        Node::Expression { offset, .. } => Err(CompileError::flagged(
-            *offset,
-            format!(
-                "`{}` is React's, so what is inside it is a React tree, not a Rust \
-                 expression. Pass the value as a prop.",
-                parent.name
-            ),
-        )),
+        // `{content}` inside a library's component. React renders a
+        // string, a number or a list of them as children, so the value
+        // crosses the way a prop does.
+        Node::Expression { code, offset } => {
+            let inner = rust(code, *offset)?;
+            Ok(quote! {
+                rustx_dom::ForeignChild::Value(rustx_dom::value::ToValue::to_value(&(#inner)))
+            })
+        }
     }
 }
 
