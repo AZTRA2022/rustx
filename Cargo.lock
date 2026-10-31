@@ -914,6 +914,7 @@ name = "rustx-lsp"
 version = "0.1.0"
 dependencies = [
  "rustx-compiler",
+ "syn 2.0.119",
 ]
 
 [[package]]

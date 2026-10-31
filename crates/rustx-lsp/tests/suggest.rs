@@ -284,3 +284,106 @@ fn an_attribute_on_a_plain_tag_is_an_attribute() {
         other => panic!("got {other:?}"),
     }
 }
+
+#[test]
+fn after_the_last_closing_tag_the_file_is_rust_again() {
+    // The bug a real page found: the reader stayed "in the markup" for
+    // ever after the first region, so the `{` of the next function's
+    // body looked like an expression — and every tag in the rest of the
+    // file offered nothing at all.
+    let source = "\
+fn Page() -> Element {
+    return <main>
+        <span>text</span>
+    </main>;
+}
+
+fn Header() -> Element {
+    return <header>
+        <di
+    </header>;
+}
+";
+    match inside::at(source, 9, 12) {
+        Place::TagName { typed } => assert_eq!(typed, "di"),
+        other => panic!("the second function's markup was not read as markup: {other:?}"),
+    }
+    // And the plain Rust between the two is plain Rust.
+    assert!(matches!(inside::at(source, 7, 10), Place::Rust));
+}
+
+#[test]
+fn a_tag_that_closes_itself_does_not_end_the_markup_around_it() {
+    let source = "\
+fn Page() -> Element {
+    return <main>
+        <br />
+        <di
+    </main>;
+}
+";
+    match inside::at(source, 4, 12) {
+        Place::TagName { typed } => assert_eq!(typed, "di"),
+        other => panic!("got {other:?}"),
+    }
+}
+
+#[test]
+fn a_nested_region_leaves_the_markup_only_once() {
+    // Several regions in one function, and Rust between them.
+    let source = "\
+fn Page() -> Element {
+    let a = <span>one</span>;
+    let b = 2;
+    return <main>{a}</main>;
+}
+";
+    assert!(
+        matches!(inside::at(source, 3, 14), Place::Rust),
+        "got {:?}",
+        inside::at(source, 3, 14)
+    );
+}
+
+#[test]
+fn a_generic_is_not_a_tag() {
+    // `Vec<Point>` in a page's own Rust. Read as a tag, it leaves the
+    // reader inside markup for the rest of the file — which is how a
+    // real page came to offer nothing from its second function on.
+    let source = "\
+fn Page() -> Element {
+    let data: Vec<Point> = points();
+    return <main>
+        <di
+    </main>;
+}
+";
+    // Right after the `<` of `Vec<`: still Rust.
+    assert!(
+        matches!(inside::at(source, 2, 19), Place::Rust),
+        "got {:?}",
+        inside::at(source, 2, 19)
+    );
+    // And the tag below it is still a tag.
+    match inside::at(source, 4, 12) {
+        Place::TagName { typed } => assert_eq!(typed, "di"),
+        other => panic!("a generic above it broke the markup: {other:?}"),
+    }
+}
+
+#[test]
+fn a_tag_after_a_fat_arrow_or_a_brace_is_a_tag() {
+    // The two other places a page writes markup: a closure's body and a
+    // branch.
+    let source = "\
+fn Page() -> Element {
+    let rows = names.iter().map(|name| <li>{name}</li>);
+    return <main>{rows}</main>;
+}
+";
+    // Just after the `l` of `<li>`: the `<` follows a closure header.
+    match inside::at(source, 2, 42) {
+        Place::TagName { typed } => assert_eq!(typed, "l"),
+        other => panic!("got {other:?}"),
+    }
+}

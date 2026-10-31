@@ -160,9 +160,10 @@ pub fn told(shadow: &Shadow, method: &str) -> String {
         )
     } else {
         format!(
-            "{{\"textDocument\":{{\"uri\":\"{}\",\"version\":2}},\
+            "{{\"textDocument\":{{\"uri\":\"{}\",\"version\":{}}},\
              \"contentChanges\":[{{\"text\":\"{text}\"}}]}}",
-            crate::json::escape(&shadow.uri)
+            crate::json::escape(&shadow.uri),
+            next_version()
         )
     }
 }
@@ -173,8 +174,24 @@ pub fn told(shadow: &Shadow, method: &str) -> String {
 /// question about one expression.
 pub fn changed(uri: &str, text: &str) -> String {
     format!(
-        "{{\"textDocument\":{{\"uri\":\"{}\",\"version\":2}},         \"contentChanges\":[{{\"text\":\"{}\"}}]}}",
+        "{{\"textDocument\":{{\"uri\":\"{}\",\"version\":{}}},         \"contentChanges\":[{{\"text\":\"{}\"}}]}}",
         crate::json::escape(uri),
+        next_version(),
         crate::json::escape(text)
     )
+}
+
+/// The version number of the next change sent downstream.
+///
+/// A version that does not move is a change `rust-analyzer` is entitled
+/// to ignore, and it does: the file built for one question went out
+/// under the same version as the file before it, so the question was
+/// answered about the wrong text — or, more often, about a text the
+/// server had already decided it knew, and answered `null`. Counted
+/// here, for the whole process, because one editor session is one
+/// sequence of changes however many pages it opens.
+fn next_version() -> usize {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static VERSION: AtomicUsize = AtomicUsize::new(2);
+    VERSION.fetch_add(1, Ordering::Relaxed)
 }

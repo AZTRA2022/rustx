@@ -304,3 +304,32 @@ fn a_tag_completes_without_any_downstream() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn a_completion_rust_was_not_ready_for_is_asked_again() {
+    // `rust-analyzer` answers `null` to a question it is not ready for
+    // — a workspace still loading, a file it has just been handed — and
+    // a developer typing in a page that was opened a second ago is
+    // exactly that moment. Asked once, the list is empty for no reason
+    // the developer can see; asked twice, it is the real list.
+    let (root, uri) = a_page();
+    let said = conversation(
+        &[
+            opened(&uri).as_str(),
+            asked("textDocument/completion", &uri, 2, 16, 12).as_str(),
+        ],
+        Some(canned(&[
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"items\":[{\"label\":\"later\"}]}}",
+        ])),
+    );
+    let answer = said
+        .iter()
+        .find(|body| body.contains("\"id\":12"))
+        .unwrap_or_else(|| panic!("the completion was not answered: {said:?}"));
+    assert!(
+        answer.contains("later"),
+        "the second answer never came back: {answer}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}

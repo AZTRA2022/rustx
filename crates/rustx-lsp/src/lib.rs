@@ -431,7 +431,15 @@ fn ask_about(
         line - 1,
         character - 1
     );
-    let answer = server.ask(method, &asked);
+    // Once, quickly; and if that said nothing, once more with patience.
+    // `rust-analyzer` answers `null` to a question about a file it has
+    // only just been handed, and the file built for this question is
+    // always one of those. Without the second attempt the first list a
+    // developer asks for in a session is empty, every session.
+    let mut answer = server.ask(method, &asked);
+    if answer.as_deref().and_then(cut_result).unwrap_or("null") == "null" {
+        answer = server.ask_again(method, &asked);
+    }
     // Back to the real file before anything else is asked.
     server.tell(
         "textDocument/didChange",

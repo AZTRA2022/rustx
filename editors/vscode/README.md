@@ -40,7 +40,11 @@ elles ont été écrites, pendant la frappe.
   ligne et à sa colonne, entourée du vrai code de la page. Donc
   `onClick={move |_| points.` propose ce que `points` a vraiment.
   Demande que l'application ait été construite une fois, parce que
-  `rust-analyzer` lit un projet construit.
+  `rust-analyzer` lit un projet construit. Les premières secondes d'une
+  session, il charge encore l'espace de travail et ne répond rien : le
+  serveur repose alors la question, une fois, en patientant plus
+  longtemps — c'est pourquoi la toute première liste peut mettre
+  quelques secondes à venir.
 
 ## Développement
 
