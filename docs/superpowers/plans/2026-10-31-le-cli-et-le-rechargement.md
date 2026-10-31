@@ -1,6 +1,6 @@
 # Le CLI et le rechargement
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** `rustx new mon-app`, `rustx dev`, `rustx build` — créer un projet qui tient debout du premier coup, écrire une page et la voir à l'écran sans fermer la fenêtre, et produire un `.exe` qui porte son icône et son nom dans l'explorateur.
 
@@ -113,11 +113,11 @@
 - Produces: `rustx` sans argument et `rustx --help` écrivent les quatre commandes, une ligne chacune, et la phrase qui dit ce que `dev` conserve et ce qu'il ne conserve pas ; `rustx run` construit et lance une fois, sans surveiller ; une commande inconnue propose la plus proche.
 - Le README gagne la section « démarrer », avec les trois commandes et le `main.rs` de quatre lignes.
 
-- [ ] **Step 1** : les tests — `help_names_every_command`, `help_says_what_a_reload_keeps`, `an_unknown_command_suggests_the_nearest`.
-- [ ] **Step 2** : rouge.
-- [ ] **Step 3** : l'aide, `run`, le README.
-- [ ] **Step 4** : vert, plus `cargo test --workspace` et `cargo clippy --workspace --all-targets`.
-- [ ] **Step 5** : commit `feat(cli): what a developer types, and what it says back`.
+- [x] **Step 1** : les tests — `help_names_every_command`, `help_says_what_a_reload_keeps`, `an_unknown_command_suggests_the_nearest`.
+- [x] **Step 2** : rouge.
+- [x] **Step 3** : l'aide, `run`, le README.
+- [x] **Step 4** : vert, plus `cargo test --workspace` et `cargo clippy --workspace --all-targets`.
+- [x] **Step 5** : commit `feat(cli): what a developer types, and what it says back`.
 
 ---
 

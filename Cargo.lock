@@ -886,6 +886,7 @@ name = "rustx-cli"
 version = "0.1.0"
 dependencies = [
  "rustx-compiler",
+ "rustx-dom",
 ]
 
 [[package]]
