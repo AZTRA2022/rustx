@@ -101,6 +101,45 @@ Ne la traversent pas :
 Une valeur dont le *type* a changé entre deux compilations est jetée, pas
 réinjectée de force.
 
+## Ce que le web ne sait pas faire
+
+Une page ne peut pas lire le presse-papiers quand elle veut, ni ouvrir un
+dialogue qui rend un chemin, ni poser une icône à côté de l'horloge.
+C'est ce que `rustx-os` fait, et ça s'écrit dans une page comme le reste :
+
+```rust
+use rustx::{clipboard, dialog, notify, tray};
+
+// Le presse-papiers : du texte, une image, ou un format à soi.
+clipboard::set_text("copié depuis Rust")?;
+
+// Un dialogue, qui rend un PathBuf et non un File du navigateur.
+let Ok(paths) = dialog::open(
+    dialog::Ask::new("Choisir une image").filter("Images", ["png", "jpg"])
+) else { return; };
+
+// Une icône de barre système, retirée quand son jeton est lâché.
+let icon = tray::Icon::new(Path::new("assets/icon.ico"), "Mon logiciel")?;
+icon.menu(&[tray::Item::new("quitter", "Quitter")])?;
+
+notify::show(notify::What::new("Fini", "Le rendu est terminé."))?;
+```
+
+Un répertoire par système à l'intérieur — `windows/`, `linux/`, le reste
+— et une capacité est un fichier par système, avec les mêmes noms de
+fonctions. Chaque module répond `supported()` avant qu'on lui demande
+quoi que ce soit, pour qu'une fonctionnalité absente soit un bouton
+qu'on ne dessine pas plutôt qu'une erreur à lire. Windows est écrit ;
+ailleurs, le refus nomme la plateforme **et le fichier à écrire**.
+
+Ce qui demande un œil se regarde à la main :
+
+```sh
+cargo run -p rustx-os --example choose_a_file
+cargo run -p rustx-os --example tray_icon
+cargo run -p rustx-os --example what_is_plugged_in
+```
+
 ## L'éditeur
 
 L'extension VS Code est dans `editors/vscode` : coloration du `.rsx`,

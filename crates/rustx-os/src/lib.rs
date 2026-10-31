@@ -42,7 +42,10 @@ pub mod clipboard;
 pub mod devices;
 pub mod dialog;
 pub mod error;
+pub mod notify;
 pub mod patience;
+pub mod shortcut;
+pub mod tray;
 
 // One directory per operating system, and one file per capability
 // inside it. Which one is compiled is the only place in this crate

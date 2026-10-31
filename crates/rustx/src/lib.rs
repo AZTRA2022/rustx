@@ -34,9 +34,10 @@ pub use rustx_dom::{
     state, store, value,
 };
 /// Ce qui touche la machine et non la page : le presse-papiers, les
-/// dialogues de fichiers, les appareils. Chacun dit, avant qu'on lui
-/// demande quoi que ce soit, si cette plateforme sait le faire.
-pub use rustx_os::{clipboard, devices, dialog};
+/// dialogues de fichiers, les appareils, la barre système, les
+/// notifications. Chacun dit, avant qu'on lui demande quoi que ce soit,
+/// si cette plateforme sait le faire.
+pub use rustx_os::{clipboard, devices, dialog, notify, tray};
 pub use rustx_os::OsError;
 
 pub use rustx_engine::{

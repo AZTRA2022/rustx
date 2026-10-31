@@ -10,4 +10,7 @@
 pub mod clipboard;
 pub mod devices;
 pub mod dialog;
+pub mod notify;
+pub mod shortcut;
+pub mod tray;
 pub mod media;

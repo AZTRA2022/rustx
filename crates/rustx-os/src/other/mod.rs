@@ -35,6 +35,75 @@ pub mod clipboard {
     pub const AVAILABLE: bool = false;
 }
 
+pub mod notify {
+    use crate::error::OsError;
+    use crate::notify::What;
+
+    pub const AVAILABLE: bool = false;
+
+    pub fn show(_what: &What) -> Result<(), OsError> {
+        Err(OsError::Unsupported("les notifications"))
+    }
+}
+
+pub mod shortcut {
+    use crate::error::OsError;
+
+    pub const AVAILABLE: bool = false;
+
+    pub struct Shortcut;
+
+    impl Shortcut {
+        pub fn listen(_modifiers: u32, _key: u32, _keys: &str) -> Result<Self, OsError> {
+            Err(OsError::Unsupported("les raccourcis globaux"))
+        }
+
+        pub fn pressed(&self) -> u64 {
+            0
+        }
+    }
+}
+
+pub mod tray {
+    use std::path::Path;
+
+    use crate::error::OsError;
+    use crate::notify::What;
+    use crate::tray::Item;
+
+    const WHAT: &str = "l'icône de barre système";
+
+    pub const AVAILABLE: bool = false;
+
+    pub fn shown() -> usize {
+        0
+    }
+
+    pub struct Icon;
+
+    impl Icon {
+        pub fn new(_icon: &Path, _tooltip: &str) -> Result<Self, OsError> {
+            Err(OsError::Unsupported(WHAT))
+        }
+
+        pub fn hidden() -> Result<Self, OsError> {
+            Err(OsError::Unsupported(WHAT))
+        }
+
+        pub fn menu(&self, _items: &[Item]) -> Result<(), OsError> {
+            Err(OsError::Unsupported(WHAT))
+        }
+
+        pub fn clicked(&self) -> Option<String> {
+            None
+        }
+
+        pub fn notify(&self, _what: &What) -> Result<(), OsError> {
+            Err(OsError::Unsupported(WHAT))
+        }
+    }
+}
+
 pub mod dialog {
     use std::path::PathBuf;
 
