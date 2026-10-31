@@ -26,10 +26,17 @@ fn main() {
         }
         arguments::Command::Build { release } => make_it(release, false),
         arguments::Command::Run => make_it(false, true),
-        // The watching loop, which is its own task of the plan.
         arguments::Command::Dev => {
-            eprintln!("`rustx dev` is not wired up yet. `rustx run` builds and runs once.");
-            2
+            let here = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            match rustx_cli::dev::watch(&here) {
+                Ok(()) => 0,
+                Err(why) => {
+                    if !why.is_empty() {
+                        eprintln!("{why}");
+                    }
+                    1
+                }
+            }
         }
     };
     std::process::exit(code);

@@ -11,5 +11,7 @@
 
 pub mod arguments;
 pub mod build;
+pub mod dev;
 pub mod new;
 pub mod resources;
+pub mod watch;
