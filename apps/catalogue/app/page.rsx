@@ -1,3 +1,5 @@
+let mut clicked = false;
+
 fn Page() -> Element {
     let title = "Catalogue";
     let items = vec!["Webcam", "Micro", "Écran"];
@@ -7,7 +9,7 @@ fn Page() -> Element {
         <ul className="devices">
             {items.iter().map(|name| <li>{name}</li>).collect::<Vec<_>>()}
         </ul>
-        <button id="shout" onClick={|_| clicked()}>
+        <button id="shout" onClick={move |_| clicked = true}>
             {items.len()}
         </button>
     </>;

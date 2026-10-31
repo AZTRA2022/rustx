@@ -11,7 +11,6 @@
 
 mod native;
 
-
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -91,6 +90,8 @@ pub(crate) fn install(frame: Option<&mut Frame>, context: &V8Context) {
     // a `Value` carries null, a boolean, a number or a string and
     // nothing else — widening it to carry a DOM object would widen
     // exactly the boundary this exists to keep narrow.
+    install_harness();
+
     register_native("rustx_component", |args| {
         let [Value::String(name), Value::String(id)] = args else {
             return Err(NativeError::new(
@@ -98,6 +99,17 @@ pub(crate) fn install(frame: Option<&mut Frame>, context: &V8Context) {
             ));
         };
         crate::foreign::mount_registered(name, id)?;
+        Ok(Value::Null)
+    });
+
+    // The page's JavaScript half navigating the application. The
+    // reverse direction of the router, and the same one call the
+    // developer's Rust makes.
+    register_native("rustx_navigate", |args| {
+        let [Value::String(path)] = args else {
+            return Err(NativeError::new("rustx_navigate takes a path"));
+        };
+        crate::router::navigate(path.clone());
         Ok(Value::Null)
     });
 
@@ -156,4 +168,50 @@ pub(crate) fn install(frame: Option<&mut Frame>, context: &V8Context) {
             1,
         );
     }
+}
+
+/// What a scenario drives an application with.
+///
+/// Every application was registering the same three natives: the name
+/// of the scenario it was started on, a line in a report file, and a
+/// way to read a value out of the page. They are the framework's, so
+/// they are installed here — an application under test writes nothing
+/// at all, and an application that is not under test is given a
+/// `rustx_scenario()` that answers with an empty string.
+///
+/// `rustx_report` is the only one that writes anything, and it writes
+/// only where `--report=<path>` says.
+fn install_harness() {
+    let scenario = argument("--scenario=").unwrap_or_default();
+    register_native("rustx_scenario", move |_args| {
+        Ok(Value::String(scenario.clone()))
+    });
+
+    let report = argument("--report=");
+    register_native("rustx_report", move |args| {
+        let [Value::String(key), Value::String(value)] = args else {
+            return Err(NativeError::new(
+                "rustx_report takes a name and a value, both strings",
+            ));
+        };
+        let Some(path) = report.as_deref() else {
+            return Err(NativeError::new(
+                "this application was not started with --report=<path>",
+            ));
+        };
+        let line = format!("REPORT {key}={value}\n");
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()))
+            .map_err(|error| NativeError::new(format!("could not report: {error}")))?;
+        Ok(Value::Null)
+    });
+}
+
+fn argument(prefix: &str) -> Option<String> {
+    std::env::args_os()
+        .filter_map(|argument| argument.into_string().ok())
+        .find_map(|argument| argument.strip_prefix(prefix).map(str::to_string))
 }

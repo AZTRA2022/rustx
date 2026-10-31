@@ -17,7 +17,12 @@ fn report() -> &'static Report {
 #[test]
 fn a_dom_click_runs_rust_and_returns_its_value() {
     // The counter lives in Rust. Two clicks, two increments.
-    assert_eq!(report().get("count"), "2", "full output:\n{}", report().raw());
+    assert_eq!(
+        report().get("count"),
+        "2",
+        "full output:\n{}",
+        report().raw()
+    );
 }
 
 #[test]
@@ -40,7 +45,9 @@ fn a_panic_in_a_native_function_does_not_kill_the_process() {
 #[test]
 fn badly_typed_arguments_produce_a_readable_js_exception() {
     assert!(
-        report().get("bad_args_error").contains("expected 1 argument"),
+        report()
+            .get("bad_args_error")
+            .contains("expected 1 argument"),
         "unhelpful message for a bad call: {:?}",
         report().get("bad_args_error")
     );

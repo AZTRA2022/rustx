@@ -29,7 +29,9 @@ fn text_children_keep_their_punctuation() {
 fn an_expression_child_keeps_its_rust_verbatim() {
     let node = parse_one("<p>{ user.name.to_uppercase() }</p>");
     let Node::Tag(tag) = node else { panic!() };
-    assert!(matches!(&tag.children[0], Node::Expression { code, .. } if code.trim() == "user.name.to_uppercase()"));
+    assert!(
+        matches!(&tag.children[0], Node::Expression { code, .. } if code.trim() == "user.name.to_uppercase()")
+    );
 }
 
 #[test]
@@ -37,7 +39,9 @@ fn attributes_come_in_three_shapes() {
     let node = parse_one(r#"<input className="row" value={name} disabled />"#);
     let Node::Tag(tag) = node else { panic!() };
     assert!(matches!(&tag.attributes[0].value, AttributeSource::Literal(v) if v == "row"));
-    assert!(matches!(&tag.attributes[1].value, AttributeSource::Expression(v) if v.trim() == "name"));
+    assert!(
+        matches!(&tag.attributes[1].value, AttributeSource::Expression(v) if v.trim() == "name")
+    );
     assert!(matches!(tag.attributes[2].value, AttributeSource::Flag));
 }
 

@@ -176,3 +176,17 @@ fn an_attribute_written_in_html_still_takes_a_value_the_same_way() {
     assert!(rust.contains("\"maxlength\""), "got {rust}");
     assert!(rust.contains("Flag (true)"), "got {rust}");
 }
+
+#[test]
+fn a_key_identifies_a_row_and_the_state_inside_it() {
+    // §7.4 bis asks for `key`, with React's meaning: it identifies the
+    // row for the reconciler *and* the state inside it, so a reorder
+    // carries each row's own count with it. One attribute, both.
+    let rust = emit_one("<li key={name.clone()}>x</li>");
+    assert!(rust.contains(". key ("), "got {rust}");
+    assert!(rust.contains("with_key"), "got {rust}");
+    assert!(
+        !rust.contains("\"key\""),
+        "`key` is not a DOM attribute: {rust}"
+    );
+}

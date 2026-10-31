@@ -6,16 +6,14 @@
 //! DOM, so it sits in its own crate — the compiler must not depend on CEF,
 //! and the engine must not depend on a parser.
 
-mod element;
 pub mod diff;
-pub mod value;
+mod element;
 pub mod route;
 pub mod state;
 pub mod store;
+pub mod value;
 
-
-pub use value::Value;
 pub use element::{
-    Key,
-    AttributeValue, Element, Event, Handler, IntoElement, TagElement, into_element,
+    AttributeValue, Element, Event, Handler, IntoElement, Key, TagElement, into_element,
 };
+pub use value::Value;

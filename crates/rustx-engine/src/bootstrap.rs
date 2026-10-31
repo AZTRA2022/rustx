@@ -90,22 +90,37 @@ pub mod process {
 
 #[cfg(test)]
 mod tests {
-    use super::process::role_from;
     use super::Role;
+    use super::process::role_from;
 
     fn args(list: &[&str]) -> impl Iterator<Item = String> {
-        list.iter().map(|s| s.to_string()).collect::<Vec<_>>().into_iter()
+        list.iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     #[test]
     fn no_type_switch_means_the_browser_process() {
-        assert_eq!(role_from(args(&["hello.exe", "--my-option=42"])), Role::Browser);
+        assert_eq!(
+            role_from(args(&["hello.exe", "--my-option=42"])),
+            Role::Browser
+        );
     }
 
     #[test]
     fn the_renderer_is_told_apart_from_the_other_sub_processes() {
-        assert_eq!(role_from(args(&["hello.exe", "--type=renderer"])), Role::Renderer);
-        assert_eq!(role_from(args(&["hello.exe", "--type=gpu-process"])), Role::Other);
-        assert_eq!(role_from(args(&["hello.exe", "--type=utility"])), Role::Other);
+        assert_eq!(
+            role_from(args(&["hello.exe", "--type=renderer"])),
+            Role::Renderer
+        );
+        assert_eq!(
+            role_from(args(&["hello.exe", "--type=gpu-process"])),
+            Role::Other
+        );
+        assert_eq!(
+            role_from(args(&["hello.exe", "--type=utility"])),
+            Role::Other
+        );
     }
 }

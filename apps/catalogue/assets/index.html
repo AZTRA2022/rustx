@@ -28,18 +28,18 @@
   </head>
   <body>
     <!-- The page is written in app/page.rsx. Nothing below is. -->
-    <div id="root"></div>
+    <div id="app"></div>
     <script>
-      if (catalogue_scenario() === "page") {
-        const root = document.querySelector("#root");
+      if (rustx_scenario() === "page") {
+        const root = document.querySelector("#app");
         const settle = () => {
           if (!root.firstChild) {
             requestAnimationFrame(settle);
             return;
           }
-          catalogue_report("html", root.innerHTML);
+          rustx_report("html", root.innerHTML);
           document.querySelector("#shout").click();
-          catalogue_report("clicked", catalogue_clicked());
+          rustx_report("clicked", rustx_shared("clicked"));
         };
         requestAnimationFrame(settle);
       }

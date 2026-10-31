@@ -206,7 +206,9 @@ pub(crate) fn skip_raw_string(source: &str, index: usize) -> Result<Option<usize
         };
     }
 
-    let closing: Vec<u8> = std::iter::once(b'"').chain(std::iter::repeat_n(b'#', hashes)).collect();
+    let closing: Vec<u8> = std::iter::once(b'"')
+        .chain(std::iter::repeat_n(b'#', hashes))
+        .collect();
     let mut cursor = cursor + 1;
     while cursor < bytes.len() {
         if bytes[cursor..].starts_with(&closing) {
@@ -421,5 +423,9 @@ pub(crate) fn skip_attribute_string(source: &str, open: usize) -> Result<usize, 
         }
         index += 1;
     }
-    Err(CompileError::at(source, open, "unterminated attribute value"))
+    Err(CompileError::at(
+        source,
+        open,
+        "unterminated attribute value",
+    ))
 }

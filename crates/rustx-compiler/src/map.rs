@@ -45,7 +45,11 @@ impl PositionMap {
     /// today. It stays here because the day a region places its children
     /// on their own lines, it will not be.
     pub fn to_generated(&self, rsx_line: usize) -> Option<usize> {
-        let point = self.points.iter().rev().find(|point| point.rsx <= rsx_line)?;
+        let point = self
+            .points
+            .iter()
+            .rev()
+            .find(|point| point.rsx <= rsx_line)?;
         Some(point.generated + (rsx_line - point.rsx))
     }
 

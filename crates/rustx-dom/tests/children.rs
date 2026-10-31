@@ -63,7 +63,10 @@ fn a_child_that_stops_being_reached_is_released() {
     // router no longer renders is released because nothing reached it.
     let witness = Rc::new(Cell::new(false));
     render_parent(Some(Rc::clone(&witness)));
-    assert!(!witness.get(), "the child was released while still rendered");
+    assert!(
+        !witness.get(),
+        "the child was released while still rendered"
+    );
 
     render_parent(None);
     assert!(witness.get());
@@ -161,9 +164,8 @@ fn a_childs_keyed_rows_are_its_own_and_not_the_key_it_was_rendered_under() {
             component_at(here!(), || {
                 for row in rows {
                     with_key(*row, || {
-                        let kept = rustx_dom::state::keep_at(here!(), || {
-                            Noisy(Rc::clone(released))
-                        });
+                        let kept =
+                            rustx_dom::state::keep_at(here!(), || Noisy(Rc::clone(released)));
                         kept.with(|_| ());
                     });
                 }
@@ -178,7 +180,10 @@ fn a_childs_keyed_rows_are_its_own_and_not_the_key_it_was_rendered_under() {
 
     // `b` is gone and `a` is still there: `a`'s value has to survive.
     render(&["a"], &released);
-    assert!(released.get(), "the row that left should have been released");
+    assert!(
+        released.get(),
+        "the row that left should have been released"
+    );
     assert!(
         rustx_dom::state::live_instances() > 0,
         "the row that stayed should still hold its value"

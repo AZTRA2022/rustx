@@ -99,8 +99,14 @@ fn the_same_declaration_under_two_keys_is_two_cells() {
     rustx_dom::state::with_key("a", || cell(slot, || 0_i32).set(1));
     rustx_dom::state::with_key("b", || cell(slot, || 0_i32).set(2));
 
-    assert_eq!(rustx_dom::state::with_key("a", || cell(slot, || 0_i32).get()), 1);
-    assert_eq!(rustx_dom::state::with_key("b", || cell(slot, || 0_i32).get()), 2);
+    assert_eq!(
+        rustx_dom::state::with_key("a", || cell(slot, || 0_i32).get()),
+        1
+    );
+    assert_eq!(
+        rustx_dom::state::with_key("b", || cell(slot, || 0_i32).get()),
+        2
+    );
 }
 
 #[test]

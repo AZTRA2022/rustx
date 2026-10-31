@@ -28,7 +28,7 @@
          the frame around them is app/layout.rsx. Nothing here is. -->
     <div id="app"></div>
     <script>
-      if (capture_scenario() === "page") {
+      if (rustx_scenario() === "page") {
         const preview = () => document.querySelector("#preview");
         const devices = () => document.querySelectorAll(".device");
         const frame = (then) => requestAnimationFrame(() => requestAnimationFrame(then));
@@ -58,26 +58,26 @@
           devices()[0].click();
 
           waitFor("#preview", () => {
-            capture_report("preview_title", preview().textContent);
-            capture_report("selected_in_preview", document.querySelector("#selected-in-preview").textContent);
+            rustx_report("preview_title", preview().textContent);
+            rustx_report("selected_in_preview", document.querySelector("#selected-in-preview").textContent);
 
             // Back to the list, which closes the stream the preview had
             // opened — because the preview was holding it, not because
             // anybody said so.
             document.querySelector("#back").click();
             waitFor("#selected-in-list", () => {
-              capture_report("selected_in_list", document.querySelector("#selected-in-list").textContent);
+              rustx_report("selected_in_list", document.querySelector("#selected-in-list").textContent);
 
               // Waited for rather than assumed: the bar ticks every 50ms
               // and this scenario can get here sooner than that.
               const ticked = () => {
-                if (Number(capture_ticks()) < 1) {
+                if (Number(rustx_shared("ticks")) < 1) {
                   requestAnimationFrame(ticked);
                   return;
                 }
-                capture_report("ticks_after_navigate", capture_ticks());
-                capture_report("layout_starts", capture_layout_starts());
-                capture_report("closed_streams", capture_closed_streams());
+                rustx_report("ticks_after_navigate", rustx_shared("ticks"));
+                rustx_report("layout_starts", rustx_shared("layout_starts"));
+                rustx_report("closed_streams", rustx_shared("closed_streams"));
 
                 // One more leg: the same route with another parameter.
                 // `/device/Webcam` to `/device/Micro` is one component
@@ -91,8 +91,8 @@
                       requestAnimationFrame(switched);
                       return;
                     }
-                    capture_report("preview_after_param_change", preview().textContent);
-                    capture_report("closed_after_param_change", capture_closed_streams());
+                    rustx_report("preview_after_param_change", preview().textContent);
+                    rustx_report("closed_after_param_change", rustx_shared("closed_streams"));
                   };
                   switched();
                 });

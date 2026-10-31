@@ -41,7 +41,10 @@ impl Context<'_> {
         let before = &self.source[..offset.min(self.source.len())];
         let line = before.matches('\n').count() + 1;
         let start = before.rfind('\n').map_or(0, |index| index + 1);
-        (line as u32, self.source[start..offset].chars().count() as u32 + 1)
+        (
+            line as u32,
+            self.source[start..offset].chars().count() as u32 + 1,
+        )
     }
 }
 
@@ -232,8 +235,25 @@ fn tag_expression(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, C
     }
     let name = Literal::string(&tag.name);
     let mut steps: Vec<TokenStream> = Vec::new();
+    let mut key = None;
 
     for attribute in &tag.attributes {
+        // `key` is not a DOM attribute and never reaches the page. It
+        // identifies the row for the reconciler and the state inside it
+        // — the same meaning React gives it, and §7.4 bis asks for both
+        // from one word.
+        if attribute.name == "key" {
+            let AttributeSource::Expression(code) = &attribute.value else {
+                let text = match &attribute.value {
+                    AttributeSource::Literal(text) => text.clone(),
+                    _ => String::new(),
+                };
+                key = Some(quote! { #text });
+                continue;
+            };
+            key = Some(rust(code, attribute.offset)?);
+            continue;
+        }
         if !is_known(&attribute.name) {
             return Err(unknown_attribute(attribute));
         }
@@ -244,12 +264,34 @@ fn tag_expression(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, C
         });
     }
 
-    for child in &tag.children {
-        let child = expression(child, context)?;
-        steps.push(quote! { .child(#child) });
-    }
+    let children: Vec<TokenStream> = tag
+        .children
+        .iter()
+        .map(|child| expression(child, context))
+        .collect::<Result<_, _>>()?;
 
-    Ok(quote! { rustx_dom::Element::tag(#name) #(#steps)* .build() })
+    // With a key, the whole row — its children and every component
+    // inside them — is built under that key, so the state found there
+    // is the state of this row and follows it when the list reorders.
+    // Without one, nothing is wrapped and nothing costs anything.
+    let Some(key) = key else {
+        let steps = steps.iter();
+        return Ok(quote! {
+            rustx_dom::Element::tag(#name) #(#steps)* #(.child(#children))* .build()
+        });
+    };
+    Ok(quote! {
+        {
+            let __key = #key;
+            rustx_dom::state::with_key(__key.clone(), || {
+                rustx_dom::Element::tag(#name)
+                    .key(__key.clone())
+                    #(#steps)*
+                    #(.child(#children))*
+                    .build()
+            })
+        }
+    })
 }
 
 /// `onClick={…}` becomes a handler, not an attribute: a closure is code,

@@ -45,13 +45,12 @@ pub fn promote_state(source: &str) -> Result<String, CompileError> {
         let original = &source[declaration.declaration.start..declaration.declaration.end];
         edits.push(Edit {
             span: declaration.declaration,
-            text: pad_to(
-                format!(
-                    "#[allow(non_camel_case_types)] #[derive(Clone, Copy)] struct {};",
-                    marker(&declaration.name)
-                ),
-                original,
-            ),
+            // Nothing is left behind: the value is built on the first ask,
+            // by whichever component asks first, and found by the name
+            // it was written with. What was a declaration is now the
+            // blank line it occupied, so every line after it keeps its
+            // number.
+            text: pad_to(String::new(), original),
         });
     }
 
@@ -62,7 +61,7 @@ fn edits_for(source: &str, component: &Component) -> Vec<Edit> {
     let mut edits = Vec::new();
 
     for call in &component.calls {
-        edits.push(call_edit(source, call));
+        edits.push(call_edit(source, component, call));
     }
 
     if component.promoted.is_empty() {
@@ -76,10 +75,15 @@ fn edits_for(source: &str, component: &Component) -> Vec<Edit> {
         // a value this component declared is found by the place it was
         // written. Everything after this line is the same rewrite.
         let text = if promoted.shared {
+            // Nothing outside a `keep`, an `effect` or a `task` uses it,
+            // and what is inside one reaches it by name. A binding here
+            // would be a binding nobody reads.
+            if promoted.reads.is_empty() && promoted.mutations.is_empty() {
+                continue;
+            }
             format!(
-                "let {name} = rustx_dom::store::shared::<{marker}, _>(|| {initializer});",
+                "let {name} = rustx_dom::store::shared(\"{name}\", || {initializer});",
                 name = promoted.name,
-                marker = marker(&promoted.name),
             )
         } else {
             format!(
@@ -134,12 +138,15 @@ fn edits_for(source: &str, component: &Component) -> Vec<Edit> {
 /// token. Nothing else ties the thread to the component — the token is a
 /// value the component holds, so it is dropped at unmount, so the task
 /// stops.
-fn call_edit(source: &str, call: &crate::promote::Call) -> Edit {
+fn call_edit(source: &str, component: &Component, call: &crate::promote::Call) -> Edit {
     let (line, column) = line_and_column(source, call.span.start);
-    let slot = format!(
-        "rustx_dom::state::Slot {{ file: file!(), line: {line}u32, column: {column}u32 }}"
-    );
-    let arguments = source[call.arguments.start..call.arguments.end].trim();
+    let slot =
+        format!("rustx_dom::state::Slot {{ file: file!(), line: {line}u32, column: {column}u32 }}");
+    // A shared value written inside these arguments is reached by its
+    // name, not by a handle: this code runs later, and on another
+    // thread for a task, where a handle could not go.
+    let patched = patched_arguments(source, component, call);
+    let arguments = patched.trim();
 
     let text = match call.kind {
         CallKind::Keep => {
@@ -197,10 +204,7 @@ fn split_first_argument(arguments: &str) -> (&str, &str) {
             b'(' | b'[' | b'{' => depth += 1,
             b')' | b']' | b'}' => depth -= 1,
             b',' if depth == 0 => {
-                return (
-                    arguments[..index].trim(),
-                    arguments[index + 1..].trim(),
-                );
+                return (arguments[..index].trim(), arguments[index + 1..].trim());
             }
             _ => {}
         }
@@ -470,11 +474,44 @@ fn read_patched(source: &str, span: Span, reads: &[Edit]) -> String {
         .to_string()
 }
 
-/// The type that names a shared value.
+/// The arguments of a `keep`, `effect` or `task`, with every use of a
+/// shared value rewritten to reach it by name.
 ///
-/// It is a type rather than a key string because the registry finds a
-/// value by `TypeId`, and because a name nobody can spell twice is what
-/// keeps two pages' values apart.
-fn marker(name: &str) -> String {
-    format!("__shared_{name}")
+/// A handler captures a handle, because a handler runs on this thread
+/// with the render still in memory. These arguments do not: `task`'s
+/// body is another thread's, and what it posts back has to be able to
+/// cross on its own. A name crosses; an `Rc` does not.
+fn patched_arguments(source: &str, component: &Component, call: &crate::promote::Call) -> String {
+    let text = &source[call.arguments.start..call.arguments.end];
+    let mut edits = Vec::new();
+
+    for promoted in component.promoted.iter().filter(|promoted| promoted.shared) {
+        let initializer = &source[promoted.initializer.start..promoted.initializer.end];
+        let accessor = format!(
+            "rustx_dom::store::shared(\"{name}\", || {initializer})",
+            name = promoted.name
+        );
+        let (reads, mutations) = crate::promote::uses_in(source, &promoted.name, call.arguments);
+
+        let read_edits: Vec<Edit> = reads
+            .iter()
+            .map(|read| Edit {
+                span: *read,
+                text: format!("{accessor}.get()"),
+            })
+            .collect();
+
+        for mutation in &mutations {
+            edits.push(rewrite_mutation(
+                source,
+                &accessor,
+                mutation,
+                call.arguments,
+                &read_edits,
+            ));
+        }
+        edits.extend(read_edits);
+    }
+
+    apply_relative(text, call.arguments.start, edits)
 }

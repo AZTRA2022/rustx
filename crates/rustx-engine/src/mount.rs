@@ -17,7 +17,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use cef::{CefString, ImplV8Handler, V8Handler, V8Value, WrapV8Handler, rc::Rc as _, wrap_v8_handler};
+use cef::{
+    CefString, ImplV8Handler, V8Handler, V8Value, WrapV8Handler, rc::Rc as _, wrap_v8_handler,
+};
 use rustx_dom::{AttributeValue, Element, Event, TagElement};
 
 use crate::dom::{Document, DomError, Node};
@@ -226,6 +228,14 @@ fn event_kind(name: &str) -> String {
     }
 }
 
+/// Attach a listener to a node that is already on screen, for a handler
+/// it did not have when it was built.
+pub(crate) fn listen_later(node: &Node, name: &str) -> Result<HandlerSlot, DomError> {
+    let slot: HandlerSlot = Rc::new(RefCell::new(None));
+    listen(node, name, Rc::clone(&slot))?;
+    Ok(slot)
+}
+
 #[cfg(test)]
 mod tests {
     use super::event_kind;
@@ -236,12 +246,4 @@ mod tests {
         assert_eq!(event_kind("onMouseEnter"), "mouseenter");
         assert_eq!(event_kind("onDoubleClick"), "dblclick");
     }
-}
-
-/// Attach a listener to a node that is already on screen, for a handler
-/// it did not have when it was built.
-pub(crate) fn listen_later(node: &Node, name: &str) -> Result<HandlerSlot, DomError> {
-    let slot: HandlerSlot = Rc::new(RefCell::new(None));
-    listen(node, name, Rc::clone(&slot))?;
-    Ok(slot)
 }

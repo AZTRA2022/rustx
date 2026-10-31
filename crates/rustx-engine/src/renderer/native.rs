@@ -7,7 +7,9 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
 
-use cef::{CefString, ImplV8Handler, V8Handler, V8Value, WrapV8Handler, rc::Rc as _, wrap_v8_handler};
+use cef::{
+    CefString, ImplV8Handler, V8Handler, V8Value, WrapV8Handler, rc::Rc as _, wrap_v8_handler,
+};
 
 use crate::value::{NativeError, Value};
 

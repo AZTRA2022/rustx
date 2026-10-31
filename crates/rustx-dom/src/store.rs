@@ -69,7 +69,7 @@ impl<T: Default + Clone + 'static> Store<T> {
     /// component as a reader, which is what makes a later write reach
     /// the screen.
     pub fn get(&self) -> T {
-        let shared = held::<T, T>(T::default);
+        let shared = held(Key::Type(TypeId::of::<T>()), T::default);
         enrol(&shared);
         shared.value.borrow().clone()
     }
@@ -78,7 +78,7 @@ impl<T: Default + Clone + 'static> Store<T> {
 impl<T: Default + 'static> Store<T> {
     /// Read without copying, for a value that is not `Clone`.
     pub fn with<R>(&self, read: impl FnOnce(&T) -> R) -> R {
-        let shared = held::<T, T>(T::default);
+        let shared = held(Key::Type(TypeId::of::<T>()), T::default);
         enrol(&shared);
         read(&shared.value.borrow())
     }
@@ -88,7 +88,7 @@ impl<T: Default + 'static> Store<T> {
     /// The value that was there is dropped once the borrow is over: a
     /// `Drop` is the developer's code, and it may well read this store.
     pub fn set(&self, value: T) {
-        let shared = held::<T, T>(T::default);
+        let shared = held(Key::Type(TypeId::of::<T>()), T::default);
         let previous = std::mem::replace(&mut *shared.value.borrow_mut(), value);
         drop(previous);
         soil(&shared);
@@ -99,7 +99,7 @@ impl<T: Default + 'static> Store<T> {
     /// `change` runs while the store is borrowed, so it must not read
     /// the same store — the way a `RefCell` has always behaved.
     pub fn update(&self, change: impl FnOnce(&mut T)) {
-        let shared = held::<T, T>(T::default);
+        let shared = held(Key::Type(TypeId::of::<T>()), T::default);
         change(&mut shared.value.borrow_mut());
         soil(&shared);
     }
@@ -127,6 +127,18 @@ fn soil<T>(shared: &Held<T>) {
     }
 }
 
+/// What a value is filed under.
+///
+/// A store is filed under the type it holds, which is its name. A
+/// value written as `let mut points = 0;` is filed under `points` —
+/// the name it was written with, which is what lets two pages of one
+/// application mean the same value by writing the same name.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum Key {
+    Type(TypeId),
+    Name(&'static str),
+}
+
 /// One store, as the registry holds it.
 struct Entry {
     /// The value itself, found again by the marker that named it.
@@ -137,7 +149,7 @@ struct Entry {
 
 thread_local! {
     /// One store per type, for as long as this thread lives.
-    static STORES: RefCell<HashMap<TypeId, Entry>> = RefCell::new(HashMap::new());
+    static STORES: RefCell<HashMap<Key, Entry>> = RefCell::new(HashMap::new());
     /// Whether the stores are being told about unmounted components yet.
     static FORGETTING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
@@ -147,22 +159,24 @@ thread_local! {
 /// `Default` is what the first ask builds it with: a store nobody has
 /// written to yet is the empty list, the unselected device, the zero.
 pub fn store<T: Default + 'static>() -> Store<T> {
-    let _ = held::<T, T>(T::default);
+    let _ = held(Key::Type(TypeId::of::<T>()), T::default);
     Store { of: PhantomData }
 }
 
-/// The value `K` names, built by `initial` on the first ask.
+/// The value this name was written with, built by `initial` on the
+/// first ask.
 ///
 /// This is what a `let mut` written at the top of a page becomes. The
-/// marker `K` is a type the compiler makes for that one declaration, so
-/// two values of the same type written in two places are two values —
-/// which a store found by `T` alone could never be.
+/// name is the one in the source, so two pages of one application that
+/// write `let mut selected = …;` mean the same value — which is what a
+/// list and the screen it opens need, and what a store found by its
+/// type could only give them by inventing a type to hold it in.
 ///
 /// `initial` runs once per thread, on the first ask. Every ask after
 /// finds what is there, whatever it was given.
-pub fn shared<K: 'static, T: 'static>(initial: impl FnOnce() -> T) -> Shared<T> {
+pub fn shared<T: 'static>(name: &'static str, initial: impl FnOnce() -> T) -> Shared<T> {
     Shared {
-        held: held::<K, T>(initial),
+        held: held(Key::Name(name), initial),
     }
 }
 
@@ -217,12 +231,13 @@ impl<T: 'static> Shared<T> {
 }
 
 /// The value itself, created on the first ask.
-fn held<K: 'static, T: 'static>(initial: impl FnOnce() -> T) -> Rc<Held<T>> {
+fn held<T: 'static>(key: Key, initial: impl FnOnce() -> T) -> Rc<Held<T>> {
     forget_unmounted_readers();
 
+    let named = key.clone();
     let held = STORES.with(|stores| {
         let mut stores = stores.borrow_mut();
-        let existing = stores.entry(TypeId::of::<K>()).or_insert_with(|| {
+        let existing = stores.entry(key).or_insert_with(|| {
             let readers: Readers = Rc::new(RefCell::new(Vec::new()));
             Entry {
                 held: Rc::new(Held {
@@ -235,8 +250,19 @@ fn held<K: 'static, T: 'static>(initial: impl FnOnce() -> T) -> Rc<Held<T>> {
         Rc::clone(&existing.held)
     });
 
-    held.downcast::<Held<T>>()
-        .expect("a value is found by the marker that named it, and a marker names one type")
+    held.downcast::<Held<T>>().unwrap_or_else(|_| {
+        // Two pages meaning the same name is the point. Two pages
+        // meaning the same name with two different kinds of value is a
+        // mistake, and this is the only moment anything can see it.
+        match named {
+            Key::Name(name) => panic!(
+                "rustx: two pages declare `{name}` as values of different types. \
+                 The same name is the same value, so it has to be the same kind of \
+                 value — rename one of them."
+            ),
+            Key::Type(_) => panic!("a store is found by its type, so it holds that type"),
+        }
+    })
 }
 
 /// A store must not be the reason a component that left the tree is
@@ -252,10 +278,7 @@ fn forget_unmounted_readers() {
     forget_on_drop(|gone| {
         STORES.with(|stores| {
             for entry in stores.borrow().values() {
-                entry
-                    .readers
-                    .borrow_mut()
-                    .retain(|reader| *reader != gone);
+                entry.readers.borrow_mut().retain(|reader| *reader != gone);
             }
         });
     });

@@ -17,7 +17,10 @@ pub enum Node {
     /// a component of this file is an instance of its own, and an
     /// instance is identified by the place it is written — so two calls
     /// on one line have to be told apart.
-    Expression { code: String, offset: usize },
+    Expression {
+        code: String,
+        offset: usize,
+    },
 }
 
 /// A tag, or a fragment when `name` is empty.

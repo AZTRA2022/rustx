@@ -41,7 +41,10 @@ fn the_mapping_holds_after_jsx_that_expands_over_several_lines() {
 #[test]
 fn transpiling_is_deterministic() {
     let source = "fn App() -> Element { return <div><span>a</span><b>c</b></div>; }";
-    assert_eq!(transpile(source).unwrap().rust, transpile(source).unwrap().rust);
+    assert_eq!(
+        transpile(source).unwrap().rust,
+        transpile(source).unwrap().rust
+    );
 }
 
 #[test]
@@ -55,7 +58,8 @@ fn a_line_inside_a_region_maps_to_the_start_of_that_region() {
     // Landing on the exact line inside a region would mean placing each
     // emitted child on the line its source started on; the region is one
     // expression today. See docs/dette-connue.md.
-    let source = "fn App() -> Element {\n    return <ul>\n        <li>{bad()}</li>\n    </ul>;\n}\n";
+    let source =
+        "fn App() -> Element {\n    return <ul>\n        <li>{bad()}</li>\n    </ul>;\n}\n";
     let out = transpile(source).unwrap();
 
     let generated = out.rust.lines().position(|l| l.contains("bad")).unwrap() + 1;

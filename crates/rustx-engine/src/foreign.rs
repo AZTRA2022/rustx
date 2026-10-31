@@ -31,8 +31,7 @@ type Waiting = (String, Node, Vec<(String, Value)>);
 
 /// What an application sees if it renders a boundary before the bridge
 /// to React is installed.
-pub const NOTICE: &str =
-    "rustx: a node React owns was rendered, and the page has no `window.__rustx_react` — \
+pub const NOTICE: &str = "rustx: a node React owns was rendered, and the page has no `window.__rustx_react` — \
      the container is on the page and empty";
 
 thread_local! {
@@ -73,11 +72,9 @@ pub(crate) fn hand_over(component: &str, container: &Node, props: &[(String, Val
         // exists: whichever came first, the container is handed over on
         // the frame the bridge appears.
         PENDING.with(|pending| {
-            pending.borrow_mut().push((
-                component.to_string(),
-                container.clone(),
-                props.to_vec(),
-            ))
+            pending
+                .borrow_mut()
+                .push((component.to_string(), container.clone(), props.to_vec()))
         });
         report_missing_bridge();
         return;
@@ -109,7 +106,9 @@ pub(crate) fn give_back(container: &Node) {
     };
     match bridge.call_with_v8("unmount", vec![Some(container.v8())]) {
         Ok(()) => GIVEN_BACK.with(|count| count.set(count.get() + 1)),
-        Err(error) => complain(format!("rustx: taking a node back from React failed: {error}")),
+        Err(error) => complain(format!(
+            "rustx: taking a node back from React failed: {error}"
+        )),
     }
 }
 

@@ -23,7 +23,10 @@ impl Report {
     /// The value reported under `key`, or a panic naming what was captured.
     pub fn get(&self, key: &str) -> &str {
         self.values.get(key).map(String::as_str).unwrap_or_else(|| {
-            panic!("the page never reported '{key}'. Full output:\n{}", self.raw)
+            panic!(
+                "the page never reported '{key}'. Full output:\n{}",
+                self.raw
+            )
         })
     }
 
@@ -89,7 +92,11 @@ fn run(name: &str, ending: Ending) -> Completion {
 
     let exit = match ending {
         Ending::Killed => {
-            wait_for_quiet(&report_file, Duration::from_secs(120), Duration::from_secs(8));
+            wait_for_quiet(
+                &report_file,
+                Duration::from_secs(120),
+                Duration::from_secs(8),
+            );
             kill(&child);
             let _ = child.wait();
             None

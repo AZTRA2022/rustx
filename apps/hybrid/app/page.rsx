@@ -1,11 +1,15 @@
-fn Page() -> Element {
-    let points = store::<Points>();
+let mut points = 0;
 
+fn Page() -> Element {
     return <div>
         <h1 id="title">Hybrid</h1>
-        <js::Chart points={points.get().0 as f64} />
+        <js::Chart points={points as f64} />
         <div id="panel-host"></div>
-        <button id="add" onClick={move |_| add_point()}>add a point</button>
-        <button id="leave" onClick={move |_| leave()}>leave</button>
+        <button id="add" onClick={move |_| points += 1}>add a point</button>
+        <button id="leave" onClick={move |_| rustx::router::navigate("/gone".to_string())}>leave</button>
     </div>;
+}
+
+fn Counter() -> Element {
+    return <span id="counter-in-panel">{points}</span>;
 }

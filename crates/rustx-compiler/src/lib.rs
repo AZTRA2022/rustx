@@ -7,19 +7,19 @@
 //! and keeps a map so that a `rustc` error lands on the line the developer
 //! wrote rather than on a line a build script invented.
 
-pub mod error;
 pub mod ast;
 pub mod attributes;
 pub mod build;
 pub mod emit;
+pub mod error;
 pub mod map;
 pub mod parse;
 pub mod promote;
 pub mod rewrite;
 pub mod routes;
-pub mod transpile;
 pub mod scan;
 pub mod tags;
+pub mod transpile;
 
 pub use error::CompileError;
 pub use scan::Span;

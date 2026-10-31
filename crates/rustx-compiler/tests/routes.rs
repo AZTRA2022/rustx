@@ -16,7 +16,10 @@ fn tree(files: &[(&str, &str)]) -> PathBuf {
     let root = std::env::temp_dir().join(format!(
         "rustx-routes-{}-{}-{id}",
         std::process::id(),
-        std::thread::current().name().unwrap_or("x").replace(':', "_")
+        std::thread::current()
+            .name()
+            .unwrap_or("x")
+            .replace(':', "_")
     ));
     let _ = std::fs::remove_dir_all(&root);
 
@@ -200,7 +203,10 @@ fn a_layout_that_does_not_take_its_children_is_refused_by_name() {
     // one argument and the developer met a rustc arity error inside
     // OUT_DIR — a file they never wrote and cannot find.
     let error = table_for(Path::new(&tree(&[
-        ("layout.rsx", "fn Layout() -> Element { return <main>x</main>; }"),
+        (
+            "layout.rsx",
+            "fn Layout() -> Element { return <main>x</main>; }",
+        ),
         ("page.rsx", PAGE),
     ])))
     .expect_err("should be refused");
@@ -239,4 +245,61 @@ fn a_component_with_parameters_is_not_in_the_component_table() {
          fn Row(label: String) -> Element {\n    return <li>{label}</li>;\n}\n",
     )]);
     assert!(!generated.contains("(\"Row\""), "got {generated}");
+}
+
+#[test]
+fn a_shared_value_is_published_by_its_name() {
+    // What a page declares at its top, a scenario can read by name —
+    // which is what lets an application stop writing natives of its own
+    // to look at its own state.
+    let generated = table(&[(
+        "page.rsx",
+        "let mut points = 0;\nlet mut label = \"a\";\n\
+         fn Page() -> Element {\n    return <p>{points}{label}</p>;\n}\n",
+    )]);
+    assert!(
+        generated.contains("pub fn shared_values()"),
+        "got {generated}"
+    );
+    assert!(generated.contains("(\"points\""), "got {generated}");
+    assert!(generated.contains("(\"label\""), "got {generated}");
+}
+
+#[test]
+fn a_shared_value_that_cannot_be_shown_is_not_published() {
+    // A list is a value, not something a report line can carry. Naming
+    // it would mean generating code that does not compile, for a test
+    // nobody asked for.
+    let generated = table(&[(
+        "page.rsx",
+        "let mut rows = Vec::new();\n\
+         fn Page() -> Element {\n    return <p>{rows.len()}</p>;\n}\n",
+    )]);
+    assert!(!generated.contains("(\"rows\""), "got {generated}");
+}
+
+#[test]
+fn a_value_a_layout_shares_is_in_the_table_like_a_pages_own() {
+    // A bar above every screen counts the seconds, and the value it
+    // counts is written at the top of the `layout.rsx`. Where the value
+    // lives is the application's business, not the reader's: a scenario
+    // asking for `ticks` by name should not have to know that it was
+    // declared in a layout rather than in a page.
+    let generated = table(&[
+        ("page.rsx", PAGE),
+        (
+            "layout.rsx",
+            "let mut ticks = 0;\n\n\
+             fn Layout(children: Element) -> Element {\n    \
+             return <main>uptime {ticks}{children}</main>;\n}\n",
+        ),
+    ]);
+    assert!(
+        generated.contains("(\"ticks\", (|| rustx_dom::store::shared(\"ticks\""),
+        "got {generated}"
+    );
+    assert!(
+        generated.contains("all.extend(layout_0_file::shared_values());"),
+        "the table never asks the layout: {generated}"
+    );
 }

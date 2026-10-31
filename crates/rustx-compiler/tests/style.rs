@@ -94,7 +94,8 @@ fn a_style_expression_that_is_not_an_object_is_passed_through() {
 #[test]
 fn a_style_object_inside_a_component_compiles() {
     // The whole point: a page written the way TSX is written.
-    let source = "fn P() -> Element {\n    return <div style={{ padding: \"20px 32px\" }}>hi</div>;\n}\n";
+    let source =
+        "fn P() -> Element {\n    return <div style={{ padding: \"20px 32px\" }}>hi</div>;\n}\n";
     let rust = transpile(source).expect("transpilable").rust;
     assert!(rust.contains("padding: 20px 32px"), "got {rust}");
     assert_eq!(rust.lines().count(), source.lines().count());

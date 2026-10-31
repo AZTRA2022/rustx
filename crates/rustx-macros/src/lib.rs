@@ -96,8 +96,9 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
         let prelude = if routed {
             quote! {
                 rustx::install_manifest_dir(env!("CARGO_MANIFEST_DIR"));
-                rustx::install_routes(route_table());
-                rustx::install_components(component_table());
+                rustx::install_routes(__rustx_pages::route_table());
+                rustx::install_components(__rustx_pages::component_table());
+                rustx::install_shared_values(__rustx_pages::shared_values());
             }
         } else {
             quote! {
@@ -106,9 +107,22 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
         };
 
         (
+            // The pages live in a module of their own, which is what
+            // lets them have the vocabulary of a page — `Element` in
+            // scope — without an application importing it, and keeps
+            // the lints the generated shape always trips off the
+            // developer's own file.
             quote! {
-                include!(#generated);
-                #(#watched)*
+                #[doc(hidden)]
+                mod __rustx_pages {
+                    #![allow(non_snake_case, clippy::needless_return, clippy::useless_vec, clippy::type_complexity, clippy::redundant_closure)]
+                    pub(crate) use super::*;
+                    pub(crate) use rustx::Element;
+                    pub(crate) use rustx::state::with_key;
+
+                    include!(#generated);
+                    #(#watched)*
+                }
             },
             prelude,
         )
@@ -149,7 +163,9 @@ fn compile(app: &Path, out: &Path, routed: bool) -> Result<(), String> {
     } else {
         rustx_compiler::build::compile_pages(app, out)
     };
-    outcome.map(|_| ()).map_err(|complaint| complaint.to_string())
+    outcome
+        .map(|_| ())
+        .map_err(|complaint| complaint.to_string())
 }
 
 /// Where the compiled pages of this crate live.
@@ -215,5 +231,6 @@ fn error(message: String) -> TokenStream {
 /// A path an `include!` will take, on a system whose separator it will
 /// not.
 fn slashed(path: &Path) -> String {
-    path.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/")
+    path.to_string_lossy()
+        .replace(std::path::MAIN_SEPARATOR, "/")
 }

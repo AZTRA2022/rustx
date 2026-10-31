@@ -125,6 +125,12 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
         }
 
         let in_code = code_spans(source, body, &returns_jsx);
+        // The three calls are rewritten whole, arguments included, so a
+        // use of a value inside one belongs to that rewrite. Editing it
+        // twice would leave the call half replaced.
+        let calls = calls_of(source, body, &in_code, &handlers)?;
+        let inside_a_call = |span: &Span| calls.iter().any(|call| contains(call.span, *span));
+
         let mut promoted = Vec::new();
         for local in &locals {
             if parameters.contains(&local.name) {
@@ -132,7 +138,7 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             }
             let mutations: Vec<Mutation> = handlers
                 .iter()
-                .flat_map(|handler| mutations_in(source, &local.name, *handler, &in_code))
+                .flat_map(|handler| mutations_in(source, &local.name, *handler, &in_code, true))
                 .collect();
 
             // "Read in the JSX" means read by what is drawn, not read by
@@ -159,6 +165,7 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             let reads = occurrences(source, &local.name, &after_declaration)
                 .into_iter()
                 .filter(|span| !mutations.iter().any(|mutation| mutation.span == *span))
+                .filter(|span| !inside_a_call(span))
                 .collect();
             promoted.push(Promoted {
                 name: local.name.clone(),
@@ -182,13 +189,25 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             }
             let mutations: Vec<Mutation> = handlers
                 .iter()
-                .flat_map(|handler| mutations_in(source, &declaration.name, *handler, &in_code))
+                .flat_map(|handler| {
+                    mutations_in(source, &declaration.name, *handler, &in_code, true)
+                })
                 .collect();
-            let reads: Vec<Span> = occurrences(source, &declaration.name, &in_code)
-                .into_iter()
+            let every_use = occurrences(source, &declaration.name, &in_code);
+            let reads: Vec<Span> = every_use
+                .iter()
+                .copied()
                 .filter(|span| !mutations.iter().any(|mutation| mutation.span == *span))
+                .filter(|span| !inside_a_call(span))
                 .collect();
-            if reads.is_empty() && mutations.is_empty() {
+            // A use inside a `keep`, an `effect` or a `task` counts as
+            // one. That code runs later, on another thread for a task,
+            // so it reaches the value by name rather than through a
+            // handle — but a component credited with no use at all was
+            // never asked to reach it, and the name was left bare, in a
+            // scope that had nothing of that name in it.
+            let in_a_call = every_use.iter().any(inside_a_call);
+            if reads.is_empty() && mutations.is_empty() && !in_a_call {
                 continue;
             }
             promoted.push(Promoted {
@@ -206,8 +225,6 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
                 mutations,
             });
         }
-
-        let calls = calls_of(source, body, &in_code, &handlers)?;
 
         components.push(Component {
             handlers,
@@ -441,13 +458,7 @@ fn components_of(source: &str) -> Vec<(String, Span)> {
         let Ok(end) = skip_braces(source, brace) else {
             continue;
         };
-        found.push((
-            name.0,
-            Span {
-                start: brace,
-                end,
-            },
-        ));
+        found.push((name.0, Span { start: brace, end }));
         index = end;
     }
     found
@@ -472,17 +483,61 @@ fn parameter_names(source: &str, body_start: usize) -> Vec<String> {
         .collect()
 }
 
+/// Every comment in the file, `//` and `/* */` alike, and every string
+/// literal: text that looks like code and is not.
+fn comments(source: &str) -> Vec<Span> {
+    let bytes = source.as_bytes();
+    let mut spans = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        if let Some(after) = crate::scan::skip_comment(bytes, index) {
+            spans.push(Span {
+                start: index,
+                end: after,
+            });
+            index = after;
+            continue;
+        }
+        if bytes[index] == b'"' {
+            match crate::scan::skip_string(source, index) {
+                Ok(after) => {
+                    spans.push(Span {
+                        start: index,
+                        end: after,
+                    });
+                    index = after;
+                    continue;
+                }
+                Err(_) => break,
+            }
+        }
+        index += 1;
+    }
+    spans
+}
+
 /// `let mut NAME = INIT;` statements of this body.
 fn locals_of(source: &str, body: Span) -> Vec<Local> {
     let bytes = source.as_bytes();
     let mut locals = Vec::new();
     let mut index = body.start;
+    let commented = comments(source);
 
     while let Some(at) = find_word(source, "let", index) {
         if at >= body.end {
             break;
         }
         index = at + 3;
+        // A page documents itself, and a page about state documents
+        // `let mut n = 0;`. Read as a declaration, it was blanked out of
+        // the comment it was written in — leaving `/// One ``,` — and
+        // published as a value of the application under the name `n`.
+        if commented
+            .iter()
+            .any(|span| span.start <= at && at < span.end)
+        {
+            continue;
+        }
         let Some(keyword) = word_after(source, index) else {
             continue;
         };
@@ -549,10 +604,7 @@ fn handler_closures(source: &str, regions: &[Span]) -> Vec<Span> {
                     if bytes.get(cursor) == Some(&b'{')
                         && let Ok(end) = skip_braces(source, cursor)
                     {
-                        handlers.push(Span {
-                            start: cursor,
-                            end,
-                        });
+                        handlers.push(Span { start: cursor, end });
                         index = end;
                         continue;
                     }
@@ -602,13 +654,27 @@ fn code_spans(source: &str, body: Span, regions: &[Span]) -> Vec<Span> {
     let mut cursor = body.start;
 
     for region in regions {
-        push_code(source, Span { start: cursor, end: region.start }, &mut spans);
+        push_code(
+            source,
+            Span {
+                start: cursor,
+                end: region.start,
+            },
+            &mut spans,
+        );
         for braced in braced_spans(source, *region) {
             push_code(source, braced, &mut spans);
         }
         cursor = region.end;
     }
-    push_code(source, Span { start: cursor, end: body.end }, &mut spans);
+    push_code(
+        source,
+        Span {
+            start: cursor,
+            end: body.end,
+        },
+        &mut spans,
+    );
     spans
 }
 
@@ -630,7 +696,10 @@ fn braced_spans(source: &str, region: Span) -> Vec<Span> {
         if bytes[index] == b'{' {
             match skip_braces(source, index) {
                 Ok(end) => {
-                    spans.push(Span { start: index + 1, end: end - 1 });
+                    spans.push(Span {
+                        start: index + 1,
+                        end: end - 1,
+                    });
                     index = end;
                     continue;
                 }
@@ -675,12 +744,21 @@ fn push_code(source: &str, span: Span, into: &mut Vec<Span>) {
         }
     }
     if span.end > start {
-        into.push(Span { start, end: span.end });
+        into.push(Span {
+            start,
+            end: span.end,
+        });
     }
 }
 
 /// Every occurrence of `name` inside this handler that writes to it.
-fn mutations_in(source: &str, name: &str, handler: Span, in_code: &[Span]) -> Vec<Mutation> {
+fn mutations_in(
+    source: &str,
+    name: &str,
+    handler: Span,
+    in_code: &[Span],
+    tail_discarded: bool,
+) -> Vec<Mutation> {
     let bytes = source.as_bytes();
     let mut found = Vec::new();
 
@@ -715,7 +793,9 @@ fn mutations_in(source: &str, name: &str, handler: Span, in_code: &[Span]) -> Ve
             Some(b'.') | Some(b'[') if assigns_through_path(bytes, span.end) => {
                 Some(MutationKind::Method)
             }
-            Some(b'.') if is_statement(bytes, span, handler) => Some(MutationKind::Method),
+            Some(b'.') if is_statement(bytes, span, handler, tail_discarded) => {
+                Some(MutationKind::Method)
+            }
             _ => None,
         };
         if let Some(kind) = kind {
@@ -731,13 +811,22 @@ fn shift_assign(bytes: &[u8], at: usize) -> bool {
 
 /// Is this occurrence the start of a statement whose whole value is
 /// thrown away? That is what tells `items.push(1);` from `items.len()`.
-fn is_statement(bytes: &[u8], span: Span, handler: Span) -> bool {
+///
+/// `tail_discarded` says whether the closure's last expression counts as
+/// one too. In a handler it does: a handler returns nothing, so
+/// `move |_| items.push(1)` — no braces, no semicolon — throws its value
+/// away exactly like a statement would. Read as an expression instead,
+/// it became a call on a copy: it compiled, did nothing, and the list on
+/// screen never reordered. In the argument of a `keep` or a `task` it
+/// does not: there the last expression is the value being computed.
+fn is_statement(bytes: &[u8], span: Span, handler: Span, tail_discarded: bool) -> bool {
     let mut before = span.start;
     while before > handler.start && bytes[before - 1].is_ascii_whitespace() {
         before -= 1;
     }
     let opens = before == handler.start
-        || matches!(bytes.get(before - 1), Some(b'{') | Some(b';'));
+        || matches!(bytes.get(before - 1), Some(b'{') | Some(b';'))
+        || opens_a_closure_body(bytes, handler, before);
     if !opens {
         return false;
     }
@@ -749,12 +838,49 @@ fn is_statement(bytes: &[u8], span: Span, handler: Span) -> bool {
             b'(' | b'[' => depth += 1,
             b')' | b']' => depth -= 1,
             b';' if depth == 0 => return true,
-            b'{' | b'}' if depth == 0 => return false,
+            // The brace that closes the body it is the last expression
+            // of. Whether that counts is the caller's business.
+            b'}' if depth == 0 => return tail_discarded,
+            b'{' if depth == 0 => return false,
             _ => {}
         }
         index += 1;
     }
-    false
+    tail_discarded
+}
+
+/// Is `at` the first thing in the body of the closure the handler is?
+///
+/// `onClick={move |_| items.push(1)}`: what comes before `items` is the
+/// closure's parameter list, not a `{` or a `;`, and that is as much the
+/// start of a statement as either of them.
+fn opens_a_closure_body(bytes: &[u8], handler: Span, at: usize) -> bool {
+    if at == 0 || bytes.get(at - 1) != Some(&b'|') {
+        return false;
+    }
+    // Back over the parameter list to the `|` that opened it.
+    let mut index = at - 1;
+    while index > handler.start && bytes[index - 1] != b'|' {
+        index -= 1;
+    }
+    if index == handler.start {
+        return false;
+    }
+    index -= 1;
+    // …and over an optional `move`, to the brace the attribute opened.
+    index = skip_spaces_back(bytes, index);
+    if index >= 4 && &bytes[index - 4..index] == b"move" {
+        index = skip_spaces_back(bytes, index - 4);
+    }
+    index == handler.start + 1
+}
+
+fn skip_spaces_back(bytes: &[u8], from: usize) -> usize {
+    let mut index = from;
+    while index > 0 && bytes[index - 1].is_ascii_whitespace() {
+        index -= 1;
+    }
+    index
 }
 
 /// The `;` ending a statement that starts at `from`, ignoring the ones
@@ -875,7 +1001,11 @@ fn shadowed(locals: &[Local]) -> Option<&Local> {
     locals
         .iter()
         .enumerate()
-        .find(|(at, local)| locals[..*at].iter().any(|earlier| earlier.name == local.name))
+        .find(|(at, local)| {
+            locals[..*at]
+                .iter()
+                .any(|earlier| earlier.name == local.name)
+        })
         .map(|(_, local)| local)
 }
 
@@ -938,10 +1068,17 @@ pub struct SharedDeclaration {
 /// values, the way two modules declaring the same `static` do. Sharing
 /// across files is not this; it is what a parameter or a route is for.
 pub fn shared_of(source: &str) -> Vec<SharedDeclaration> {
-    let bodies: Vec<Span> = components_of(source)
+    let mut bodies: Vec<Span> = components_of(source)
         .into_iter()
         .map(|(_, body)| body)
         .collect();
+
+    // And everything inside a tag. A page that shows code to its reader
+    // writes `let mut` in its own interface: that is text, like any
+    // other text, and it declares nothing.
+    if let Ok(regions) = crate::scan::find_jsx(source) {
+        bodies.extend(regions);
+    }
 
     // `locals_of` over the whole file, minus everything inside a
     // component — which is exactly "written at the top level".
@@ -953,15 +1090,25 @@ pub fn shared_of(source: &str) -> Vec<SharedDeclaration> {
         },
     )
     .into_iter()
-    .filter(|local| {
-        !bodies
-            .iter()
-            .any(|body| contains(*body, local.declaration))
-    })
+    .filter(|local| !bodies.iter().any(|body| contains(*body, local.declaration)))
     .map(|local| SharedDeclaration {
         name: local.name,
         declaration: local.declaration,
         initializer: local.initializer,
     })
     .collect()
+}
+
+/// What a region of code does to `name`: every write, and every read.
+///
+/// For the arguments of `keep`, `effect` and `task`, which are code
+/// that runs later — on the next render, or on another thread — and so
+/// cannot hold a handle the way a handler can.
+pub fn uses_in(source: &str, name: &str, region: Span) -> (Vec<Span>, Vec<Mutation>) {
+    let mutations = mutations_in(source, name, region, &[region], false);
+    let reads = occurrences(source, name, &[region])
+        .into_iter()
+        .filter(|span| !mutations.iter().any(|mutation| mutation.span == *span))
+        .collect();
+    (reads, mutations)
 }

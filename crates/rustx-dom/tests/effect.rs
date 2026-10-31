@@ -82,7 +82,10 @@ fn an_effect_runs_again_when_what_it_watches_changes() {
 #[test]
 fn the_previous_guard_is_dropped_before_the_effect_runs_again() {
     // Order matters: a camera has to be closed before the next is opened.
-    assert_eq!(order_over_renders_of(&[1, 2]), ["open 1", "close 1", "open 2"]);
+    assert_eq!(
+        order_over_renders_of(&[1, 2]),
+        ["open 1", "close 1", "open 2"]
+    );
 }
 
 #[test]

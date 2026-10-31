@@ -16,7 +16,10 @@ pub struct Report {
 impl Report {
     pub fn get(&self, key: &str) -> &str {
         self.values.get(key).map(String::as_str).unwrap_or_else(|| {
-            panic!("the page never reported '{key}'. Full output:\n{}", self.raw)
+            panic!(
+                "the page never reported '{key}'. Full output:\n{}",
+                self.raw
+            )
         })
     }
 
@@ -69,7 +72,11 @@ pub fn run_monitor_scenario() -> Report {
     // number of seconds: starting Chromium takes much longer on a machine
     // that has just run the engine's own suite, and a flat sleep turns
     // that into a failure that looks like a bug in the application.
-    wait_for_report(&report_file, "ticking_after_unmount", Duration::from_secs(150));
+    wait_for_report(
+        &report_file,
+        "ticking_after_unmount",
+        Duration::from_secs(150),
+    );
 
     let _ = Command::new("taskkill")
         .args(["/T", "/F", "/PID", &child.id().to_string()])

@@ -282,7 +282,9 @@ fn compare_keyed(
 
     // Each new child's old counterpart: by key where there is one, and
     // otherwise by order of appearance among the unkeyed.
-    let mut spare: Vec<usize> = (0..old.len()).filter(|index| old_keys[*index].is_none()).collect();
+    let mut spare: Vec<usize> = (0..old.len())
+        .filter(|index| old_keys[*index].is_none())
+        .collect();
     let mut taken = vec![false; old.len()];
     let mut partner: Vec<Option<usize>> = Vec::with_capacity(new.len());
 

@@ -21,7 +21,10 @@ impl fmt::Display for EngineError {
                 write!(f, "entry document not found: {}", path.display())
             }
             Self::RemoteContentForbidden => {
-                write!(f, "remote content forbidden: rustx only loads local resources")
+                write!(
+                    f,
+                    "remote content forbidden: rustx only loads local resources"
+                )
             }
             Self::EngineInit(detail) => {
                 write!(f, "could not initialize the engine: {detail}")

@@ -5,9 +5,8 @@
 
 use cef::{
     Browser, CefString, Client, Frame, ImplClient, ImplLifeSpanHandler, ImplRequest,
-    ImplRequestHandler, LifeSpanHandler, Request, RequestHandler, WrapClient,
-    WrapLifeSpanHandler, WrapRequestHandler, rc::Rc as _, wrap_client, wrap_life_span_handler,
-    wrap_request_handler,
+    ImplRequestHandler, LifeSpanHandler, Request, RequestHandler, WrapClient, WrapLifeSpanHandler,
+    WrapRequestHandler, rc::Rc as _, wrap_client, wrap_life_span_handler, wrap_request_handler,
 };
 
 use crate::guard;

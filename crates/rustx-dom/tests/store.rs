@@ -59,7 +59,10 @@ fn a_read_outside_a_render_enrols_nobody() {
     assert_eq!(store::<u32>().get(), 0);
     store::<u32>().set(3);
 
-    assert!(take_dirty().is_empty(), "a read outside a render enrolled someone");
+    assert!(
+        take_dirty().is_empty(),
+        "a read outside a render enrolled someone"
+    );
 }
 
 #[test]
@@ -110,24 +113,17 @@ fn a_handle_taken_before_a_reset_sees_the_store_that_came_after() {
 
 use rustx_dom::store::shared;
 
-/// What the compiler makes per declaration: a type that names the
-/// value and holds nothing.
-#[allow(non_camel_case_types)]
-struct points;
-#[allow(non_camel_case_types)]
-struct also_points;
-
 #[test]
 fn a_shared_value_is_built_once_and_found_again() {
     rustx_dom::store::reset();
     let mut built = 0;
-    let first = shared::<points, _>(|| {
+    let first = shared("points", || {
         built += 1;
         7_u32
     });
     assert_eq!(first.get(), 7);
 
-    let again = shared::<points, _>(|| {
+    let again = shared("points", || {
         built += 1;
         9_u32
     });
@@ -136,12 +132,12 @@ fn a_shared_value_is_built_once_and_found_again() {
 }
 
 #[test]
-fn two_markers_are_two_values_even_of_the_same_type() {
+fn two_names_are_two_values_even_of_the_same_type() {
     rustx_dom::store::reset();
-    shared::<points, _>(|| 1_u32).set(10);
-    shared::<also_points, _>(|| 1_u32).set(20);
-    assert_eq!(shared::<points, _>(|| 1_u32).get(), 10);
-    assert_eq!(shared::<also_points, _>(|| 1_u32).get(), 20);
+    shared("points", || 1_u32).set(10);
+    shared("also_points", || 1_u32).set(20);
+    assert_eq!(shared("points", || 1_u32).get(), 10);
+    assert_eq!(shared("also_points", || 1_u32).get(), 20);
 }
 
 #[test]
@@ -154,23 +150,25 @@ fn writing_a_shared_value_marks_everyone_who_read_it() {
     let reader = next_instance();
     {
         let _scope = Scope::enter(reader);
-        let _ = shared::<points, _>(|| 0_u32).get();
+        let _ = shared("points", || 0_u32).get();
     }
-    shared::<points, _>(|| 0_u32).set(1);
+    shared("points", || 0_u32).set(1);
     assert!(take_dirty().contains(&reader));
 }
 
 #[test]
-fn a_store_is_a_shared_value_whose_marker_is_its_type() {
-    // The store of plan 4 is the same mechanism, keyed by the type it
-    // holds. Nothing about it changes.
+fn a_store_and_a_name_are_two_different_filings() {
+    // The store of plan 4 is filed under the type it holds; a value
+    // written as `let mut` is filed under its name. Neither can reach
+    // the other by accident.
     #[derive(Default, Clone, PartialEq, Debug)]
     struct Selection(String);
 
     rustx_dom::store::reset();
     rustx_dom::store::store::<Selection>().set(Selection("a".into()));
     assert_eq!(
-        shared::<Selection, _>(Selection::default).get(),
-        Selection("a".into())
+        shared("selection", Selection::default).get(),
+        Selection(String::new()),
+        "a name is not a type"
     );
 }

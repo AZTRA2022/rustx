@@ -25,7 +25,7 @@ fn the_page_written_in_rsx_is_on_screen() {
 fn clicking_the_button_runs_the_rust_written_in_the_rsx() {
     assert_eq!(
         report().get("clicked"),
-        "yes",
+        "true",
         "the closure written in the .rsx never ran:\n{}",
         report().raw()
     );

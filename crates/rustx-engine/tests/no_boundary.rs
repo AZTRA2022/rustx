@@ -43,7 +43,11 @@ fn rust_sees_dom_state_javascript_wrote_in_the_same_tick() {
     // would have to be serialized and awaited; there is nowhere for an IPC
     // round trip to hide inside one tick.
     let written = report().get("token");
-    assert!(!written.is_empty(), "the page wrote no token:\n{}", report().raw());
+    assert!(
+        !written.is_empty(),
+        "the page wrote no token:\n{}",
+        report().raw()
+    );
     assert_eq!(
         report().get("token_seen_by_rust"),
         written,

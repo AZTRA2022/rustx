@@ -158,7 +158,8 @@ fn a_call_inside_a_nested_fn_is_left_alone() {
     // A nested `fn` is not a component: its `keep` has no instance to
     // belong to, and attaching it to whatever happens to be rendering
     // is worse than leaving it as the error it is.
-    let source = "fn C() -> Element {\n    fn helper() -> u8 { keep(1) }\n    return <p>{helper()}</p>;\n}";
+    let source =
+        "fn C() -> Element {\n    fn helper() -> u8 { keep(1) }\n    return <p>{helper()}</p>;\n}";
     let rust = rewrite_one(source);
     assert!(!rust.contains("keep_at"), "got {rust}");
 }

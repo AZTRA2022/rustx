@@ -208,8 +208,11 @@ impl Node {
 
     /// Call one of this node's own methods with plain values.
     fn call(&self, method: &str, arguments: &[Value]) -> Result<Option<Node>, DomError> {
-        let arguments: Vec<Option<V8Value>> =
-            arguments.iter().cloned().map(crate::value::into_v8).collect();
+        let arguments: Vec<Option<V8Value>> = arguments
+            .iter()
+            .cloned()
+            .map(crate::value::into_v8)
+            .collect();
         self.invoke(method, arguments)
     }
 
@@ -323,7 +326,10 @@ impl Node {
             None => {
                 let null = crate::value::into_v8(Value::Null)
                     .ok_or_else(|| DomError::Failed("could not build null".into()))?;
-                self.call_with_v8_returning("insertBefore", vec![Some(child.value.clone()), Some(null)])?;
+                self.call_with_v8_returning(
+                    "insertBefore",
+                    vec![Some(child.value.clone()), Some(null)],
+                )?;
             }
         }
         Ok(())

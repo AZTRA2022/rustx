@@ -24,7 +24,7 @@
 //! directly and keep going.
 
 use std::cell::{Cell, RefCell};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub use rustx_macros::main;
 
@@ -40,14 +40,23 @@ pub use rustx_engine::{
 /// What can go wrong while an application starts.
 pub type Error = rustx_engine::EngineError;
 
+/// A component of the application, by the name it was written with.
+pub type NamedComponent = (&'static str, fn() -> Element);
+
+/// A value the pages share, by the name it was written with, read as
+/// text — which is all a scenario asks for.
+pub type NamedValue = (&'static str, fn() -> String);
+
 thread_local! {
     /// The directory of the crate being run, as `env!` saw it there.
     static MANIFEST_DIR: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
     /// The route table the build script wrote.
     static ROUTES: Cell<Option<&'static [route::Route]>> = const { Cell::new(None) };
     /// Every component the pages declare, for React to mount by name.
-    static COMPONENTS: RefCell<Vec<(&'static str, fn() -> Element)>> =
+    static COMPONENTS: RefCell<Vec<NamedComponent>> =
         const { RefCell::new(Vec::new()) };
+    /// Every value the pages share, by name, for a scenario to read.
+    static SHARED: RefCell<Vec<NamedValue>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Said by `#[rustx::main]`, which is where `env!` reads the
@@ -69,8 +78,18 @@ pub fn install_routes(routes: &'static [route::Route]) {
 /// component written in `app/` is a component, and a name nobody wrote
 /// is an error React can catch.
 #[doc(hidden)]
-pub fn install_components(components: Vec<(&'static str, fn() -> Element)>) {
+pub fn install_components(components: Vec<NamedComponent>) {
     COMPONENTS.with(|held| *held.borrow_mut() = components);
+}
+
+/// Said by `#[rustx::main]`, with every value the pages share.
+///
+/// It is what `rustx_shared("name")` answers from: a scenario reads a
+/// value the page does not show without the application writing a
+/// native of its own to look at its own state.
+#[doc(hidden)]
+pub fn install_shared_values(values: Vec<NamedValue>) {
+    SHARED.with(|held| *held.borrow_mut() = values);
 }
 
 /// A window, and where its screens come from.
@@ -183,13 +202,16 @@ impl App {
         let not_found = config.not_found.unwrap_or(no_such_page);
 
         if let Some(routes) = routes {
-            rustx_engine::on_context_created(move || start_router(routes, &host, &start, not_found));
+            rustx_engine::on_context_created(move || {
+                start_router(routes, &host, &start, not_found)
+            });
         }
         rustx_engine::on_context_created(move || {
             for (name, component) in &components {
                 foreign::register_component(name, *component);
             }
         });
+        rustx_engine::on_context_created(install_shared_native);
         for (id, component) in config.mounts {
             rustx_engine::on_context_created(move || mount_when_ready(id.clone(), component));
         }
@@ -203,7 +225,7 @@ impl App {
 
         let index = match config.index {
             Some(index) => index,
-            None => manifest_dir().join("assets").join("index.html"),
+            None => document_for(&manifest_dir(), &config.title)?,
         };
 
         Ok(Self {
@@ -244,14 +266,74 @@ fn start_router(
     });
 }
 
+/// The document the screens are put in.
+///
+/// `assets/index.html` when the application wrote one. When it did not,
+/// the obvious one: a host element, the window's title, and nothing
+/// else. A new application has pages to write, and the HTML that holds
+/// them is the same HTML every time — so it is not the application's to
+/// write.
+///
+/// The written document is named after the application and the process
+/// that is running it, because two applications running at once must
+/// not be handed the same file.
+#[doc(hidden)]
+pub fn document_for(manifest_dir: &Path, title: &str) -> Result<PathBuf, Error> {
+    let written = manifest_dir.join("assets").join("index.html");
+    if written.exists() {
+        return Ok(written);
+    }
+
+    let slug: String = title
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let directory = std::env::temp_dir().join(format!(
+        "rustx-document-{slug}-{}-{}",
+        std::process::id(),
+        hash_of(manifest_dir)
+    ));
+    let path = directory.join("index.html");
+    std::fs::create_dir_all(&directory).map_err(|_| Error::IndexNotFound(path.clone()))?;
+    std::fs::write(&path, default_document(title))
+        .map_err(|_| Error::IndexNotFound(path.clone()))?;
+    Ok(path)
+}
+
+/// Enough to tell two applications apart without naming their paths in
+/// a filename.
+fn hash_of(path: &Path) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// The document an application that wrote none is given.
+fn default_document(title: &str) -> String {
+    let title = title.replace('<', "&lt;").replace('&', "&amp;");
+    format!(
+        "<!doctype html>\n<html>\n  <head>\n    <meta charset=\"utf-8\" />\n    \
+         <title>{title}</title>\n    <style>\n      \
+         :root {{ color-scheme: light dark; }}\n      \
+         body {{ font-family: system-ui, sans-serif; margin: 0; }}\n    \
+         </style>\n  </head>\n  <body>\n    \
+         <!-- The screens go here. They are written in app/. -->\n    \
+         <div id=\"app\"></div>\n  </body>\n</html>\n"
+    )
+}
+
 /// Where a path nobody declared leads, unless the application says
 /// otherwise.
 fn no_such_page() -> Element {
     Element::tag("p")
-        .attribute(
-            "id",
-            AttributeValue::Text("rustx-no-such-page".to_string()),
-        )
+        .attribute("id", AttributeValue::Text("rustx-no-such-page".to_string()))
         .child(Element::Text("This page does not exist.".to_string()))
         .build()
 }
@@ -274,6 +356,35 @@ fn mount_when_ready(id: String, component: fn() -> Element) {
         }
         if render::mount_app(component, &id).is_ok() {
             done.set(true);
+        }
+    });
+}
+
+/// `rustx_shared("points")` — the value the page declared under that
+/// name, as text.
+///
+/// A scenario needs to look at state the page does not show: a count
+/// after the panel that displayed it has gone, a flag a handler set.
+/// Every application was writing a native of its own for that. The
+/// values have names, so the framework can answer.
+fn install_shared_native() {
+    register_native("rustx_shared", |arguments| {
+        let [Value::String(name)] = arguments else {
+            return Err(NativeError::new(
+                "rustx_shared takes the name a value was declared with",
+            ));
+        };
+        let found = SHARED.with(|held| {
+            held.borrow()
+                .iter()
+                .find(|(declared, _)| declared == name)
+                .map(|(_, read)| *read)
+        });
+        match found {
+            Some(read) => Ok(Value::String(read())),
+            None => Err(NativeError::new(format!(
+                "no page declares a value called `{name}` that could be shown as text"
+            ))),
         }
     });
 }

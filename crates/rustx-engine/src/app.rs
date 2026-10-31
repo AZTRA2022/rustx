@@ -4,8 +4,8 @@ use cef::args::Args;
 use cef::{CefString, Settings};
 
 use crate::cef_app::{WindowSpec, engine_app};
-use crate::init::declare_api_version;
 use crate::error::EngineError;
+use crate::init::declare_api_version;
 
 /// URL schemes that name a resource outside this machine.
 const REMOTE_SCHEMES: [&str; 4] = ["http://", "https://", "ftp://", "ws://"];

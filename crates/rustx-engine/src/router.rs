@@ -44,6 +44,15 @@ thread_local! {
     /// The table, the screen for a path nobody declared, and where the
     /// application has been.
     static ROUTER: RefCell<Option<Mounted>> = const { RefCell::new(None) };
+    /// Where the application asked to go before there was a router to
+    /// take it there.
+    ///
+    /// A script runs when the JavaScript context is created, and the
+    /// router mounts on the first frame where its host element exists —
+    /// which is later. A navigation asked for in between used to be
+    /// overwritten by the starting path: the screen never came up and
+    /// nothing said why. It is held instead, and honoured on start.
+    static ASKED_FOR: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
 struct Mounted {
@@ -64,12 +73,20 @@ pub fn start(
     path: &str,
     not_found: fn() -> Element,
 ) -> Result<(), DomError> {
-    store::<Current>().set(Current(path.to_string()));
+    // Where the application has been is the starting path, and then
+    // wherever it asked to go while it was waiting for us.
+    let mut history = vec![path.to_string()];
+    if let Some(asked_for) = ASKED_FOR.with(|held| held.borrow_mut().take()) {
+        history.push(asked_for);
+    }
+    store::<Current>().set(Current(
+        history.last().cloned().unwrap_or_else(|| path.to_string()),
+    ));
     ROUTER.with(|router| {
         *router.borrow_mut() = Some(Mounted {
             table,
             not_found,
-            history: vec![path.to_string()],
+            history,
         });
     });
 
@@ -82,11 +99,18 @@ pub fn start(
 /// frame: it writes a value, and the frame draws what the value became.
 pub fn navigate(path: impl Into<String>) {
     let path = path.into();
-    ROUTER.with(|router| {
+    let mounted = ROUTER.with(|router| {
         if let Some(mounted) = router.borrow_mut().as_mut() {
             mounted.history.push(path.clone());
+            return true;
         }
+        false
     });
+    if !mounted {
+        // Nobody is listening yet. `start` will ask.
+        ASKED_FOR.with(|held| *held.borrow_mut() = Some(path));
+        return;
+    }
     store::<Current>().set(Current(path));
 }
 

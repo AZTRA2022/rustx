@@ -13,14 +13,20 @@ fn the_declaration_becomes_a_cell_identified_by_its_place_in_the_code() {
     let rust = rewrite_one(COUNTER);
     assert!(rust.contains("rustx_dom::state::cell"), "got {rust}");
     assert!(rust.contains("Slot"), "got {rust}");
-    assert!(!rust.contains("let mut n = 0"), "the plain local survived: {rust}");
+    assert!(
+        !rust.contains("let mut n = 0"),
+        "the plain local survived: {rust}"
+    );
 }
 
 #[test]
 fn a_compound_mutation_in_a_handler_becomes_an_update() {
     let rust = rewrite_one(COUNTER);
     assert!(rust.contains("update"), "got {rust}");
-    assert!(!rust.contains("n += 1"), "the raw mutation survived: {rust}");
+    assert!(
+        !rust.contains("n += 1"),
+        "the raw mutation survived: {rust}"
+    );
 }
 
 #[test]
@@ -60,7 +66,10 @@ fn a_method_mutation_goes_through_update_not_through_a_copy() {
     let source = "fn C() -> Element {\n    let mut items: Vec<u8> = Vec::new();\n    return <button onClick={|| { items.push(1); }}>{items.len()}</button>;\n}";
     let rust = rewrite_one(source);
     assert!(rust.contains("update"), "got {rust}");
-    assert!(!rust.contains("get () . push"), "the push went to a copy: {rust}");
+    assert!(
+        !rust.contains("get () . push"),
+        "the push went to a copy: {rust}"
+    );
 }
 
 #[test]
@@ -76,7 +85,12 @@ fn the_rewrite_keeps_the_file_the_same_length() {
     // The line map of plan 2 still has to hold: a rewrite that moved
     // lines would put every rustc error back where it was.
     let out = transpile(COUNTER).unwrap();
-    assert_eq!(out.rust.lines().count(), COUNTER.lines().count(), "{}", out.rust);
+    assert_eq!(
+        out.rust.lines().count(),
+        COUNTER.lines().count(),
+        "{}",
+        out.rust
+    );
 }
 
 #[test]
@@ -85,12 +99,18 @@ fn a_name_that_appears_in_interface_text_is_not_rewritten() {
     // word in the sentence. Only the code may be touched.
     let source = "fn C() -> Element {\n    let mut count = 0;\n    return <div onClick={|| count += 1}><span className=\"count\">{count} count</span></div>;\n}";
     let rust = rewrite_one(source);
-    assert!(rust.contains(r#""count""#), "the class name was rewritten: {rust}");
+    assert!(
+        rust.contains(r#""count""#),
+        "the class name was rewritten: {rust}"
+    );
     assert!(
         !rust.contains("count.get() count"),
         "the sentence was rewritten: {rust}"
     );
-    assert!(rust.contains("count . get ()"), "the real read was missed: {rust}");
+    assert!(
+        rust.contains("count . get ()"),
+        "the real read was missed: {rust}"
+    );
 }
 
 #[test]
@@ -131,7 +151,10 @@ fn an_assignment_whose_value_is_a_match_keeps_its_arms() {
 fn a_mutation_inside_a_nested_closure_keeps_its_punctuation() {
     let source = "fn C() -> Element {\n    let mut n = 0;\n    return <p onClick={|| { [1].iter().for_each(|x| n += x); }}>{n}</p>;\n}";
     let rust = rewrite_one(source);
-    assert!(!rust.contains("; })"), "the `)` and `;` were swapped: {rust}");
+    assert!(
+        !rust.contains("; })"),
+        "the `)` and `;` were swapped: {rust}"
+    );
     assert!(rust.contains("* __v += x)"), "got {rust}");
 }
 
@@ -142,11 +165,46 @@ fn a_field_assignment_is_recognised_or_refused_but_never_ignored() {
     // against code they never wrote.
     let source = "fn C() -> Element {\n    let mut p = Point::new();\n    return <p onClick={|| p.x = 1}>{p.x}</p>;\n}";
     match transpile(source) {
-        Ok(out) => assert!(out.rust.contains("update"), "silently ignored: {}", out.rust),
+        Ok(out) => assert!(
+            out.rust.contains("update"),
+            "silently ignored: {}",
+            out.rust
+        ),
         Err(error) => assert!(
             error.message.contains("field"),
             "an unhelpful refusal: {}",
             error.message
         ),
     }
+}
+
+#[test]
+fn a_method_mutation_that_is_the_whole_handler_still_goes_through_update() {
+    // `|| items.push(1)` with no braces and no semicolon: a handler
+    // returns nothing, so its body's value is thrown away and the call
+    // is a mutation like any other. Read as an expression instead, it
+    // became `items.get().push(1)` — a push onto a copy, which compiles
+    // and does nothing, and a list that never reordered on screen.
+    let source = "fn C() -> Element {\n    let mut items: Vec<u8> = Vec::new();\n    return <button onClick={move |_| items.push(1)}>{items.len()}</button>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("update"), "got {rust}");
+    assert!(
+        !rust.contains("get().push"),
+        "the push went to a copy: {rust}"
+    );
+    assert!(
+        !rust.contains("get () . push"),
+        "the push went to a copy: {rust}"
+    );
+}
+
+#[test]
+fn a_method_mutation_alone_in_a_braced_handler_goes_through_update() {
+    let source = "fn C() -> Element {\n    let mut items: Vec<u8> = Vec::new();\n    return <button onClick={move |_| { items.push(1) }}>{items.len()}</button>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("update"), "got {rust}");
+    assert!(
+        !rust.contains("get () . push"),
+        "the push went to a copy: {rust}"
+    );
 }

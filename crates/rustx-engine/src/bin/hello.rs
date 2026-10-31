@@ -12,10 +12,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use rustx_dom::{AttributeValue, Element, Handler};
 use rustx_engine::{
-    Document, DomError, Node,
-    App, AppConfig, Bootstrap, NativeError, Value, bootstrap, on_context_created, on_frame,
-    poster, process,
-    register_native,
+    App, AppConfig, Bootstrap, Document, DomError, NativeError, Node, Value, bootstrap,
+    on_context_created, on_frame, poster, process, register_native,
 };
 
 fn main() {
@@ -39,7 +37,10 @@ fn main() {
     .expect("the bundled example page should be present");
 
     report_line("browser_pid", &std::process::id().to_string());
-    println!("WINDOW_OPENED args={:?}", std::env::args().collect::<Vec<_>>());
+    println!(
+        "WINDOW_OPENED args={:?}",
+        std::env::args().collect::<Vec<_>>()
+    );
     app.run().expect("the engine should start");
 }
 
@@ -168,7 +169,10 @@ fn bar(children: Element) -> Element {
         .child(
             Element::tag("button")
                 .attribute("id", AttributeValue::Text("bar".into()))
-                .handler("onClick", Handler::new(move |_| clicked.update(|v| *v += 1)))
+                .handler(
+                    "onClick",
+                    Handler::new(move |_| clicked.update(|v| *v += 1)),
+                )
                 .child(Element::Text(clicks.get().to_string()))
                 .build(),
         )
@@ -387,7 +391,11 @@ fn install_task_natives() {
     register_native("rustx_task_running", |_args| {
         Ok(Value::String(
             ENDLESS
-                .with(|slot| slot.borrow().as_ref().map(rustx_engine::task::Task::is_running))
+                .with(|slot| {
+                    slot.borrow()
+                        .as_ref()
+                        .map(rustx_engine::task::Task::is_running)
+                })
                 .map(|running| running.to_string())
                 .unwrap_or_else(|| "none".to_string()),
         ))
@@ -404,13 +412,11 @@ fn install_task_natives() {
     });
 
     register_native("rustx_task_stopped", |_args| {
-        Ok(Value::String(
-            if ENDLESS_STOPPED.load(Ordering::Acquire) {
-                "yes".to_string()
-            } else {
-                "no".to_string()
-            },
-        ))
+        Ok(Value::String(if ENDLESS_STOPPED.load(Ordering::Acquire) {
+            "yes".to_string()
+        } else {
+            "no".to_string()
+        }))
     });
 
     register_native("rustx_task_post_after_cancel", |_args| {
@@ -592,7 +598,9 @@ fn install_render_natives() {
         rustx_engine::render::mount_app(
             || {
                 SIBLING_RENDERS.with(|count| count.set(count.get() + 1));
-                Element::tag("p").child(Element::Text("still".into())).build()
+                Element::tag("p")
+                    .child(Element::Text("still".into()))
+                    .build()
             },
             "sibling",
         )?;
@@ -858,7 +866,9 @@ fn install_frame_natives() {
 
     register_native("rustx_ui_thread", |_args| Ok(Value::String(thread_id())));
     register_native("rustx_frames", |_args| {
-        Ok(Value::String(rustx_engine::frame::frame_count().to_string()))
+        Ok(Value::String(
+            rustx_engine::frame::frame_count().to_string(),
+        ))
     });
     register_native("rustx_counter", |_args| {
         Ok(Value::String(COUNTER.with(Cell::get).to_string()))
@@ -1231,11 +1241,15 @@ fn install_foreign_natives() {
     });
 
     register_native("rustx_handed_over", |_args| {
-        Ok(Value::String(rustx_engine::foreign::handed_over().to_string()))
+        Ok(Value::String(
+            rustx_engine::foreign::handed_over().to_string(),
+        ))
     });
 
     register_native("rustx_given_back", |_args| {
-        Ok(Value::String(rustx_engine::foreign::given_back().to_string()))
+        Ok(Value::String(
+            rustx_engine::foreign::given_back().to_string(),
+        ))
     });
 }
 
@@ -1280,7 +1294,10 @@ fn counter_for_react() -> Element {
     let clicked = clicks.clone();
     Element::tag("button")
         .attribute("id", AttributeValue::Text("inside-react".into()))
-        .handler("onClick", Handler::new(move |_| clicked.update(|v| *v += 1)))
+        .handler(
+            "onClick",
+            Handler::new(move |_| clicked.update(|v| *v += 1)),
+        )
         .child(Element::Text(clicks.get().to_string()))
         .build()
 }

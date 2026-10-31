@@ -74,7 +74,10 @@ fn a_keep_that_stops_running_every_render_is_reported() {
     keep_at(first, || 1_i32);
     let complaint = end_render().expect_err("the skipped keep should be reported");
     assert!(complaint.contains("every render"), "got {complaint}");
-    assert!(complaint.contains("keep.rs"), "the file is not named: {complaint}");
+    assert!(
+        complaint.contains("keep.rs"),
+        "the file is not named: {complaint}"
+    );
 }
 
 #[test]

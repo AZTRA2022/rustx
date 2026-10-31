@@ -444,6 +444,36 @@
         }
       }
 
+      // A navigation asked for before the router has mounted. A script
+      // runs when the JavaScript context is created; the router waits for
+      // its host element, which is a later frame. What is asked for in
+      // between still has to happen.
+      if (rustx_scenario() === "early_navigate") {
+        try {
+          rustx_navigate("/device/7");
+          rustx_start_router();
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              rustx_report("screen", document.querySelector("#screen").textContent);
+              rustx_report("path", rustx_route());
+
+              // It was a navigation, so the starting screen is behind it.
+              rustx_back();
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => {
+                  rustx_report(
+                    "after_back",
+                    document.querySelector("#screen").textContent
+                  );
+                })
+              );
+            })
+          );
+        } catch (e) {
+          rustx_report("scenario_error", String(e));
+        }
+      }
+
       if (rustx_scenario() === "router") {
         try {
           rustx_start_router();

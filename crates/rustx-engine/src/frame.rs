@@ -72,7 +72,9 @@ pub struct Poster {
 impl Poster {
     /// Queue `job` to run on the UI thread at the start of the next frame.
     pub fn post(&self, job: impl FnOnce() + Send + 'static) -> Result<(), PostError> {
-        let mut guard = queue().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut guard = queue()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         match guard.as_mut() {
             Some(jobs) => {
                 jobs.push(Box::new(job));
@@ -111,14 +113,19 @@ pub fn frame_count() -> u64 {
 /// is precisely the kind where a job panics sooner or later.
 pub(crate) fn tick() {
     let jobs = {
-        let mut guard = queue().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut guard = queue()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         match guard.as_mut() {
             Some(jobs) => std::mem::take(jobs),
             None => Vec::new(),
         }
     };
     for job in jobs {
-        report_panic("a job posted to the frame queue", catch_unwind(AssertUnwindSafe(job)));
+        report_panic(
+            "a job posted to the frame queue",
+            catch_unwind(AssertUnwindSafe(job)),
+        );
     }
 
     FRAMES.with(|frames| frames.set(frames.get() + 1));
@@ -132,10 +139,7 @@ pub(crate) fn tick() {
 
     if let Some(callbacks) = taken.0.as_mut() {
         for callback in callbacks.iter_mut() {
-            report_panic(
-                "a frame callback",
-                catch_unwind(AssertUnwindSafe(callback)),
-            );
+            report_panic("a frame callback", catch_unwind(AssertUnwindSafe(callback)));
         }
     }
     drop(taken);
@@ -170,13 +174,17 @@ fn report_panic(what: &str, outcome: Result<(), Box<dyn std::any::Any + Send>>) 
 /// The engine calls this when a context goes away; an application may call
 /// it to wind down on its own terms.
 pub fn shutdown() {
-    let mut guard = queue().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut guard = queue()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     *guard = None;
 }
 
 /// Reopen the queue for a freshly created context.
 pub(crate) fn open() {
-    let mut guard = queue().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut guard = queue()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if guard.is_none() {
         *guard = Some(Vec::new());
     }

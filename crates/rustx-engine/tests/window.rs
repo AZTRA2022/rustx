@@ -12,7 +12,10 @@ fn config_with(index: &str) -> AppConfig {
 #[test]
 fn app_rejects_a_missing_index() {
     let config = config_with("does-not-exist.html");
-    assert!(matches!(App::new(config), Err(EngineError::IndexNotFound(_))));
+    assert!(matches!(
+        App::new(config),
+        Err(EngineError::IndexNotFound(_))
+    ));
 }
 
 #[test]

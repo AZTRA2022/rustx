@@ -5,11 +5,9 @@
 //! only job is to say which is which, and where each one started.
 
 use crate::ast::{Attribute, AttributeSource, Node, TagNode};
-use crate::error::CompileError;
 use crate::emit::emit;
-use crate::scan::{
-    Span, find_jsx_range, opens_a_tag, skip_attribute_string, skip_braces,
-};
+use crate::error::CompileError;
+use crate::scan::{Span, find_jsx_range, opens_a_tag, skip_attribute_string, skip_braces};
 
 /// Parse one JSX region, as found by [`crate::scan::find_jsx`].
 pub fn parse_jsx(source: &str, span: Span) -> Result<Node, CompileError> {
@@ -85,10 +83,7 @@ impl Cursor<'_> {
         if closing != name {
             let opened = display_name(&name);
             let closed = display_name(&closing);
-            return Err(self.error(
-                closing_at,
-                format!("{opened} is closed by {closed}"),
-            ));
+            return Err(self.error(closing_at, format!("{opened} is closed by {closed}")));
         }
         self.skip_whitespace();
         self.expect(b'>', offset)?;
@@ -171,9 +166,9 @@ impl Cursor<'_> {
                         self.index = skip_attribute_string(self.source, open)?;
                         AttributeSource::Literal(self.source[open + 1..self.index - 1].to_string())
                     }
-                    Some(b'{') => AttributeSource::Expression(
-                        self.braced_rust(crate::attributes::is_event(&name).then_some(name.as_str()))?,
-                    ),
+                    Some(b'{') => AttributeSource::Expression(self.braced_rust(
+                        crate::attributes::is_event(&name).then_some(name.as_str()),
+                    )?),
                     _ => {
                         return Err(self.error(
                             self.index,

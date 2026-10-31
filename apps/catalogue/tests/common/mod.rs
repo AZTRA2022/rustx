@@ -16,7 +16,10 @@ pub struct Report {
 impl Report {
     pub fn get(&self, key: &str) -> &str {
         self.values.get(key).map(String::as_str).unwrap_or_else(|| {
-            panic!("the page never reported '{key}'. Full output:\n{}", self.raw)
+            panic!(
+                "the page never reported '{key}'. Full output:\n{}",
+                self.raw
+            )
         })
     }
 

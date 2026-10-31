@@ -28,12 +28,13 @@
     </style>
   </head>
   <body>
-    <!-- The page is written in app/page.rsx. Nothing below is. -->
-    <div id="first"></div>
-    <div id="second"></div>
-    <div id="rows"></div>
+    <!-- The pages are written in app/. Nothing below is: the hosts the
+         counters used to be mounted in are the page's own now. -->
+    <div id="app"></div>
     <script>
-      if (counter_scenario() === "page") {
+      if (rustx_scenario() === "page") {
+        // The counter is a screen of its own; the landing page is at /.
+        rustx_navigate("/counter");
         const ready = () => document.querySelector("#first button");
         const settle = () => {
           if (!ready()) {
@@ -46,18 +47,24 @@
           first.click();
 
           requestAnimationFrame(() => {
-            counter_report("after_three_clicks", first.textContent);
-            counter_report("first", first.textContent);
-            counter_report("second", document.querySelector("#second button").textContent);
+            rustx_report("after_three_clicks", first.textContent);
+            rustx_report("first", first.textContent);
+            rustx_report("second", document.querySelector("#second button").textContent);
 
             // Click the third row twice, then move it to the front.
             const row = () => document.querySelectorAll("#rows li button");
             row()[2].click();
             row()[2].click();
             requestAnimationFrame(() => {
-              counter_rotate();
+              const counts = () =>
+                Array.from(row())
+                  .map((button) => button.textContent)
+                  .join(",");
+              rustx_report("rows_before_rotate", counts());
+              document.querySelector("#rotate").click();
               requestAnimationFrame(() => {
-                counter_report("moved_item_count", row()[0].textContent);
+                rustx_report("rows_after_rotate", counts());
+                rustx_report("moved_item_count", row()[0].textContent);
               });
             });
           });

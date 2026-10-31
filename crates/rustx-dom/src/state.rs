@@ -586,7 +586,11 @@ pub fn effect_at<D: PartialEq + 'static, G: 'static>(
         let guard = run();
         let memo: Rc<dyn Any> = Rc::new(RefCell::new((watched, Some(guard))));
         CELLS.with(|cells| {
-            cells.borrow_mut().entry(owner).or_default().insert(key, memo);
+            cells
+                .borrow_mut()
+                .entry(owner)
+                .or_default()
+                .insert(key, memo);
         });
         return;
     };

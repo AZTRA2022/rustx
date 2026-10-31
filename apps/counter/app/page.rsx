@@ -1,9 +1,11 @@
 fn Navbar() -> Element {
     return <nav style={{
         display: "flex",
+        flexWrap: "wrap",
         alignItems: "center",
         justifyContent: "space-between",
-        padding: "20px 32px",
+        gap: "16px 24px",
+        padding: "16px clamp(16px, 4vw, 32px)",
         borderBottom: "1px solid rgba(255,255,255,0.1)",
         backgroundColor: "#09090b",
     }}>
@@ -43,8 +45,9 @@ fn Navbar() -> Element {
 
         <div style={{
             display: "flex",
+            flexWrap: "wrap",
             alignItems: "center",
-            gap: "32px",
+            gap: "12px 24px",
             fontSize: "14px",
             color: "#a1a1aa",
         }}>
@@ -71,6 +74,7 @@ fn Navbar() -> Element {
 fn CodePreview() -> Element {
     return <div style={{
         width: "100%",
+        minWidth: "0",
         maxWidth: "560px",
         border: "1px solid rgba(255,255,255,0.1)",
         borderRadius: "16px",
@@ -96,8 +100,8 @@ fn CodePreview() -> Element {
 
         <pre style={{
             margin: "0",
-            padding: "24px",
-            fontSize: "13px",
+            padding: "clamp(14px, 3vw, 24px)",
+            fontSize: "clamp(11px, 1.2vw, 13px)",
             lineHeight: "1.9",
             overflowX: "auto",
             color: "#e4e4e7",
@@ -192,20 +196,21 @@ fn FeatureCard(title: &str, description: &str, icon: &str) -> Element {
     </div>;
 }
 
-fn Counter() -> Element {
+fn Page() -> Element {
     return <div style={{
         minHeight: "100vh",
+        width: "100%",
+        overflowX: "hidden",
         backgroundColor: "#09090b",
         color: "#ffffff",
         fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
     }}>
         {Navbar()}
-
         <main>
             <section style={{
                 position: "relative",
                 overflow: "hidden",
-                padding: "112px 24px",
+                padding: "clamp(64px, 9vw, 112px) clamp(16px, 4vw, 24px)",
             }}>
                 <div style={{
                     position: "absolute",
@@ -225,8 +230,8 @@ fn Counter() -> Element {
                     maxWidth: "1280px",
                     margin: "0 auto",
                     display: "grid",
-                    gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-                    gap: "64px",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 420px), 1fr))",
+                    gap: "clamp(32px, 5vw, 64px)",
                     alignItems: "center",
                 }}>
                     <div>
@@ -253,9 +258,9 @@ fn Counter() -> Element {
 
                         <h1 style={{
                             margin: "0 0 28px",
-                            fontSize: "clamp(48px, 6vw, 76px)",
+                            fontSize: "clamp(40px, 7vw, 76px)",
                             fontWeight: "750",
-                            letterSpacing: "-3px",
+                            letterSpacing: "clamp(-3px, -0.25vw, -1px)",
                             lineHeight: "1.05",
                         }}>
                             Write less.
@@ -273,7 +278,7 @@ fn Counter() -> Element {
                         <p style={{
                             maxWidth: "500px",
                             margin: "0 0 36px",
-                            fontSize: "18px",
+                            fontSize: "clamp(16px, 2vw, 18px)",
                             lineHeight: "1.8",
                             color: "#a1a1aa",
                         }}>
@@ -321,7 +326,7 @@ fn Counter() -> Element {
                         </div>
                     </div>
 
-                    <div id="example" style={{ display: "flex", justifyContent: "flex-end" }}>
+                    <div id="example" style={{ display: "flex", justifyContent: "center", minWidth: "0", width: "100%" }}>
                         {CodePreview()}
                     </div>
                 </div>
@@ -331,7 +336,7 @@ fn Counter() -> Element {
                 borderTop: "1px solid rgba(255,255,255,0.1)",
                 borderBottom: "1px solid rgba(255,255,255,0.1)",
                 backgroundColor: "rgba(255,255,255,0.015)",
-                padding: "28px 24px",
+                padding: "24px clamp(16px, 4vw, 24px)",
             }}>
                 <div style={{
                     maxWidth: "1000px",
@@ -357,7 +362,7 @@ fn Counter() -> Element {
             <section id="features" style={{
                 maxWidth: "1280px",
                 margin: "0 auto",
-                padding: "96px 24px",
+                padding: "clamp(56px, 8vw, 96px) clamp(16px, 4vw, 24px)",
             }}>
                 <div style={{ maxWidth: "640px", marginBottom: "56px" }}>
                     <p style={{
@@ -389,7 +394,7 @@ fn Counter() -> Element {
 
                 <div style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))",
                     gap: "16px",
                 }}>
                     {FeatureCard(
@@ -426,7 +431,7 @@ fn Counter() -> Element {
             </section>
 
             <section id="ecosystem" style={{
-                padding: "80px 24px",
+                padding: "clamp(56px, 7vw, 80px) clamp(16px, 4vw, 24px)",
                 borderTop: "1px solid rgba(255,255,255,0.1)",
                 borderBottom: "1px solid rgba(255,255,255,0.1)",
                 backgroundColor: "#0d0c12",
@@ -512,7 +517,7 @@ fn Counter() -> Element {
                     border: "1px solid rgba(167,139,250,0.2)",
                     borderRadius: "24px",
                     background: "linear-gradient(135deg, rgba(139,92,246,0.12), #111116 55%, rgba(99,102,241,0.1))",
-                    padding: "64px 32px",
+                    padding: "clamp(36px, 6vw, 64px) clamp(16px, 4vw, 32px)",
                     textAlign: "center",
                 }}>
                     <div style={{
@@ -547,8 +552,12 @@ fn Counter() -> Element {
                         </p>
                         <div style={{
                             display: "inline-flex",
+                            flexWrap: "wrap",
                             alignItems: "center",
+                            justifyContent: "center",
                             gap: "12px",
+                            maxWidth: "100%",
+                            overflowWrap: "anywhere",
                             backgroundColor: "rgba(0,0,0,0.4)",
                             border: "1px solid rgba(255,255,255,0.1)",
                             borderRadius: "12px",
@@ -587,4 +596,3 @@ fn Counter() -> Element {
         </footer>
     </div>;
 }
-

@@ -333,10 +333,7 @@ pub fn canonical(name: &str) -> Option<&'static str> {
     if let Some(event) = EVENTS.iter().find(|event| **event == name) {
         return Some(event);
     }
-    if let Some((_, jsx)) = HTML_SPELLINGS
-        .iter()
-        .find(|(html, _)| *html == name)
-    {
+    if let Some((_, jsx)) = HTML_SPELLINGS.iter().find(|(html, _)| *html == name) {
         return Some(jsx);
     }
     let lowered = name.to_ascii_lowercase();
@@ -368,7 +365,6 @@ pub fn is_known(name: &str) -> bool {
         || name.starts_with("xlink:")
         || name.starts_with("xml:")
 }
-
 
 /// `strokeWidth` → `stroke-width`, the spelling an SVG element wants.
 fn hyphenate(name: &str) -> String {
@@ -405,17 +401,54 @@ pub fn dom_name(name: &str) -> std::borrow::Cow<'_, str> {
         "acceptCharset" => "accept-charset".into(),
         // These keep their capitals in SVG; everything else camelCase in
         // that table is hyphenated there.
-        "viewBox" | "preserveAspectRatio" | "clipPath" | "clipPathUnits" | "gradientUnits"
-        | "gradientTransform" | "maskUnits" | "maskContentUnits" | "patternUnits"
-        | "patternContentUnits" | "patternTransform" | "spreadMethod" | "startOffset"
-        | "pathLength" | "markerWidth" | "markerHeight" | "markerUnits" | "refX" | "refY"
-        | "baseFrequency" | "numOctaves" | "stdDeviation" | "tableValues" | "primitiveUnits"
-        | "filterUnits" | "surfaceScale" | "specularConstant" | "specularExponent"
-        | "diffuseConstant" | "kernelMatrix" | "keyPoints" | "keySplines" | "keyTimes"
-        | "repeatCount" | "repeatDur" | "attributeName" | "attributeType" | "calcMode"
-        | "textLength" | "lengthAdjust" | "systemLanguage" | "requiredFeatures"
-        | "requiredExtensions" | "xChannelSelector" | "yChannelSelector" | "zoomAndPan"
-        | "edgeMode" | "preserveAlpha" => name.into(),
+        "viewBox"
+        | "preserveAspectRatio"
+        | "clipPath"
+        | "clipPathUnits"
+        | "gradientUnits"
+        | "gradientTransform"
+        | "maskUnits"
+        | "maskContentUnits"
+        | "patternUnits"
+        | "patternContentUnits"
+        | "patternTransform"
+        | "spreadMethod"
+        | "startOffset"
+        | "pathLength"
+        | "markerWidth"
+        | "markerHeight"
+        | "markerUnits"
+        | "refX"
+        | "refY"
+        | "baseFrequency"
+        | "numOctaves"
+        | "stdDeviation"
+        | "tableValues"
+        | "primitiveUnits"
+        | "filterUnits"
+        | "surfaceScale"
+        | "specularConstant"
+        | "specularExponent"
+        | "diffuseConstant"
+        | "kernelMatrix"
+        | "keyPoints"
+        | "keySplines"
+        | "keyTimes"
+        | "repeatCount"
+        | "repeatDur"
+        | "attributeName"
+        | "attributeType"
+        | "calcMode"
+        | "textLength"
+        | "lengthAdjust"
+        | "systemLanguage"
+        | "requiredFeatures"
+        | "requiredExtensions"
+        | "xChannelSelector"
+        | "yChannelSelector"
+        | "zoomAndPan"
+        | "edgeMode"
+        | "preserveAlpha" => name.into(),
         other if SVG_ATTRIBUTES.contains(&other) => hyphenate(other).into(),
         // Every other camelCase name is an HTML attribute, and HTML
         // attributes are lowercase: `tabIndex` is `tabindex`.
@@ -427,7 +460,11 @@ pub fn dom_name(name: &str) -> std::borrow::Cow<'_, str> {
 pub fn nearest(name: &str) -> Option<&'static str> {
     closest(
         name,
-        EVENTS.iter().chain(ATTRIBUTES).chain(SVG_ATTRIBUTES).copied(),
+        EVENTS
+            .iter()
+            .chain(ATTRIBUTES)
+            .chain(SVG_ATTRIBUTES)
+            .copied(),
     )
 }
 
@@ -591,4 +628,3 @@ mod tests {
         assert_eq!(nearest("zzzzzzzzzzzz"), None);
     }
 }
-

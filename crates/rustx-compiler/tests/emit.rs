@@ -33,7 +33,10 @@ fn a_tag_becomes_a_chain_of_constructors() {
         rust.contains(r#"Element :: tag ("div")"#) || rust.contains(r#"Element::tag("div")"#),
         "got {rust}"
     );
-    assert!(rust.contains(r#"attribute ("class""#), "className should reach the DOM as class: {rust}");
+    assert!(
+        rust.contains(r#"attribute ("class""#),
+        "className should reach the DOM as class: {rust}"
+    );
     assert!(rust.contains("hi"), "got {rust}");
 }
 
@@ -84,7 +87,11 @@ fn an_unknown_tag_is_refused_by_name() {
     // what the document forbids.
     let error = emit_one_err(r#"<dvi className="x"></dvi>"#);
     assert!(error.message.contains("dvi"), "got {}", error.message);
-    assert!(error.message.contains("div"), "no suggestion: {}", error.message);
+    assert!(
+        error.message.contains("div"),
+        "no suggestion: {}",
+        error.message
+    );
 }
 
 #[test]
@@ -102,7 +109,9 @@ fn a_component_tag_says_components_are_not_here_yet() {
 #[test]
 fn an_icon_can_be_drawn() {
     // No SVG attributes meant no icon could be drawn at all.
-    let rust = emit_one(r#"<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M1 1 L8 8" stroke="currentColor" fill="none" /></svg>"#);
+    let rust = emit_one(
+        r#"<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M1 1 L8 8" stroke="currentColor" fill="none" /></svg>"#,
+    );
     assert!(rust.contains("viewBox"), "got {rust}");
     assert!(rust.contains("stroke"), "got {rust}");
 }

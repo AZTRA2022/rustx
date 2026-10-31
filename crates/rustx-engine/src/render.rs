@@ -16,9 +16,9 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use rustx_dom::Element;
 use rustx_dom::diff::{Patch, Path, diff};
 use rustx_dom::state::{InstanceId, Scope, drop_instance, end_render, take_dirty};
-use rustx_dom::Element;
 
 use crate::dom::{Document, DomError, Node};
 use crate::mount::{build_into, root_node, set_attribute};
@@ -388,7 +388,12 @@ fn remove(parent: &Path, index: usize, mounted: &mut Mounted) -> Result<(), DomE
     Ok(())
 }
 
-fn move_child(parent: &Path, from: usize, to: usize, mounted: &mut Mounted) -> Result<(), DomError> {
+fn move_child(
+    parent: &Path,
+    from: usize,
+    to: usize,
+    mounted: &mut Mounted,
+) -> Result<(), DomError> {
     let parent_dom = mounted
         .dom_at(parent)
         .cloned()

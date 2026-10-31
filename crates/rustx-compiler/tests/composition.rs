@@ -68,7 +68,10 @@ fn several_children_arrive_as_one_fragment() {
     let rust = rewrite_one(
         "fn Layout(children: Element) -> Element {\n    return <main>{children}</main>;\n}\nfn Page() -> Element {\n    return <Layout><p>a</p><p>b</p></Layout>;\n}",
     );
-    assert!(rust.contains("Layout (rustx_dom :: Element :: Fragment"), "got {rust}");
+    assert!(
+        rust.contains("Layout (rustx_dom :: Element :: Fragment"),
+        "got {rust}"
+    );
 }
 
 #[test]
@@ -171,21 +174,22 @@ fn two_calls_in_braces_are_two_instances() {
     );
     assert_eq!(rust.matches("component_at").count(), 2, "got {rust}");
     let columns = columns_of(&rust);
-    assert_ne!(
-        columns[0], columns[1],
-        "two places, two instances: {rust}"
-    );
+    assert_ne!(columns[0], columns[1], "two places, two instances: {rust}");
 }
 
 #[test]
 fn a_call_to_something_that_is_not_a_component_is_left_alone() {
-    let rust = rewrite_one("fn helper() -> u8 { 1 }\nfn Page() -> Element {\n    return <p>{helper()}</p>;\n}");
+    let rust = rewrite_one(
+        "fn helper() -> u8 { 1 }\nfn Page() -> Element {\n    return <p>{helper()}</p>;\n}",
+    );
     assert!(!rust.contains("component_at"), "got {rust}");
 }
 
 #[test]
 fn a_read_that_only_looks_like_a_call_is_left_alone() {
-    let rust = rewrite_one("fn Page() -> Element {\n    let n = 1;\n    return <p>{n.to_string()}</p>;\n}");
+    let rust = rewrite_one(
+        "fn Page() -> Element {\n    let n = 1;\n    return <p>{n.to_string()}</p>;\n}",
+    );
     assert!(!rust.contains("component_at"), "got {rust}");
 }
 

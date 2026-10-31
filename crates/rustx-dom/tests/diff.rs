@@ -50,7 +50,10 @@ fn only_the_text_that_changed_is_patched() {
 #[test]
 fn a_different_tag_is_replaced_whole() {
     let patches = diff(&Element::tag("p").build(), &Element::tag("div").build());
-    assert!(matches!(patches.as_slice(), [Patch::Replace { .. }]), "got {patches:?}");
+    assert!(
+        matches!(patches.as_slice(), [Patch::Replace { .. }]),
+        "got {patches:?}"
+    );
 }
 
 #[test]
@@ -64,11 +67,15 @@ fn an_attribute_that_changed_is_set_and_one_that_went_is_removed() {
         .build();
     let patches = diff(&before, &after);
     assert!(
-        patches.iter().any(|p| matches!(p, Patch::SetAttribute { name, .. } if name == "class")),
+        patches
+            .iter()
+            .any(|p| matches!(p, Patch::SetAttribute { name, .. } if name == "class")),
         "got {patches:?}"
     );
     assert!(
-        patches.iter().any(|p| matches!(p, Patch::RemoveAttribute { name, .. } if name == "id")),
+        patches
+            .iter()
+            .any(|p| matches!(p, Patch::RemoveAttribute { name, .. } if name == "id")),
         "got {patches:?}"
     );
 }
@@ -97,7 +104,9 @@ fn a_keyed_item_removed_takes_only_itself() {
 fn a_keyed_item_added_is_inserted_where_it_belongs() {
     let patches = diff(&list(&["a", "c"]), &list(&["a", "b", "c"]));
     assert!(
-        patches.iter().any(|p| matches!(p, Patch::Insert { index: 1, .. })),
+        patches
+            .iter()
+            .any(|p| matches!(p, Patch::Insert { index: 1, .. })),
         "got {patches:?}"
     );
 }
@@ -123,7 +132,9 @@ fn a_handler_is_always_replaced_because_a_closure_has_no_equality() {
         .build();
     let patches = diff(&before, &after);
     assert!(
-        patches.iter().any(|p| matches!(p, Patch::ReplaceHandlers { .. })),
+        patches
+            .iter()
+            .any(|p| matches!(p, Patch::ReplaceHandlers { .. })),
         "got {patches:?}"
     );
 }
@@ -193,7 +204,10 @@ fn an_unkeyed_child_among_keyed_ones_is_not_dropped() {
     let before = labelled(&[("a", true)]);
     let after = labelled(&[("a", true), ("tail", false)]);
     let patches = diff(&before, &after);
-    assert!(!patches.is_empty(), "the new child never reached the screen");
+    assert!(
+        !patches.is_empty(),
+        "the new child never reached the screen"
+    );
     assert_eq!(simulate(&["a"], &patches).len(), 2, "got {patches:?}");
 }
 

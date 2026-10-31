@@ -39,7 +39,8 @@ fn a_mutation_outside_a_handler_does_not_promote() {
 
 #[test]
 fn a_component_parameter_is_never_promoted() {
-    let source = "fn C(label: String) -> Element {\n    return <button onClick={|| ()}>{label}</button>;\n}";
+    let source =
+        "fn C(label: String) -> Element {\n    return <button onClick={|| ()}>{label}</button>;\n}";
     assert!(analyse(source).unwrap()[0].promoted.is_empty());
 }
 
@@ -65,6 +66,9 @@ fn a_function_that_does_not_return_element_is_not_a_component() {
 #[test]
 fn the_declaration_and_its_initializer_are_located() {
     let promoted = &analyse(COUNTER).unwrap()[0].promoted[0];
-    assert_eq!(&COUNTER[promoted.initializer.start..promoted.initializer.end], "0");
+    assert_eq!(
+        &COUNTER[promoted.initializer.start..promoted.initializer.end],
+        "0"
+    );
     assert!(COUNTER[promoted.declaration.start..promoted.declaration.end].starts_with("let mut n"));
 }

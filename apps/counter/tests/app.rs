@@ -25,8 +25,18 @@ fn the_counter_of_the_design_document_counts() {
 fn two_counters_side_by_side_count_separately() {
     // Review Focus 1, where a human can see it: one `let mut n = 0;` in
     // the source, two counters on screen, two counts.
-    assert_eq!(report().get("first"), "3", "full output:\n{}", report().raw());
-    assert_eq!(report().get("second"), "0", "full output:\n{}", report().raw());
+    assert_eq!(
+        report().get("first"),
+        "3",
+        "full output:\n{}",
+        report().raw()
+    );
+    assert_eq!(
+        report().get("second"),
+        "0",
+        "full output:\n{}",
+        report().raw()
+    );
 }
 
 #[test]

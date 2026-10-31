@@ -25,7 +25,7 @@
          `app/layout.rsx`. Nothing here is. -->
     <div id="app"></div>
     <script>
-      if (hybrid_scenario() === "page") {
+      if (rustx_scenario() === "page") {
         const waitFor = (ready, then) => {
           const look = () => {
             if (!ready()) {
@@ -56,16 +56,16 @@
             waitFor(
               () => chart().textContent === "2 points" && counter().textContent === "2",
               () => {
-                hybrid_report("chart", chart().textContent);
-                hybrid_report("counter_in_panel", counter().textContent);
-                hybrid_report("drawn_on_one_frame", "yes");
-                hybrid_report("js_mounts", String(state().mounts));
+                rustx_report("chart", chart().textContent);
+                rustx_report("counter_in_panel", counter().textContent);
+                rustx_report("drawn_on_one_frame", "yes");
+                rustx_report("js_mounts", String(state().mounts));
 
                 // Leaving the page takes the container with it, and
                 // JavaScript is told while it is still in the document.
                 document.querySelector("#leave").click();
                 waitFor(() => state().unmounts > 0, () => {
-                  hybrid_report(
+                  rustx_report(
                     "js_unmounted",
                     state().unmountedWhileAttached ? "yes" : "after it had gone"
                   );

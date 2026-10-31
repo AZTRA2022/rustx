@@ -8,11 +8,10 @@
 
 use cef::{
     App, Browser, BrowserProcessHandler, BrowserSettings, CefString, CommandLine, Frame, ImplApp,
-    ImplCommandLine,
-    ImplBrowserProcessHandler, ImplFrame, ImplRenderProcessHandler, Rect, RenderProcessHandler,
-    RuntimeStyle,
-    V8Context, WindowInfo, WrapApp, WrapBrowserProcessHandler, WrapRenderProcessHandler,
-    rc::Rc as _, wrap_app, wrap_browser_process_handler, wrap_render_process_handler,
+    ImplBrowserProcessHandler, ImplCommandLine, ImplFrame, ImplRenderProcessHandler, Rect,
+    RenderProcessHandler, RuntimeStyle, V8Context, WindowInfo, WrapApp, WrapBrowserProcessHandler,
+    WrapRenderProcessHandler, rc::Rc as _, wrap_app, wrap_browser_process_handler,
+    wrap_render_process_handler,
 };
 
 use crate::client::window_client;
