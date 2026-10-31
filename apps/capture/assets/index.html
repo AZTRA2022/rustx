@@ -28,10 +28,19 @@
          the frame around them is app/layout.rsx. Nothing here is. -->
     <div id="app"></div>
     <script>
+      // A scenario waits on time, not on a frame.
+      //
+      // `requestAnimationFrame` never fires on a machine whose
+      // compositor produces no frames — a GPU process that crashes on
+      // every start, a window the system has hidden — and a scenario
+      // that polled with it waited for ever while the application
+      // underneath it was working perfectly. The framework drives its
+      // own frames from a timer when that happens; so does this.
+      const rustx_soon = (then) => setTimeout(then, 16);
       if (rustx_scenario() === "page") {
         const preview = () => document.querySelector("#preview");
         const devices = () => document.querySelectorAll(".device");
-        const frame = (then) => requestAnimationFrame(() => requestAnimationFrame(then));
+        const frame = (then) => rustx_soon(() => rustx_soon(then));
 
         // Waited for, not assumed. Two frames are usually enough for a
         // navigation to land, and a machine where they are not cost
@@ -40,7 +49,7 @@
         const waitFor = (selector, then) => {
           const look = () => {
             if (document.querySelector(selector) === null) {
-              requestAnimationFrame(look);
+              rustx_soon(look);
               return;
             }
             then();
@@ -50,7 +59,7 @@
 
         const settle = () => {
           if (devices().length < 3) {
-            requestAnimationFrame(settle);
+            rustx_soon(settle);
             return;
           }
           // Click the first device. Nothing in the page knows what that
@@ -72,7 +81,7 @@
               // and this scenario can get here sooner than that.
               const ticked = () => {
                 if (Number(rustx_shared("ticks")) < 1) {
-                  requestAnimationFrame(ticked);
+                  rustx_soon(ticked);
                   return;
                 }
                 rustx_report("ticks_after_navigate", rustx_shared("ticks"));
@@ -88,7 +97,7 @@
                   document.querySelector("#other").click();
                   const switched = () => {
                     if (preview() === null || preview().textContent !== "Micro") {
-                      requestAnimationFrame(switched);
+                      rustx_soon(switched);
                       return;
                     }
                     rustx_report("preview_after_param_change", preview().textContent);
@@ -101,7 +110,7 @@
             });
           });
         };
-        requestAnimationFrame(settle);
+        rustx_soon(settle);
       }
     </script>
   </body>

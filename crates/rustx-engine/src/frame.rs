@@ -129,6 +129,7 @@ pub(crate) fn tick() {
     }
 
     FRAMES.with(|frames| frames.set(frames.get() + 1));
+    LAST.with(|last| last.set(Some(std::time::Instant::now())));
 
     // The callbacks are taken out of the cell for the duration of the call,
     // so that one of them may register another without deadlocking on the
@@ -180,6 +181,54 @@ pub fn shutdown() {
     *guard = None;
 }
 
+/// How long the loop waits for a frame of its own before running one.
+///
+/// A window that is drawing calls `__rustx_frame` sixty times a second
+/// and this never fires. A window that is not calls it never.
+const FLOOR: i64 = 100;
+
+thread_local! {
+    /// When a frame last ran on this thread, by the engine's own clock.
+    static LAST: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
+    /// Whether the floor is already waiting to check.
+    static WATCHING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Put a floor under the frame loop.
+///
+/// `requestAnimationFrame` is the compositor's own signal, and when the
+/// compositor produces no frames — a GPU process that crashes on every
+/// start, a window the system has hidden — it is never called back. The
+/// application then draws nothing, with nothing in it wrong.
+///
+/// A timer in the page is not the answer either: Chromium throttles the
+/// timers of a window it believes is hidden down to one a second, which
+/// is exactly the window this is about. So the floor is a delayed task
+/// on the renderer's own thread, which belongs to the engine and not to
+/// the page.
+pub(crate) fn watch() {
+    if WATCHING.with(std::cell::Cell::get) {
+        return;
+    }
+    WATCHING.with(|watching| watching.set(true));
+    schedule_check();
+}
+
+fn schedule_check() {
+    crate::renderer::after(FLOOR as u64 / 2, || {
+        let stale = LAST
+            .with(std::cell::Cell::get)
+            .is_none_or(|last| last.elapsed().as_millis() as i64 >= FLOOR);
+        if stale {
+            // Inside the page's context: everything a frame does
+            // touches the DOM, and V8 has no current context in a
+            // delayed task of the engine's own.
+            crate::renderer::in_context(tick);
+        }
+        schedule_check();
+    });
+}
+
 /// Reopen the queue for a freshly created context.
 pub(crate) fn open() {
     let mut guard = queue()
@@ -195,10 +244,14 @@ pub(crate) fn open() {
 /// `requestAnimationFrame` is the compositor's own vsync signal, and it
 /// already runs on the thread that owns the DOM, so the frame loop rides on
 /// it rather than inventing a timer that would drift against the screen.
+///
+/// When the compositor produces no frames at all, it is never called
+/// back — and [`watch`] is the floor under that: the engine's own timer,
+/// on the renderer's thread, which no page and no throttling can reach.
 /// The next frame is scheduled in a `finally`: if `__rustx_frame` ever
 /// throws, the loop must limp on rather than stop for good.
-pub(crate) const DRIVER_SCRIPT: &str = "\
-(function () {
+pub(crate) const DRIVER_SCRIPT: &str = "\n(function () {
+  window.__rustx_driving = (window.__rustx_driving || 0) + 1;
   function frame() {
     try {
       __rustx_frame();

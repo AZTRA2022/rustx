@@ -1,0 +1,8 @@
+/* The whole of Tailwind for this application: its reset, its component
+   layer and its utilities. Writing this file is how an application says
+   it wants more than the utilities — without it, rustx asks Tailwind for
+   the utilities alone, so that a page that already has a stylesheet does
+   not have it reset underneath. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

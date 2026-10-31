@@ -198,8 +198,15 @@ fn styles(app: &Path) -> Result<Option<PathBuf>, String> {
         .arg(&input)
         .arg("--output")
         .arg(&stylesheet)
+        // The pages, and the application's own Rust: a class name can
+        // be written in a `const` beside the code that uses it, and a
+        // class Tailwind never saw is a class that does not exist.
+        // One `--content`, with both globs in it: the flag does not
+        // repeat, and a second one silently replaced the first — the
+        // pages were never scanned and every utility was missing while
+        // the reset was there.
         .arg("--content")
-        .arg("./app/**/*.rsx")
+        .arg("./app/**/*.rsx,./src/**/*.rs")
         .arg("--minify")
         .current_dir(app)
         .output()

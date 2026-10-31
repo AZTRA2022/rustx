@@ -172,3 +172,12 @@ fn a_name_nobody_exports_names_both_places_it_was_looked_for() {
         "a page's own component was not offered: {said}"
     );
 }
+
+#[test]
+fn a_plain_tag_is_its_own_name() {
+    // What React builds from a string. Nothing to look up.
+    let Some(said) = ask("console.log(rustx.resolve('div').component);") else {
+        return;
+    };
+    assert_eq!(said, "div");
+}

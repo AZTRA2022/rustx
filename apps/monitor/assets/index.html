@@ -32,6 +32,15 @@
     
     <div id="app"></div>
     <script>
+      // A scenario waits on time, not on a frame.
+      //
+      // `requestAnimationFrame` never fires on a machine whose
+      // compositor produces no frames — a GPU process that crashes on
+      // every start, a window the system has hidden — and a scenario
+      // that polled with it waited for ever while the application
+      // underneath it was working perfectly. The framework drives its
+      // own frames from a timer when that happens; so does this.
+      const rustx_soon = (then) => setTimeout(then, 16);
       // The hosts are named apart from the elements the components
       // return, which carry #panel and #header themselves.
       if (rustx_scenario() === "page") {
@@ -41,7 +50,7 @@
         // Wait until the thread has driven the screen a few times.
         const settle = () => {
           if (!panel() || Number(panel().textContent) < 3) {
-            requestAnimationFrame(settle);
+            rustx_soon(settle);
             return;
           }
           rustx_report("ticks", panel().textContent);
@@ -66,7 +75,7 @@
             }, 500);
           }, 300);
         };
-        requestAnimationFrame(settle);
+        rustx_soon(settle);
       }
     </script>
   </body>

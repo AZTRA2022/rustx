@@ -89,6 +89,15 @@
     </main>
 
     <script>
+      // A scenario waits on time, not on a frame.
+      //
+      // `requestAnimationFrame` never fires on a machine whose
+      // compositor produces no frames — a GPU process that crashes on
+      // every start, a window the system has hidden — and a scenario
+      // that polled with it waited for ever while the application
+      // underneath it was working perfectly. The framework drives its
+      // own frames from a timer when that happens; so does this.
+      const rustx_soon = (then) => setTimeout(then, 16);
       // Every function called here is Rust, installed on this very context by
       // the render process. There is no bridge object and no message passing.
       const out = document.querySelector("#out");
@@ -206,8 +215,8 @@
           // A row leaves the keyed list. What it held has to go with it,
           // and nothing in the page says so: the render does.
           rustx_remove_row();
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
+          rustx_soon(() => {
+            rustx_soon(() => {
               rustx_report("drops_after_row_left", rustx_row_drops());
             });
           });
@@ -216,15 +225,15 @@
 
           // A re-render must keep what the component holds.
           document.querySelector("#holder").click();
-          requestAnimationFrame(() => {
+          rustx_soon(() => {
             rustx_report("dropped_after_rerender", rustx_drops());
 
             // A prop flowing in, twice.
             rustx_select(1);
-            requestAnimationFrame(() => {
+            rustx_soon(() => {
               rustx_report("after_prop_change", row());
               rustx_select(2);
-              requestAnimationFrame(() => {
+              rustx_soon(() => {
                 rustx_report("prop_after_two_changes", row());
 
                 // And now the component leaves.
@@ -252,7 +261,7 @@
           document.querySelector("#tick").click();
 
           // One frame, and the click must be on screen.
-          requestAnimationFrame(() => {
+          rustx_soon(() => {
             rustx_report("after_one_click", shown());
 
             const before = Number(rustx_renders());
@@ -262,10 +271,10 @@
             let waited = 0;
             const settle = () => {
               if (rustx_counter_state() !== "1001" && ++waited < 600) {
-                requestAnimationFrame(settle);
+                rustx_soon(settle);
                 return;
               }
-              requestAnimationFrame(() => {
+              rustx_soon(() => {
                 rustx_report("renders_for_1000", String(Number(rustx_renders()) - before));
                 rustx_report("shown_after_1000", shown());
                 rustx_report("worker_final", rustx_counter_state());
@@ -274,7 +283,7 @@
                 rustx_report("untouched_sibling_text", document.querySelector("#fixed").textContent);
               });
             };
-            requestAnimationFrame(settle);
+            rustx_soon(settle);
           });
         } catch (e) {
           rustx_report("scenario_error", String(e));
@@ -342,7 +351,7 @@
           const waitFor = (ready, then) => {
             const look = () => {
               if (!ready()) {
-                requestAnimationFrame(look);
+                rustx_soon(look);
                 return;
               }
               then();
@@ -469,19 +478,33 @@
       // runs when the JavaScript context is created; the router waits for
       // its host element, which is a later frame. What is asked for in
       // between still has to happen.
+      // A window whose compositor produces no frames at all. The page
+      // takes `requestAnimationFrame` away before the framework's own
+      // driver can register one, which is what a crashing GPU process
+      // does on a real machine — and the application has to keep
+      // running anyway.
+      if (rustx_scenario() === "no_frames") {
+        window.requestAnimationFrame = () => 0;
+        const first = rustx_frames();
+        setTimeout(() => {
+          rustx_report("frames_at_first", first);
+          rustx_report("frames_later", rustx_frames());
+        }, 700);
+      }
+
       if (rustx_scenario() === "early_navigate") {
         try {
           rustx_navigate("/device/7");
           rustx_start_router();
-          requestAnimationFrame(() =>
-            requestAnimationFrame(() => {
+          rustx_soon(() =>
+            rustx_soon(() => {
               rustx_report("screen", document.querySelector("#screen").textContent);
               rustx_report("path", rustx_route());
 
               // It was a navigation, so the starting screen is behind it.
               rustx_back();
-              requestAnimationFrame(() =>
-                requestAnimationFrame(() => {
+              rustx_soon(() =>
+                rustx_soon(() => {
                   rustx_report(
                     "after_back",
                     document.querySelector("#screen").textContent
@@ -501,7 +524,7 @@
 
           const screen = () => document.querySelector("#screen").textContent;
           const bar = () => document.querySelector("#bar").textContent;
-          const frame = (then) => requestAnimationFrame(() => requestAnimationFrame(then));
+          const frame = (then) => rustx_soon(() => rustx_soon(then));
 
           frame(() => {
             rustx_report("first_screen", screen());
@@ -636,14 +659,14 @@
           let frames = 0;
           const shut = () => {
             if (++frames < 30) {
-              requestAnimationFrame(shut);
+              rustx_soon(shut);
               return;
             }
             rustx_report("posted_before_closing", rustx_counter());
             rustx_report("closing", "yes");
             window.close();
           };
-          requestAnimationFrame(shut);
+          rustx_soon(shut);
         } catch (e) {
           rustx_report("scenario_error", String(e));
         }
@@ -660,12 +683,12 @@
           panel.src = "about:blank";
           document.body.appendChild(panel);
 
-          requestAnimationFrame(() => {
+          rustx_soon(() => {
             panel.remove();
             let waited = 0;
             const after = () => {
               if (++waited < 10) {
-                requestAnimationFrame(after);
+                rustx_soon(after);
                 return;
               }
               rustx_report("post_after_subframe", rustx_try_post());
@@ -676,7 +699,7 @@
                 rustx_report("kept_node_after_subframe", String(e));
               }
             };
-            requestAnimationFrame(after);
+            rustx_soon(after);
           });
         } catch (e) {
           rustx_report("scenario_error", String(e));
@@ -693,9 +716,9 @@
           let frames = 0;
           const settle = () => {
             if (rustx_counter() === "10000" || ++frames > 600) {
-              requestAnimationFrame(finish);
+              rustx_soon(finish);
             } else {
-              requestAnimationFrame(settle);
+              rustx_soon(settle);
             }
           };
           // Two panics on purpose — one in a posted job, one in a frame
@@ -707,14 +730,14 @@
             let waited = 0;
             const check = () => {
               if (++waited < 5) {
-                requestAnimationFrame(check);
+                rustx_soon(check);
                 return;
               }
               rustx_report("after_panicking_job", rustx_alive_since_check());
               rustx_report("callbacks_after_panic", rustx_callbacks_alive_since_check());
               report_rest();
             };
-            requestAnimationFrame(check);
+            rustx_soon(check);
           };
 
           const report_rest = () => {
@@ -727,7 +750,7 @@
             // Last, because it closes the queue for good.
             rustx_report("post_after_close", rustx_post_after_close());
           };
-          requestAnimationFrame(settle);
+          rustx_soon(settle);
         } catch (e) {
           rustx_report("scenario_error", String(e));
         }

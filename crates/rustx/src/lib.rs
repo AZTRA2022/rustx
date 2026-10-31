@@ -260,9 +260,13 @@ impl App {
                         // Waited for, not assumed: what the engine puts
                         // in a page runs when the JavaScript context is
                         // created, and a context exists before the
-                        // document's `<head>` does.
+                        // document's `<head>` does. Waited for on a
+                        // timer, not on a frame: a window whose
+                        // compositor produces no frames never calls
+                        // `requestAnimationFrame` back, and the page
+                        // would have no stylesheet for ever.
                         "(() => {{ const css = {}; const put = () => {{ \
-                         if (!document.head) {{ requestAnimationFrame(put); return; }} \
+                         if (!document.head) {{ setTimeout(put, 16); return; }} \
                          const sheet = document.createElement('style'); \
                          sheet.id = 'rustx-stylesheet'; sheet.textContent = css; \
                          document.head.appendChild(sheet); }}; put(); }})();",

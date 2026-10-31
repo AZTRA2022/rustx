@@ -32,13 +32,22 @@
          counters used to be mounted in are the page's own now. -->
     <div id="app"></div>
     <script>
+      // A scenario waits on time, not on a frame.
+      //
+      // `requestAnimationFrame` never fires on a machine whose
+      // compositor produces no frames — a GPU process that crashes on
+      // every start, a window the system has hidden — and a scenario
+      // that polled with it waited for ever while the application
+      // underneath it was working perfectly. The framework drives its
+      // own frames from a timer when that happens; so does this.
+      const rustx_soon = (then) => setTimeout(then, 16);
       if (rustx_scenario() === "page") {
         // The counter is a screen of its own; the landing page is at /.
         rustx_navigate("/counter");
         const ready = () => document.querySelector("#first button");
         const settle = () => {
           if (!ready()) {
-            requestAnimationFrame(settle);
+            rustx_soon(settle);
             return;
           }
           const first = document.querySelector("#first button");
@@ -46,7 +55,7 @@
           first.click();
           first.click();
 
-          requestAnimationFrame(() => {
+          rustx_soon(() => {
             rustx_report("after_three_clicks", first.textContent);
             rustx_report("first", first.textContent);
             rustx_report("second", document.querySelector("#second button").textContent);
@@ -55,21 +64,21 @@
             const row = () => document.querySelectorAll("#rows li button");
             row()[2].click();
             row()[2].click();
-            requestAnimationFrame(() => {
+            rustx_soon(() => {
               const counts = () =>
                 Array.from(row())
                   .map((button) => button.textContent)
                   .join(",");
               rustx_report("rows_before_rotate", counts());
               document.querySelector("#rotate").click();
-              requestAnimationFrame(() => {
+              rustx_soon(() => {
                 rustx_report("rows_after_rotate", counts());
                 rustx_report("moved_item_count", row()[0].textContent);
               });
             });
           });
         };
-        requestAnimationFrame(settle);
+        rustx_soon(settle);
       }
     </script>
   </body>

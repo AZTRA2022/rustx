@@ -96,7 +96,11 @@ pub(crate) fn install(frame: Option<&mut Frame>, context: &V8Context) {
         return;
     }
 
+    remember(context);
     crate::frame::open();
+    // And the floor under the loop, which is the engine's own timer: a
+    // window that is never asked to draw still has to run.
+    crate::frame::watch();
     register_native("__rustx_frame", |_args| {
         crate::frame::tick();
         Ok(Value::Null)
@@ -247,4 +251,75 @@ fn argument(prefix: &str) -> Option<String> {
     std::env::args_os()
         .filter_map(|argument| argument.into_string().ok())
         .find_map(|argument| argument.strip_prefix(prefix).map(str::to_string))
+}
+
+/// Run `work` on this thread, `delay` milliseconds from now.
+///
+/// The engine's own timer. A page's `setTimeout` is throttled to one a
+/// second in a window Chromium believes is hidden, and a window that is
+/// not being composited is exactly that — so what has to keep running
+/// whatever the compositor is doing runs here instead.
+pub(crate) fn after(delay: u64, work: impl FnOnce() + 'static) {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use cef::{ImplTask, Task, WrapTask, rc::Rc as _};
+
+    cef::wrap_task! {
+        struct Once {
+            work: Pending,
+        }
+
+        impl Task {
+            fn execute(&self) {
+                let taken = self.work.borrow_mut().take();
+                if let Some(work) = taken {
+                    crate::panics::contain("a delayed task", work);
+                }
+            }
+        }
+    }
+
+    let work: Box<dyn FnOnce()> = Box::new(work);
+    let mut task = Once::new(Rc::new(RefCell::new(Some(work))));
+    cef::post_delayed_task(cef::ThreadId::RENDERER, Some(&mut task), delay as i64);
+}
+
+/// What a delayed task carries, once.
+type Pending = std::rc::Rc<RefCell<Option<Box<dyn FnOnce()>>>>;
+
+thread_local! {
+    /// The page's own JavaScript context, kept for the work the engine
+    /// does outside a call from the page.
+    static CONTEXT: RefCell<Option<V8Context>> = const { RefCell::new(None) };
+}
+
+/// Remember the context a page was given, and forget it when it goes.
+pub(crate) fn remember(context: &V8Context) {
+    CONTEXT.with(|held| *held.borrow_mut() = Some(context.clone()));
+}
+
+pub(crate) fn forget_context() {
+    CONTEXT.with(|held| *held.borrow_mut() = None);
+}
+
+/// Run `work` inside the page's context.
+///
+/// Anything that touches the DOM has to: V8 answers `get_current_context`
+/// with nothing when no context is entered, and every handle the work
+/// makes would be stale before it was used. A call that came *from* the
+/// page is already inside one; a delayed task of the engine's own is not.
+pub(crate) fn in_context(work: impl FnOnce()) {
+    let context = CONTEXT.with(|held| held.borrow().clone());
+    let Some(context) = context else {
+        return;
+    };
+    if context.is_valid() == 0 {
+        return;
+    }
+    let entered = context.enter() != 0;
+    work();
+    if entered {
+        context.exit();
+    }
 }

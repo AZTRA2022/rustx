@@ -457,7 +457,9 @@ fn foreign_node(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, Com
         .rsplit('.')
         .next()
         .unwrap_or(path);
-    if !crate::tags::looks_like_a_component(export) {
+    // A known HTML or SVG tag is itself: inside a React tree, React
+    // builds it from its name.
+    if !crate::tags::looks_like_a_component(export) && !crate::tags::is_known(export) {
         let capitalised = format!(
             "{}{}",
             export
@@ -529,16 +531,18 @@ fn foreign_child(
             let text = Literal::string(text);
             Ok(quote! { rustx_dom::ForeignChild::Text(#text.to_string()) })
         }
-        Node::Tag(tag) => Err(CompileError::flagged(
-            tag.offset,
-            format!(
-                "`<{}>` is a DOM tag, and it is written inside `{}`, which React owns. \
-                 A node rustx thinks it owns inside a tree React reconciles is the one \
-                 thing this boundary prevents: write a component of the library there, \
-                 or put the DOM outside the boundary.",
-                tag.name, parent.name
-            ),
-        )),
+        // A plain tag inside a React tree is React's to build: it goes
+        // over as its own name, and `createElement` takes a string for
+        // exactly this. Nothing is given away — rustx never touches what
+        // is inside the boundary, so a `<div>` there is not a node it
+        // thinks it owns. A `<p>` is how anyone wraps the inside of a
+        // dialog, and refusing it meant a library's components could
+        // only ever be written beside one another.
+        Node::Tag(tag) if crate::tags::is_known(&tag.name) => {
+            let node = foreign_node(tag, context)?;
+            Ok(quote! { rustx_dom::ForeignChild::Node(#node) })
+        }
+        Node::Tag(tag) => Err(unknown_tag(tag)),
         Node::Expression { offset, .. } => Err(CompileError::flagged(
             *offset,
             format!(

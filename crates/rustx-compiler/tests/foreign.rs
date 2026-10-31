@@ -78,16 +78,6 @@ fn text_inside_a_foreign_tag_is_a_child_of_it() {
 }
 
 #[test]
-fn a_rust_tag_inside_a_foreign_tag_is_refused_by_name() {
-    // React owns what is inside it. A `<p>` written there would be a
-    // DOM node rustx thinks it owns, inside a tree React reconciles —
-    // the one thing the boundary exists to prevent.
-    let message = refusal("fn P() -> Element {\n    return <js::Button><p>hi</p></js::Button>;\n}");
-    assert!(message.contains("<p>"), "got {message}");
-    assert!(message.contains("js::Button"), "got {message}");
-}
-
-#[test]
 fn a_lowercase_js_tag_is_still_refused_as_an_unknown_tag() {
     assert!(transpile("fn P() -> Element {\n    return <js::chart />;\n}").is_err());
 }
@@ -149,8 +139,20 @@ fn a_tag_the_file_declares_is_still_a_rustx_component() {
 }
 
 #[test]
-fn a_rust_tag_inside_a_library_tag_is_refused_without_a_prefix_too() {
-    let message = refusal("fn P() -> Element {\n    return <Button><p>hi</p></Button>;\n}");
-    assert!(message.contains("<p>"), "got {message}");
-    assert!(message.contains("Button"), "got {message}");
+fn a_plain_tag_inside_a_library_tag_is_handed_over_as_itself() {
+    // React builds what is inside the boundary, so a `<div>` there is
+    // React's `createElement("div", …)` — not a node rustx thinks it
+    // owns. It is how anyone wraps the inside of a dialog.
+    let rust = rewrite_one(
+        "fn P() -> Element {\n    return <Content><div className=\"flex\">hi</div></Content>;\n}",
+    );
+    assert!(rust.contains("\"Content\""), "got {rust}");
+    assert!(rust.contains("\"div\""), "got {rust}");
+    assert!(rust.contains("ForeignChild :: Node"), "got {rust}");
+}
+
+#[test]
+fn an_unknown_tag_inside_a_library_tag_is_still_refused() {
+    let message = refusal("fn P() -> Element {\n    return <Content><dvi>hi</dvi></Content>;\n}");
+    assert!(message.contains("dvi"), "got {message}");
 }

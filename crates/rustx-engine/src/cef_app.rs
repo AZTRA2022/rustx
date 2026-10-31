@@ -114,6 +114,7 @@ wrap_render_process_handler! {
                 let is_main = frame.is_some_and(|frame| frame.is_main() != 0);
                 if is_main {
                     crate::dom::context_released();
+                    crate::renderer::forget_context();
                 }
             });
         }
@@ -133,7 +134,56 @@ wrap_app! {
         fn render_process_handler(&self) -> Option<RenderProcessHandler> {
             Some(EngineRenderProcessHandler::new())
         }
+
+        /// Chromium's own switches, before it reads them.
+        fn on_before_command_line_processing(
+            &self,
+            _process_type: Option<&CefString>,
+            command_line: Option<&mut CommandLine>,
+        ) {
+            contain("on_before_command_line_processing", || {
+                let Some(command_line) = command_line else {
+                    return;
+                };
+                if !software_rendering() {
+                    return;
+                }
+                // A machine with no usable 3D driver — a virtual
+                // machine, a remote desktop, a laptop whose driver has
+                // given up — starts a GPU process that crashes, and
+                // Chromium starts another, and another. The window then
+                // produces no frames at all: on such a machine the log
+                // says "Failed to create shared context for
+                // virtualization" four times a second and the
+                // application looks frozen with nothing wrong in it.
+                //
+                // These switches take the GPU out of the picture and
+                // composite on the CPU, which is slower and always
+                // works.
+                for switch in [
+                    "disable-gpu",
+                    "disable-gpu-compositing",
+                    "disable-gpu-sandbox",
+                    "disable-software-rasterizer",
+                ] {
+                    command_line.append_switch(Some(&CefString::from(switch)));
+                }
+                command_line.append_switch_with_value(
+                    Some(&CefString::from("use-angle")),
+                    Some(&CefString::from("swiftshader")),
+                );
+            });
+        }
     }
+}
+
+/// Should this window composite on the CPU?
+///
+/// Said by `RUSTX_SOFTWARE=1`, in the environment, because it has to be
+/// true in every process of the application and the environment is what
+/// every process already shares.
+pub fn software_rendering() -> bool {
+    std::env::var_os("RUSTX_SOFTWARE").is_some_and(|value| value != "0")
 }
 
 /// The application object for the process that owns the window.

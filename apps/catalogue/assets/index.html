@@ -30,18 +30,27 @@
     <!-- The page is written in app/page.rsx. Nothing below is. -->
     <div id="app"></div>
     <script>
+      // A scenario waits on time, not on a frame.
+      //
+      // `requestAnimationFrame` never fires on a machine whose
+      // compositor produces no frames — a GPU process that crashes on
+      // every start, a window the system has hidden — and a scenario
+      // that polled with it waited for ever while the application
+      // underneath it was working perfectly. The framework drives its
+      // own frames from a timer when that happens; so does this.
+      const rustx_soon = (then) => setTimeout(then, 16);
       if (rustx_scenario() === "page") {
         const root = document.querySelector("#app");
         const settle = () => {
           if (!root.firstChild) {
-            requestAnimationFrame(settle);
+            rustx_soon(settle);
             return;
           }
           rustx_report("html", root.innerHTML);
           document.querySelector("#shout").click();
           rustx_report("clicked", rustx_shared("clicked"));
         };
-        requestAnimationFrame(settle);
+        rustx_soon(settle);
       }
     </script>
   </body>

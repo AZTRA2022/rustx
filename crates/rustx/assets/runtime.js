@@ -81,6 +81,13 @@
   /// Exported for its own test: resolution is where a typo lands, and a
   /// typo must name what was asked for and where it was looked up.
   const resolve = (name) => {
+    // A plain tag written inside a library's component. React builds it
+    // from its name, which is what `createElement` takes a string for,
+    // and nothing has to be looked up: `div` is `div` everywhere.
+    if (/^[a-z][a-z0-9-]*$/.test(name)) {
+      return { component: name };
+    }
+
     const at = name.lastIndexOf("::");
     if (at !== -1) {
       // The explicit form, for a name two libraries export or a name the

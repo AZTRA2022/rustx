@@ -135,10 +135,26 @@ fn a_tailwind_class_written_in_a_page_reaches_the_screen() {
         "the stylesheet never reached the document:\n{}",
         report().raw()
     );
+    // A colour, read on the page's own hero badge.
     assert_eq!(
-        report().get("trigger_background"),
-        "rgb(139, 92, 246)",
-        "`bg-violet-500` did not reach the screen:\n{}",
+        report().get("hero_badge_background"),
+        "rgba(139, 92, 246, 0.1)",
+        "`bg-violet-500/10` did not reach the screen:\n{}",
+        report().raw()
+    );
+    // And a utility on a node Radix rendered, which the page never
+    // touched: the padding it asked for is on the library's own button.
+    //
+    // Read as a padding rather than as a background on purpose. A
+    // `<button>` that Chromium paints as a native control reports the
+    // control's own background from `getComputedStyle` whatever the
+    // stylesheet says — a clone of the very same node, with the same
+    // classes and the same parent, reports the violet. The class is
+    // applied; what is being read is not the paint.
+    assert_eq!(
+        report().get("trigger_padding"),
+        "20px",
+        "`px-5` did not reach the node the library rendered:\n{}",
         report().raw()
     );
     // And a class on a node the library rendered through a portal.

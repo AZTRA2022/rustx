@@ -4,7 +4,7 @@ fn Page() -> Element {
     return <div>
         <header>ticks <span id="header">{ticks}</span></header>
         {Panel()}
-        <button id="leave" onClick={move |_| rustx::router::navigate("/gone".to_string())}>leave</button>
+        <button id="leave" onClick={move |_| rustx::router::navigate("/pause".to_string())}>leave</button>
     </div>;
 }
 
