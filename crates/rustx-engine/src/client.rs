@@ -4,11 +4,12 @@
 //! is what tells the message loop that the last window is gone.
 
 use cef::{
-    Browser, CefString, Client, DisplayHandler, Frame, ImplBrowser, ImplBrowserHost, ImplClient,
-    ImplDisplayHandler, ImplLifeSpanHandler, ImplRequest, ImplRequestHandler, LifeSpanHandler,
-    LogSeverity, Request, RequestHandler, WrapClient, WrapDisplayHandler, WrapLifeSpanHandler,
-    WrapRequestHandler, rc::Rc as _, wrap_client, wrap_display_handler, wrap_life_span_handler,
-    wrap_request_handler,
+    Browser, CefString, CefStringList, Client, DisplayHandler, DragData, DragHandler,
+    DragOperationsMask, Frame, ImplBrowser, ImplBrowserHost, ImplClient, ImplDisplayHandler,
+    ImplDragData, ImplDragHandler, ImplLifeSpanHandler, ImplRequest, ImplRequestHandler,
+    LifeSpanHandler, LogSeverity, Request, RequestHandler, WrapClient, WrapDisplayHandler,
+    WrapDragHandler, WrapLifeSpanHandler, WrapRequestHandler, rc::Rc as _, wrap_client,
+    wrap_display_handler, wrap_drag_handler, wrap_life_span_handler, wrap_request_handler,
 };
 
 use crate::guard;
@@ -103,12 +104,55 @@ wrap_display_handler! {
     }
 }
 
+wrap_drag_handler! {
+    struct Dropped;
+
+    impl DragHandler {
+        /// Quelque chose entre dans la fenêtre, tenu par le curseur.
+        ///
+        /// C'est le seul moment où Chromium dit ce que c'est — son
+        /// gestionnaire n'a pas d'événement pour le lâcher — et le seul
+        /// endroit où le *chemin* d'un fichier est connu : ce que la
+        /// page recevra, elle, est un `File` sans chemin.
+        ///
+        /// Les chemins partent donc vers le processus de la page, qui
+        /// est le seul à savoir quand le lâcher a lieu. Rendre 0 laisse
+        /// le dépôt se faire : ce handler écoute, il n'interdit rien.
+        fn on_drag_enter(
+            &self,
+            browser: Option<&mut Browser>,
+            drag_data: Option<&mut DragData>,
+            _mask: DragOperationsMask,
+        ) -> ::std::os::raw::c_int {
+            let names = drag_data
+                .map(|data| {
+                    let mut list = CefStringList::new();
+                    data.file_names(Some(&mut list));
+                    list.into_iter().collect::<Vec<String>>()
+                })
+                .unwrap_or_default();
+
+            let carried = crate::dropped::carried(&names);
+            if !carried.is_empty() {
+                if let Some(frame) = browser.and_then(|browser| browser.main_frame()) {
+                    crate::bridge::tell(&frame, crate::dropped::WHAT, &carried);
+                }
+            }
+            0
+        }
+    }
+}
+
 wrap_client! {
     struct WindowClient;
 
     impl Client {
         fn life_span_handler(&self) -> Option<LifeSpanHandler> {
             Some(WindowLifeSpan::new())
+        }
+
+        fn drag_handler(&self) -> Option<DragHandler> {
+            Some(Dropped::new())
         }
 
         fn request_handler(&self) -> Option<RequestHandler> {

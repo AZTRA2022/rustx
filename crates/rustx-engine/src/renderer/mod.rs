@@ -98,6 +98,18 @@ pub(crate) fn install(frame: Option<&mut Frame>, context: &V8Context) {
 
     remember(context);
     crate::frame::open();
+    // Ce que la fenêtre a à dire à la page est écouté dès maintenant, et
+    // non à la première lecture : des fichiers lâchés sur la fenêtre
+    // avant le premier battement d'une page seraient sinon perdus.
+    crate::dropped::ready();
+    register_native("__rustx_dropped", |_args| {
+        crate::dropped::landed();
+        Ok(Value::Null)
+    });
+    // Et le lâcher appartient à l'application : sans cela, Chromium
+    // navigue vers le fichier lâché et la fenêtre n'est plus celle du
+    // logiciel.
+    inject("rustx-dropped", crate::dropped::LISTENER);
     // And the floor under the loop, which is the engine's own timer: a
     // window that is never asked to draw still has to run.
     crate::frame::watch();

@@ -42,7 +42,7 @@ pub use rustx_os::OsError;
 
 pub use rustx_engine::{
     Document, DomError, NativeError, Node, PostError, Poster, foreign, mount, mount_at_id,
-    on_context_created, on_frame, poster, register_native, render, router, task,
+    dropped, on_context_created, on_frame, poster, register_native, render, router, task,
 };
 
 /// What can go wrong while an application starts.
