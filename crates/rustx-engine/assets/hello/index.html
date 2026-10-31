@@ -76,6 +76,9 @@
       <div id="holder"></div>
       <div id="props"></div>
       <div id="rows"></div>
+
+      <!-- A thousand rows, for the one measurement a heavy page needs. -->
+      <div id="heavy"></div>
       <!-- The one host the router mounts its screens under. -->
       <div id="screens"></div>
       <!-- Host for the component that starts a background task. -->
@@ -483,6 +486,43 @@
       // driver can register one, which is what a crashing GPU process
       // does on a real machine — and the application has to keep
       // running anyway.
+      // A heavy page: a thousand rows, and one of them changing.
+      if (rustx_scenario() === "heavy") {
+        try {
+          const mounted = performance.now();
+          rustx_mount_heavy();
+          const rows = () => document.querySelectorAll("#heavy li");
+          const settle = () => {
+            if (rows().length < 1000) {
+              rustx_soon(settle);
+              return;
+            }
+            rustx_report("rows", String(rows().length));
+            rustx_report("first_render_micros", String(rustx_last_render().micros));
+            rustx_report("mount_millis", String(Math.round(performance.now() - mounted)));
+
+            // One row of the thousand.
+            rustx_change_one_row();
+            const changed = () =>
+              Array.from(rows()).some((row) => row.textContent === "changed");
+            const look = () => {
+              if (!changed()) {
+                rustx_soon(look);
+                return;
+              }
+              const cost = rustx_last_render();
+              rustx_report("one_row_patches", String(cost.patches));
+              rustx_report("one_row_micros", String(cost.micros));
+              rustx_report("rows_after", String(rows().length));
+            };
+            look();
+          };
+          settle();
+        } catch (e) {
+          rustx_report("scenario_error", String(e));
+        }
+      }
+
       if (rustx_scenario() === "no_frames") {
         window.requestAnimationFrame = () => 0;
         const first = rustx_frames();

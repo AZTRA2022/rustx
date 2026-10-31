@@ -126,6 +126,7 @@ fn install_natives() {
     install_process_natives();
     install_foreign_natives();
     install_reverse_natives();
+    install_heavy_natives();
 }
 
 // The screens of the `router` scenario, written by hand where an
@@ -1367,5 +1368,72 @@ fn install_reverse_natives() {
                 "no".to_string()
             },
         ))
+    });
+}
+
+// A heavy page: a thousand rows on screen, and one of them changing.
+//
+// What a serious application is made of, and the one measurement that
+// decides whether a framework can carry it: a change to one row has to
+// cost one correction. If it costs a thousand, every list in every
+// application is a stutter nobody can explain from the outside.
+thread_local! {
+    static HEAVY: RefCell<Option<rustx_dom::state::State<Vec<String>>>> =
+        const { RefCell::new(None) };
+}
+
+const HEAVY_ROWS: usize = 1000;
+
+fn install_heavy_natives() {
+    register_native("rustx_mount_heavy", |_args| {
+        rustx_engine::render::mount_app(
+            || {
+                let rows = rustx_dom::state::cell(
+                    rustx_dom::state::Slot {
+                        file: file!(),
+                        line: line!(),
+                        column: column!(),
+                    },
+                    || (0..HEAVY_ROWS).map(|at| format!("row {at}")).collect(),
+                );
+                HEAVY.with(|slot| *slot.borrow_mut() = Some(rows.clone()));
+
+                let mut list = Element::tag("ul");
+                for (at, label) in rows.get().into_iter().enumerate() {
+                    let key = at.to_string();
+                    list = list.child(
+                        Element::tag("li")
+                            .key(key)
+                            .child(Element::Text(label))
+                            .build(),
+                    );
+                }
+                list.build()
+            },
+            "heavy",
+        )?;
+        Ok(Value::Null)
+    });
+
+    // One row of the thousand.
+    register_native("rustx_change_one_row", |_args| {
+        HEAVY.with(|slot| {
+            if let Some(rows) = slot.borrow().as_ref() {
+                rows.update(|rows| {
+                    if let Some(row) = rows.get_mut(HEAVY_ROWS / 2) {
+                        *row = "changed".to_string();
+                    }
+                });
+            }
+        });
+        Ok(Value::Null)
+    });
+
+    register_native("rustx_last_render", |_args| {
+        let (micros, patches) = rustx_engine::render::last_render();
+        Ok(Value::Record(vec![
+            ("micros".to_string(), Value::Number(micros as f64)),
+            ("patches".to_string(), Value::Number(patches as f64)),
+        ]))
     });
 }

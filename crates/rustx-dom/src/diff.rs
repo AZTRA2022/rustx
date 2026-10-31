@@ -277,7 +277,20 @@ fn compare_keyed(
 
     // Each new child's old counterpart: by key where there is one, and
     // otherwise by order of appearance among the unkeyed.
-    let mut spare: Vec<usize> = (0..old.len())
+    //
+    // Through an index, not by scanning. Searching the old children for
+    // every new one is the quadratic that makes a list of a thousand
+    // rows cost twenty-six milliseconds to change one of them — no frame
+    // holds that, and a list of a thousand rows is an ordinary list.
+    let mut old_by_key: std::collections::HashMap<&crate::Key, usize> =
+        std::collections::HashMap::with_capacity(old.len());
+    for (index, key) in old_keys.iter().enumerate() {
+        if let Some(key) = key {
+            old_by_key.entry(key).or_insert(index);
+        }
+    }
+
+    let mut spare: std::collections::VecDeque<usize> = (0..old.len())
         .filter(|index| old_keys[*index].is_none())
         .collect();
     let mut taken = vec![false; old.len()];
@@ -285,11 +298,8 @@ fn compare_keyed(
 
     for key in &new_keys {
         let found = match key {
-            Some(key) => old_keys
-                .iter()
-                .position(|existing| existing.as_ref() == Some(key))
-                .filter(|index| !taken[*index]),
-            None => (!spare.is_empty()).then(|| spare.remove(0)),
+            Some(key) => old_by_key.get(key).copied().filter(|index| !taken[*index]),
+            None => spare.pop_front(),
         };
         if let Some(index) = found {
             taken[index] = true;
@@ -315,8 +325,18 @@ fn compare_keyed(
         .map(Some)
         .collect();
 
+    // Where each surviving child now sits, so that finding one is not a
+    // second scan of the list. Rebuilt whenever the list is rearranged,
+    // which is once per move and once per insert — a reorder pays for
+    // itself, a list that only changed a row does not.
+    let mut at_position: std::collections::HashMap<usize, usize> = order
+        .iter()
+        .enumerate()
+        .filter_map(|(position, held)| held.map(|held| (held, position)))
+        .collect();
+
     for (target, slot) in partner.iter().enumerate() {
-        match slot.and_then(|old_index| order.iter().position(|held| *held == Some(old_index))) {
+        match slot.and_then(|old_index| at_position.get(&old_index).copied()) {
             Some(from) if from == target => {}
             Some(from) => {
                 patches.push(Patch::Move {
@@ -326,6 +346,7 @@ fn compare_keyed(
                 });
                 let moved = order.remove(from);
                 order.insert(target.min(order.len()), moved);
+                reindex(&order, &mut at_position);
             }
             None => {
                 let index = target.min(order.len());
@@ -335,6 +356,7 @@ fn compare_keyed(
                     source: source.child(target),
                 });
                 order.insert(index, None);
+                reindex(&order, &mut at_position);
             }
         }
     }
@@ -372,5 +394,15 @@ fn key_of(element: &Element) -> Option<Key> {
     match element {
         Element::Tag(tag) => tag.key.clone(),
         _ => None,
+    }
+}
+
+/// Where every surviving child sits, after the list has been rearranged.
+fn reindex(order: &[Option<usize>], at_position: &mut std::collections::HashMap<usize, usize>) {
+    at_position.clear();
+    for (position, held) in order.iter().enumerate() {
+        if let Some(held) = held {
+            at_position.insert(*held, position);
+        }
     }
 }

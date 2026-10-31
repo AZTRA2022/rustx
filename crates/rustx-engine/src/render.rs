@@ -47,6 +47,7 @@ pub fn mount_app(component: impl Fn() -> Element + 'static, id: &str) -> Result<
     // component written inside another is given an instance there, and
     // two numbering schemes would hand the same number to a root and to
     // a child the moment an application had both.
+    let started = std::time::Instant::now();
     let instance = rustx_dom::state::next_instance();
     let root = root_node(id)?;
     let component: Rc<dyn Fn() -> Element> = Rc::new(component);
@@ -59,6 +60,9 @@ pub fn mount_app(component: impl Fn() -> Element + 'static, id: &str) -> Result<
     };
     let mounted = crate::mount::mount_tree(tree, &root)?;
     RENDERS.with(|renders| renders.set(renders.get() + 1));
+    // A first mount is a render too, and the number a heavy page is
+    // judged by is what the second one costs against it.
+    COST.with(|cost| cost.set((started.elapsed().as_micros() as u64, 0)));
 
     ROOTS.with(|roots| {
         roots.borrow_mut().push(Root {
@@ -153,6 +157,7 @@ fn render_dirty() {
 }
 
 fn re_render(document: &Document, root: &mut Root) -> Result<(), DomError> {
+    let started = std::time::Instant::now();
     let fresh = {
         let _scope = Scope::enter(root.id);
         let fresh = (root.component)();
@@ -177,6 +182,7 @@ fn re_render(document: &Document, root: &mut Root) -> Result<(), DomError> {
     // render intended.
     let outcome = apply(document, &patches, &fresh, &mut root.mounted);
     root.mounted.tree = fresh;
+    COST.with(|cost| cost.set((started.elapsed().as_micros() as u64, patches.len())));
     outcome
 }
 
@@ -480,4 +486,20 @@ fn give_back_boundaries(node: &crate::tree::MountedNode) {
 /// diagnostics: a root that was released and still counted is a leak.
 pub fn roots() -> usize {
     ROOTS.with(|roots| roots.borrow().len())
+}
+
+thread_local! {
+    /// What the last render cost, and how many corrections it made.
+    static COST: Cell<(u64, usize)> = const { Cell::new((0, 0)) };
+}
+
+/// How long the last render took, in microseconds, and how many patches
+/// it applied.
+///
+/// A heavy page is the case this exists for: a thousand rows on screen
+/// and one of them changing has to cost one correction, not a thousand,
+/// and a developer who suspects otherwise should be able to read the
+/// number instead of guessing from a stopwatch.
+pub fn last_render() -> (u64, usize) {
+    COST.with(Cell::get)
 }
