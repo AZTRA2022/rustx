@@ -192,6 +192,8 @@ thread_local! {
     static LAST: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
     /// Whether the floor is already waiting to check.
     static WATCHING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Whether a frame has already been asked for by a change.
+    static WAKING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Put a floor under the frame loop.
@@ -212,6 +214,24 @@ pub(crate) fn watch() {
     }
     WATCHING.with(|watching| watching.set(true));
     schedule_check();
+}
+
+/// Ask for a frame now, because something changed.
+///
+/// The floor is for a window that is drawing nothing and has nothing to
+/// draw; a click is the opposite, and waiting for the floor to come
+/// round would put a tenth of a second between a button and what it
+/// does. One task per burst: a handler that writes ten cells asks for
+/// one frame, which is the whole point of coalescing them.
+pub(crate) fn wake() {
+    if WAKING.with(std::cell::Cell::get) {
+        return;
+    }
+    WAKING.with(|waking| waking.set(true));
+    crate::renderer::after(0, || {
+        WAKING.with(|waking| waking.set(false));
+        crate::renderer::in_context(tick);
+    });
 }
 
 fn schedule_check() {

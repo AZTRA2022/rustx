@@ -88,3 +88,19 @@ fn a_line_inside_a_region_resolves_forwards_too() {
     let out = transpile(source).unwrap();
     assert_eq!(out.map.to_generated(3), Some(3));
 }
+
+#[test]
+fn an_async_component_is_refused_in_words() {
+    // Typing `async` in front of a component is a reasonable guess —
+    // work that waits is what `task` is for — and the compiler used to
+    // let it through, so what the developer got was rustc refusing to
+    // cast a future to a function in a file they had never seen.
+    let source = "async fn Page() -> Element {\n    return <p>bonjour</p>;\n}\n";
+    let error = rustx_compiler::transpile::transpile(source).expect_err("refused");
+    assert_eq!(error.line, 1, "{error:?}");
+    assert!(
+        error.message.contains("async") && error.message.contains("task"),
+        "an unhelpful refusal: {}",
+        error.message
+    );
+}

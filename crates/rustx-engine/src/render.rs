@@ -78,6 +78,10 @@ pub fn mount_app(component: impl Fn() -> Element + 'static, id: &str) -> Result<
     // root per frame.
     if ROOTS.with(|roots| roots.borrow().len()) == 1 {
         crate::frame::on_frame(render_dirty);
+        // And a frame is asked for as soon as anything changes, rather
+        // than waited for: a click that draws a tenth of a second later
+        // is a click the hand notices.
+        rustx_dom::state::when_dirty(crate::frame::wake);
     }
     Ok(())
 }

@@ -208,3 +208,20 @@ fn a_method_mutation_alone_in_a_braced_handler_goes_through_update() {
         "the push went to a copy: {rust}"
     );
 }
+
+#[test]
+fn a_let_mut_nothing_writes_to_warns_about_nothing() {
+    // Half-written state: the value is shown, the button that will
+    // change it has not been typed yet. Nothing writes to it, so there
+    // is nothing to keep across renders and it stays a plain local —
+    // but a plain `let mut` nobody writes to makes `rustc` warn, and the
+    // warning points at a generated file in a temporary directory,
+    // which is a path the developer has never seen. The framework is
+    // what generated it, so the framework is what silences it.
+    let source = "fn Page() -> Element {\n    let mut x = 0;\n    return <p>{x}</p>;\n}\n";
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("allow (unused_mut)") || rust.contains("allow(unused_mut)"),
+        "got {rust}"
+    );
+}

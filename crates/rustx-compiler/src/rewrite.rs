@@ -64,6 +64,21 @@ fn edits_for(source: &str, component: &Component) -> Vec<Edit> {
         edits.push(call_edit(source, component, call));
     }
 
+    // A `let mut` nothing writes to is left exactly as it was written —
+    // there is no state to keep — but the warning it earns names a
+    // generated file, so it is silenced where it is generated. On the
+    // same line, like every other edit here, because the line map has to
+    // keep holding.
+    for declaration in &component.unwritten {
+        edits.push(Edit {
+            span: Span {
+                start: declaration.start,
+                end: declaration.start,
+            },
+            text: "#[allow(unused_mut)] ".to_string(),
+        });
+    }
+
     if component.promoted.is_empty() {
         return edits;
     }

@@ -13,3 +13,4 @@ node_modules/
 
 # The bundle rustx builds and puts beside an application's document.
 rustx-bundle.js
+dist/

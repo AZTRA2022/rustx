@@ -306,12 +306,42 @@ impl<T> State<T> {
 ///
 /// A cell marks its own owner; a store marks everyone who read it.
 pub(crate) fn mark_dirty(id: InstanceId) {
-    DIRTY.with(|dirty| {
+    let first = DIRTY.with(|dirty| {
         let mut dirty = dirty.borrow_mut();
+        let empty = dirty.is_empty();
         if !dirty.contains(&id) {
             dirty.push(id);
         }
+        empty
     });
+    // Mutating still does not draw — a frame does — but the frame has
+    // to come soon, and whoever runs the frames is the only one who can
+    // ask for one. Without this, a click waited for the next frame the
+    // host happened to run: sixteen milliseconds on a window that
+    // draws, a tenth of a second on one that does not, which is a lag a
+    // hand can feel on every button in the application.
+    if first {
+        WOKEN.with(|woken| {
+            if let Some(wake) = woken.borrow().as_ref() {
+                wake();
+            }
+        });
+    }
+}
+
+thread_local! {
+    /// Who to tell that something changed, if anybody asked.
+    static WOKEN: RefCell<Option<Box<dyn Fn()>>> = const { RefCell::new(None) };
+}
+
+/// Be told, on this thread, that something has to render again.
+///
+/// The host calls this: state knows what changed and the host knows
+/// when a frame can run, and neither has any business knowing the
+/// other's job. Called again, the last caller wins — there is one frame
+/// loop per thread.
+pub fn when_dirty(wake: impl Fn() + 'static) {
+    WOKEN.with(|woken| *woken.borrow_mut() = Some(Box::new(wake)));
 }
 
 /// The cell at `slot` for the instance being rendered, created on the

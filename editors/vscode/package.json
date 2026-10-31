@@ -34,13 +34,37 @@
           "source.rust": "rust"
         }
       }
-    ]
+    ],
+    "configuration": {
+      "title": "rustx",
+      "properties": {
+        "rustx.server.path": {
+          "type": "string",
+          "default": "",
+          "description": "Where `rustx-lsp` is. Empty means: on the PATH."
+        }
+      }
+    }
   },
   "scripts": {
+    "build": "node build.mjs",
+    "package": "node build.mjs --release",
+    "typecheck": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.mjs\""
   },
   "devDependencies": {
     "vscode-oniguruma": "1.7.0",
-    "vscode-textmate": "9.0.0"
+    "vscode-textmate": "9.0.0",
+    "@types/node": "22.10.2",
+    "@types/vscode": "1.90.0",
+    "esbuild": "0.24.2",
+    "typescript": "5.7.2"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:rsx"
+  ],
+  "dependencies": {
+    "vscode-languageclient": "9.0.1"
   }
 }

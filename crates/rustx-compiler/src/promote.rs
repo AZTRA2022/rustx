@@ -31,6 +31,10 @@ pub struct Component {
     pub promoted: Vec<Promoted>,
     /// The `keep`, `effect` and `task` calls written in the body.
     pub calls: Vec<Call>,
+    /// The `let mut` declarations nothing writes to, which stay plain
+    /// locals. Half-written state: the value is there, the handler that
+    /// will change it is not typed yet.
+    pub unwritten: Vec<Span>,
 }
 
 /// A call to one of the three names a component is given.
@@ -101,6 +105,17 @@ pub enum MutationKind {
 pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
     let mut components = Vec::new();
     for (name, body) in components_of(source) {
+        if let Some(at) = async_before(source, body.start) {
+            return Err(CompileError::flagged(
+                at,
+                format!(
+                    "`{name}` is declared `async`. A component is asked for the screen as \
+                     it is now, so it cannot wait — give the waiting to `task(…)`, which \
+                     runs it beside the component and stops when the component goes."
+                ),
+            )
+            .resolve(source));
+        }
         let returns_jsx = find_jsx_range(source, body.start, body.end)?;
         let handlers = handler_closures(source, &returns_jsx);
         let parameters = parameter_names(source, body.start);
@@ -132,6 +147,7 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
         let inside_a_call = |span: &Span| calls.iter().any(|call| contains(call.span, *span));
 
         let mut promoted = Vec::new();
+        let mut unwritten = Vec::new();
         for local in &locals {
             if parameters.contains(&local.name) {
                 continue;
@@ -152,6 +168,14 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
                 .count();
 
             if shown == 0 || mutations.is_empty() {
+                // Nothing writes to it, so there is nothing to keep
+                // across renders and it stays what it was written as —
+                // a plain local, which `rustc` then warns is mutable
+                // for no reason, pointing at a file in a temporary
+                // directory the developer has never seen.
+                if mutations.is_empty() {
+                    unwritten.push(local.declaration);
+                }
                 continue;
             }
 
@@ -233,6 +257,7 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             returns_jsx,
             promoted,
             calls,
+            unwritten,
         });
     }
     Ok(components)
@@ -427,6 +452,22 @@ pub fn component_signatures(source: &str) -> Vec<(String, Vec<String>)> {
         .into_iter()
         .map(|(name, body)| (name, parameter_names(source, body.start)))
         .collect()
+}
+
+/// Where the `async` of an `async fn … -> Element` sits, if it has one.
+///
+/// `async` in front of a component is a reasonable guess — work that
+/// waits is exactly what a page needs — and the answer is `task`, not a
+/// future the renderer would have to await. Caught here, the developer
+/// reads it on the line they wrote; left alone, rustc refuses to cast a
+/// future to a function in a generated file they have never seen.
+fn async_before(source: &str, body_start: usize) -> Option<usize> {
+    let declaration = &source[..body_start];
+    let at = declaration.rfind("fn")?;
+    let before = declaration[..at].trim_end();
+    before
+        .ends_with("async")
+        .then(|| before.len() - "async".len())
 }
 
 fn components_of(source: &str) -> Vec<(String, Span)> {
