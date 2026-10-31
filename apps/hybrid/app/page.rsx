@@ -147,7 +147,7 @@ fn Hero() -> Element {
 /// not go looking for it.
 fn About() -> Element {
     return <Root>
-        <Trigger id="open-dialog" className="inline-flex items-center justify-center gap-2 rounded-md bg-violet-500 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-violet-400">
+        <Trigger  id="open-dialog" className="inline-flex items-center justify-center gap-2 rounded-md bg-violet-500 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-violet-400">
             Voir ce que fait cette page
         </Trigger>
         <Portal>

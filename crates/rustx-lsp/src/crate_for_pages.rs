@@ -186,3 +186,16 @@ fn walk(directory: &Path, depth: usize, found: &mut Vec<PathBuf>) {
         }
     }
 }
+
+/// The application a file belongs to: the nearest directory above it
+/// that holds both a `Cargo.toml` and an `app/`.
+pub fn application_of(page: &Path) -> Option<PathBuf> {
+    let mut directory = page.parent();
+    while let Some(here) = directory {
+        if here.join("Cargo.toml").is_file() && here.join("app").is_dir() {
+            return Some(here.to_path_buf());
+        }
+        directory = here.parent();
+    }
+    None
+}

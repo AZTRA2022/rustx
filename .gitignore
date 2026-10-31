@@ -16,3 +16,4 @@ rustx-bundle.js
 dist/
 
 **/target*.vsix
+**/target

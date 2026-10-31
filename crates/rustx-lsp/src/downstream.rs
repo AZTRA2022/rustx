@@ -21,7 +21,12 @@ use std::time::Duration;
 use crate::{json, rpc};
 
 /// How long a question waits before it is answered with nothing.
-const PATIENCE: Duration = Duration::from_millis(1500);
+///
+/// Three seconds, which sounds long for a keystroke and is not: an
+/// editor asks and draws when the answer comes, and `rust-analyzer`
+/// takes its time on the first questions of a session. At a second and
+/// a half, measured, the first hover of a page was lost every time.
+const PATIENCE: Duration = Duration::from_millis(3000);
 
 /// How long the handshake waits. Nobody is typing through it, and a
 /// server that has just started has a manifest to read.

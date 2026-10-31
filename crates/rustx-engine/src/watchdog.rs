@@ -29,11 +29,12 @@ static TOLD: AtomicBool = AtomicBool::new(false);
 
 /// How long a render may take before the watchdog says something.
 ///
-/// Long enough that a heavy first mount — a thousand rows, which costs
-/// tens of milliseconds — never trips it, and short enough that a
+/// Long enough that a heavy first mount never trips it — a page whose
+/// boundaries are waiting for a JavaScript library to load takes over
+/// two seconds, measured, and is not stuck — and short enough that a
 /// developer who froze their window reads the reason before they start
 /// bisecting it.
-const DEADLINE: Duration = Duration::from_secs(2);
+const DEADLINE: Duration = Duration::from_secs(5);
 
 /// A render in progress. Dropping it says the component came back.
 pub struct Drawing {

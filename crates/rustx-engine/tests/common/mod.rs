@@ -67,6 +67,12 @@ fn run(name: &str, ending: Ending) -> Completion {
     ));
     let _ = std::fs::remove_file(&report_file);
 
+    // One window at a time on this machine, the applications included:
+    // every scenario starts a browser, and this GPU process crash-loops,
+    // so two at once take minutes and the suite reads that as a page
+    // that reported nothing.
+    let _alone = alone();
+
     let mut child = Command::new(env!("CARGO_BIN_EXE_hello"))
         .arg(format!("--scenario={name}"))
         .arg(format!("--report={}", report_file.display()))
@@ -200,4 +206,39 @@ pub struct Completion {
 /// everything it reported beforehand was right.
 pub fn run_scenario_to_completion(name: &str) -> Completion {
     run(name, Ending::ByItself)
+}
+/// Held for as long as one scenario runs, across processes.
+///
+/// `cargo test` runs one binary per package at the same time, so a
+/// workspace of six applications would start six browsers at once. The
+/// lock is a file: a directory, in fact, because creating one is the
+/// operation every file system refuses to do twice.
+pub struct Alone(std::path::PathBuf);
+
+impl Drop for Alone {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir(&self.0);
+    }
+}
+
+/// Wait for every other scenario to be done, then take the lock.
+pub fn alone() -> Alone {
+    let held = std::env::temp_dir().join("rustx-one-application-at-a-time");
+    let since = std::time::Instant::now();
+    loop {
+        if std::fs::create_dir(&held).is_ok() {
+            return Alone(held);
+        }
+        // A run that was killed leaves its lock behind, and a suite that
+        // then waits for ever is worse than two windows at once.
+        let stale = std::fs::metadata(&held)
+            .and_then(|about| about.modified())
+            .map(|when| when.elapsed().unwrap_or_default() > Duration::from_secs(300))
+            .unwrap_or(false);
+        if stale || since.elapsed() > Duration::from_secs(600) {
+            let _ = std::fs::remove_dir(&held);
+            continue;
+        }
+        std::thread::sleep(Duration::from_millis(400));
+    }
 }

@@ -69,26 +69,61 @@ enum Downstream {
 }
 
 impl Downstream {
-    /// Start it, if it has not been started, in the project the editor
-    /// named.
-    fn ready(&mut self, root: Option<&str>) {
+    /// Whether there is a server to be had at all.
+    ///
+    /// Asked at the handshake, when the first page has not been opened
+    /// yet and there is nothing to analyse: what the editor needs then
+    /// is only whether to promise completion.
+    fn exists(&self) -> bool {
+        match self {
+            Self::Held(_) => true,
+            Self::None => false,
+            Self::Start(command) => std::process::Command::new(command)
+                .arg("--version")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success()),
+        }
+    }
+
+    /// Start it, if it has not been started, for the application that
+    /// owns `page`.
+    ///
+    /// One application, not every application of the workspace. Six
+    /// crates of the same name, loading at once, left `rust-analyzer`
+    /// answering `null` to everything; the single one it was proved
+    /// against answers in seconds. And it is started at the first page
+    /// opened rather than at the handshake, because that is the first
+    /// moment anything says which application is being worked on.
+    fn ready_for(&mut self, page: &std::path::Path) {
         if let Self::Start(command) = self {
-            // Every application of this workspace gets the little crate
-            // that makes its pages readable, before the server starts:
-            // `rust-analyzer` is told which projects to load once, and a
-            // project named afterwards means a workspace reloaded under
-            // the developer's hands.
-            let linked = root
-                .and_then(shadow::path_of)
-                .map(|root| crate_for_pages::for_workspace(&root))
-                .unwrap_or_default();
+            let application = crate_for_pages::application_of(page);
+            let linked: Vec<std::path::PathBuf> = application
+                .as_deref()
+                .and_then(crate_for_pages::written_for)
+                .into_iter()
+                .collect();
+            if linked.is_empty() {
+                // Nothing to read yet — the application has never been
+                // built. Asked again at the next page opened.
+                return;
+            }
+            let root = application
+                .as_deref()
+                .map(shadow::uri_of)
+                .unwrap_or_else(|| "file:///".to_string());
+            let root = Some(root.as_str());
             *self = match downstream::Server::start_in(command, root, &linked) {
                 Some(server) => {
                     eprintln!(
-                        "rustx: completion, hovers and definitions come from `{command}`, \
-                         reading {} application(s) of {}.",
-                        linked.len(),
-                        root.unwrap_or("no project")
+                        "rustx: completion, hovers and definitions come from `{command}`, \r
+                         reading {}.",
+                        linked
+                            .first()
+                            .map(|manifest| manifest.to_string_lossy().to_string())
+                            .unwrap_or_else(|| "nothing".to_string())
                     );
                     Self::Held(server)
                 }
@@ -135,10 +170,13 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
                 // `rust-analyzer` has to be pointed at.
                 let root =
                     json::field(&message, "rootUri").or_else(|| json::field(&message, "uri"));
-                downstream.ready(root.as_deref());
+                let _ = &root;
                 // What is promised is what there is: an editor told a
-                // server provides completion asks it, and waits.
-                let assistance = if downstream.held().is_some() {
+                // server provides completion asks it, and waits. The
+                // server itself starts at the first page opened, which
+                // is the first moment anything says which application
+                // is being worked on.
+                let assistance = if downstream.exists() {
                     ",\"completionProvider\":{\"triggerCharacters\":[\".\",\":\"]},\
                      \"hoverProvider\":true,\"definitionProvider\":true"
                 } else {
@@ -183,6 +221,12 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
                 // is waiting for, and the shadow is for the question
                 // after it.
                 if let Some(fresh) = shadow::of(&uri, &text) {
+                    // The first page opened is what says which
+                    // application is being worked on, so it is where the
+                    // server downstream starts.
+                    if let Some(page) = shadow::path_of(&uri) {
+                        downstream.ready_for(&page);
+                    }
                     let telling = if shadows.contains_key(&uri) {
                         "textDocument/didChange"
                     } else {
