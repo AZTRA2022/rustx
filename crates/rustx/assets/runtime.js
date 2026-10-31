@@ -82,29 +82,45 @@
   /// typo must name what was asked for and where it was looked up.
   const resolve = (name) => {
     const at = name.lastIndexOf("::");
-    if (at === -1) {
-      // No module: a component the page itself registered, which is
-      // what an application that brought its own bundle does.
-      const own = (declared().components ?? {})[name];
-      if (own === undefined) {
+    if (at !== -1) {
+      // The explicit form, for a name two libraries export or a name the
+      // page also declares.
+      return inLibrary(name.slice(0, at), name.slice(at + 2));
+    }
+
+    // `Dialog.Trigger`: the first segment is the export, the rest is a
+    // path into it. Libraries built that way are everywhere — Radix,
+    // Headless UI — and it is how they are written in JSX.
+    const [head, ...rest] = name.split(".");
+    const found = anywhere(head);
+    if (found.error !== undefined) {
+      return found;
+    }
+    let component = found.component;
+    for (const step of rest) {
+      const next = (component ?? {})[step];
+      if (next === undefined) {
         return {
           error:
-            `rustx: the page asked for the component \`${name}\`, and no library ` +
-            `exports it. Write \`<js::module::${name} />\` with the module it comes ` +
-            `from, or register it with \`rustx.use({ components: { ${name} } })\`.`,
+            `rustx: the page asked for \`${name}\`, and \`${head}\` has nothing called ` +
+            `\`${step}\` on it. What it does have: ` +
+            `${Object.keys(component ?? {}).slice(0, 12).join(", ")}.`,
         };
       }
-      return { component: own };
+      component = next;
     }
-    const module = name.slice(0, at);
-    const export_ = name.slice(at + 2);
+    return { component };
+  };
+
+  /// `export_` in the library called `module`.
+  const inLibrary = (module, export_) => {
     const library = declared()[module];
     if (library === undefined) {
       return {
         error:
           `rustx: the page asked for \`${export_}\` from \`${module}\`, and this ` +
-          `application never said it uses \`${module}\`. Add it to the bundle: ` +
-          `\`import * as ${module} from "${module}"; rustx.use({ ${module} });\`.`,
+          `application does not have \`${module}\` installed. Add it: ` +
+          `\`npm install ${module}\`, in the folder of the application.`,
       };
     }
     const component = library[export_] ?? (library.default ?? {})[export_];
@@ -116,6 +132,50 @@
       };
     }
     return { component };
+  };
+
+  /// A bare name, looked for where a page's tag could have come from.
+  ///
+  /// The page's own registered components first, then every library the
+  /// application installed. Two libraries exporting one name is a real
+  /// case — `Button` is in half of npm — so the first wins, because
+  /// something has to, and the page is told which and what to write
+  /// instead.
+  const anywhere = (name) => {
+    const libraries = declared();
+    const own = (libraries.components ?? {})[name];
+    if (own !== undefined) {
+      return { component: own };
+    }
+
+    const exporters = Object.entries(libraries).filter(
+      ([module, library]) =>
+        module !== "components" &&
+        library !== undefined &&
+        library !== null &&
+        (library[name] !== undefined || (library.default ?? {})[name] !== undefined)
+    );
+    if (exporters.length === 0) {
+      const installed = Object.keys(libraries)
+        .filter((module) => module !== "components")
+        .join(", ");
+      return {
+        error:
+          `rustx: the page asked for \`${name}\`, and nothing has it. This page does ` +
+          `not declare \`fn ${name}\` — a component of the page is called as ` +
+          `\`{${name}()}\` — and none of the libraries this application installed ` +
+          `exports it${installed === "" ? "" : ` (${installed})`}.`,
+      };
+    }
+    if (exporters.length > 1) {
+      const names = exporters.map(([module]) => module);
+      console.warn(
+        `rustx: \`${name}\` is exported by ${names.join(" and ")}. rustx took the one ` +
+          `from \`${names[0]}\`; write \`<${names[1]}::${name} />\` to ask for the other.`
+      );
+    }
+    const [module] = exporters[0];
+    return inLibrary(module, name);
   };
 
   /// A described child — a string, or another component — as a React

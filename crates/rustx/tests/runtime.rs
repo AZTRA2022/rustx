@@ -75,7 +75,7 @@ fn a_missing_module_is_named() {
         return;
     };
     assert!(said.contains("recarts"), "got {said}");
-    assert!(said.contains("never said it uses"), "got {said}");
+    assert!(said.contains("does not have `recarts` installed"), "got {said}");
 }
 
 #[test]
@@ -101,4 +101,64 @@ fn a_component_that_is_there_resolves_to_it() {
         return;
     };
     assert_eq!(said, "the chart");
+}
+
+#[test]
+fn a_bare_name_is_found_in_a_declared_library() {
+    // No prefix in the page: the name is looked for among the libraries
+    // the application installed.
+    let Some(said) = ask(
+        "rustx.use({ recharts: { LineChart: 'the chart' } });\n\
+         console.log(rustx.resolve('LineChart').component);",
+    ) else {
+        return;
+    };
+    assert_eq!(said, "the chart");
+}
+
+#[test]
+fn a_dotted_name_walks_into_an_export() {
+    let Some(said) = ask(
+        "rustx.use({ radixDialog: { Dialog: { Trigger: 'the trigger' } } });\n\
+         console.log(rustx.resolve('Dialog.Trigger').component);",
+    ) else {
+        return;
+    };
+    assert_eq!(said, "the trigger");
+}
+
+#[test]
+fn a_name_two_libraries_export_warns_and_names_both() {
+    // The first wins, because something has to, and the page is told —
+    // with the explicit form to write if it wanted the other one.
+    let Some(said) = ask(
+        "const warnings = [];\nconsole.warn = (text) => warnings.push(text);\n\
+         rustx.use({ one: { Button: 1 }, two: { Button: 2 } });\n\
+         const found = rustx.resolve('Button');\n\
+         console.log(JSON.stringify([found.component, warnings.length, warnings[0] ?? '']));",
+    ) else {
+        return;
+    };
+    assert!(said.contains("[1,1,"), "the first library should win: {said}");
+    assert!(said.contains("one"), "got {said}");
+    assert!(said.contains("two"), "got {said}");
+    // And the explicit form for the one it did not take.
+    assert!(said.contains("two::Button"), "no explicit form offered: {said}");
+}
+
+#[test]
+fn a_name_nobody_exports_names_both_places_it_was_looked_for() {
+    let Some(said) = ask(
+        "rustx.use({ recharts: { LineChart: 1 } });\n\
+         console.log(rustx.resolve('Preview').error ?? 'no complaint');",
+    ) else {
+        return;
+    };
+    assert!(said.contains("Preview"), "got {said}");
+    // The page itself, and the libraries.
+    assert!(said.contains("recharts"), "the libraries were not named: {said}");
+    assert!(
+        said.contains("{Preview()}") || said.contains("fn Preview"),
+        "a page's own component was not offered: {said}"
+    );
 }
