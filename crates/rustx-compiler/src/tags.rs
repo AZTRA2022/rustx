@@ -133,6 +133,20 @@ const SVG: &[&str] = &[
     "use",
 ];
 
+/// Every HTML tag the framework builds, sorted.
+///
+/// Lent to the language server: what an editor offers inside a `<` is
+/// this list, and a second copy of it somewhere else would be a second
+/// list to keep in step.
+pub fn html() -> &'static [&'static str] {
+    HTML
+}
+
+/// Every SVG tag, the same way.
+pub fn svg() -> &'static [&'static str] {
+    SVG
+}
+
 /// Is this a tag the framework knows how to build?
 pub fn is_known(name: &str) -> bool {
     HTML.contains(&name) || SVG.contains(&name)

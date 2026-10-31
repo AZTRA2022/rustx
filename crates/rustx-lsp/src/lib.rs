@@ -15,9 +15,11 @@ use std::io::{BufRead, Write};
 pub mod crate_for_pages;
 pub mod diagnostics;
 pub mod downstream;
+pub mod inside;
 pub mod json;
 pub mod rpc;
 pub mod shadow;
+pub mod suggest;
 
 /// Answer an editor until it says goodbye.
 ///
@@ -158,6 +160,11 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
     // The page each open document compiles to, by the document's URI.
     let mut shadows: std::collections::HashMap<String, shadow::Shadow> =
         std::collections::HashMap::new();
+    // And the text itself, as the editor last sent it. The markup half
+    // of completion reads this rather than the generated file: what is
+    // being completed is usually not valid Rust yet, and that is the
+    // normal state of a file somebody is typing in.
+    let mut sources: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
     while let Some(message) = rpc::read(input) {
         let Some(method) = json::field(&message, "method") else {
@@ -198,7 +205,14 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
             // back is told where it really is.
             "textDocument/completion" | "textDocument/hover" | "textDocument/definition" => {
                 let id = json::number(&message, "id").unwrap_or(0);
-                let answer = assist(&method, &message, &shadows, downstream.held());
+                // The markup first: it needs nothing but the text, so
+                // it answers while `rust-analyzer` is still loading, and
+                // it answers for positions that have no counterpart in
+                // the generated file at all.
+                let answer = match offer(&method, &message, &sources) {
+                    Some(items) => items,
+                    None => assist(&method, &message, &shadows, downstream.held()),
+                };
                 rpc::write(
                     output,
                     &format!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{answer}}}"),
@@ -216,6 +230,7 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
                 };
                 let found = diagnostics::of(&text);
                 rpc::write(output, &diagnostics::notification(&uri, &found));
+                sources.insert(uri.clone(), text.clone());
 
                 // The underlining goes out first: it is what a keystroke
                 // is waiting for, and the shadow is for the question
@@ -251,6 +266,55 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
             _ => {}
         }
     }
+}
+
+/// What the server offers out of its own head, or nothing when the
+/// position is not in the markup.
+///
+/// `None` means "not mine": the caller then asks `rust-analyzer`
+/// through the position map, which is the right answer for a position in
+/// the developer's own Rust.
+fn offer(
+    method: &str,
+    message: &str,
+    sources: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    // A hover or a definition on a tag name has nothing to say that the
+    // tag itself does not: the markup half answers completion only.
+    if method != "textDocument/completion" {
+        return None;
+    }
+    let uri = json::field(message, "uri")?;
+    let source = sources.get(&uri)?;
+    let line = json::number(message, "line")?.max(0) as usize + 1;
+    let character = json::number(message, "character")?.max(0) as usize + 1;
+
+    let page = match shadow::path_of(&uri) {
+        Some(path) => suggest::page_of(source, &path),
+        None => suggest::Page {
+            components: rustx_compiler::promote::component_signatures(source),
+            libraries: Vec::new(),
+        },
+    };
+
+    let items = match inside::at(source, line, character) {
+        inside::Place::Rust => return None,
+        inside::Place::TagName { typed } => suggest::tags(&typed, &page),
+        inside::Place::ClosingTag { open } => suggest::closing(&open),
+        inside::Place::AttributeName {
+            tag,
+            typed,
+            already,
+        } => suggest::attributes(&tag, &typed, &page, &already),
+        inside::Place::StyleKey { typed } => suggest::style_keys(&typed),
+        // In an attribute's value, or in the text between two tags:
+        // nothing the server knows, and a list of tags in the middle of
+        // a sentence would be worse than nothing.
+        inside::Place::AttributeValue { .. } => Vec::new(),
+        // The expression's own completions come from `rust-analyzer`.
+        inside::Place::Expression { .. } => return None,
+    };
+    Some(suggest::json(&items))
 }
 
 /// Ask the downstream server what the editor asked us, about the shadow
