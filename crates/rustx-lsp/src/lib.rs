@@ -12,6 +12,7 @@
 
 use std::io::{BufRead, Write};
 
+pub mod crate_for_pages;
 pub mod diagnostics;
 pub mod downstream;
 pub mod json;
@@ -26,10 +27,15 @@ pub mod shadow;
 pub fn serve(input: &mut impl BufRead, output: &mut impl Write) {
     // Whoever built the server built `rust-analyzer` too, or did not.
     // Both are ordinary, and only one of them has completion in it.
+    //
+    // It is not started here: `rust-analyzer` analyses a workspace, and
+    // which workspace is open is something only the editor knows, in the
+    // `initialize` it is about to send. Started without one it analyses
+    // nothing and answers every question with silence, which looks
+    // exactly like a server that was never installed.
     let named =
         std::env::var("RUSTX_RUST_ANALYZER").unwrap_or_else(|_| "rust-analyzer".to_string());
-    let downstream = downstream::Server::start(&named);
-    serve_with(input, output, downstream);
+    answer(input, output, Downstream::Start(named));
 }
 
 /// The same, with the downstream server handed in.
@@ -43,6 +49,76 @@ pub fn serve_with(
     output: &mut impl Write,
     downstream: Option<downstream::Server>,
 ) {
+    answer(
+        input,
+        output,
+        match downstream {
+            Some(server) => Downstream::Held(server),
+            None => Downstream::None,
+        },
+    );
+}
+
+/// The server downstream, or the way to get one.
+enum Downstream {
+    Held(downstream::Server),
+    /// A command to start, once the editor has said which project it has
+    /// open.
+    Start(String),
+    None,
+}
+
+impl Downstream {
+    /// Start it, if it has not been started, in the project the editor
+    /// named.
+    fn ready(&mut self, root: Option<&str>) {
+        if let Self::Start(command) = self {
+            // Every application of this workspace gets the little crate
+            // that makes its pages readable, before the server starts:
+            // `rust-analyzer` is told which projects to load once, and a
+            // project named afterwards means a workspace reloaded under
+            // the developer's hands.
+            let linked = root
+                .and_then(shadow::path_of)
+                .map(|root| crate_for_pages::for_workspace(&root))
+                .unwrap_or_default();
+            *self = match downstream::Server::start_in(command, root, &linked) {
+                Some(server) => {
+                    eprintln!(
+                        "rustx: completion, hovers and definitions come from `{command}`, \
+                         reading {} application(s) of {}.",
+                        linked.len(),
+                        root.unwrap_or("no project")
+                    );
+                    Self::Held(server)
+                }
+                // Said out loud, on the channel the editor shows: a
+                // developer whose completion is missing has no other way
+                // to find out that the server it comes from was never
+                // there. Which is exactly how the first install of this
+                // extension went.
+                None => {
+                    eprintln!(
+                        "rustx: `{command}` did not start or did not answer, so there is no \
+                         completion, no hover and no go-to-definition. Install it \
+                         (`rustup component add rust-analyzer`) or say where it is with \
+                         `rustx.rustAnalyzer.path`. Mistakes are still underlined."
+                    );
+                    Self::None
+                }
+            };
+        }
+    }
+
+    fn held(&mut self) -> Option<&mut downstream::Server> {
+        match self {
+            Self::Held(server) => Some(server),
+            _ => None,
+        }
+    }
+}
+
+fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstream) {
     let mut downstream = downstream;
     // The page each open document compiles to, by the document's URI.
     let mut shadows: std::collections::HashMap<String, shadow::Shadow> =
@@ -55,9 +131,14 @@ pub fn serve_with(
         match method.as_str() {
             "initialize" => {
                 let id = json::number(&message, "id").unwrap_or(0);
+                // The project the editor has open, which is the one
+                // `rust-analyzer` has to be pointed at.
+                let root =
+                    json::field(&message, "rootUri").or_else(|| json::field(&message, "uri"));
+                downstream.ready(root.as_deref());
                 // What is promised is what there is: an editor told a
                 // server provides completion asks it, and waits.
-                let assistance = if downstream.is_some() {
+                let assistance = if downstream.held().is_some() {
                     ",\"completionProvider\":{\"triggerCharacters\":[\".\",\":\"]},\
                      \"hoverProvider\":true,\"definitionProvider\":true"
                 } else {
@@ -79,7 +160,7 @@ pub fn serve_with(
             // back is told where it really is.
             "textDocument/completion" | "textDocument/hover" | "textDocument/definition" => {
                 let id = json::number(&message, "id").unwrap_or(0);
-                let answer = assist(&method, &message, &shadows, downstream.as_mut());
+                let answer = assist(&method, &message, &shadows, downstream.held());
                 rpc::write(
                     output,
                     &format!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{answer}}}"),
@@ -107,7 +188,7 @@ pub fn serve_with(
                     } else {
                         "textDocument/didOpen"
                     };
-                    if let Some(server) = downstream.as_mut() {
+                    if let Some(server) = downstream.held() {
                         server.tell(telling, &shadow::told(&fresh, telling));
                     }
                     shadows.insert(uri.clone(), fresh);

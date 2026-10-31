@@ -12,7 +12,8 @@ fn Page() -> Element {
     let data: Vec<Point> = (0..=points)
         .map(|at| Point { at: at as f64, value: (at * at) as f64 })
         .collect();
-
+        
+    
     return <div className="min-h-screen bg-zinc-950 text-zinc-100 antialiased">
         {Header()}
 
@@ -187,6 +188,7 @@ fn Footer() -> Element {
 fn Card(children: Element) -> Element {
     return <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6 shadow-lg shadow-black/20">
         {children}
+
     </div>;
 }
 
@@ -214,5 +216,6 @@ fn Feature(title: String, body: String) -> Element {
 }
 
 fn Counter() -> Element {
+    
     return <span id="counter-in-panel" className="font-mono text-violet-300">{points}</span>;
 }

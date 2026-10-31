@@ -6,6 +6,8 @@
 // built it themselves — which, until the server is published, is
 // everyone.
 
+import { existsSync } from "node:fs";
+
 import * as vscode from "vscode";
 import {
   LanguageClient,
@@ -31,16 +33,40 @@ function server(): string {
 /// a rustup component in a toolchain directory, a build of their own —
 /// says where it is, and it reaches the server through its environment.
 function surroundings(): Record<string, string> | undefined {
-  const analyzer = vscode.workspace
+  const named = vscode.workspace
     .getConfiguration("rustx")
     .get<string>("rustAnalyzer.path");
-  if (!analyzer || analyzer.trim() === "") {
+  const analyzer =
+    named && named.trim() !== "" ? named.trim() : analyzerOfTheEditor();
+  if (!analyzer) {
     return undefined;
   }
-  return { ...process.env, RUSTX_RUST_ANALYZER: analyzer.trim() } as Record<
+  return { ...process.env, RUSTX_RUST_ANALYZER: analyzer } as Record<
     string,
     string
   >;
+}
+
+/// The `rust-analyzer` VS Code already has, if it has one.
+///
+/// Anyone writing Rust in this editor has the `rust-analyzer` extension,
+/// and it ships the binary — in a directory whose name carries its
+/// version, which is why this asks the editor rather than guessing. It
+/// saves the one setup step nobody should have to discover: the
+/// `rust-analyzer` on a `PATH` is often a rustup shim for a component
+/// that was never installed, and that shim fails with a message the
+/// developer never sees.
+function analyzerOfTheEditor(): string | undefined {
+  const theirs = vscode.extensions.getExtension("rust-lang.rust-analyzer");
+  if (!theirs) {
+    return undefined;
+  }
+  const binary = vscode.Uri.joinPath(
+    theirs.extensionUri,
+    "server",
+    process.platform === "win32" ? "rust-analyzer.exe" : "rust-analyzer",
+  );
+  return existsSync(binary.fsPath) ? binary.fsPath : undefined;
 }
 
 export function activate(context: vscode.ExtensionContext): void {

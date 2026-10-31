@@ -132,3 +132,59 @@ fn a_child_that_answers_initialize_is_held() {
     );
     let _ = std::fs::remove_file(&script);
 }
+
+#[test]
+fn the_project_the_editor_named_is_the_one_it_is_started_in() {
+    // `rust-analyzer` analyses a workspace. Started without one it
+    // analyses nothing and answers every question with silence, which
+    // looks exactly like a server that was never installed — so the root
+    // the editor named has to reach it.
+    let answer = framed("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"capabilities\":{}}}");
+    let script = std::env::temp_dir().join(format!(
+        "rustx-rooted-{}-{}.txt",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_nanos())
+            .unwrap_or(0)
+    ));
+    std::fs::write(&script, answer.as_bytes()).expect("the answer is written");
+
+    let asked = rustx_lsp::downstream::handshake(Some("file:///c:/work/project"), &[]);
+    assert!(
+        asked.contains("\"rootUri\":\"file:///c:/work/project\""),
+        "got {asked}"
+    );
+    assert!(asked.contains("workspaceFolders"), "got {asked}");
+
+    // And without one, it says so rather than inventing a project.
+    let loose = rustx_lsp::downstream::handshake(None, &[]);
+    assert!(loose.contains("\"rootUri\":null"), "got {loose}");
+
+    // The child that only prints an answer was told no root, and holds
+    // none.
+    let path = script.display().to_string();
+    let held = Server::start_with("cmd", &["/c", "type", &path]).expect("a child");
+    assert!(held.root().is_none(), "nothing named a root");
+    let _ = std::fs::remove_file(&script);
+}
+
+#[test]
+fn the_projects_to_read_are_named_in_the_handshake() {
+    // `rust-analyzer` would otherwise look for projects itself and find
+    // the application, whose pages are included from inside a macro
+    // expansion and so belong to no file it can answer about. Proved by
+    // hand against a real `rust-analyzer`: the same page, included from
+    // ordinary source, answers.
+    let asked = rustx_lsp::downstream::handshake(
+        Some("file:///c:/work"),
+        &[std::path::PathBuf::from(
+            r"C:\work\apps\counter\target\rustx-editor\Cargo.toml",
+        )],
+    );
+    assert!(asked.contains("linkedProjects"), "got {asked}");
+    assert!(
+        asked.contains("C:/work/apps/counter/target/rustx-editor/Cargo.toml"),
+        "a path a server cannot read: {asked}"
+    );
+}

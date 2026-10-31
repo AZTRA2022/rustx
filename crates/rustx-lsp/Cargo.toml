@@ -7,3 +7,6 @@ description = "What an editor asks about a .rsx: where the mistakes are."
 
 [dependencies]
 rustx-compiler = { path = "../rustx-compiler" }
+
+[dev-dependencies]
+rustx-compiler = { path = "../rustx-compiler" }
