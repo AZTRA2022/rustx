@@ -75,12 +75,19 @@ fn several_children_arrive_as_one_fragment() {
 }
 
 #[test]
-fn a_component_that_is_not_declared_in_this_file_is_refused() {
-    // Review Focus 5: a silent wrong call is worse than a refusal.
-    let error = transpile("fn Page() -> Element {\n    return <Preview />;\n}")
-        .expect_err("should be refused");
-    assert_eq!(error.line, 2);
-    assert!(error.message.contains("Preview"), "got {}", error.message);
+fn a_component_this_file_does_not_declare_is_a_library_component() {
+    // It used to be a refusal, and the refusal was right while a tag
+    // could only be a component written beside it. A tag is now also how
+    // a component off npm is written, and the compiler cannot know what
+    // the application installed — so a name this file does not declare
+    // is resolved in the page, among the libraries it brought, and the
+    // complaint for a name nobody has names both places it was looked
+    // for.
+    let rust = transpile("fn Page() -> Element {\n    return <Preview />;\n}")
+        .expect("transpilable")
+        .rust;
+    assert!(rust.contains("Element :: Foreign"), "got {rust}");
+    assert!(rust.contains("\"Preview\""), "got {rust}");
 }
 
 #[test]

@@ -95,15 +95,13 @@ fn an_unknown_tag_is_refused_by_name() {
 }
 
 #[test]
-fn a_component_tag_says_components_are_not_here_yet() {
-    // Every TSX author will try `<Card />` on the first day. Telling them
-    // it is an unknown HTML tag would send them looking for a typo.
-    let error = emit_one_err("<Card />");
-    assert!(
-        error.message.contains("component"),
-        "an unhelpful message for a PascalCase tag: {}",
-        error.message
-    );
+fn a_component_tag_is_a_library_component() {
+    // Every TSX author writes `<Card />` on the first day, and that is
+    // now what it means: a component off npm, found by its name in the
+    // page among the libraries the application installed.
+    let rust = emit_one("<Card />");
+    assert!(rust.contains("Element :: Foreign"), "got {rust}");
+    assert!(rust.contains("\"Card\""), "got {rust}");
 }
 
 #[test]

@@ -96,9 +96,21 @@ fn expression(node: &Node, context: &Context<'_>) -> Result<TokenStream, Compile
             Ok(quote! { rustx_dom::into_element(#inner) })
         }
         Node::Tag(tag) if tag.is_fragment() => Ok(fragment(&tag.children, context)?),
+        // A capitalised tag the page declares is the page's own
+        // component. One it does not declare is a component off npm,
+        // found by its name among the libraries the application
+        // installed — no prefix, the way it is written in JSX. `js::`
+        // and `module::Name` stay as the explicit forms, for a name two
+        // libraries export or a name the page also declares.
         Node::Tag(tag) if tag.name.starts_with("js::") => foreign_expression(tag, context),
-        Node::Tag(tag) if crate::tags::looks_like_a_component(&tag.name) => {
+        Node::Tag(tag)
+            if crate::tags::looks_like_a_component(&tag.name)
+                && context.parameters_of(&tag.name).is_some() =>
+        {
             component_expression(tag, context)
+        }
+        Node::Tag(tag) if crate::tags::looks_like_a_component(&tag.name) => {
+            foreign_expression(tag, context)
         }
         Node::Tag(tag) => tag_expression(tag, context),
     }
@@ -435,8 +447,16 @@ fn foreign_expression(tag: &TagNode, context: &Context<'_>) -> Result<TokenStrea
 
 /// One component React owns, with its props and whatever is inside it.
 fn foreign_node(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, CompileError> {
-    let path = &tag.name["js::".len()..];
-    let export = path.rsplit("::").next().unwrap_or(path);
+    let path = tag.name.strip_prefix("js::").unwrap_or(&tag.name);
+    // The last segment is the export, whichever way the page spelled
+    // the path: `recharts::LineChart`, `Dialog.Trigger`, or `LineChart`.
+    let export = path
+        .rsplit("::")
+        .next()
+        .unwrap_or(path)
+        .rsplit('.')
+        .next()
+        .unwrap_or(path);
     if !crate::tags::looks_like_a_component(export) {
         let capitalised = format!(
             "{}{}",

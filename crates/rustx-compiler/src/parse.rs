@@ -242,7 +242,12 @@ impl Cursor<'_> {
         let start = self.index;
         while self.index < self.end {
             let byte = self.bytes()[self.index];
-            if byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-' || byte == b':' {
+            if byte.is_ascii_alphanumeric()
+                || byte == b'_'
+                || byte == b'-'
+                || byte == b':'
+                || byte == b'.'
+            {
                 self.index += 1;
             } else {
                 break;

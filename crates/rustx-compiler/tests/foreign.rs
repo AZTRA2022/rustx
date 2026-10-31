@@ -118,3 +118,39 @@ fn an_event_on_a_js_tag_is_refused() {
     let message = refusal("fn P() -> Element {\n    return <js::Chart onClick={|_| ()} />;\n}");
     assert!(message.contains("onClick"), "got {message}");
 }
+
+#[test]
+fn a_capitalised_tag_the_file_does_not_declare_is_a_library_component() {
+    // No prefix. A tag the page declares is the page's; a tag it does
+    // not is a component off npm, found by its name among the libraries
+    // the application installed.
+    let rust = rewrite_one("fn P() -> Element {\n    return <LineChart width={320} />;\n}");
+    assert!(rust.contains("Element :: Foreign"), "got {rust}");
+    assert!(rust.contains("\"LineChart\""), "got {rust}");
+}
+
+#[test]
+fn a_dotted_tag_is_a_path_into_a_library() {
+    // `<Dialog.Trigger />`, as it is written in JSX.
+    let rust =
+        rewrite_one("fn P() -> Element {\n    return <Dialog.Trigger>open</Dialog.Trigger>;\n}");
+    assert!(rust.contains("\"Dialog.Trigger\""), "got {rust}");
+    assert!(rust.contains("ForeignChild :: Text"), "got {rust}");
+}
+
+#[test]
+fn a_tag_the_file_declares_is_still_a_rustx_component() {
+    let rust = rewrite_one(
+        "fn P() -> Element {\n    return <Row name={\"a\".to_string()} />;\n}\n\
+         fn Row(name: String) -> Element {\n    return <li>{name}</li>;\n}",
+    );
+    assert!(!rust.contains("Element :: Foreign"), "got {rust}");
+    assert!(rust.contains("component_at"), "got {rust}");
+}
+
+#[test]
+fn a_rust_tag_inside_a_library_tag_is_refused_without_a_prefix_too() {
+    let message = refusal("fn P() -> Element {\n    return <Button><p>hi</p></Button>;\n}");
+    assert!(message.contains("<p>"), "got {message}");
+    assert!(message.contains("Button"), "got {message}");
+}
