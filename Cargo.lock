@@ -879,6 +879,7 @@ dependencies = [
  "rustx-dom",
  "rustx-engine",
  "rustx-macros",
+ "rustx-os",
 ]
 
 [[package]]

@@ -9,3 +9,6 @@ description = "What an application writes: a window, its pages, and nothing else
 rustx-dom = { path = "../rustx-dom" }
 rustx-engine = { path = "../rustx-engine" }
 rustx-macros = { path = "../rustx-macros" }
+# Ce que le web ne sait pas faire : le presse-papiers, les dialogues, les
+# appareils. Un répertoire par système, à l'intérieur.
+rustx-os = { path = "../rustx-os" }

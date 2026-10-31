@@ -35,6 +35,28 @@ pub mod clipboard {
     pub const AVAILABLE: bool = false;
 }
 
+pub mod dialog {
+    use std::path::PathBuf;
+
+    use crate::dialog::{Ask, DialogError};
+
+    const WHAT: &str = "le dialogue de fichiers";
+
+    pub const AVAILABLE: bool = false;
+
+    pub fn open(_ask: &Ask) -> Result<Vec<PathBuf>, DialogError> {
+        Err(DialogError::Unsupported(WHAT))
+    }
+
+    pub fn save(_ask: &Ask) -> Result<PathBuf, DialogError> {
+        Err(DialogError::Unsupported(WHAT))
+    }
+
+    pub fn folder(_ask: &Ask) -> Result<PathBuf, DialogError> {
+        Err(DialogError::Unsupported(WHAT))
+    }
+}
+
 pub mod devices {
     use crate::devices::{Device, Kind};
 

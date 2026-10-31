@@ -49,23 +49,52 @@
 
 ---
 
-### Task 2 : Les dialogues de fichiers
+### Task 2 : Les dialogues de fichiers — **fait, autrement que prévu**
 
 **Files:**
-- Create: `crates/rustx-engine/src/dialog.rs`
-- Modify: `crates/rustx/src/lib.rs` (`rustx::dialog`)
-- Test: `crates/rustx-engine/tests/dialog.rs`, `apps/capture/tests/app.rs`
+- Create: `crates/rustx-os/src/dialog.rs` (l'API), `crates/rustx-os/src/windows/dialog.rs`, `crates/rustx-os/src/linux/dialog.rs`, `crates/rustx-os/examples/choose_a_file.rs`
+- Modify: `crates/rustx/src/lib.rs` (`rustx::dialog`), `crates/rustx-os/src/other/mod.rs`
+- Test: `crates/rustx-os/tests/dialog.rs`
+
+**Ruling : le dialogue du système, pas celui de Chromium.** Le plan
+disait `ImplBrowserHost::run_file_dialog`. Il n'existe que dans le
+processus navigateur, alors que tout ce qu'un développeur écrit — arbre,
+état, gestionnaires — vit dans le processus de rendu. L'appeler depuis
+un `onClick` demandait un pont entre les deux processus (deux messages
+de Chromium, un registre de questions en attente, une traduction des
+valeurs dans les deux sens) pour obtenir au bout du compte le dialogue
+que le système ouvre de toute façon. Appelé directement par
+`IFileOpenDialog`, il s'ouvre depuis n'importe quel processus et la
+signature redevient synchrone, celle que ce plan demandait.
+*Coût si c'est faux :* trois implémentations au lieu d'une — ce qui est
+exactement la structure « un répertoire par système » déjà posée, et ce
+qui rend `rustx-os` utilisable sans fenêtre du tout.
+
+**Ruling : le pont entre les deux processus est reporté à la tâche 6.**
+Une deuxième fenêtre ne peut être créée que par le processus
+navigateur ; elle, et elle seule, en aura besoin. La barre système, les
+notifications et les raccourcis globaux n'en ont pas besoin : ils
+demandent une boucle de messages, pas *la* boucle de la fenêtre, et un
+thread avec sa propre fenêtre invisible suffit.
 
 **Interfaces:**
-- Produces: `dialog::open(Ask) -> Result<Vec<PathBuf>, DialogError>` et `dialog::save(Ask) -> Result<PathBuf, DialogError>` où `struct Ask { pub title: String, pub filters: Vec<(String, Vec<String>)>, pub start_in: Option<PathBuf>, pub many: bool }` ; `enum DialogError { Cancelled, NoWindow, Platform(String) }` — l'annulation est un cas normal, nommé, pas une erreur à journaliser.
-- L'implémentation passe par `ImplBrowserHost::run_file_dialog` (natif sur les trois plateformes) et poste le résultat au thread de l'interface.
-- `Cancelled` est ce que rend un dialogue fermé : une application qui écrit `let Ok(paths) = dialog::open(…) else { return; }` se comporte juste.
+- Produces : `dialog::open(Ask) -> Result<Vec<PathBuf>, DialogError>`,
+  `dialog::save(Ask) -> Result<PathBuf, DialogError>`,
+  `dialog::folder(Ask) -> Result<PathBuf, DialogError>`,
+  `dialog::supported() -> bool`,
+  `patterns_for(&[(String, Vec<String>)]) -> Vec<(String, String)>` ;
+  `struct Ask { title, filters, start_in, named, many }` avec
+  `new/filter/starting_in/named/many` ;
+  `enum DialogError { Cancelled, Unsupported(&'static str), Platform(String) }`.
+- Bloquant, et c'est ce qu'on lui demande : un dialogue modal fait
+  tourner sa propre boucle de messages, donc la fenêtre reste dessinée.
+- `Cancelled` est un cas normal : `let Ok(paths) = dialog::open(…) else { return; }`.
 
-- [ ] **Step 1** : les tests — `a_dialog_without_a_window_is_refused_in_words` (appelé avant que la fenêtre existe), `a_cancelled_dialog_is_cancelled_and_not_an_error`, `the_filters_become_what_cef_expects` (la conversion `("Images", ["png","jpg"])` → la chaîne de CEF, testée sans ouvrir quoi que ce soit), plus un exemple `cargo run -p capture --example choose_a_file` à lancer à la main, qui est dit dans le README.
-- [ ] **Step 2** : rouge.
-- [ ] **Step 3** : la conversion, l'appel, le retour.
-- [ ] **Step 4** : vert.
-- [ ] **Step 5** : commit `feat(os): native file dialogs`.
+- [x] **Step 1** : les tests — `the_filters_become_patterns_every_system_reads`, `what_is_asked_is_what_is_written`, `a_cancelled_dialog_is_cancelled_and_not_a_failure`, `a_platform_that_cannot_do_it_says_which_file_to_write`, `this_platform_says_whether_it_has_one`, plus `cargo run -p rustx-os --example choose_a_file` à lancer à la main.
+- [x] **Step 2** : rouge.
+- [x] **Step 3** : `IFileOpenDialog`/`IFileSaveDialog`, `FOS_FORCEFILESYSTEM`, le propriétaire = la fenêtre de premier plan, COM entré et laissé comme on l'a trouvé.
+- [x] **Step 4** : vert — et mesuré sur un vrai dialogue : classe `#32770`, titre « rustx — choisir », fermé par `WM_CLOSE` → `Cancelled`. C'est cette mesure qui a trouvé le code d'annulation : `HRESULT_FROM_WIN32(ERROR_CANCELLED)` et non `E_ABORT`, et sans elle une annulation passait pour une panne du système.
+- [x] **Step 5** : commit.
 
 ---
 
@@ -131,6 +160,20 @@
 - Create: `crates/rustx-engine/src/second_window.rs`, `crates/rustx-os/src/instance.rs`, `crates/rustx-os/src/autostart.rs`
 - Modify: `crates/rustx/src/lib.rs` (`rustx::window::open`, `Config::single_instance`, `Config::autostart`)
 - Test: `crates/rustx-engine/tests/second_window.rs`, `crates/rustx-os/tests/instance.rs`, `apps/monitor/tests/app.rs`
+
+**Prérequis, trouvé à la tâche 2 : le pont entre les deux processus.**
+Une fenêtre ne peut être créée que par le processus navigateur
+(`browser_host_create_browser` sur le thread de son interface), et
+`window::open` est appelé là où la page est écrite, c'est-à-dire dans le
+processus de rendu. Il faut donc un passage : un `ProcessMessage`
+`rustx.ask` qui part de la page avec un numéro, le processus de la
+fenêtre qui le sert, un `rustx.answer` qui revient sous le même numéro,
+et un registre des questions en attente vidé quand la page s'en va.
+C'est un fichier, `crates/rustx-engine/src/bridge.rs`, et il est le
+Step 0 de cette tâche — avec ses propres tests : un numéro jamais
+réutilisé, une réponse reprise une fois et une seule, les valeurs qui
+traversent intactes, et une question que personne ne sert qui reçoit
+quand même une réponse vide (sans quoi la page attend pour toujours).
 
 **Interfaces:**
 - Produces: `window::open(What) -> Result<Window, EngineError>` où `struct What { pub title: String, pub width: u32, pub height: u32, pub at: String }` (`at` est la route sur laquelle la fenêtre s'ouvre) ; `Window::close(self)` et un `Drop` qui ferme ; `instance::only_one(name: &str) -> Result<Only, OsError>` dont l'échec porte les arguments de la première instance ; `instance::handed_over() -> Vec<String>` ; `autostart::set(on: bool, name: &str) -> Result<(), OsError>` et `autostart::is_on(name: &str) -> bool`.

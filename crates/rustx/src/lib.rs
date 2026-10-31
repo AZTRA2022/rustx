@@ -33,6 +33,12 @@ pub use rustx_dom::{
     AttributeValue, Element, Handler, IntoElement, Key, TagElement, Value, into_element, route,
     state, store, value,
 };
+/// Ce qui touche la machine et non la page : le presse-papiers, les
+/// dialogues de fichiers, les appareils. Chacun dit, avant qu'on lui
+/// demande quoi que ce soit, si cette plateforme sait le faire.
+pub use rustx_os::{clipboard, devices, dialog};
+pub use rustx_os::OsError;
+
 pub use rustx_engine::{
     Document, DomError, NativeError, Node, PostError, Poster, foreign, mount, mount_at_id,
     on_context_created, on_frame, poster, register_native, render, router, task,

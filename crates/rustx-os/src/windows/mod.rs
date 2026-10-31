@@ -9,4 +9,5 @@
 
 pub mod clipboard;
 pub mod devices;
+pub mod dialog;
 pub mod media;
