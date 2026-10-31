@@ -21,10 +21,33 @@ pub enum Element {
     /// the compiler, deterministically, the way a `Slot` is — so the
     /// engine finds the container without searching for it by position.
     Foreign {
-        component: String,
-        props: Vec<(String, crate::Value)>,
+        /// The component, its props and whatever is written inside it.
+        node: ForeignNode,
         id: String,
     },
+}
+
+/// A component React owns, as the page wrote it.
+///
+/// It carries its children, because a library's components are written
+/// inside one another — a chart holds its axes and its lines — and the
+/// whole tree is handed over at once. They are not `Element`s: what is
+/// inside a React tree is React's, and a DOM node rustx thinks it owns
+/// in a tree React reconciles is the one thing this boundary exists to
+/// prevent. The type is what says so.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForeignNode {
+    /// `"recharts::LineChart"`: the module, then the export.
+    pub component: String,
+    pub props: Vec<(String, crate::Value)>,
+    pub children: Vec<ForeignChild>,
+}
+
+/// What may be written inside a component React owns.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ForeignChild {
+    Node(ForeignNode),
+    Text(String),
 }
 
 /// A tag, its attributes, its event handlers and its children, in the

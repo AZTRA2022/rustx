@@ -422,31 +422,36 @@ fn whole_call_to_a_component(code: &str, context: &Context<'_>) -> bool {
 /// that is not a value, because what crosses is copied in full and
 /// nothing is borrowed.
 fn foreign_expression(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, CompileError> {
-    let component = &tag.name["js::".len()..];
-    if !crate::tags::looks_like_a_component(component) {
+    let node = foreign_node(tag, context)?;
+    let (line, column) = context.line_and_column(tag.offset);
+    let id = Literal::string(&format!("rustx-js-{line}-{column}"));
+    Ok(quote! {
+        rustx_dom::Element::Foreign {
+            node: #node,
+            id: #id.to_string(),
+        }
+    })
+}
+
+/// One component React owns, with its props and whatever is inside it.
+fn foreign_node(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, CompileError> {
+    let path = &tag.name["js::".len()..];
+    let export = path.rsplit("::").next().unwrap_or(path);
+    if !crate::tags::looks_like_a_component(export) {
+        let capitalised = format!(
+            "{}{}",
+            export
+                .chars()
+                .next()
+                .map(|first| first.to_uppercase().to_string())
+                .unwrap_or_default(),
+            export.get(1..).unwrap_or("")
+        );
         return Err(CompileError::flagged(
             tag.offset,
             format!(
                 "`{}` names no React component. A React component is capitalised — \
-                 `<js::{}{} />`.",
-                tag.name,
-                component
-                    .chars()
-                    .next()
-                    .map(|first| first.to_uppercase().to_string())
-                    .unwrap_or_default(),
-                component.get(1..).unwrap_or("")
-            ),
-        ));
-    }
-
-    if !tag.children.is_empty() {
-        return Err(CompileError::flagged(
-            tag.offset,
-            format!(
-                "`{}` owns what is inside it, so nothing can be written between its \
-                 tags — children given here would be reconciled by neither side. Pass \
-                 what it should show as a prop.",
+                 write `{capitalised}`, the name the module exports.",
                 tag.name
             ),
         ));
@@ -469,16 +474,56 @@ fn foreign_expression(tag: &TagNode, context: &Context<'_>) -> Result<TokenStrea
         props.push(quote! { (#name.to_string(), #value) });
     }
 
-    let (line, column) = context.line_and_column(tag.offset);
-    let component = Literal::string(component);
-    let id = Literal::string(&format!("rustx-js-{line}-{column}"));
+    let mut children = Vec::new();
+    for child in &tag.children {
+        children.push(foreign_child(tag, child, context)?);
+    }
+
+    let component = Literal::string(path);
     Ok(quote! {
-        rustx_dom::Element::Foreign {
+        rustx_dom::ForeignNode {
             component: #component.to_string(),
             props: vec![#(#props),*],
-            id: #id.to_string(),
+            children: vec![#(#children),*],
         }
     })
+}
+
+/// What may be written inside a component React owns: another of its
+/// own, or text.
+fn foreign_child(
+    parent: &TagNode,
+    child: &Node,
+    context: &Context<'_>,
+) -> Result<TokenStream, CompileError> {
+    match child {
+        Node::Tag(tag) if tag.name.starts_with("js::") => {
+            let node = foreign_node(tag, context)?;
+            Ok(quote! { rustx_dom::ForeignChild::Node(#node) })
+        }
+        Node::Text(text) => {
+            let text = Literal::string(text);
+            Ok(quote! { rustx_dom::ForeignChild::Text(#text.to_string()) })
+        }
+        Node::Tag(tag) => Err(CompileError::flagged(
+            tag.offset,
+            format!(
+                "`<{}>` is a DOM tag, and it is written inside `{}`, which React owns. \
+                 A node rustx thinks it owns inside a tree React reconciles is the one \
+                 thing this boundary prevents: write a component of the library there, \
+                 or put the DOM outside the boundary.",
+                tag.name, parent.name
+            ),
+        )),
+        Node::Expression { offset, .. } => Err(CompileError::flagged(
+            *offset,
+            format!(
+                "`{}` is React's, so what is inside it is a React tree, not a Rust \
+                 expression. Pass the value as a prop.",
+                parent.name
+            ),
+        )),
+    }
 }
 
 /// What one prop of a React component crosses as.
@@ -495,38 +540,17 @@ fn crossing_value(attribute: &Attribute) -> Result<TokenStream, CompileError> {
             let text = Literal::string(text);
             Ok(quote! { rustx_dom::Value::String(#text.to_string()) })
         }
+        // Whatever the page wrote, crossing through `ToValue`.
+        //
+        // The compiler used to guess from what was written — a literal,
+        // something ending in `.to_string()`, something ending in
+        // `as f64` — and refuse the rest. That refused `data={points}`,
+        // which is the one prop a chart actually takes. `ToValue` is
+        // what says a type can cross, so a type that cannot is refused
+        // by `rustc`, at the line of the `.rsx` that wrote it.
         AttributeSource::Expression(code) => {
-            let written = code.trim();
             let inner = rust(code, attribute.offset)?;
-            if written == "true" || written == "false" {
-                return Ok(quote! { rustx_dom::Value::Bool(#inner) });
-            }
-            if written.parse::<f64>().is_ok() {
-                return Ok(quote! { rustx_dom::Value::Number(#inner as f64) });
-            }
-            if written.starts_with('"') && written.ends_with('"') {
-                return Ok(quote! { rustx_dom::Value::String((#inner).to_string()) });
-            }
-            if written.ends_with(".to_string()") || written.ends_with(".into()") {
-                return Ok(quote! { rustx_dom::Value::String(#inner) });
-            }
-            // A number the page computed says so in the page. The
-            // compiler does not know the types of the developer's Rust,
-            // and `as f64` is the developer saying it in Rust's own
-            // words rather than the compiler guessing.
-            if written.ends_with("as f64") {
-                return Ok(quote! { rustx_dom::Value::Number(#inner) });
-            }
-            Err(CompileError::flagged(
-                attribute.offset,
-                format!(
-                    "`{}` has to cross into React as a value, and rustx cannot tell what \
-                     `{written}` is. What crosses is a string, a number, a boolean or \
-                     nothing: write `{}={{{written}.to_string()}}` for a string, or \
-                     `{}={{{written} as f64}}` for a number.",
-                    attribute.name, attribute.name, attribute.name
-                ),
-            ))
+            Ok(quote! { rustx_dom::value::ToValue::to_value(&(#inner)) })
         }
     }
 }

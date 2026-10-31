@@ -155,3 +155,28 @@ fn a_boundary_rendered_before_the_bridge_exists_is_handed_over_when_it_appears()
         report().raw()
     );
 }
+
+#[test]
+fn a_foreign_child_is_handed_over_with_its_parent() {
+    // A library's components are written inside one another — a chart
+    // holds its axes — and the whole tree crosses at once.
+    assert_eq!(
+        report().get("chart_inside"),
+        r#"Axis({"dataKey":"at"})"#,
+        "what was written inside the boundary did not cross:\n{}",
+        report().raw()
+    );
+}
+
+#[test]
+fn a_childs_props_reach_react_without_the_parent_changing() {
+    // The boundary is the node and everything under it: an axis whose
+    // key changed is a change React has to be told about, even though
+    // the chart's own props are the same.
+    assert_eq!(
+        report().get("chart_inside_after_child_prop"),
+        r#"Axis({"dataKey":"value"})"#,
+        "a change inside the boundary never reached React:\n{}",
+        report().raw()
+    );
+}

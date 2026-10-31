@@ -84,7 +84,7 @@ pub enum Patch {
     /// have now, so a prop that went away is simply not in the list.
     ForeignProps {
         path: Path,
-        props: Vec<(String, crate::Value)>,
+        node: crate::ForeignNode,
     },
 }
 
@@ -140,22 +140,17 @@ fn compare(old: &Element, new: &Element, at: &Path, source: &Path, patches: &mut
         // so the props are handed over and nothing else is said; a
         // different component is a different thing in that container,
         // and the honest answer is to build it.
-        (
-            Element::Foreign {
-                component: before,
-                props: had,
-                ..
-            },
-            Element::Foreign {
-                component: after,
-                props: wants,
-                ..
-            },
-        ) if before == after => {
+        (Element::Foreign { node: had, .. }, Element::Foreign { node: wants, .. })
+            if had.component == wants.component =>
+        {
+            // Props and children together: what React is handed is the
+            // tree it should have now. A child whose props changed is a
+            // change to this boundary, because the boundary is the node
+            // and everything under it is React's.
             if had != wants {
                 patches.push(Patch::ForeignProps {
                     path: at.clone(),
-                    props: wants.clone(),
+                    node: wants.clone(),
                 });
             }
         }

@@ -1152,6 +1152,9 @@ fn counter_state_value() -> String {
 thread_local! {
     /// The series the chart is given, held where a native can change it.
     static SERIES: RefCell<Option<rustx_dom::state::State<String>>> = const { RefCell::new(None) };
+    /// The axis key, held the same way — but it is a prop of the
+    /// chart.s child, not of the chart.
+    static AXIS: RefCell<Option<rustx_dom::state::State<String>>> = const { RefCell::new(None) };
     /// Whether the chart is on screen at all.
     static CHART_SHOWN: RefCell<Option<rustx_dom::state::State<bool>>> = const { RefCell::new(None) };
 }
@@ -1173,13 +1176,32 @@ fn chart_screen() -> Element {
         },
         || true,
     );
+    let axis = rustx_dom::state::cell(
+        rustx_dom::state::Slot {
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        },
+        || "at".to_string(),
+    );
     SERIES.with(|slot| *slot.borrow_mut() = Some(series.clone()));
+    AXIS.with(|slot| *slot.borrow_mut() = Some(axis.clone()));
     CHART_SHOWN.with(|slot| *slot.borrow_mut() = Some(shown.clone()));
 
     let inside = if shown.get() {
         Element::Foreign {
-            component: "Chart".to_string(),
-            props: vec![("series".to_string(), Value::String(series.get()))],
+            node: rustx_dom::ForeignNode {
+                component: "Chart".to_string(),
+                props: vec![("series".to_string(), Value::String(series.get()))],
+                // Written inside the chart, the way a library's
+                // components are: the boundary is the chart and
+                // everything under it.
+                children: vec![rustx_dom::ForeignChild::Node(rustx_dom::ForeignNode {
+                    component: "Axis".to_string(),
+                    props: vec![("dataKey".to_string(), Value::String(axis.get()))],
+                    children: Vec::new(),
+                })],
+            },
             id: "rustx-js-chart".to_string(),
         }
     } else {
@@ -1203,6 +1225,21 @@ fn install_foreign_natives() {
         SERIES.with(|slot| {
             if let Some(cell) = slot.borrow().as_ref() {
                 cell.set(series);
+            }
+        });
+        Ok(Value::Null)
+    });
+
+    // The child's prop, and nothing of the chart's own: what reaches
+    // React has to be the tree of this render, not the first one.
+    register_native("rustx_chart_axis", |args| {
+        let [Value::String(key)] = args else {
+            return Err(NativeError::new("expected one axis key"));
+        };
+        let key = key.clone();
+        AXIS.with(|slot| {
+            if let Some(cell) = slot.borrow().as_ref() {
+                cell.set(key);
             }
         });
         Ok(Value::Null)
@@ -1232,8 +1269,11 @@ fn install_foreign_natives() {
     register_native("rustx_mount_unknown_chart", |_args| {
         rustx_engine::render::mount_app(
             || Element::Foreign {
-                component: "Nope".to_string(),
-                props: Vec::new(),
+                node: rustx_dom::ForeignNode {
+                    component: "Nope".to_string(),
+                    props: Vec::new(),
+                    children: Vec::new(),
+                },
                 id: "rustx-js-nope".to_string(),
             },
             "nope",

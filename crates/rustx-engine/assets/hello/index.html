@@ -288,20 +288,30 @@
       // brings the real one.
       window.__rustx_react = (() => {
         const components = {
-          Chart: (node, props) => {
+          // What React would build from the description: the component
+          // it names, its props, and whatever was written inside it.
+          Chart: (node, props, children) => {
             let own = node.querySelector(".react-own");
             if (own === null) {
               own = document.createElement("span");
               own.className = "react-own";
               node.appendChild(own);
             }
+            const inside = (children ?? [])
+              .map((child) =>
+                typeof child === "string"
+                  ? child
+                  : child.component + "(" + JSON.stringify(child.props) + ")"
+              )
+              .join(", ");
             own.textContent = "chart of " + props.series;
+            own.dataset.inside = inside;
           },
         };
         const state = { mounts: 0, unmounts: 0, order: [] };
         window.__rustx_react_state = state;
         return {
-          mount(name, node, props) {
+          mount(name, node, props, children) {
             const component = components[name];
             if (component === undefined) {
               return false;
@@ -310,7 +320,7 @@
               state.mounts += 1;
               state.order.push("mount");
             }
-            component(node, props);
+            component(node, props, children);
             return true;
           },
           unmount(node) {
@@ -344,12 +354,23 @@
 
           waitFor(() => own() !== null, () => {
             rustx_report("chart_text", own().textContent);
+            // The axis was written inside the chart, and came over with
+            // it.
+            rustx_report("chart_inside", own().dataset.inside);
+
+            // And the child's own prop, changed without the chart's
+            // props changing at all.
+            rustx_chart_axis("value");
 
             // Something React put in the container that rustx knows
             // nothing about. A re-render must not take it away.
             const mark = document.createElement("b");
             mark.id = "react-mark";
             chart().querySelector("#rustx-js-chart").appendChild(mark);
+
+            waitFor(() => own().dataset.inside.includes("value"), () => {
+              rustx_report("chart_inside_after_child_prop", own().dataset.inside);
+            });
 
             rustx_chart_series("b");
             waitFor(() => own().textContent === "chart of b", () => {

@@ -95,22 +95,18 @@ pub(crate) fn build_into(
         }
         // The container, and nothing in it: what goes inside belongs to
         // React, and the handover is `crate::foreign`'s business.
-        Element::Foreign {
-            component,
-            props,
-            id,
-        } => {
+        Element::Foreign { node: foreign, id } => {
             let node = document.create_element("div")?;
             node.set_attribute("id", id)?;
             // Attached first: React is handed a node that is in the
             // document, which is the only kind it can measure or focus.
             parent.append_child(&node)?;
-            crate::foreign::hand_over(component, &node, props);
+            crate::foreign::hand_over(foreign, &node);
             Ok(MountedNode {
                 dom: Some(node),
                 handlers: Vec::new(),
                 children: Vec::new(),
-                foreign: Some(component.clone()),
+                foreign: Some(foreign.component.clone()),
             })
         }
         Element::Tag(tag) => {

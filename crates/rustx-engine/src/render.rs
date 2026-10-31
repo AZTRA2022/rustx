@@ -214,15 +214,15 @@ pub fn apply(
             // The props of a node React owns. There is nobody to hand
             // them to until the bridge exists, and a correction that is
             // quietly dropped is worse than one that says so.
-            Patch::ForeignProps { path, props } => {
-                // The component's name comes from what is mounted, not
-                // from the patch: a patch says what changed, and the
-                // component is what did not.
+            Patch::ForeignProps { path, node: tree } => {
+                // The container is what is mounted; the tree is what the
+                // render wants in it. A boundary that has no container
+                // any more is a boundary nobody can be handed.
                 if let Some(node) = mounted.at(path)
-                    && let Some(component) = node.foreign.clone()
+                    && node.foreign.is_some()
                     && let Some(dom) = node.dom.clone()
                 {
-                    crate::foreign::hand_over(&component, &dom, props);
+                    crate::foreign::hand_over(tree, &dom);
                 }
             }
             Patch::Replace { path, source } => {

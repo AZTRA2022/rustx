@@ -14,6 +14,7 @@ pub mod store;
 pub mod value;
 
 pub use element::{
-    AttributeValue, Element, Event, Handler, IntoElement, Key, TagElement, into_element,
+    AttributeValue, Element, Event, ForeignChild, ForeignNode, Handler, IntoElement, Key,
+    TagElement, into_element,
 };
 pub use value::Value;

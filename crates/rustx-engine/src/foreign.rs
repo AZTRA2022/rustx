@@ -20,14 +20,13 @@
 
 use std::cell::{Cell, RefCell};
 
-use rustx_dom::Value;
+use rustx_dom::{ForeignChild, ForeignNode, Value};
 
 use crate::dom::Node;
 
 /// A boundary that has been rendered and has nobody to be handed to
-/// yet: the component it names, its container, and the props of the
-/// render that built it.
-type Waiting = (String, Node, Vec<(String, Value)>);
+/// yet: its container, and the tree of the render that built it.
+type Waiting = (ForeignNode, Node);
 
 /// What an application sees if it renders a boundary before the bridge
 /// to React is installed.
@@ -65,27 +64,30 @@ pub fn last_complaint() -> Option<String> {
 ///
 /// Called again with new props on every change: the page's bridge is
 /// what tells an update from a mount.
-pub(crate) fn hand_over(component: &str, container: &Node, props: &[(String, Value)]) {
+pub(crate) fn hand_over(node: &ForeignNode, container: &Node) {
     let Some(bridge) = Node::on_window("__rustx_react") else {
         // Held, not dropped. A page installs its half of the boundary in
         // a script, and rustx renders as soon as the host element
         // exists: whichever came first, the container is handed over on
         // the frame the bridge appears.
-        PENDING.with(|pending| {
-            pending
-                .borrow_mut()
-                .push((component.to_string(), container.clone(), props.to_vec()))
-        });
+        PENDING.with(|pending| pending.borrow_mut().push((node.clone(), container.clone())));
         report_missing_bridge();
         return;
     };
-    let Some(props) = crate::value::object_of(props) else {
+    let Some(props) = crate::value::object_of(&node.props) else {
         complain("rustx: the props of a node React owns could not be built".to_string());
         return;
     };
+    // The children as a list of descriptions. React builds the tree;
+    // what crosses is what to build.
+    let Some(children) = crate::value::into_v8(described(&node.children)) else {
+        complain("rustx: what is inside a node React owns could not be built".to_string());
+        return;
+    };
 
+    let component = &node.component;
     let name = crate::value::into_v8(Value::String(component.to_string()));
-    let arguments = vec![name, Some(container.v8()), Some(props)];
+    let arguments = vec![name, Some(container.v8()), Some(props), Some(children)];
     match bridge.call_with_v8_returning("mount", arguments) {
         // `false` is the page saying it has no component by that name. A
         // typo leaves an empty container; it does not take the window.
@@ -97,6 +99,29 @@ pub(crate) fn hand_over(component: &str, container: &Node, props: &[(String, Val
         )),
         Err(error) => complain(format!("rustx: handing a node to React failed: {error}")),
     }
+}
+
+/// What is inside a boundary, as values React's half can read.
+///
+/// `{ component, props, children }` for a component, and a plain string
+/// for text — which is what React itself accepts as a child.
+fn described(children: &[ForeignChild]) -> Value {
+    Value::List(
+        children
+            .iter()
+            .map(|child| match child {
+                ForeignChild::Text(text) => Value::String(text.clone()),
+                ForeignChild::Node(node) => Value::Record(vec![
+                    (
+                        "component".to_string(),
+                        Value::String(node.component.clone()),
+                    ),
+                    ("props".to_string(), Value::Record(node.props.clone())),
+                    ("children".to_string(), described(&node.children)),
+                ]),
+            })
+            .collect(),
+    )
 }
 
 /// Tell React to let `container` go, while it is still in the document.
@@ -183,7 +208,7 @@ pub(crate) fn hand_over_pending() {
         return;
     }
     let waiting = PENDING.with(|pending| std::mem::take(&mut *pending.borrow_mut()));
-    for (component, container, props) in waiting {
-        hand_over(&component, &container, &props);
+    for (node, container) in waiting {
+        hand_over(&node, &container);
     }
 }

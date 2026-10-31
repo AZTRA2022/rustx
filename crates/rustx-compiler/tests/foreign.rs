@@ -1,4 +1,4 @@
-//! `<js::Chart />` — the tag that hands a node to React.
+//! `<js::recharts::LineChart />` — the tag that is a component off npm.
 
 use rustx_compiler::transpile::transpile;
 
@@ -20,6 +20,15 @@ fn a_js_tag_becomes_a_foreign_element() {
 }
 
 #[test]
+fn a_library_component_is_named_by_its_module() {
+    // What the developer writes is the import they would have written in
+    // JavaScript: the module, then the export.
+    let rust =
+        rewrite_one("fn P() -> Element {\n    return <js::recharts::LineChart width={320} />;\n}");
+    assert!(rust.contains("\"recharts::LineChart\""), "got {rust}");
+}
+
+#[test]
 fn a_js_tag_gets_an_id_of_its_own() {
     let rust =
         rewrite_one("fn P() -> Element {\n    return <div><js::Chart /><js::Chart /></div>;\n}");
@@ -36,20 +45,46 @@ fn a_js_tag_gets_an_id_of_its_own() {
 }
 
 #[test]
-fn a_prop_that_is_not_a_scalar_is_refused_by_name() {
-    // Nothing is borrowed across the boundary: what crosses is null, a
-    // boolean, a number or a string, copied in full.
-    let message =
-        refusal("fn P(camera: Camera) -> Element {\n    return <js::Chart camera={camera} />;\n}");
-    assert!(message.contains("camera"), "got {message}");
+fn a_prop_crosses_through_to_value() {
+    // The compiler does not know the types of the developer's Rust, and
+    // it does not have to: `ToValue` is what says a type can cross, and
+    // a type that cannot is refused by `rustc` at the line in the `.rsx`
+    // that wrote it — which is more than a guess in the compiler could
+    // ever say.
+    let rust = rewrite_one(
+        "fn P(points: Vec<Point>) -> Element {\n    \
+         return <js::recharts::LineChart data={points.clone()} />;\n}",
+    );
+    assert!(rust.contains("ToValue :: to_value"), "got {rust}");
+    assert!(rust.contains("points . clone ()"), "got {rust}");
 }
 
 #[test]
-fn children_of_a_js_tag_are_refused() {
-    // React owns what is inside; a child written here could never be
-    // reconciled by either side.
-    let message = refusal("fn P() -> Element {\n    return <js::Chart><p>hi</p></js::Chart>;\n}");
-    assert!(message.contains("children"), "got {message}");
+fn a_foreign_tag_may_hold_foreign_children() {
+    // A chart is written with its axes inside it, the way it is written
+    // in JSX — and the whole tree is handed over at once.
+    let rust = rewrite_one(
+        "fn P() -> Element {\n    return <js::recharts::LineChart width={320}>\n        \
+         <js::recharts::XAxis dataKey=\"at\" />\n    </js::recharts::LineChart>;\n}",
+    );
+    assert!(rust.contains("\"recharts::XAxis\""), "got {rust}");
+    assert!(rust.contains("ForeignChild :: Node"), "got {rust}");
+}
+
+#[test]
+fn text_inside_a_foreign_tag_is_a_child_of_it() {
+    let rust = rewrite_one("fn P() -> Element {\n    return <js::Button>Save</js::Button>;\n}");
+    assert!(rust.contains("ForeignChild :: Text"), "got {rust}");
+}
+
+#[test]
+fn a_rust_tag_inside_a_foreign_tag_is_refused_by_name() {
+    // React owns what is inside it. A `<p>` written there would be a
+    // DOM node rustx thinks it owns, inside a tree React reconciles —
+    // the one thing the boundary exists to prevent.
+    let message = refusal("fn P() -> Element {\n    return <js::Button><p>hi</p></js::Button>;\n}");
+    assert!(message.contains("<p>"), "got {message}");
+    assert!(message.contains("js::Button"), "got {message}");
 }
 
 #[test]
@@ -58,9 +93,15 @@ fn a_lowercase_js_tag_is_still_refused_as_an_unknown_tag() {
 }
 
 #[test]
+fn a_lowercase_export_in_a_module_is_refused_by_name() {
+    let message = refusal("fn P() -> Element {\n    return <js::recharts::lineChart />;\n}");
+    assert!(message.contains("LineChart"), "got {message}");
+}
+
+#[test]
 fn a_number_and_a_flag_cross_as_what_they_are() {
     let rust = rewrite_one("fn P() -> Element {\n    return <js::Chart height={240} live />;\n}");
-    assert!(rust.contains("Number (240 as f64)"), "got {rust}");
+    assert!(rust.contains("ToValue :: to_value"), "got {rust}");
     assert!(rust.contains("Bool (true)"), "got {rust}");
 }
 
@@ -76,15 +117,4 @@ fn an_event_on_a_js_tag_is_refused() {
     // a container; the component takes a prop and calls it itself.
     let message = refusal("fn P() -> Element {\n    return <js::Chart onClick={|_| ()} />;\n}");
     assert!(message.contains("onClick"), "got {message}");
-}
-
-#[test]
-fn a_number_a_page_computed_crosses_when_it_says_it_is_a_number() {
-    // The compiler does not know the types of the developer's Rust, so
-    // `as f64` is how a computed number says what it is — explicitly,
-    // in the page, rather than by a guess in the compiler.
-    let rust =
-        rewrite_one("fn P() -> Element {\n    return <js::Chart points={count() as f64} />;\n}");
-    assert!(rust.contains("Value :: Number"), "got {rust}");
-    assert!(rust.contains("count () as f64"), "got {rust}");
 }
