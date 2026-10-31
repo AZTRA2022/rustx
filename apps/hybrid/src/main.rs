@@ -1,14 +1,28 @@
 //! A page where Rust and JavaScript own one DOM between them.
 //!
-//! Both rules of ownership are in `app/page.rsx`: `<js::Chart />` is a
-//! node JavaScript owns, and `#panel-host` is a node JavaScript fills by
-//! asking rustx for `Counter`. One `let mut points = 0;` at the top of
-//! the page feeds both, so a frame that draws one draws the other.
+//! `app/page.rsx` writes the chart itself, with a component off npm:
+//!
+//! ```text
+//! <js::recharts::LineChart data={data}>
+//!     <js::recharts::XAxis dataKey="at" />
+//! </js::recharts::LineChart>
+//! ```
+//!
+//! The only JavaScript this application has is `web/src/main.jsx`, and
+//! all it says is which libraries it uses. The bridge between the two is
+//! the framework's.
 
-#![allow(non_snake_case)]
-#![allow(clippy::needless_return, clippy::useless_vec)]
+use rustx::{App, Config, ToValue};
 
-use rustx::{App, Config};
+/// One point of the chart.
+///
+/// The chart is a library's; the data is the application's. `ToValue` is
+/// what lets it cross, and the field names are what the library reads.
+#[derive(ToValue, Clone)]
+pub struct Point {
+    pub at: f64,
+    pub value: f64,
+}
 
 #[rustx::main]
 fn main() -> Result<(), rustx::Error> {

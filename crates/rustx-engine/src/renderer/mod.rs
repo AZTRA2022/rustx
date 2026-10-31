@@ -32,6 +32,26 @@ thread_local! {
     /// Hooks run once per process, not once per page, so that state a
     /// closure captures survives a navigation.
     static HOOKS_RUN: RefCell<bool> = const { RefCell::new(false) };
+    /// JavaScript the framework puts in every page, by name.
+    static SCRIPTS: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Put `source` in every page, before the page's own scripts run.
+///
+/// Evaluated on the context rather than scheduled through the frame: a
+/// script the page's own `<script>` depends on has to be there when that
+/// script runs, and `execute_java_script` only queues it. What it must
+/// not do is register a `requestAnimationFrame` — one registered from
+/// inside `on_context_created` is dropped, which is why the frame loop
+/// goes in the other way.
+pub fn inject(name: &str, source: &str) {
+    SCRIPTS.with(|scripts| {
+        let mut scripts = scripts.borrow_mut();
+        if scripts.iter().any(|(each, _)| each == name) {
+            return;
+        }
+        scripts.push((name.to_string(), source.to_string()));
+    });
 }
 
 /// Register work to do when a page's JavaScript context is created.
@@ -155,13 +175,26 @@ pub(crate) fn install(frame: Option<&mut Frame>, context: &V8Context) {
         }
     }
 
-    // Start the frame loop now that `__rustx_frame` exists to be called.
+    // What the framework brings itself: the other half of the React
+    // boundary, and the frame loop. Both go in through the frame: a
+    // script evaluated on the context here does not run at all — V8 has
+    // no current context to compile it in — and a
+    // `requestAnimationFrame` registered from inside
+    // `on_context_created` is dropped. The frame schedules them to run
+    // in the page itself.
     //
-    // Injected through the frame rather than evaluated on the context: a
-    // `requestAnimationFrame` registered from inside `on_context_created`
-    // is dropped, and the loop never starts. The frame schedules the script
-    // to run in the page itself.
+    // Which means neither is there when the page's own `<script>` runs,
+    // so nothing the framework injects may be something a page's first
+    // line needs: what the framework injects reads what the page left
+    // for it, never the other way round.
     if let Some(frame) = frame {
+        for (name, source) in SCRIPTS.with(|scripts| scripts.borrow().clone()) {
+            frame.execute_java_script(
+                Some(&CefString::from(source.as_str())),
+                Some(&CefString::from(format!("rustx://{name}").as_str())),
+                1,
+            );
+        }
         frame.execute_java_script(
             Some(&CefString::from(crate::frame::DRIVER_SCRIPT)),
             Some(&CefString::from("rustx://frame-loop")),

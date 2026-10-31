@@ -28,5 +28,5 @@ pub use frame::{PostError, Poster, on_frame, poster};
 pub use guard::{is_local, refusals};
 pub use init::declare_api_version;
 pub use mount::{mount, mount_at_id};
-pub use renderer::{on_context_created, register_native};
+pub use renderer::{inject, on_context_created, register_native};
 pub use value::{NativeError, Value};

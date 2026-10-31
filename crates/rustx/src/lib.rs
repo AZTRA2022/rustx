@@ -213,6 +213,13 @@ impl App {
             }
         });
         rustx_engine::on_context_created(install_shared_native);
+        // The other half of the React boundary. An application says
+        // which libraries it uses — `rustx.use({ recharts })` — and
+        // writes its components in `.rsx`; the bridge between the two
+        // is the framework's, so the framework brings it.
+        rustx_engine::on_context_created(|| {
+            rustx_engine::inject("react-runtime", include_str!("../assets/runtime.js"))
+        });
         for (id, component) in config.mounts {
             rustx_engine::on_context_created(move || mount_when_ready(id.clone(), component));
         }

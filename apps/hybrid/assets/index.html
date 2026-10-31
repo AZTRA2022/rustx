@@ -9,20 +9,19 @@
       main { padding: 1.4rem; display: grid; gap: 1rem; justify-items: start; }
       h1 { font-size: 1.2rem; margin: 0; }
       .panel { background: #242629; padding: 0.7rem 1rem; border-radius: 8px; }
-      .chart { font-variant-numeric: tabular-nums; }
       button { font: inherit; border: 0; border-radius: 6px; background: #7f5af0; color: #fffffe; padding: 0.45rem 0.9rem; cursor: pointer; }
     </style>
   </head>
   <body>
-    <!-- The JavaScript half of the boundary goes in before the host it
-         will be asked about. rustx mounts the page as soon as `#app`
-         exists, and a page that owns half a boundary has to have
-         installed its half by then — otherwise the first render hands a
-         node to nobody and the container stays empty for good. -->
+    <!-- The libraries this application uses, declared before the host
+         element: rustx mounts the page as soon as `#app` exists, and a
+         boundary rendered before its library is declared is a container
+         nobody can fill. (It would be handed over later anyway — the
+         engine holds it — but the first paint is a frame earlier this
+         way.) -->
     <script src="components.js"></script>
 
-    <!-- The page is `app/page.rsx` and the frame around it is
-         `app/layout.rsx`. Nothing here is. -->
+    <!-- The page is `app/page.rsx`. Nothing here is. -->
     <div id="app"></div>
     <script>
       if (rustx_scenario() === "page") {
@@ -37,12 +36,23 @@
           look();
         };
 
-        const chart = () => document.querySelector(".chart");
+        // What recharts drew, read from the page: the library's own
+        // classes, not something this application put there.
+        const svg = () => document.querySelector("#chart svg");
+        const line = () => document.querySelector("#chart .recharts-line-curve");
+        const dots = () => document.querySelectorAll("#chart .recharts-line-dot").length;
         const counter = () => document.querySelector("#counter-in-panel");
-        const state = () => window.__rustx_hybrid;
 
-        // The page arrives, and with it the container rustx handed over.
-        waitFor(() => chart() !== null, () => {
+        // A chart of one point has no curve yet: a line needs two. What
+        // says the library drew is its own svg, and its own dots.
+        waitFor(() => svg() !== null && dots() === 1, () => {
+          rustx_report("library_drew", "yes");
+          rustx_report("dots_at_first", String(dots()));
+
+          // The same DOM node, kept to compare: a library given new
+          // props must be updated, not rebuilt.
+          const first = svg();
+
           // JavaScript builds its panel, and the panel asks rustx for a
           // component of its own.
           window.__rustx_panel(document.querySelector("#panel-host"));
@@ -51,24 +61,25 @@
             document.querySelector("#add").click();
             document.querySelector("#add").click();
 
-            // One value, two owners. When both sides show 2, one frame
-            // drew the chart React owns and the component rustx owns.
+            // One value, two owners: the chart React draws and the
+            // counter rustx owns both show it.
             waitFor(
-              () => chart().textContent === "2 points" && counter().textContent === "2",
+              () =>
+                dots() === 3 && counter().textContent === "2",
               () => {
-                rustx_report("chart", chart().textContent);
+                rustx_report("dots_after_two_points", String(dots()));
                 rustx_report("counter_in_panel", counter().textContent);
                 rustx_report("drawn_on_one_frame", "yes");
-                rustx_report("js_mounts", String(state().mounts));
+                // Three points make a line, which one point could not.
+                rustx_report("curve_drawn", line() === null ? "no" : "yes");
+                rustx_report("same_svg", svg() === first ? "yes" : "no");
 
                 // Leaving the page takes the container with it, and
-                // JavaScript is told while it is still in the document.
+                // React is told while it is still in the document — so
+                // what it drew is gone, not orphaned.
                 document.querySelector("#leave").click();
-                waitFor(() => state().unmounts > 0, () => {
-                  rustx_report(
-                    "js_unmounted",
-                    state().unmountedWhileAttached ? "yes" : "after it had gone"
-                  );
+                waitFor(() => svg() === null, () => {
+                  rustx_report("svg_after_leave", "gone");
                 });
               }
             );

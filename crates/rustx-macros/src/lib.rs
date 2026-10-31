@@ -301,7 +301,7 @@ fn type_name(tokens: &[TokenTree]) -> Option<String> {
     let mut seen_struct = false;
     for token in tokens {
         match token {
-            TokenTree::Ident(ident) if ident.to_string() == "struct" => seen_struct = true,
+            TokenTree::Ident(ident) if ident == "struct" => seen_struct = true,
             TokenTree::Ident(ident) if seen_struct => return Some(ident.to_string()),
             _ => {}
         }
@@ -377,7 +377,7 @@ fn rename_in(attribute: TokenStream2) -> Option<String> {
     let mut seen_rename = false;
     for token in inner {
         match token {
-            TokenTree::Ident(ident) if ident.to_string() == "rename" => seen_rename = true,
+            TokenTree::Ident(ident) if ident == "rename" => seen_rename = true,
             TokenTree::Literal(literal) if seen_rename => {
                 let written = literal.to_string();
                 return Some(written.trim_matches('"').to_string());
