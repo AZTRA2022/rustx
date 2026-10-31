@@ -48,6 +48,10 @@ pub fn mount_app(component: impl Fn() -> Element + 'static, id: &str) -> Result<
     // two numbering schemes would hand the same number to a root and to
     // a child the moment an application had both.
     let started = std::time::Instant::now();
+    // A component that never comes back freezes the window, and the
+    // thread that would notice is this one. Another thread says so.
+    crate::watchdog::watch();
+    let _drawing = crate::watchdog::drawing(id);
     let instance = rustx_dom::state::next_instance();
     let root = root_node(id)?;
     let component: Rc<dyn Fn() -> Element> = Rc::new(component);
@@ -162,6 +166,7 @@ fn render_dirty() {
 
 fn re_render(document: &Document, root: &mut Root) -> Result<(), DomError> {
     let started = std::time::Instant::now();
+    let _drawing = crate::watchdog::drawing(&root.id_name);
     let fresh = {
         let _scope = Scope::enter(root.id);
         let fresh = (root.component)();

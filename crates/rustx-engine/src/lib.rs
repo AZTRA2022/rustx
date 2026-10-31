@@ -19,6 +19,7 @@ pub mod router;
 pub mod task;
 pub mod tree;
 mod value;
+pub mod watchdog;
 pub mod window;
 
 pub use app::{App, AppConfig};

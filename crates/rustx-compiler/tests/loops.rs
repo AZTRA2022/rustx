@@ -109,3 +109,59 @@ fn a_comparison_of_a_generic_before_the_return_compiles() {
     .expect("a generic before a return");
     assert!(rust.contains("Vec"), "got {rust}");
 }
+
+#[test]
+fn writing_shared_state_in_the_body_is_refused_in_words() {
+    // The shape that froze a window: a loop before the `return` that
+    // writes the page's own state. Nothing rewrote it, so what reached
+    // rustc was `total.get() += 1` — an assignment to a copy, in a file
+    // the developer has never opened. And were it rewritten, a write
+    // during a render would ask for another render, for ever.
+    let error = compiled(
+        "let mut total = 0;\n\
+         \n\
+         fn Page() -> Element {\n\
+         \x20   for at in 0..3 {\n\
+         \x20       total += 1;\n\
+         \x20   }\n\
+         \x20   return <p>{total}</p>;\n\
+         }\n",
+    )
+    .expect_err("a write during a render");
+    assert!(
+        error.contains("refused:") && error.contains("task") && error.contains("render"),
+        "an unhelpful refusal: {error}"
+    );
+}
+
+#[test]
+fn writing_a_component_s_own_state_in_the_body_is_refused_in_words() {
+    let error = compiled(
+        "fn Page() -> Element {\n\
+         \x20   let mut n = 0;\n\
+         \x20   for at in 0..3 {\n\
+         \x20       n += 1;\n\
+         \x20   }\n\
+         \x20   return <button onClick={move |_| n += 1}>{n}</button>;\n\
+         }\n",
+    )
+    .expect_err("a write during a render");
+    assert!(error.contains("refused:"), "got {error}");
+}
+
+#[test]
+fn a_loop_that_writes_a_plain_local_is_left_alone() {
+    // The same loop over a variable no handler writes: an ordinary Rust
+    // local, an ordinary Rust loop, and nothing to refuse.
+    let rust = compiled(
+        "fn Page() -> Element {\n\
+         \x20   let mut total = 0;\n\
+         \x20   for at in 0..3 {\n\
+         \x20       total += at;\n\
+         \x20   }\n\
+         \x20   return <p>{total}</p>;\n\
+         }\n",
+    )
+    .expect("a plain local in a loop");
+    assert!(rust.contains("total += at"), "got {rust}");
+}

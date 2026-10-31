@@ -20,9 +20,11 @@ let mut chosen = "one".to_string();
 /// Rust, and what crosses is a function that calls it — so the page
 /// learns what the user chose inside a tree it does not own.
 fn Page() -> Element {
+    let mut x = 0;
+    
     return <div id="zoo">
         <h1 id="title">Zoo</h1>
-
+        <h1>the value of x:{x}</h1>
         <section id="icons">
             <Rocket size={28} color="#a78bfa" strokeWidth={2} />
             <Boxes size={28} color="#34d399" />

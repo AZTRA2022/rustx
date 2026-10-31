@@ -250,6 +250,40 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             });
         }
 
+        // A write to state in the body itself — typically in a loop
+        // before the `return`, which is where it was found. Nothing
+        // rewrites it, so what reaches rustc is an assignment to a copy
+        // in a generated file; and rewriting it would be worse, because
+        // a write during a render asks for another render, which would
+        // write it again. Refused where it was written instead.
+        for held in &promoted {
+            let written = mutations_in(source, &held.name, body, &in_code, false);
+            if let Some(mutation) = written.iter().find(|mutation| {
+                !handlers
+                    .iter()
+                    .any(|handler| contains(*handler, mutation.span))
+                    && !inside_a_call(&mutation.span)
+                    // `let mut n = 0;` is an assignment too, and it is
+                    // the one write that is not a write to state: it is
+                    // what declares it.
+                    && !locals
+                        .iter()
+                        .any(|local| contains(local.declaration, mutation.span))
+            }) {
+                return Err(CompileError::flagged(
+                    mutation.span.start,
+                    format!(
+                        "`{}` is written while `{name}` is being drawn. A component is asked \
+                         for the screen as it is now, so a write here would ask for another \
+                         render, which would write it again — write it in a handler \
+                         (`onClick={{…}}`), in an `effect(…)`, or in a `task(…)`.",
+                        held.name
+                    ),
+                )
+                .resolve(source));
+            }
+        }
+
         components.push(Component {
             handlers,
             name,
