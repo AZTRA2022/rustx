@@ -902,6 +902,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustx-lsp"
+version = "0.1.0"
+dependencies = [
+ "rustx-compiler",
+]
+
+[[package]]
 name = "rustx-macros"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,9 @@
+[package]
+name = "rustx-lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "What an editor asks about a .rsx: where the mistakes are."
+
+[dependencies]
+rustx-compiler = { path = "../rustx-compiler" }
