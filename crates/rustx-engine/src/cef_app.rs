@@ -118,6 +118,31 @@ wrap_render_process_handler! {
                 }
             });
         }
+
+        /// Ce que le processus de la fenêtre dit à la page.
+        ///
+        /// Sans ceci, `bridge::tell` écrit dans le vide : le message
+        /// part, Chromium le livre, et personne ne le lit. Mesuré en
+        /// lâchant un fichier sur une vraie fenêtre — les chemins
+        /// n'arrivaient jamais, alors que les deux bouts étaient
+        /// écrits.
+        ///
+        /// Rendre non-zéro dit à Chromium que le message est traité.
+        fn on_process_message_received(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _source_process: cef::ProcessId,
+            message: Option<&mut cef::ProcessMessage>,
+        ) -> ::std::os::raw::c_int {
+            let mut handled = 0;
+            contain("on_process_message_received", || {
+                if let Some(message) = message {
+                    handled = i32::from(crate::bridge::told(message));
+                }
+            });
+            handled
+        }
     }
 }
 

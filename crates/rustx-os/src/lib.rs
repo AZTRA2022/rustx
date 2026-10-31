@@ -38,10 +38,12 @@
 //! precisely the work this project has no reason to redo. Nothing above
 //! this crate hears about it.
 
+pub mod autostart;
 pub mod clipboard;
 pub mod devices;
 pub mod dialog;
 pub mod error;
+pub mod instance;
 pub mod notify;
 pub mod patience;
 pub mod shortcut;

@@ -7,9 +7,11 @@
 //! have the same names — `linux/clipboard.rs` is the same list as
 //! this one — and nothing above changes.
 
+pub mod autostart;
 pub mod clipboard;
 pub mod devices;
 pub mod dialog;
+pub mod instance;
 pub mod notify;
 pub mod shortcut;
 pub mod tray;

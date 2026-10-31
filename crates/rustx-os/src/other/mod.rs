@@ -35,6 +35,44 @@ pub mod clipboard {
     pub const AVAILABLE: bool = false;
 }
 
+pub mod autostart {
+    use crate::error::OsError;
+
+    pub const AVAILABLE: bool = false;
+
+    pub fn set(_on: bool, _name: &str) -> Result<(), OsError> {
+        Err(OsError::Unsupported("le démarrage automatique"))
+    }
+
+    pub fn is_on(_name: &str) -> bool {
+        false
+    }
+}
+
+pub mod instance {
+    use crate::error::OsError;
+
+    const WHAT: &str = "l'instance unique";
+
+    pub const AVAILABLE: bool = false;
+
+    pub struct Only;
+
+    impl Only {
+        pub fn one(_name: &str) -> Result<Self, OsError> {
+            Err(OsError::Unsupported(WHAT))
+        }
+    }
+
+    pub fn hand_over(_name: &str, _arguments: &[String]) -> Result<(), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+
+    pub fn handed_over() -> Vec<String> {
+        Vec::new()
+    }
+}
+
 pub mod notify {
     use crate::error::OsError;
     use crate::notify::What;

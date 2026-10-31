@@ -5,9 +5,11 @@
 //! They refuse for now, each naming what has to be written — see
 //! `clipboard.rs` and `devices.rs` beside this file.
 
+pub mod autostart;
 pub mod clipboard;
 pub mod devices;
 pub mod dialog;
+pub mod instance;
 pub mod notify;
 pub mod shortcut;
 pub mod tray;

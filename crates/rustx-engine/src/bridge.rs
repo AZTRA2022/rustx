@@ -56,6 +56,7 @@ pub(crate) fn tell(frame: &Frame, what: &str, values: &[Value]) {
     let Some(mut message) = saying(what, values) else {
         return;
     };
+    traced(&format!("fenêtre → page : {what} ({} valeur(s))", values.len()));
     frame.send_process_message(ProcessId::RENDERER, Some(&mut message));
 }
 
@@ -100,8 +101,10 @@ pub fn told(message: &ProcessMessage) -> bool {
     // d'eux a le droit d'en poser un autre sans bloquer sur l'emprunt.
     let hooks = LISTENING.with(|listening| listening.borrow_mut().remove(&name));
     let Some(hooks) = hooks else {
+        traced(&format!("page : {name} arrivé, mais personne ne l'écoute"));
         return false;
     };
+    traced(&format!("page : {name} arrivé, {} crochet(s)", hooks.len()));
     for hook in &hooks {
         hook(values.clone());
     }
@@ -199,4 +202,16 @@ fn get(list: &ListValue, at: usize) -> Value {
 /// Chromium, et n'a rien à faire dans ce qu'on écrit.
 fn plain(name: &str) -> &str {
     name.strip_prefix(PREFIX).unwrap_or(name)
+}
+
+/// Dire ce qui passe, quand on le demande.
+///
+/// `RUSTX_TRACE=1` et chaque message du pont va sur la sortie d'erreur,
+/// des deux côtés. Écrit parce qu'un message qui n'arrive pas et un
+/// message que personne n'écoute se ressemblent beaucoup vus depuis une
+/// fenêtre — et que la différence a coûté un aller-retour.
+fn traced(what: &str) {
+    if std::env::var("RUSTX_TRACE").is_ok() {
+        eprintln!("rustx: {what}");
+    }
 }
