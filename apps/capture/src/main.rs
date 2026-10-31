@@ -17,9 +17,6 @@
 
 mod devices;
 
-// What the pages under `app/` see. A `.rsx` has no import line of its
-// own yet, so the crate's own scope is a page's vocabulary.
-use devices::Stream;
 use rustx::{App, Config};
 
 #[rustx::main]

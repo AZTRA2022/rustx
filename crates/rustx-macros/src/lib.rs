@@ -93,6 +93,22 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
 
         let generated = slashed(&out.join(rustx_compiler::build::PAGES));
 
+        // What the application wrote beside its pages. A page is in the
+        // same crate as the rest of the application, so the public
+        // functions and types of its modules are a page's vocabulary
+        // too — without the application writing a `use` line for each
+        // one in a file whose only job is a title and a size.
+        let opened: Vec<TokenStream2> = modules_of(&manifest)
+            .iter()
+            .map(|module| {
+                let module = proc_macro2::Ident::new(module, proc_macro2::Span::call_site());
+                quote! {
+                    #[allow(unused_imports)]
+                    pub(crate) use super::#module::*;
+                }
+            })
+            .collect();
+
         let prelude = if routed {
             quote! {
                 rustx::install_manifest_dir(env!("CARGO_MANIFEST_DIR"));
@@ -117,6 +133,7 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
                 mod __rustx_pages {
                     #![allow(non_snake_case, clippy::needless_return, clippy::useless_vec, clippy::type_complexity, clippy::redundant_closure)]
                     pub(crate) use super::*;
+                    #(#opened)*
                     pub(crate) use rustx::Element;
                     pub(crate) use rustx::state::with_key;
 
@@ -386,4 +403,41 @@ fn rename_in(attribute: TokenStream2) -> Option<String> {
         }
     }
     None
+}
+
+/// The modules the application declares beside its entry point.
+///
+/// Read from `src/main.rs` (or `src/lib.rs`), because an attribute macro
+/// is given the function it is written on and not the file around it,
+/// and `Span::source_file` is not stable. A `mod` is declared on a line
+/// of its own in every Rust file anyone writes, which is what makes
+/// reading it this way honest rather than clever.
+fn modules_of(manifest: &Path) -> Vec<String> {
+    let mut found = Vec::new();
+    for entry in ["src/main.rs", "src/lib.rs"] {
+        let Ok(source) = std::fs::read_to_string(manifest.join(entry)) else {
+            continue;
+        };
+        for line in source.lines() {
+            let line = line.trim();
+            if line.starts_with("//") {
+                continue;
+            }
+            let declaration = line.strip_prefix("pub ").unwrap_or(line);
+            let Some(rest) = declaration.strip_prefix("mod ") else {
+                continue;
+            };
+            let Some(name) = rest.strip_suffix(';') else {
+                continue;
+            };
+            let name = name.trim();
+            if name.chars().all(|letter| letter.is_alphanumeric() || letter == '_')
+                && !name.is_empty()
+                && !found.iter().any(|already| already == name)
+            {
+                found.push(name.to_string());
+            }
+        }
+    }
+    found
 }
