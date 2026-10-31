@@ -58,6 +58,8 @@ thread_local! {
         const { RefCell::new(Vec::new()) };
     /// Every value the pages share, by name, for a scenario to read.
     static SHARED: RefCell<Vec<NamedValue>> = const { RefCell::new(Vec::new()) };
+    /// The application.s own JavaScript, bundled by the attribute.
+    static BUNDLE: Cell<Option<&'static str>> = const { Cell::new(None) };
 }
 
 /// Said by `#[rustx::main]`, which is where `env!` reads the
@@ -91,6 +93,17 @@ pub fn install_components(components: Vec<NamedComponent>) {
 #[doc(hidden)]
 pub fn install_shared_values(values: Vec<NamedValue>) {
     SHARED.with(|held| *held.borrow_mut() = values);
+}
+
+/// Said by `#[rustx::main]`, with the application's own JavaScript.
+///
+/// The attribute generated the entry point from `package.json` and
+/// bundled it; this is the result, compiled into the binary. It goes
+/// into every page, so an application has no `<script>` to write and no
+/// file to ship beside its executable.
+#[doc(hidden)]
+pub fn install_bundle(javascript: &'static str) {
+    BUNDLE.with(|held| held.set(Some(javascript)));
 }
 
 /// A window, and where its screens come from.
@@ -218,7 +231,12 @@ impl App {
         // writes its components in `.rsx`; the bridge between the two
         // is the framework's, so the framework brings it.
         rustx_engine::on_context_created(|| {
-            rustx_engine::inject("react-runtime", include_str!("../assets/runtime.js"))
+            rustx_engine::inject("react-runtime", include_str!("../assets/runtime.js"));
+            // And the application's own libraries, after the runtime
+            // that reads them. Both go in through the frame, in order.
+            if let Some(bundle) = BUNDLE.with(Cell::get) {
+                rustx_engine::inject("app-bundle", bundle);
+            }
         });
         for (id, component) in config.mounts {
             rustx_engine::on_context_created(move || mount_when_ready(id.clone(), component));

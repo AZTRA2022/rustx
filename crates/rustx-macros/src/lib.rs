@@ -154,12 +154,35 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
         )
     };
 
+    // And the application's JavaScript, if it declared any libraries.
+    // Generated and bundled here, for the same reason the pages are:
+    // this is the one moment that happens every time the crate is
+    // compiled and never otherwise.
+    let javascript = match rustx_compiler::bundle::build(&manifest) {
+        Err(complaint) => {
+            let body = body.stream();
+            return quote! {
+                compile_error!(#complaint);
+                #signature { #body }
+            }
+            .into();
+        }
+        Ok(None) => TokenStream2::new(),
+        Ok(Some(bundle)) => {
+            let path = slashed(&bundle);
+            quote! {
+                rustx::install_bundle(include_str!(#path));
+            }
+        }
+    };
+
     let body = body.stream();
     quote! {
         #pages
 
         #signature {
             #prelude
+            #javascript
             #body
         }
     }
@@ -431,7 +454,9 @@ fn modules_of(manifest: &Path) -> Vec<String> {
                 continue;
             };
             let name = name.trim();
-            if name.chars().all(|letter| letter.is_alphanumeric() || letter == '_')
+            if name
+                .chars()
+                .all(|letter| letter.is_alphanumeric() || letter == '_')
                 && !name.is_empty()
                 && !found.iter().any(|already| already == name)
             {

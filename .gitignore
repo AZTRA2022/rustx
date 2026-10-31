@@ -6,3 +6,7 @@
 # npm, per application. The bundle in `assets/` is committed; what
 # built it is not.
 node_modules/
+
+# What the framework generates for an application: its JavaScript
+# entry point and the bundle built from it. Output, not a source.
+.rustx/

@@ -1,0 +1,14 @@
+{
+  "name": "hybrid",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The JavaScript libraries this application uses. rustx writes the entry point and builds the bundle; nothing here is written by hand.",
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "recharts": "2.12.7"
+  },
+  "devDependencies": {
+    "esbuild": "0.23.1"
+  }
+}

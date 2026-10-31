@@ -10,6 +10,7 @@
 pub mod ast;
 pub mod attributes;
 pub mod build;
+pub mod bundle;
 pub mod emit;
 pub mod error;
 pub mod map;

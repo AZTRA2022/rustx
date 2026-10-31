@@ -13,15 +13,10 @@
     </style>
   </head>
   <body>
-    <!-- The libraries this application uses, declared before the host
-         element: rustx mounts the page as soon as `#app` exists, and a
-         boundary rendered before its library is declared is a container
-         nobody can fill. (It would be handed over later anyway — the
-         engine holds it — but the first paint is a frame earlier this
-         way.) -->
-    <script src="components.js"></script>
-
-    <!-- The page is `app/page.rsx`. Nothing here is. -->
+    <!-- No script tag for the application's libraries: they are declared
+         in `package.json`, and rustx writes the entry point, bundles it
+         and puts it in this page itself. The page is `app/page.rsx`;
+         nothing here is. -->
     <div id="app"></div>
     <script>
       if (rustx_scenario() === "page") {
@@ -53,9 +48,25 @@
           // props must be updated, not rebuilt.
           const first = svg();
 
-          // JavaScript builds its panel, and the panel asks rustx for a
-          // component of its own.
-          window.__rustx_panel(document.querySelector("#panel-host"));
+          // The other direction, driven from here because it is a test
+          // and not the application: React builds a panel and asks
+          // rustx for a component to put inside it. The libraries are
+          // the ones the framework's bundle declared.
+          const react = window.rustxLibraries.react;
+          const root = window.rustxLibraries.reactDomClient.createRoot(
+            document.querySelector("#panel-host")
+          );
+          window.rustxLibraries.reactDom.flushSync(() =>
+            root.render(
+              react.createElement(
+                "section",
+                { className: "panel" },
+                "points, from rustx: ",
+                react.createElement("div", { id: "panel-slot" })
+              )
+            )
+          );
+          rustx_component("Counter", "panel-slot");
 
           waitFor(() => counter() !== null, () => {
             document.querySelector("#add").click();
@@ -64,8 +75,7 @@
             // One value, two owners: the chart React draws and the
             // counter rustx owns both show it.
             waitFor(
-              () =>
-                dots() === 3 && counter().textContent === "2",
+              () => dots() === 3 && counter().textContent === "2",
               () => {
                 rustx_report("dots_after_two_points", String(dots()));
                 rustx_report("counter_in_panel", counter().textContent);
