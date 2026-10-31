@@ -144,3 +144,25 @@ fn unescape(text: &str) -> String {
     }
     out
 }
+
+/// What a shadow is handed to a downstream server as.
+///
+/// `didOpen` carries the language and the text; `didChange` carries the
+/// whole text again, because `textDocumentSync: 1` is what this server
+/// asked the editor for and what it asks of its own server.
+pub fn told(shadow: &Shadow, method: &str) -> String {
+    let text = crate::json::escape(&shadow.rust);
+    if method.ends_with("didOpen") {
+        format!(
+            "{{\"textDocument\":{{\"uri\":\"{}\",\"languageId\":\"rust\",\"version\":1,\
+             \"text\":\"{text}\"}}}}",
+            crate::json::escape(&shadow.uri)
+        )
+    } else {
+        format!(
+            "{{\"textDocument\":{{\"uri\":\"{}\",\"version\":2}},\
+             \"contentChanges\":[{{\"text\":\"{text}\"}}]}}",
+            crate::json::escape(&shadow.uri)
+        )
+    }
+}
