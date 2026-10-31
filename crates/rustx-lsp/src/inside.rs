@@ -103,6 +103,15 @@ fn read(before: &str) -> Place {
                         Some(next) if next.is_alphabetic() || next == '>' => State::Tag {
                             typed: String::new(),
                         },
+                        // Nothing after it, because the cursor is right
+                        // there: a `<` just typed is a tag being opened,
+                        // which is the one moment a list is wanted. A
+                        // less-than that was about to be a comparison
+                        // gets an unwanted list, which is cheap; the
+                        // other way round costs the feature.
+                        None => State::Tag {
+                            typed: String::new(),
+                        },
                         _ => State::Rust,
                     }
                 }

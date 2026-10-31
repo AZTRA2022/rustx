@@ -184,11 +184,22 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
                 // server itself starts at the first page opened, which
                 // is the first moment anything says which application
                 // is being worked on.
+                // Completion is promised whatever else is installed: the
+                // tags, the attributes, the components and the style
+                // keys are the server's own, and they need no
+                // `rust-analyzer`, no built project and no compile at
+                // all. An editor that was not told so would never ask.
+                //
+                // The trigger characters are where a developer is when
+                // they want a list: `<` opens a tag, a space starts an
+                // attribute, `/` closes a tag, and `{`, `.` and `:` are
+                // inside an expression.
+                let completion = ",\"completionProvider\":{\"triggerCharacters\":\
+                                  [\"<\",\" \",\"/\",\"{\",\".\",\":\"]}";
                 let assistance = if downstream.exists() {
-                    ",\"completionProvider\":{\"triggerCharacters\":[\".\",\":\"]},\
-                     \"hoverProvider\":true,\"definitionProvider\":true"
+                    format!("{completion},\"hoverProvider\":true,\"definitionProvider\":true")
                 } else {
-                    ""
+                    completion.to_string()
                 };
                 rpc::write(
                     output,
