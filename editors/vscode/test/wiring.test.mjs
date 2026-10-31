@@ -70,3 +70,27 @@ test("the_bundle_builds", async () => {
   // editor itself provides at runtime.
   assert.ok(text.includes("vscode"), "the bundle does not reach the editor");
 });
+
+test("the_extension_declares_where_rust_analyzer_is", async () => {
+  // Completion, hovers and definitions come from `rust-analyzer`, which
+  // the server starts. Someone whose copy is not on the `PATH` — a
+  // rustup component in a toolchain directory, a build of their own —
+  // has to be able to say where it is.
+  const written = await manifest();
+  const settings =
+    written.contributes.configuration.properties["rustx.rustAnalyzer.path"];
+  assert.ok(settings, "rust-analyzer cannot be located");
+  assert.equal(settings.type, "string");
+
+  // And the extension has to hand it to the server, which reads it from
+  // its environment.
+  const source = await readFile(join(extension, "src/extension.ts"), "utf8");
+  assert.ok(
+    source.includes("RUSTX_RUST_ANALYZER"),
+    "the setting never reaches the server",
+  );
+  assert.ok(
+    source.includes("rustAnalyzer.path"),
+    "the setting is never read",
+  );
+});

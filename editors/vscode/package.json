@@ -42,6 +42,11 @@
           "type": "string",
           "default": "",
           "description": "Where `rustx-lsp` is. Empty means: on the PATH."
+        },
+        "rustx.rustAnalyzer.path": {
+          "type": "string",
+          "default": "",
+          "description": "Where rust-analyzer is, when it is not on the PATH. Completion, hovers and go-to-definition come from it; leave empty to use the PATH."
         }
       }
     }

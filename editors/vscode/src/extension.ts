@@ -24,11 +24,38 @@ function server(): string {
   return named && named.trim() !== "" ? named.trim() : "rustx-lsp";
 }
 
+/// What the server needs from this machine.
+///
+/// Completion, hovers and definitions come from `rust-analyzer`, which
+/// the server starts itself. Someone whose copy is not on the `PATH` —
+/// a rustup component in a toolchain directory, a build of their own —
+/// says where it is, and it reaches the server through its environment.
+function surroundings(): Record<string, string> | undefined {
+  const analyzer = vscode.workspace
+    .getConfiguration("rustx")
+    .get<string>("rustAnalyzer.path");
+  if (!analyzer || analyzer.trim() === "") {
+    return undefined;
+  }
+  return { ...process.env, RUSTX_RUST_ANALYZER: analyzer.trim() } as Record<
+    string,
+    string
+  >;
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   const command = server();
   const options: ServerOptions = {
-    run: { command, transport: TransportKind.stdio },
-    debug: { command, transport: TransportKind.stdio },
+    run: {
+      command,
+      transport: TransportKind.stdio,
+      options: { env: surroundings() },
+    },
+    debug: {
+      command,
+      transport: TransportKind.stdio,
+      options: { env: surroundings() },
+    },
   };
 
   const client_options: LanguageClientOptions = {
