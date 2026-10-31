@@ -175,9 +175,25 @@ pub fn store<T: Default + 'static>() -> Store<T> {
 /// `initial` runs once per thread, on the first ask. Every ask after
 /// finds what is there, whatever it was given.
 pub fn shared<T: 'static>(name: &'static str, initial: impl FnOnce() -> T) -> Shared<T> {
-    Shared {
-        held: held(Key::Name(name), initial),
-    }
+    // What `rustx dev` carried over from the process it replaced, if it
+    // carried anything, and if what it carried is still this kind of
+    // value. Outside `rustx dev` there is nothing to ask, and the ask
+    // costs a lookup in an empty table.
+    let held = held(Key::Name(name), || {
+        crate::carried::remembered::<T>(name).unwrap_or_else(initial)
+    });
+
+    // And the other direction: how to ask this value what it says, so
+    // that it can be carried over in turn. The handle is weak, because a
+    // reporter that held the value would be the reason it never dies.
+    let watching = Rc::downgrade(&held);
+    crate::carried::report::<T>(name, move || {
+        let held = watching.upgrade()?;
+        let value = held.value.try_borrow().ok()?;
+        crate::carried::text_of::<T>(&value)
+    });
+
+    Shared { held }
 }
 
 /// A handle on one shared value.
@@ -221,12 +237,18 @@ impl<T: 'static> Shared<T> {
         let previous = std::mem::replace(&mut *self.held.value.borrow_mut(), value);
         drop(previous);
         soil(&self.held);
+        crate::carried::keep();
     }
 
     /// Change the value in place.
     pub fn update(&self, change: impl FnOnce(&mut T)) {
         change(&mut self.held.value.borrow_mut());
         soil(&self.held);
+        // Written as it happens: the window `rustx dev` replaces is
+        // killed, so nothing that waits for a tidy shutdown would run.
+        // A no-op when nobody asked for a file, which is everywhere but
+        // `rustx dev`.
+        crate::carried::keep();
     }
 }
 

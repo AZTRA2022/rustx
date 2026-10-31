@@ -15,3 +15,6 @@ path = "src/lib.rs"
 
 [dependencies]
 rustx-compiler = { path = "../rustx-compiler" }
+
+[dev-dependencies]
+rustx-dom = { path = "../rustx-dom" }

@@ -6,14 +6,14 @@
 
 use std::path::PathBuf;
 
-use rustx_cli::{arguments, new};
+use rustx_cli::{arguments, help, new};
 
 fn main() {
     let typed: Vec<String> = std::env::args().skip(1).collect();
     let code = match arguments::read(&typed) {
         arguments::Command::New { name } => make(&name),
         arguments::Command::Help => {
-            print!("{}", help());
+            print!("{}", help::text());
             0
         }
         arguments::Command::Unknown(word) => {
@@ -84,18 +84,4 @@ fn make_it(release: bool, then_run: bool) -> i32 {
             1
         }
     }
-}
-
-fn help() -> String {
-    "rustx — native software, written in Rust, drawn by a browser engine.\n\
-     \n\
-     \x20 rustx new <name>   write a project that compiles the first time\n\
-     \x20 rustx dev          watch the files, rebuild, bring the window back\n\
-     \x20 rustx build        build, and stamp the .exe with its name and icon\n\
-     \x20 rustx run          build and run once, without watching\n\
-     \n\
-     What `dev` keeps across a restart: the shared state declared at the top\n\
-     of a page, and the page that was open. What it does not keep: the cells\n\
-     inside a component, whose identity is a place in code that just changed.\n"
-        .to_string()
 }

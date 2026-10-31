@@ -65,13 +65,20 @@ pub fn watch(project: &Path) -> Result<(), String> {
     );
     let mut coalescing = Coalescing::new(QUIET);
 
+    // Where the application writes what is to cross the restart: the
+    // values with a name, and the page that is open. In `target/`,
+    // because it is a build artefact and `target/` is the one directory
+    // a project already ignores.
+    let carried = carried_file(project);
+    let _ = std::fs::remove_file(&carried);
+
     let mut running: Option<Child> = None;
-    restart(project, &mut running);
+    restart(project, &carried, &mut running);
 
     loop {
         if coalescing.tick(watched.changed(), Instant::now()) {
             println!("rustx: something changed — rebuilding.");
-            restart(project, &mut running);
+            restart(project, &carried, &mut running);
         }
 
         // The developer closed the window: that is how `rustx dev` ends,
@@ -89,12 +96,19 @@ pub fn watch(project: &Path) -> Result<(), String> {
     }
 }
 
+/// The file the application and the loop pass state through.
+///
+/// One per project, beside the binary it belongs to.
+pub fn carried_file(project: &Path) -> PathBuf {
+    project.join("target").join("rustx-dev-state.txt")
+}
+
 /// Build, and put the new window where the old one was.
 ///
 /// The order matters: the previous process is killed only once the new
 /// binary exists. A failed build leaves what is on screen on screen,
 /// showing the last page that compiled.
-fn restart(project: &Path, running: &mut Option<Child>) {
+fn restart(project: &Path, carried: &Path, running: &mut Option<Child>) {
     match build::run(false, project) {
         Ok(exe) => {
             if let Some(child) = running.as_mut() {
@@ -104,6 +118,10 @@ fn restart(project: &Path, running: &mut Option<Child>) {
             *running = None;
             match std::process::Command::new(&exe)
                 .current_dir(project)
+                // The only thing in the world that sets this: an
+                // application a developer built and ran keeps nothing
+                // and reads nothing.
+                .env("RUSTX_CARRIED", carried)
                 .spawn()
             {
                 Ok(child) => *running = Some(child),

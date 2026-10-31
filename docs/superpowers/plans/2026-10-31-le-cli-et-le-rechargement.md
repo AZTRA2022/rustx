@@ -39,11 +39,11 @@
 - Produces: `arguments::read(&[String]) -> Command` où `Command` est `New { name: String }`, `Dev`, `Build { release: bool }`, `Run`, `Help`, `Unknown(String)` ; `new::write(name: &str, into: &Path) -> Result<Vec<PathBuf>, String>` qui écrit `Cargo.toml`, `src/main.rs`, `app/page.rsx`, `assets/` et `.gitignore`, et rend ce qu'il a écrit.
 - Le `main.rs` écrit est celui du document de conception : l'attribut, `App::new(Config::new("Nom").size(…))?`, `app.run()`.
 
-- [ ] **Step 1** : les tests — `a_new_project_has_a_page_and_no_build_script`, `the_main_it_writes_is_four_lines_long`, `a_name_cargo_would_refuse_is_refused_first` (Review Focus 3 : rien n'est écrit), `a_directory_that_exists_is_not_overwritten`, `the_project_it_writes_resolves` (`cargo metadata` sur le projet écrit).
-- [ ] **Step 2** : rouge (`cargo test -p rustx-cli`).
-- [ ] **Step 3** : la lecture des arguments, le squelette.
-- [ ] **Step 4** : vert.
-- [ ] **Step 5** : commit `feat(cli): a new project that compiles the first time`.
+- [x] **Step 1** : les tests — `a_new_project_has_a_page_and_no_build_script`, `the_main_it_writes_is_four_lines_long`, `a_name_cargo_would_refuse_is_refused_first` (Review Focus 3 : rien n'est écrit), `a_directory_that_exists_is_not_overwritten`, `the_page_it_writes_is_a_page` (le `cargo metadata` attendrait que `rustx` soit publié).
+- [x] **Step 2** : rouge (`cargo test -p rustx-cli`).
+- [x] **Step 3** : la lecture des arguments, le squelette.
+- [x] **Step 4** : vert.
+- [x] **Step 5** : commit `feat(cli): a new project that compiles the first time`.
 
 ---
 
@@ -57,11 +57,11 @@
 - Produces: `build::run(release: bool, project: &Path) -> Result<PathBuf, String>` — appelle `cargo build`, trouve le `.exe`, puis `resources::stamp(exe, &About)` ; `resources::stamp` écrit le groupe d'icônes (`RT_GROUP_ICON` + `RT_ICON`) et la `VS_VERSIONINFO` par `BeginUpdateResourceW` / `UpdateResourceW` / `EndUpdateResource`. L'icône et les métadonnées sont lues dans le `Config` du projet — le CLI les prend là où le développeur les a déjà écrites, pas dans un second fichier.
 - Consumes: le lecteur de `.ico` de `rustx-engine::window` (le même en-tête, déjà validé).
 
-- [ ] **Step 1** : les tests — `an_icon_becomes_a_resource_of_the_exe` (relue par `FindResourceW` sur le fichier produit), `the_version_info_carries_the_name_and_the_version`, `a_project_without_an_icon_still_builds` (Review Focus 4), `a_file_that_is_not_an_ico_is_refused_in_words`.
-- [ ] **Step 2** : rouge.
-- [ ] **Step 3** : l'appel à cargo, le tamponnage.
-- [ ] **Step 4** : vert.
-- [ ] **Step 5** : commit `feat(cli): a built .exe knows its own name`.
+- [x] **Step 1** : les tests — `an_icon_becomes_a_resource_of_the_exe` (relue par `FindResourceW` sur le fichier produit), `the_version_info_carries_the_name_and_the_version`, `a_project_without_an_icon_still_builds` (Review Focus 4), `a_file_that_is_not_an_ico_is_refused_in_words`.
+- [x] **Step 2** : rouge.
+- [x] **Step 3** : l'appel à cargo, le tamponnage.
+- [x] **Step 4** : vert.
+- [x] **Step 5** : commit `feat(cli): a built .exe knows its own name`.
 
 ---
 
@@ -76,11 +76,11 @@
 - La reconstruction est groupée : rien ne part avant 200 ms sans nouveau changement (Review Focus 2).
 - Un échec de construction garde le processus précédent en vie et imprime l'erreur du compilateur telle quelle, aux coordonnées du `.rsx` (Review Focus 1).
 
-- [ ] **Step 1** : les tests — `a_saved_page_is_rebuilt`, `ten_saves_in_a_breath_are_one_rebuild`, `a_build_that_fails_leaves_the_window_alone`, `a_file_that_is_not_a_page_or_a_source_is_ignored` (un `.log` dans `app/`).
-- [ ] **Step 2** : rouge.
-- [ ] **Step 3** : la surveillance, la boucle, le groupement.
-- [ ] **Step 4** : vert.
-- [ ] **Step 5** : commit `feat(cli): a saved page comes back on screen`.
+- [x] **Step 1** : les tests — `a_saved_page_is_rebuilt`, `ten_saves_in_a_breath_are_one_rebuild`, `a_build_that_fails_leaves_the_window_alone`, `a_file_that_is_not_a_page_or_a_source_is_ignored` (un `.log` dans `app/`).
+- [x] **Step 2** : rouge.
+- [x] **Step 3** : la surveillance, la boucle, le groupement.
+- [x] **Step 4** : vert.
+- [x] **Step 5** : commit `feat(cli): a saved page comes back on screen`.
 
 ---
 
@@ -95,11 +95,11 @@
 - Produces: `carried::written(path: &Path)` et `carried::read(path: &Path)` — les valeurs partagées par nom, et la page courante, en une ligne par valeur (`nom=json`), écrites à la fermeture de la fenêtre et relues au démarrage quand `RUSTX_CARRIED` nomme un fichier. `store::shared` demande d'abord ce qui a été porté, et retombe sur son initialisateur quand le nom est absent **ou quand la valeur n'a pas la forme attendue** (Review Focus 5).
 - Consumes: `Value` et `ToValue` (déjà là).
 
-- [ ] **Step 1** : les tests — `a_shared_value_comes_back_after_a_restart`, `a_value_whose_shape_changed_is_thrown_away`, `a_component_cell_starts_fresh` (la limite, écrite noir sur blanc), `the_page_that_was_open_is_the_page_that_opens`, et dans `counter` : `the_count_survives_a_restart` par le scénario.
-- [ ] **Step 2** : rouge.
-- [ ] **Step 3** : le relevé, l'écriture, la réinjection.
-- [ ] **Step 4** : vert.
-- [ ] **Step 5** : commit `feat(cli): the application comes back where it was`.
+- [x] **Step 1** : les tests — `a_shared_value_comes_back_after_a_restart`, `a_value_whose_shape_changed_is_thrown_away`, `a_component_cell_starts_fresh` (la limite, écrite noir sur blanc), `the_page_that_was_open_is_the_page_that_opens`, et dans `counter` : `the_count_survives_a_restart` par le scénario.
+- [x] **Step 2** : rouge.
+- [x] **Step 3** : le relevé, l'écriture, la réinjection.
+- [x] **Step 4** : vert.
+- [x] **Step 5** : commit `feat(cli): the application comes back where it was`.
 
 ---
 

@@ -269,6 +269,12 @@ impl App {
         let start = config.start.clone();
         let not_found = config.not_found.unwrap_or(no_such_page);
 
+        // Before anything renders: what the process this one replaced was
+        // holding, when `rustx dev` is the one that started it. Nothing
+        // else sets `RUSTX_CARRIED`, so outside a watching loop this is
+        // one lookup and nothing more.
+        rustx_engine::on_context_created(carry_state);
+
         if let Some(routes) = routes {
             rustx_engine::on_context_created(move || {
                 start_router(routes, &host, &start, not_found)
@@ -380,7 +386,11 @@ fn start_router(
     not_found: fn() -> Element,
 ) {
     let host = host.to_string();
-    let start = start.to_string();
+    // The screen that was open when `rustx dev` replaced the last
+    // process, if there was one: a developer who saves a file while
+    // looking at the third screen of a form wants the third screen of
+    // the form back, not the first.
+    let start = rustx_dom::carried::page().unwrap_or_else(|| start.to_string());
     let started = Cell::new(false);
     rustx_engine::on_frame(move || {
         if started.get() {
@@ -390,6 +400,18 @@ fn start_router(
             started.set(true);
         }
     });
+}
+
+/// Read what `rustx dev` carried over, when it is `rustx dev` that
+/// started this process.
+///
+/// The file holds the values that have a name and the page that was
+/// open. Nothing else in the world sets `RUSTX_CARRIED`, so a shipped
+/// application never reads or writes it.
+fn carry_state() {
+    if let Some(file) = std::env::var_os("RUSTX_CARRIED") {
+        rustx_dom::carried::carrying(std::path::Path::new(&file));
+    }
 }
 
 /// A string as JavaScript would write it.
