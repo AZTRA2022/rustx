@@ -22,7 +22,21 @@ pub struct Transpiled {
 pub fn transpile(source: &str) -> Result<Transpiled, CompileError> {
     // State promotion runs first: it rewrites Rust, never JSX, and it
     // never moves a line, so the scan below sees the same shape.
+    let written = source;
     let source = &crate::rewrite::promote_state(source)?;
+    // Which lines the rewrite rebuilt, read off the two files rather
+    // than reported by the rewrite: every edit it makes stays on the
+    // line it started on, so the two have the same lines, and a line
+    // that differs is a line nobody wrote. A language server must not
+    // offer a column on one of those.
+    let rewritten: Vec<usize> = written
+        .lines()
+        .zip(source.lines())
+        .enumerate()
+        .filter(|(_, (before, after))| before != after)
+        .map(|(at, _)| at + 1)
+        .collect();
+
     let spans = find_jsx(source).map_err(|error| error.resolve(source))?;
 
     // What a capitalised tag needs to become a call: the components
@@ -43,12 +57,18 @@ pub fn transpile(source: &str) -> Result<Transpiled, CompileError> {
     let mut generated_line = 1;
     let mut rsx_line = 1;
 
+    let mut regions = Vec::new();
     for span in spans {
         let plain = &source[cursor..span.start];
         rust.push_str(plain);
         let crossed = plain.matches('\n').count();
         generated_line += crossed;
         rsx_line += crossed;
+
+        // Where the `<` sits on its line: everything before it is the
+        // developer's own Rust and keeps its columns.
+        let line_start = source[..span.start].rfind('\n').map_or(0, |at| at + 1);
+        let column = source[line_start..span.start].chars().count() + 1;
 
         let node = parse_jsx(source, span).map_err(|error| error.resolve(source))?;
         let code = emit(&node, &context).map_err(|error| error.resolve(source))?;
@@ -60,6 +80,11 @@ pub fn transpile(source: &str) -> Result<Transpiled, CompileError> {
         // with every region above it.
         rust.push_str(&code);
         let swallowed = source[span.start..span.end].matches('\n').count();
+        regions.push(crate::map::Region {
+            first_line: rsx_line,
+            column,
+            last_line: rsx_line + swallowed,
+        });
         for _ in 0..swallowed {
             rust.push('\n');
         }
@@ -76,6 +101,6 @@ pub fn transpile(source: &str) -> Result<Transpiled, CompileError> {
 
     Ok(Transpiled {
         rust,
-        map: PositionMap::new(points),
+        map: PositionMap::new(points).with_shape(regions, rewritten),
     })
 }
