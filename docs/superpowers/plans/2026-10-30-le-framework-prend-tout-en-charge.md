@@ -37,10 +37,10 @@
 **Interfaces:**
 - Produces: `rustx_dom::store::shared::<K, T>(initial: impl FnOnce() -> T) -> Shared<T>` avec `get`/`with`/`set`/`update`, où `K` est un type-marqueur que le compilateur fabrique par déclaration. `store::<T>()` devient `shared::<T, T>(T::default)` et ne change pas de comportement.
 
-- [ ] **Step 1 : les tests qui échouent** — `a_shared_value_is_built_once_and_found_again`, `two_markers_are_two_values_even_of_the_same_type`, `writing_a_shared_value_marks_everyone_who_read_it`, `a_store_is_a_shared_value_whose_marker_is_its_type`.
-- [ ] **Step 2** : `cargo test -p rustx-dom --test store` → échec de compilation sur `shared` absent.
-- [ ] **Step 3** : la registry prend la clé en paramètre ; `Entry` ne change pas.
-- [ ] **Step 4** : vert. **Step 5** : commit `feat(dom): a shared value with an initializer, named by a marker`.
+- [x] **Step 1 : les tests qui échouent** — `a_shared_value_is_built_once_and_found_again`, `two_markers_are_two_values_even_of_the_same_type`, `writing_a_shared_value_marks_everyone_who_read_it`, `a_store_is_a_shared_value_whose_marker_is_its_type`.
+- [x] **Step 2** : `cargo test -p rustx-dom --test store` → échec de compilation sur `shared` absent.
+- [x] **Step 3** : la registry prend la clé en paramètre ; `Entry` ne change pas.
+- [x] **Step 4** : vert. **Step 5** : commit `feat(dom): a shared value with an initializer, named by a marker`.
 
 ---
 
@@ -56,9 +56,9 @@
 
 La déclaration devient un type-marqueur ; chaque composant qui s'en sert reçoit, au début de son corps, `let <nom> = rustx_dom::store::shared::<__shared_<nom>, _>(|| <init>);`. Les lectures et les mutations sont ensuite réécrites par le chemin qui existe déjà pour un `let mut` de composant — c'est tout l'intérêt : un état partagé est une cellule dont le rangement est la registry.
 
-- [ ] **Step 1 : les tests qui échouent** — `a_let_mut_at_the_top_of_a_file_is_shared`, `two_components_see_one_shared_value`, `a_local_of_the_same_name_wins_inside_its_component` (Review Focus 2), `a_shared_write_in_a_handler_becomes_an_update`, `the_file_keeps_its_line_count`.
-- [ ] **Step 2** : `cargo test -p rustx-compiler --test shared` → rouge.
-- [ ] **Step 3 à 5** : implémenter, vert, commit `feat(compiler): a let mut at the top of a page is shared by the application`.
+- [x] **Step 1 : les tests qui échouent** — `a_let_mut_at_the_top_of_a_file_is_shared`, `two_components_see_one_shared_value`, `a_local_of_the_same_name_wins_inside_its_component` (Review Focus 2), `a_shared_write_in_a_handler_becomes_an_update`, `the_file_keeps_its_line_count`.
+- [x] **Step 2** : `cargo test -p rustx-compiler --test shared` → rouge.
+- [x] **Step 3 à 5** : implémenter, vert, commit `feat(compiler): a let mut at the top of a page is shared by the application`.
 
 ---
 
@@ -71,8 +71,8 @@ La déclaration devient un type-marqueur ; chaque composant qui s'en sert reçoi
 **Interfaces:**
 - Produces: dans le fichier généré, `pub fn component_table() -> &'static [(&'static str, fn() -> rustx_dom::Element)]` — tous les composants sans paramètre du dossier `app/`. `App::new` les donne à `foreign::register_component`.
 
-- [ ] **Step 1** : `every_component_without_parameters_is_in_the_table`, `a_component_with_parameters_is_not` (React n'a pas de quoi les remplir).
-- [ ] **Step 2 à 5** : rouge, implémenter, vert, commit `feat(compiler): React may mount any component a page declares`.
+- [x] **Step 1** : `every_component_without_parameters_is_in_the_table`, `a_component_with_parameters_is_not` (React n'a pas de quoi les remplir).
+- [x] **Step 2 à 5** : rouge, implémenter, vert, commit `feat(compiler): React may mount any component a page declares`.
 
 ---
 
@@ -87,8 +87,8 @@ La déclaration devient un type-marqueur ; chaque composant qui s'en sert reçoi
 - Consumes: tâches 2 et 3.
 - Produces: `#[rustx::main]` compile `app/` au moment de l'expansion, émet le Rust généré en place, et émet un `include_str!` par source pour que cargo suive les fichiers.
 
-- [ ] **Step 1** : `a_page_is_compiled_without_a_build_script`, `a_mistake_in_a_page_names_the_file_and_the_line` (Review Focus 4), `every_source_is_named_so_cargo_follows_it` (Review Focus 3).
-- [ ] **Step 2 à 5** : rouge, implémenter, vert, commit `feat(rustx): no build script — the attribute compiles the pages`.
+- [x] **Step 1** : `a_page_is_compiled_without_a_build_script`, `a_mistake_in_a_page_names_the_file_and_the_line` (Review Focus 4), `every_source_is_named_so_cargo_follows_it` (Review Focus 3).
+- [x] **Step 2 à 5** : rouge, implémenter, vert, commit `feat(rustx): no build script — the attribute compiles the pages`.
 
 ---
 
@@ -104,8 +104,8 @@ La déclaration devient un type-marqueur ; chaque composant qui s'en sert reçoi
 
 Un état partagé a un nom, donc le harnais peut le lire et l'écrire par son nom : c'est ce qui remplace `capture_ticks`, `hybrid_points`, `catalogue_clicked` et `counter_rotate`.
 
-- [ ] **Step 1** : `a_scenario_reads_a_shared_value_by_its_name`, `the_report_native_is_there_without_an_application_registering_it`.
-- [ ] **Step 2 à 6** : rouge, implémenter, réécrire les scénarios des applications, vert, commit `feat(engine): the test surface belongs to the framework`.
+- [x] **Step 1** : `a_scenario_reads_a_shared_value_by_its_name`, `the_report_native_is_there_without_an_application_registering_it`.
+- [x] **Step 2 à 6** : rouge, implémenter, réécrire les scénarios des applications, vert, commit `feat(engine): the test surface belongs to the framework`.
 
 ---
 
@@ -118,7 +118,7 @@ Un état partagé a un nom, donc le harnais peut le lire et l'écrire par son no
 
 Chaque application devient routée (un seul hôte, `#app`), ses composants écrits à la main passent en `.rsx`, son état partagé devient un `let mut` au sommet de sa page, et son `main.rs` est exactement l'extrait de la consigne. Un document par défaut est servi quand il n'y a pas d'`assets/index.html`, pour qu'une application neuve n'ait rien à écrire du tout.
 
-- [ ] **Step 1 à 6** : par application, scénario d'abord, puis la page, puis `main.rs` ; `cargo test -p <app>` à chaque fois ; commit `refactor(apps): an application is its pages and nothing else`.
+- [x] **Step 1 à 6** : par application, scénario d'abord, puis la page, puis `main.rs` ; `cargo test -p <app>` à chaque fois ; commit `refactor(apps): an application is its pages and nothing else`.
 
 ---
 
