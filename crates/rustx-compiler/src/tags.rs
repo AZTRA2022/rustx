@@ -143,10 +143,18 @@ pub fn is_known(name: &str) -> bool {
 /// Worth telling apart, because every TSX author will write `<Card />` on
 /// their first day, and "unknown tag" would send them hunting for a typo
 /// that is not there.
+///
+/// A name that says which library it came from — `<recharts::LineChart>`,
+/// `<ui::Button>` — is a component too, whatever its first letter: no
+/// HTML tag has a `::` in it, and that form is how a page picks between
+/// two libraries that export the same name. There are plenty: a
+/// `LineChart` is a chart in recharts and an icon in `lucide-react`.
 pub fn looks_like_a_component(name: &str) -> bool {
-    name.chars()
-        .next()
-        .is_some_and(|first| first.is_uppercase())
+    name.contains("::")
+        || name
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_uppercase())
 }
 
 /// The known tag closest to `name`.

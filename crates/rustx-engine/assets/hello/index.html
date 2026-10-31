@@ -318,6 +318,15 @@
               .join(", ");
             own.textContent = "chart of " + props.series;
             own.dataset.inside = inside;
+            // A library calls the handlers it was given on the nodes
+            // written inside it. Kept here so the scenario can call it
+            // the way the library would.
+            window.__rustx_child_pick =
+              (children ?? [])
+                .map((child) =>
+                  typeof child === "object" && child.props ? child.props.onPick : null
+                )
+                .find((pick) => typeof pick === "function") ?? null;
           },
         };
         const state = { mounts: 0, unmounts: 0, order: [] };
@@ -383,6 +392,19 @@
             waitFor(() => own().dataset.inside.includes("value"), () => {
               rustx_report("chart_inside_after_child_prop", own().dataset.inside);
             });
+
+            // The handler of a node written *inside* the boundary,
+            // called the way the library itself would call it.
+            rustx_report(
+              "child_handler_is_a_function",
+              typeof window.__rustx_child_pick === "function" ? "yes" : "no"
+            );
+            if (typeof window.__rustx_child_pick === "function") {
+              window.__rustx_child_pick("picked");
+            }
+            setTimeout(() => {
+              rustx_report("child_handler_reached_rust", rustx_foreign_picked());
+            }, 200);
 
             rustx_chart_series("b");
             waitFor(() => own().textContent === "chart of b", () => {

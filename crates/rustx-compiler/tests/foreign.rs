@@ -173,3 +173,27 @@ fn an_unknown_tag_inside_a_library_tag_is_still_refused() {
     let message = refusal("fn P() -> Element {\n    return <Content><dvi>hi</dvi></Content>;\n}");
     assert!(message.contains("dvi"), "got {message}");
 }
+
+#[test]
+fn a_library_named_before_the_component_needs_no_prefix() {
+    // The explicit form, for a name two libraries export — and two
+    // libraries export plenty: `lucide-react` has an icon called
+    // `LineChart`, and so has recharts a chart. A page that has to
+    // disambiguate must not have to reach for `js::` to do it, since
+    // that prefix is exactly what this framework took out.
+    let rust =
+        rewrite_one("fn P() -> Element {\n    return <recharts::LineChart width={320} />;\n}");
+    assert!(rust.contains("\"recharts::LineChart\""), "got {rust}");
+    assert!(
+        !rust.contains("tag(\"recharts::LineChart\")"),
+        "it was taken for an HTML tag: {rust}"
+    );
+}
+
+#[test]
+fn a_component_of_the_applications_own_library_is_named_the_same_way() {
+    // `components/ui`, which is where `shadcn add` leaves its work, is a
+    // library like any other and is called `ui`.
+    let rust = rewrite_one("fn P() -> Element {\n    return <ui::Button id=\"go\" />;\n}");
+    assert!(rust.contains("\"ui::Button\""), "got {rust}");
+}

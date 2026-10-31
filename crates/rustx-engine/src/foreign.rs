@@ -95,7 +95,7 @@ pub(crate) fn hand_over(node: &ForeignNode, container: &Node) {
     }
     // The children as a list of descriptions. React builds the tree;
     // what crosses is what to build.
-    let Some(children) = crate::value::into_v8(described(&node.children)) else {
+    let Some(children) = describe(&node.children) else {
         complain("rustx: what is inside a node React owns could not be built".to_string());
         return;
     };
@@ -116,28 +116,62 @@ pub(crate) fn hand_over(node: &ForeignNode, container: &Node) {
     }
 }
 
-/// What is inside a boundary, as values React's half can read.
+/// What is inside a boundary, as JavaScript React's half can read.
 ///
-/// `{ component, props, children }` for a component, and a plain string
-/// for text — which is what React itself accepts as a child.
-fn described(children: &[ForeignChild]) -> Value {
-    Value::List(
-        children
-            .iter()
-            .map(|child| match child {
-                ForeignChild::Text(text) => Value::String(text.clone()),
-                ForeignChild::Value(value) => value.clone(),
-                ForeignChild::Node(node) => Value::Record(vec![
-                    (
-                        "component".to_string(),
-                        Value::String(node.component.clone()),
-                    ),
-                    ("props".to_string(), Value::Record(node.props.clone())),
-                    ("children".to_string(), described(&node.children)),
-                ]),
-            })
-            .collect(),
-    )
+/// `{ component, props, children }` for a component, a plain string for
+/// text — which is what React itself accepts as a child — and, for a
+/// handler, a function on the props.
+///
+/// Built in V8 rather than as a [`Value`] because of that last part: a
+/// `Value` carries null, booleans, numbers, strings, lists and objects
+/// of them, and a function is none of those. A description that went
+/// through `Value` therefore lost every handler below the boundary's own
+/// node — which is every button in a page made of installed components,
+/// since those are components inside components. The page still drew,
+/// and nothing a developer clicked did anything.
+fn describe(children: &[ForeignChild]) -> Option<V8Value> {
+    let array = cef::v8_value_create_array(children.len() as i32)?;
+    for (at, child) in children.iter().enumerate() {
+        let mut item = match child {
+            ForeignChild::Text(text) => crate::value::into_v8(Value::String(text.clone()))?,
+            ForeignChild::Value(value) => crate::value::into_v8(value.clone())?,
+            ForeignChild::Node(node) => describe_node(node)?,
+        };
+        array.set_value_byindex(at as i32, Some(&mut item));
+    }
+    Some(array)
+}
+
+/// One node inside a boundary: what to build, with what, and what it
+/// holds — handlers included.
+fn describe_node(node: &ForeignNode) -> Option<V8Value> {
+    let object = cef::v8_value_create_object(None, None)?;
+    let set = |name: &str, value: &mut V8Value| {
+        object.set_value_bykey(
+            Some(&cef::CefString::from(name)),
+            Some(value),
+            cef::V8Propertyattribute::default(),
+        );
+    };
+
+    let mut component = crate::value::into_v8(Value::String(node.component.clone()))?;
+    set("component", &mut component);
+
+    let props = crate::value::object_of(&node.props)?;
+    for (name, callback) in &node.callbacks {
+        let mut function = function_for(name, callback)?;
+        props.set_value_bykey(
+            Some(&cef::CefString::from(name.as_str())),
+            Some(&mut function),
+            cef::V8Propertyattribute::default(),
+        );
+    }
+    let mut props = props;
+    set("props", &mut props);
+
+    let mut children = describe(&node.children)?;
+    set("children", &mut children);
+    Some(object)
 }
 
 /// Tell React to let `container` go, while it is still in the document.

@@ -165,3 +165,24 @@ fn a_tailwind_class_written_in_a_page_reaches_the_screen() {
         report().raw()
     );
 }
+
+#[test]
+fn a_handler_on_an_installed_component_reaches_rust() {
+    // `#add` is shadcn's own `Button` — TypeScript that `npx shadcn add`
+    // put in `components/ui/`, three components deep inside a `Card`.
+    // Its `onClick` is a Rust closure. Until the boundary carried the
+    // handlers of the nodes *inside* it, a page of installed components
+    // drew perfectly and did nothing at all when clicked.
+    assert_eq!(
+        report().get("dots_after_two_points"),
+        "3",
+        "two clicks on an installed component never reached Rust:\n{}",
+        report().raw()
+    );
+    assert_eq!(
+        report().get("counter_in_panel"),
+        "2",
+        "full output:\n{}",
+        report().raw()
+    );
+}
