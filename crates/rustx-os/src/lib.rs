@@ -6,12 +6,29 @@
 //! hardware and the words for it, so that the engine above can stay
 //! about drawing.
 //!
-//! # Windows first
+//! # One directory per operating system
 //!
-//! Every capability here is Windows today. The other platforms compile,
-//! and refuse in a sentence that names the platform: a program that
-//! builds everywhere and silently does nothing on two of the three is
-//! worse than one that says where it stands.
+//! ```text
+//! clipboard.rs      the API a page sees: the types, the words, no platform
+//! devices.rs        idem
+//! windows/          clipboard.rs  devices.rs  media.rs
+//! linux/            clipboard.rs  devices.rs
+//! other/            macOS and the rest, until somebody writes them
+//! ```
+//!
+//! A capability is one file per platform, with the same function names
+//! in each, and the module above it never asks which machine it is on.
+//! So a capability arrives on a second platform by filling one file —
+//! and the question "what is left to do on Linux?" is answered by
+//! looking in `linux/`.
+//!
+//! Every capability is Windows today. The other platforms compile, and
+//! refuse in a sentence that names both the platform and the capability:
+//! a program that builds everywhere and silently does nothing on two of
+//! the three is worse than one that says where it stands. The tests
+//! compile `linux/` and `other/` as well, on whatever machine they run
+//! on, so that a change to the API above breaks them here rather than
+//! on somebody else's machine three weeks later.
 //!
 //! # One dependency
 //!
@@ -21,9 +38,58 @@
 //! precisely the work this project has no reason to redo. Nothing above
 //! this crate hears about it.
 
+pub mod clipboard;
 pub mod devices;
 pub mod error;
+pub mod patience;
+
+// One directory per operating system, and one file per capability
+// inside it. Which one is compiled is the only place in this crate
+// where a platform is named: everything above `platform` asks for a
+// capability and is handed the one the machine has.
 #[cfg(windows)]
-mod windows_media;
+#[path = "windows/mod.rs"]
+mod platform;
+#[cfg(target_os = "linux")]
+#[path = "linux/mod.rs"]
+mod platform;
+#[cfg(not(any(windows, target_os = "linux")))]
+#[path = "other/mod.rs"]
+mod platform;
 
 pub use error::OsError;
+
+// The platforms that are not this one, compiled anyway when the tests
+// run. They are ordinary Rust — no platform bindings — so a rename or a
+// changed signature in the API above breaks them here, on whatever
+// machine the tests are run on, instead of on somebody else's Linux
+// three weeks later.
+#[cfg(test)]
+#[allow(dead_code)]
+#[path = "linux/mod.rs"]
+mod linux_also_compiles;
+#[cfg(test)]
+#[allow(dead_code)]
+#[path = "other/mod.rs"]
+mod elsewhere_also_compiles;
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_platform_that_cannot_do_it_says_which_platform_it_is() {
+        // What a developer on Linux reads today. The message names the
+        // platform and the capability, because "unsupported" alone sends
+        // the reader to the source.
+        let refused = super::linux_also_compiles::clipboard::text();
+        let said = refused.expect_err("Linux refuses for now").to_string();
+        assert!(said.contains("the clipboard"), "got {said}");
+        assert!(
+            said.contains(std::env::consts::OS),
+            "the platform is not named: {said}"
+        );
+        assert!(
+            !super::linux_also_compiles::clipboard::AVAILABLE,
+            "a platform that refuses must not say it is available"
+        );
+    }
+}

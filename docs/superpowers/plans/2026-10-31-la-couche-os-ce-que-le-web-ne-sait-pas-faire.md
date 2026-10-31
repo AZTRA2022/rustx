@@ -18,6 +18,7 @@
 - **Le thread compte.** Une icône de barre système et un raccourci global ont besoin d'une boucle de messages : ils vivent sur le thread de l'interface du processus navigateur, et l'API les y poste. Un test qui les crée ailleurs doit échouer avec une phrase, pas se taire.
 - **Aucun test n'exige une main humaine.** Ce qui ouvre une fenêtre modale (les dialogues) est prouvé par son refus et par un exemple à lancer à la main ; tout le reste — presse-papiers, icône, raccourci, instance unique — est vérifiable sans personne devant l'écran.
 - Windows d'abord. macOS et Linux compilent, et chaque module dit en une phrase ce qui manque chez eux.
+- **Un répertoire par système, un fichier par capacité dedans.** `src/<capacité>.rs` est l'API — les types, les mots, aucune plateforme — et `src/windows/<capacité>.rs`, `src/linux/<capacité>.rs`, `src/other/mod.rs` sont les implémentations, avec les mêmes noms de fonctions et une constante `AVAILABLE`. Rien au-dessus de `platform` ne nomme un système. Les tests compilent aussi `linux/` et `other/` sur la machine qui les lance, pour qu'un changement d'API casse ici et non chez quelqu'un d'autre. (Posé à la tâche 1 ; les tâches suivantes s'y conforment.)
 
 ## Review Focus
 
