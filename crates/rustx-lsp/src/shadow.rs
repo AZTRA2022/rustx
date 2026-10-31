@@ -166,3 +166,15 @@ pub fn told(shadow: &Shadow, method: &str) -> String {
         )
     }
 }
+
+/// A `didChange` carrying `text` for the file at `uri`.
+///
+/// Used for a shadow's real text, and for the file built to answer one
+/// question about one expression.
+pub fn changed(uri: &str, text: &str) -> String {
+    format!(
+        "{{\"textDocument\":{{\"uri\":\"{}\",\"version\":2}},         \"contentChanges\":[{{\"text\":\"{}\"}}]}}",
+        crate::json::escape(uri),
+        crate::json::escape(text)
+    )
+}

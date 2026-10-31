@@ -10,3 +10,5 @@ rustx-compiler = { path = "../rustx-compiler" }
 
 [dev-dependencies]
 rustx-compiler = { path = "../rustx-compiler" }
+# To prove that what is handed to rust-analyzer is a file a parser accepts.
+syn = { version = "2", features = ["full", "parsing"] }

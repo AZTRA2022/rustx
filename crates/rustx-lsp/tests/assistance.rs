@@ -129,10 +129,11 @@ fn a_hover_in_a_component_body_comes_back_with_what_rust_said() {
 }
 
 #[test]
-fn a_completion_inside_a_tag_answers_nothing() {
-    // Line 3 from the `<` on is one Rust expression: a column in there
-    // has no counterpart, and an answer from a position next door would
-    // complete the wrong word.
+fn a_completion_inside_an_expression_comes_back_from_rust() {
+    // `{title}` on line 3. A column inside a region has no counterpart
+    // in the generated file — the whole region is one line there — so
+    // the question is asked against a file built for it, with the
+    // expression at its own line and column. The answer is the real one.
     let (root, uri) = a_page();
     let said = conversation(
         &[
@@ -147,10 +148,9 @@ fn a_completion_inside_a_tag_answers_nothing() {
         .iter()
         .find(|body| body.contains("\"id\":8"))
         .unwrap_or_else(|| panic!("the completion was not answered: {said:?}"));
-    assert!(!answer.contains("wrong"), "got {answer}");
     assert!(
-        answer.contains("[]") || answer.contains("null"),
-        "got {answer}"
+        answer.contains("wrong"),
+        "the expression's own completions never came back: {answer}"
     );
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -222,4 +222,29 @@ fn a_question_about_a_page_that_was_never_opened_answers_nothing() {
         said.iter().any(|body| body.contains("\"id\":11")),
         "a question must always be answered: {said:?}"
     );
+}
+
+#[test]
+fn a_hover_inside_a_tag_answers_nothing() {
+    // The markup half answers completion — a tag name, an attribute —
+    // and nothing else: there is no type to show for a `<p>`, and an
+    // answer taken from the position next door would be about something
+    // the developer is not looking at.
+    let (root, uri) = a_page();
+    let said = conversation(
+        &[
+            opened(&uri).as_str(),
+            asked("textDocument/hover", &uri, 2, 12, 9).as_str(),
+        ],
+        Some(canned(&[
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"contents\":\"wrong\"}}",
+        ])),
+    );
+    let answer = said
+        .iter()
+        .find(|body| body.contains("\"id\":9"))
+        .unwrap_or_else(|| panic!("the hover was not answered: {said:?}"));
+    assert!(!answer.contains("wrong"), "got {answer}");
+    assert!(answer.contains("null"), "got {answer}");
+    let _ = std::fs::remove_dir_all(&root);
 }

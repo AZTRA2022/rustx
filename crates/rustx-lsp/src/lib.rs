@@ -17,6 +17,7 @@ pub mod diagnostics;
 pub mod downstream;
 pub mod inside;
 pub mod json;
+pub mod picked;
 pub mod rpc;
 pub mod shadow;
 pub mod suggest;
@@ -211,7 +212,7 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
                 // the generated file at all.
                 let answer = match offer(&method, &message, &sources) {
                     Some(items) => items,
-                    None => assist(&method, &message, &shadows, downstream.held()),
+                    None => assist(&method, &message, &shadows, &sources, downstream.held()),
                 };
                 rpc::write(
                     output,
@@ -327,6 +328,7 @@ fn assist(
     method: &str,
     message: &str,
     shadows: &std::collections::HashMap<String, shadow::Shadow>,
+    sources: &std::collections::HashMap<String, String>,
     downstream: Option<&mut downstream::Server>,
 ) -> String {
     let empty = if method.ends_with("hover") {
@@ -349,12 +351,30 @@ fn assist(
     ) else {
         return empty.to_string();
     };
+    let (asked_line, asked_character) = (line.max(0) as usize + 1, character.max(0) as usize + 1);
+
+    // A position inside a `{…}` has no column in the generated file,
+    // because a whole region is emitted on one line. So the file is
+    // rebuilt for this one question, with the expression at its own
+    // line and column — and then the position needs no translation at
+    // all.
+    let picked = sources
+        .get(&uri)
+        .and_then(|source| picked::file(source, &shadow.rust, asked_line, asked_character));
+    if let Some(made) = picked {
+        let answered = ask_about(server, method, shadow, &made, asked_line, asked_character);
+        return answered
+            .unwrap_or_else(|| empty.to_string())
+            .replace(&shadow.uri, &uri);
+    }
+
     let Some((line, character)) = shadow
         .map
-        .to_generated_position(line.max(0) as usize + 1, character.max(0) as usize + 1)
+        .to_generated_position(asked_line, asked_character)
     else {
-        // Inside a tag, or on a line the rewrite rebuilt. A position
-        // next door is not an answer, it is a wrong one.
+        // On a line the rewrite rebuilt, or in the markup itself, where
+        // the position has no counterpart. A position next door is not
+        // an answer, it is a wrong one.
         return empty.to_string();
     };
 
@@ -374,6 +394,39 @@ fn assist(
     // whole translation.
     let result = cut_result(&answer).unwrap_or(empty);
     result.replace(&shadow.uri, &uri)
+}
+
+/// Ask `server` about `made` — a file built for this question — and put
+/// the real one back afterwards, whatever happened.
+///
+/// The downstream server holds one text per file; leaving the made one
+/// in place would mean the next underlining, the next hover and the next
+/// change were all computed against a file nobody wrote.
+fn ask_about(
+    server: &mut downstream::Server,
+    method: &str,
+    shadow: &shadow::Shadow,
+    made: &str,
+    line: usize,
+    character: usize,
+) -> Option<String> {
+    server.tell(
+        "textDocument/didChange",
+        &shadow::changed(&shadow.uri, made),
+    );
+    let asked = format!(
+        "{{\"textDocument\":{{\"uri\":\"{}\"}},\"position\":{{\"line\":{},\"character\":{}}}}}",
+        json::escape(&shadow.uri),
+        line - 1,
+        character - 1
+    );
+    let answer = server.ask(method, &asked);
+    // Back to the real file before anything else is asked.
+    server.tell(
+        "textDocument/didChange",
+        &shadow::changed(&shadow.uri, &shadow.rust),
+    );
+    cut_result(answer.as_deref()?).map(str::to_string)
 }
 
 /// The `result` of an answer, as text, braces and brackets balanced.
