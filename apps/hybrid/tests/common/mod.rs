@@ -72,7 +72,7 @@ pub fn run_hybrid_scenario() -> Report {
     // number of seconds: starting Chromium takes much longer on a machine
     // that has just run the engine's own suite, and a flat sleep turns
     // that into a failure that looks like a bug in the application.
-    wait_for_report(&report_file, "js_unmounted", Duration::from_secs(150));
+    wait_for_report(&report_file, "svg_after_leave", Duration::from_secs(150));
 
     let _ = Command::new("taskkill")
         .args(["/T", "/F", "/PID", &child.id().to_string()])

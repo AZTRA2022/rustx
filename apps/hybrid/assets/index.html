@@ -44,6 +44,38 @@
           rustx_report("library_drew", "yes");
           rustx_report("dots_at_first", String(dots()));
 
+          // Radix for the behaviour, Tailwind for the look. The trigger
+          // is a button Radix rendered, with the classes the page wrote.
+          const trigger = document.querySelector("#open-dialog");
+          rustx_report(
+            "trigger_background",
+            getComputedStyle(trigger).backgroundColor
+          );
+          rustx_report("trigger_classes", trigger.getAttribute("class") ?? "none");
+          rustx_report(
+            "stylesheet_in_page",
+            document.querySelector("#rustx-stylesheet") === null ? "no" : "yes"
+          );
+          trigger.click();
+          waitFor(() => document.querySelector("[role=\"dialog\"]") !== null, () => {
+            const dialog = document.querySelector("[role=\"dialog\"]");
+            // Radix wires `aria-labelledby` to a title of its own, so the
+            // page does not name it: it is read through the dialog.
+            rustx_report("dialog_title", dialog.textContent.includes("One DOM") ? "there" : "missing");
+            // Radix puts it in a portal: somewhere else in the document,
+            // outside the container rustx handed over.
+            rustx_report(
+              "dialog_is_in_a_portal",
+              document.querySelector("#app").contains(dialog) ? "no" : "yes"
+            );
+            rustx_report("dialog_padding", getComputedStyle(dialog).paddingTop);
+
+            document.querySelector("#close-dialog").click();
+            waitFor(() => document.querySelector("[role=\"dialog\"]") === null, () => {
+              rustx_report("dialog_closed", "yes");
+            });
+          });
+
           // The same DOM node, kept to compare: a library given new
           // props must be updated, not rebuilt.
           const first = svg();

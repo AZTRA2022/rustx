@@ -95,3 +95,57 @@ fn leaving_the_page_takes_what_the_library_drew_with_it() {
         report().raw()
     );
 }
+
+#[test]
+fn a_radix_dialog_written_in_the_page_opens_and_closes() {
+    // What shadcn/ui is made of, written in `.rsx` and nowhere else:
+    // Radix for the behaviour, Tailwind for the look. The dialog is in a
+    // portal — somewhere else in the document, outside the container
+    // rustx handed over — which is exactly what Radix is for and what a
+    // boundary that only passed props could never have done.
+    assert_eq!(
+        report().get("dialog_title"),
+        "there",
+        "the dialog did not open:\n{}",
+        report().raw()
+    );
+    assert_eq!(
+        report().get("dialog_is_in_a_portal"),
+        "yes",
+        "the dialog was not in a portal:\n{}",
+        report().raw()
+    );
+    assert_eq!(
+        report().get("dialog_closed"),
+        "yes",
+        "the library's own close button did not close it:\n{}",
+        report().raw()
+    );
+}
+
+#[test]
+fn a_tailwind_class_written_in_a_page_reaches_the_screen() {
+    // `className="bg-violet-500"` in `app/page.rsx`. Tailwind scanned
+    // the `.rsx`, wrote the class, and the framework put the stylesheet
+    // in the page — the application has no `.css` of its own and no
+    // `<link>`.
+    assert_eq!(
+        report().get("stylesheet_in_page"),
+        "yes",
+        "the stylesheet never reached the document:\n{}",
+        report().raw()
+    );
+    assert_eq!(
+        report().get("trigger_background"),
+        "rgb(139, 92, 246)",
+        "`bg-violet-500` did not reach the screen:\n{}",
+        report().raw()
+    );
+    // And a class on a node the library rendered through a portal.
+    assert_eq!(
+        report().get("dialog_padding"),
+        "24px",
+        "`p-6` did not reach the dialog:\n{}",
+        report().raw()
+    );
+}

@@ -167,12 +167,16 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
             }
             .into();
         }
-        Ok(None) => TokenStream2::new(),
-        Ok(Some(bundle)) => {
-            let path = slashed(&bundle);
-            quote! {
-                rustx::install_bundle(include_str!(#path));
-            }
+        Ok(built) => {
+            let bundle = built.bundle.map(|bundle| {
+                let path = slashed(&bundle);
+                quote! { rustx::install_bundle(include_str!(#path)); }
+            });
+            let stylesheet = built.stylesheet.map(|stylesheet| {
+                let path = slashed(&stylesheet);
+                quote! { rustx::install_stylesheet(include_str!(#path)); }
+            });
+            quote! { #bundle #stylesheet }
         }
     };
 

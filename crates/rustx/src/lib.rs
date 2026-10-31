@@ -60,6 +60,8 @@ thread_local! {
     static SHARED: RefCell<Vec<NamedValue>> = const { RefCell::new(Vec::new()) };
     /// The application.s own JavaScript, bundled by the attribute.
     static BUNDLE: Cell<Option<&'static str>> = const { Cell::new(None) };
+    /// The stylesheet Tailwind wrote from the classes the pages use.
+    static STYLESHEET: Cell<Option<&'static str>> = const { Cell::new(None) };
 }
 
 /// Said by `#[rustx::main]`, which is where `env!` reads the
@@ -104,6 +106,17 @@ pub fn install_shared_values(values: Vec<NamedValue>) {
 #[doc(hidden)]
 pub fn install_bundle(javascript: &'static str) {
     BUNDLE.with(|held| held.set(Some(javascript)));
+}
+
+/// Said by `#[rustx::main]`, with the stylesheet Tailwind wrote from the
+/// classes the pages use.
+///
+/// Compiled into the binary and added to the document at startup, so a
+/// page that writes `className="bg-violet-500"` is styled without the
+/// application shipping a `.css` beside its executable.
+#[doc(hidden)]
+pub fn install_stylesheet(css: &'static str) {
+    STYLESHEET.with(|held| held.set(Some(css)));
 }
 
 /// A window, and where its screens come from.
@@ -237,6 +250,26 @@ impl App {
             if let Some(bundle) = BUNDLE.with(Cell::get) {
                 rustx_engine::inject("app-bundle", bundle);
             }
+            // And the stylesheet, as a `<style>` the document did not
+            // have to name either. JavaScript puts it there because
+            // that is what the engine can put in a page.
+            if let Some(css) = STYLESHEET.with(Cell::get) {
+                rustx_engine::inject(
+                    "app-stylesheet",
+                    &format!(
+                        // Waited for, not assumed: what the engine puts
+                        // in a page runs when the JavaScript context is
+                        // created, and a context exists before the
+                        // document's `<head>` does.
+                        "(() => {{ const css = {}; const put = () => {{ \
+                         if (!document.head) {{ requestAnimationFrame(put); return; }} \
+                         const sheet = document.createElement('style'); \
+                         sheet.id = 'rustx-stylesheet'; sheet.textContent = css; \
+                         document.head.appendChild(sheet); }}; put(); }})();",
+                        javascript_string(css)
+                    ),
+                );
+            }
         });
         for (id, component) in config.mounts {
             rustx_engine::on_context_created(move || mount_when_ready(id.clone(), component));
@@ -290,6 +323,30 @@ fn start_router(
             started.set(true);
         }
     });
+}
+
+/// A string as JavaScript would write it.
+///
+/// A stylesheet is full of braces, quotes and newlines, and it is going
+/// into a script: everything that could end the literal early has to be
+/// escaped, or a `}` in a CSS rule ends the statement instead.
+fn javascript_string(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for letter in text.chars() {
+        match letter {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            '<' => out.push_str("\\u003c"),
+            other => out.push(other),
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// The document the screens are put in.

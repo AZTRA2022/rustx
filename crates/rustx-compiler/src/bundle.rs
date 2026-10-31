@@ -93,18 +93,31 @@ pub fn name_for(package: &str) -> String {
     name
 }
 
-/// Write and build this application's bundle.
+/// What the framework built for an application.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Built {
+    /// The application's libraries, bundled.
+    pub bundle: Option<PathBuf>,
+    /// The stylesheet Tailwind wrote from the classes in the pages.
+    pub stylesheet: Option<PathBuf>,
+}
+
+/// Write and build this application's JavaScript and CSS.
 ///
-/// `Ok(None)` when the application has no `package.json`: it uses no
-/// library, so there is nothing to bundle and nothing to install.
-pub fn build(app: &Path) -> Result<Option<PathBuf>, String> {
+/// Everything empty when the application has no `package.json`: it uses
+/// no library, so there is nothing to bundle and nothing to install.
+pub fn build(app: &Path) -> Result<Built, String> {
     let manifest = app.join("package.json");
     let Ok(declared) = std::fs::read_to_string(&manifest) else {
-        return Ok(None);
+        return Ok(Built::default());
     };
+    let stylesheet = styles(app)?;
     let dependencies = dependencies_in(&declared);
     if dependencies.is_empty() {
-        return Ok(None);
+        return Ok(Built {
+            bundle: None,
+            stylesheet,
+        });
     }
 
     let esbuild = esbuild_in(app).ok_or_else(|| {
@@ -144,7 +157,61 @@ pub fn build(app: &Path) -> Result<Option<PathBuf>, String> {
             String::from_utf8_lossy(&finished.stderr).trim()
         ));
     }
-    Ok(Some(bundle))
+    Ok(Built {
+        bundle: Some(bundle),
+        stylesheet,
+    })
+}
+
+/// The stylesheet Tailwind writes from the classes the pages use.
+///
+/// Run when the application installed Tailwind, and not otherwise. The
+/// input is the application's own `assets/tailwind.css` when it wrote
+/// one; otherwise the framework asks for the utilities alone — a page
+/// writes `className="bg-violet-500"`, and Tailwind's base layer would
+/// reset the stylesheet the page already has.
+///
+/// What it scans is `app/**/*.rsx`: Tailwind reads the pages it styles,
+/// which is the one thing it has to be told here, because nothing else
+/// in its world has that extension.
+fn styles(app: &Path) -> Result<Option<PathBuf>, String> {
+    let Some(tailwind) = tool_in(app, "tailwindcss") else {
+        return Ok(None);
+    };
+    let out = app.join(DIRECTORY);
+    std::fs::create_dir_all(&out)
+        .map_err(|error| format!("rustx could not write {}: {error}", out.display()))?;
+
+    let written = app.join("assets").join("tailwind.css");
+    let input = if written.exists() {
+        written
+    } else {
+        let generated = out.join("tailwind.in.css");
+        std::fs::write(&generated, "@tailwind utilities;\n")
+            .map_err(|error| format!("rustx could not write {}: {error}", generated.display()))?;
+        generated
+    };
+
+    let stylesheet = out.join("tailwind.css");
+    let finished = std::process::Command::new(&tailwind)
+        .arg("--input")
+        .arg(&input)
+        .arg("--output")
+        .arg(&stylesheet)
+        .arg("--content")
+        .arg("./app/**/*.rsx")
+        .arg("--minify")
+        .current_dir(app)
+        .output()
+        .map_err(|error| format!("rustx could not run {}: {error}", tailwind.display()))?;
+
+    if !finished.status.success() {
+        return Err(format!(
+            "tailwindcss refused this application's pages:\n{}",
+            String::from_utf8_lossy(&finished.stderr).trim()
+        ));
+    }
+    Ok(Some(stylesheet))
 }
 
 /// The names under `dependencies` in a `package.json`.
@@ -181,8 +248,18 @@ pub fn dependencies_in(manifest: &str) -> Vec<String> {
 
 /// The application's own esbuild, if it installed one.
 fn esbuild_in(app: &Path) -> Option<PathBuf> {
+    tool_in(app, "esbuild")
+}
+
+/// A tool from the application's own `node_modules`, under whichever
+/// name this system gave it.
+fn tool_in(app: &Path, tool: &str) -> Option<PathBuf> {
     let binaries = app.join("node_modules").join(".bin");
-    for name in ["esbuild.cmd", "esbuild.exe", "esbuild"] {
+    for name in [
+        format!("{tool}.cmd"),
+        format!("{tool}.exe"),
+        tool.to_string(),
+    ] {
         let path = binaries.join(name);
         if path.exists() {
             return Some(path);

@@ -37,11 +37,11 @@
 **Interfaces:**
 - Produces: `<LineChart />` → `Element::Foreign { node: ForeignNode { component: "LineChart", … } }` ; `<Dialog.Trigger />` → `component: "Dialog.Trigger"` ; `<recharts::LineChart />` inchangé ; `<Counter />` reste un appel rustx quand le fichier déclare `fn Counter`.
 
-- [ ] **Step 1** : `a_capitalised_tag_the_file_does_not_declare_is_a_library_component`, `a_dotted_tag_is_a_path_into_a_library`, `a_tag_the_file_declares_is_still_a_rustx_component`, `a_library_tag_may_hold_children_and_a_rust_tag_inside_it_is_refused`.
-- [ ] **Step 2** : rouge.
-- [ ] **Step 3** : l'aiguillage dans `expression`, et le parseur qui accepte `.` dans un nom de balise capitalisée.
-- [ ] **Step 4** : vert, plus `cargo test -p rustx-compiler`.
-- [ ] **Step 5** : commit `feat(compiler): a capitalised tag is a library component`.
+- [x] **Step 1** : `a_capitalised_tag_the_file_does_not_declare_is_a_library_component`, `a_dotted_tag_is_a_path_into_a_library`, `a_tag_the_file_declares_is_still_a_rustx_component`, `a_library_tag_may_hold_children_and_a_rust_tag_inside_it_is_refused`.
+- [x] **Step 2** : rouge.
+- [x] **Step 3** : l'aiguillage dans `expression`, et le parseur qui accepte `.` dans un nom de balise capitalisée.
+- [x] **Step 4** : vert, plus `cargo test -p rustx-compiler`.
+- [x] **Step 5** : commit `feat(compiler): a capitalised tag is a library component`.
 
 ---
 
@@ -54,11 +54,11 @@
 **Interfaces:**
 - Produces: `resolve(name)` cherche, dans l'ordre : les composants enregistrés, puis chaque bibliothèque déclarée, pour un export de ce nom ; `A.B` descend dans les propriétés ; `module::Name` reste explicite. Deux bibliothèques qui exportent le même nom : la première gagne et `console.warn` nomme les deux et la forme explicite.
 
-- [ ] **Step 1** : `a_bare_name_is_found_in_a_declared_library`, `a_dotted_name_walks_into_an_export`, `a_name_two_libraries_export_warns_and_names_both`, `a_name_nobody_exports_names_both_places_it_was_looked_for`.
-- [ ] **Step 2** : rouge.
-- [ ] **Step 3** : la résolution.
-- [ ] **Step 4** : vert.
-- [ ] **Step 5** : commit `feat(rustx): a library component is found by its name`.
+- [x] **Step 1** : `a_bare_name_is_found_in_a_declared_library`, `a_dotted_name_walks_into_an_export`, `a_name_two_libraries_export_warns_and_names_both`, `a_name_nobody_exports_names_both_places_it_was_looked_for`.
+- [x] **Step 2** : rouge.
+- [x] **Step 3** : la résolution.
+- [x] **Step 4** : vert.
+- [x] **Step 5** : commit `feat(rustx): a library component is found by its name`.
 
 ---
 
@@ -71,11 +71,11 @@
 **Interfaces:**
 - Produces: le module généré ouvre, en plus de `use super::*`, un `use super::<module>::*;` par `mod <module>;` déclaré dans le fichier où `#[rustx::main]` est écrit. Un `mod` privé reste privé au crate, ce qui suffit : la page est dans le même crate.
 
-- [ ] **Step 1** : `apps/capture/app/device/[id]/page.rsx` appelle `Stream::open` sans que `main.rs` l'importe ; `apps/capture/src/main.rs` perd sa ligne `use devices::Stream;`.
-- [ ] **Step 2** : rouge (`cannot find type Stream`).
-- [ ] **Step 3** : le scan des `mod` et les `use` générés.
-- [ ] **Step 4** : vert (`cargo test -p capture`).
-- [ ] **Step 5** : commit `feat(macros): a page sees the modules of its own crate`.
+- [x] **Step 1** : `apps/capture/app/device/[id]/page.rsx` appelle `Stream::open` sans que `main.rs` l'importe ; `apps/capture/src/main.rs` perd sa ligne `use devices::Stream;`.
+- [x] **Step 2** : rouge (`cannot find type Stream`).
+- [x] **Step 3** : le scan des `mod` et les `use` générés.
+- [x] **Step 4** : vert (`cargo test -p capture`).
+- [x] **Step 5** : commit `feat(macros): a page sees the modules of its own crate`.
 
 ---
 
@@ -93,11 +93,11 @@
 - `App::new` injecte le bundle avec `rustx_engine::inject("app-bundle", …)`, donc une page n'a plus de `<script src>` à écrire. Le chemin du bundle est passé par `#[rustx::main]`, qui l'a construit.
 - Un nom de paquet n'est pas un identifiant JavaScript (`@radix-ui/react-dialog`) : il est déclaré sous un nom lisible (`radixDialog`), obtenu en camelCase des segments.
 
-- [ ] **Step 1** : `an_entry_imports_every_dependency_under_a_usable_name`, `a_scoped_package_gets_a_camel_case_name`, `an_application_with_no_package_json_generates_nothing`, `a_missing_node_modules_says_to_install`.
-- [ ] **Step 2** : rouge.
-- [ ] **Step 3** : la génération, l'appel d'esbuild, l'injection.
-- [ ] **Step 4** : vert, plus `cargo test -p hybrid` avec `apps/hybrid/web` supprimé.
-- [ ] **Step 5** : commit `feat(rustx): the framework writes the JavaScript it needs`.
+- [x] **Step 1** : `an_entry_imports_every_dependency_under_a_usable_name`, `a_scoped_package_gets_a_camel_case_name`, `an_application_with_no_package_json_generates_nothing`, `a_missing_node_modules_says_to_install`.
+- [x] **Step 2** : rouge.
+- [x] **Step 3** : la génération, l'appel d'esbuild, l'injection.
+- [x] **Step 4** : vert, plus `cargo test -p hybrid` avec `apps/hybrid/web` supprimé.
+- [x] **Step 5** : commit `feat(rustx): the framework writes the JavaScript it needs`.
 
 ---
 
@@ -111,11 +111,11 @@
 **Interfaces:**
 - Produces: quand `tailwindcss` est une dépendance de l'application, `build` lance aussi `tailwindcss` sur `assets/tailwind.css` avec `--content "app/**/*.rsx"` et écrit `.rustx/tailwind.css` ; `App::new` injecte la feuille dans la page (un `<style>` ajouté au document, par le runtime, à partir du texte compilé dans le binaire).
 
-- [ ] **Step 1** : le scénario lit la couleur calculée d'un élément qui porte `className="bg-violet-500"` écrit dans la page ; `a_tailwind_class_written_in_a_page_reaches_the_screen`.
-- [ ] **Step 2** : rouge (la classe n'existe pas, la couleur est transparente).
-- [ ] **Step 3** : l'appel à Tailwind et l'injection de la feuille.
-- [ ] **Step 4** : vert.
-- [ ] **Step 5** : commit `feat(rustx): Tailwind reads the pages it styles`.
+- [x] **Step 1** : le scénario lit la couleur calculée d'un élément qui porte `className="bg-violet-500"` écrit dans la page ; `a_tailwind_class_written_in_a_page_reaches_the_screen`.
+- [x] **Step 2** : rouge (la classe n'existe pas, la couleur est transparente).
+- [x] **Step 3** : l'appel à Tailwind et l'injection de la feuille.
+- [x] **Step 4** : vert.
+- [x] **Step 5** : commit `feat(rustx): Tailwind reads the pages it styles`.
 
 ---
 
@@ -139,11 +139,11 @@ Ce que shadcn/ui est, c'est Radix plus des classes Tailwind. Le `.rsx` écrit le
 </radixDialog::Root>
 ```
 
-- [ ] **Step 1** : `a_radix_dialog_written_in_the_page_opens` — le scénario clique le déclencheur et lit `[role="dialog"]` avec son titre, hors du conteneur (Radix le met dans un portail, donc ailleurs dans le document) ; `the_dialog_is_styled_by_tailwind` lit la couleur de fond du déclencheur.
-- [ ] **Step 2** : rouge.
-- [ ] **Step 3** : la page, la dépendance, le bundle.
-- [ ] **Step 4** : vert, plus `cargo test --workspace` et `cargo clippy --workspace --all-targets`.
-- [ ] **Step 5** : commit `feat(hybrid): a shadcn component, written in rsx`.
+- [x] **Step 1** : `a_radix_dialog_written_in_the_page_opens` — le scénario clique le déclencheur et lit `[role="dialog"]` avec son titre, hors du conteneur (Radix le met dans un portail, donc ailleurs dans le document) ; `the_dialog_is_styled_by_tailwind` lit la couleur de fond du déclencheur.
+- [x] **Step 2** : rouge.
+- [x] **Step 3** : la page, la dépendance, le bundle.
+- [x] **Step 4** : vert, plus `cargo test --workspace` et `cargo clippy --workspace --all-targets`.
+- [x] **Step 5** : commit `feat(hybrid): a shadcn component, written in rsx`.
 
 ---
 

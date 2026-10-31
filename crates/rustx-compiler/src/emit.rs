@@ -517,7 +517,11 @@ fn foreign_child(
     context: &Context<'_>,
 ) -> Result<TokenStream, CompileError> {
     match child {
-        Node::Tag(tag) if tag.name.starts_with("js::") => {
+        // A capitalised tag, by the same rule as the tag around it: the
+        // library's own components, written inside one another.
+        Node::Tag(tag)
+            if tag.name.starts_with("js::") || crate::tags::looks_like_a_component(&tag.name) =>
+        {
             let node = foreign_node(tag, context)?;
             Ok(quote! { rustx_dom::ForeignChild::Node(#node) })
         }

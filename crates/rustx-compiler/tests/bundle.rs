@@ -46,7 +46,7 @@ fn the_build_tools_themselves_are_not_libraries_of_the_page() {
 fn an_application_with_no_package_json_generates_nothing() {
     let empty = std::env::temp_dir().join(format!("rustx-bundle-empty-{}", std::process::id()));
     std::fs::create_dir_all(&empty).expect("a directory");
-    assert_eq!(build(&empty), Ok(None));
+    assert_eq!(build(&empty), Ok(Default::default()));
 }
 
 #[test]
