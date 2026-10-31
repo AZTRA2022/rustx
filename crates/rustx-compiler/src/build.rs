@@ -136,3 +136,30 @@ fn io(path: &Path, error: std::io::Error) -> CompileError {
         message: error.to_string(),
     }
 }
+
+/// Where the pages of the application at `manifest` are generated.
+///
+/// Outside the source tree, named after the application and the path it
+/// sits at: two checkouts of the same project build at the same time
+/// without writing the same file, and a developer who goes looking finds
+/// a directory with a name they recognise.
+///
+/// It lives here rather than in the attribute macro because three things
+/// need the same answer — the macro that includes the file, the tool
+/// that writes it, and the language server that hands it to
+/// `rust-analyzer` — and a drift between them is a server talking about
+/// a file nobody compiles.
+pub fn generated_directory(manifest: &Path) -> PathBuf {
+    let name = manifest
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| "app".to_string());
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in manifest.to_string_lossy().as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+    std::env::temp_dir()
+        .join("rustx-pages")
+        .join(format!("{name}-{hash:016x}"))
+}

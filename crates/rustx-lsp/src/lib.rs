@@ -16,6 +16,7 @@ pub mod diagnostics;
 pub mod downstream;
 pub mod json;
 pub mod rpc;
+pub mod shadow;
 
 /// Answer an editor until it says goodbye.
 ///

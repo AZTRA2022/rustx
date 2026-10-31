@@ -124,8 +124,7 @@ fn a_child_that_answers_initialize_is_held() {
     std::fs::write(&script, answer.as_bytes()).expect("the answer is written");
 
     let path = script.display().to_string();
-    let server =
-        Server::start_with("cmd", &["/c", "type", &path]).expect("a child that answers");
+    let server = Server::start_with("cmd", &["/c", "type", &path]).expect("a child that answers");
     assert!(
         server.written().contains("\"method\":\"initialize\""),
         "got {}",

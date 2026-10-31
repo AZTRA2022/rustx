@@ -223,19 +223,12 @@ fn compile(app: &Path, out: &Path, routed: bool) -> Result<(), String> {
 /// which only a build script has. A directory of this crate's own, named
 /// after where it is, so that two applications compiling at once never
 /// write the same file.
+///
+/// The answer is the compiler.s, not this macro.s: the tool that
+/// writes those files and the language server that reads them need the
+/// very same one.
 fn generated_directory(manifest: &Path) -> PathBuf {
-    let name = manifest
-        .file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_else(|| "app".to_string());
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in manifest.to_string_lossy().as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100_0000_01b3);
-    }
-    std::env::temp_dir()
-        .join("rustx-pages")
-        .join(format!("{name}-{hash:016x}"))
+    rustx_compiler::build::generated_directory(manifest)
 }
 
 /// Every `.rsx` under `app/`, in a stable order.
