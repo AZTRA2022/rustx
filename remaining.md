@@ -1,5 +1,6 @@
-1. Plan 5 — routing par fichiers et layouts
-2. Plan 6 — interopérabilité React / npm
-3. Plan 7 — la couche OS (multi-fenêtres, magasin inter-fenêtres, matériel)
-4. Plan 8 — la CLI et le hot reload
-5. Plan 9 — l'extension VS Code
+1. Les médias par Chromium — caméra, écran, enregistrement, pixels en Rust (plan écrit)
+2. La couche OS : ce que le web ne sait pas faire — presse-papiers, dialogues, notifications, barre système, raccourcis, glisser-déposer, multi-fenêtres (plan écrit)
+3. La complétion dans le JSX du return
+4. L'asynchrone dans un composant (plan écrit)
+5. Stabilisation et optimisation
+6. Documentation
