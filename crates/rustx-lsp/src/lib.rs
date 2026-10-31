@@ -13,6 +13,7 @@
 use std::io::{BufRead, Write};
 
 pub mod diagnostics;
+pub mod downstream;
 pub mod json;
 pub mod rpc;
 
