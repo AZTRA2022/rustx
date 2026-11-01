@@ -4,7 +4,7 @@
 //! l'utilisateur doit pouvoir retirer sans chercher : cocher la case la
 //! pose, la décocher l'enlève, et rien ne reste derrière.
 //!
-//! ```ignore
+//! ```text
 //! autostart::set(true, "mon-logiciel")?;
 //! if autostart::is_on("mon-logiciel") { … }
 //! ```

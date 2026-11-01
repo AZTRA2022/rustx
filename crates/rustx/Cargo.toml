@@ -1,5 +1,5 @@
 [package]
-name = "rustx"
+name = "rustx-app"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -15,7 +15,15 @@ categories = ["gui", "web-programming"]
 [dependencies]
 rustx-dom = { path = "../rustx-dom", version = "0.1.0" }
 rustx-engine = { path = "../rustx-engine", version = "0.1.0" }
-rustx-macros = { path = "../rustx-macros", version = "0.1.0" }
+rustx-macros = { package = "rustx-macro", path = "../rustx-macros", version = "0.1.0" }
 # Ce que le web ne sait pas faire : le presse-papiers, les dialogues, les
 # appareils. Un répertoire par système, à l'intérieur.
 rustx-os = { path = "../rustx-os", version = "0.1.0" }
+
+# Publié sous `rustx-app`, parce que `rustx` est pris sur crates.io par
+# un autre projet. La bibliothèque, elle, s'appelle `rustx` : un
+# `cargo add rustx-app` et le code s'écrit `rustx::App`, comme tout ce
+# qui est écrit ici et dans la documentation.
+[lib]
+name = "rustx"
+path = "src/lib.rs"

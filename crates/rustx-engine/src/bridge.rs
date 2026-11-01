@@ -13,7 +13,7 @@
 //! D'où ce passage. Un nom, des valeurs, un message de Chromium, et un
 //! crochet qui l'attend de l'autre côté :
 //!
-//! ```ignore
+//! ```text
 //! // côté fenêtre
 //! bridge::tell(frame, "rustx.dropped", &valeurs);
 //!
@@ -23,7 +23,7 @@
 //!
 //! # Deux directions, et aucune réponse
 //!
-//! [`tell`] va de la fenêtre vers la page, [`ask`] de la page vers la
+//! `tell` va de la fenêtre vers la page, `ask` de la page vers la
 //! fenêtre. Ni l'une ni l'autre ne répond : le registre de
 //! questions-en-attente que ce pont devait porter s'est révélé inutile
 //! le jour où la deuxième fenêtre est arrivée, parce qu'une page nomme

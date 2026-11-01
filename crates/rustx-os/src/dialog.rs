@@ -20,7 +20,7 @@
 //! Appelé directement, il s'ouvre depuis n'importe quel processus, et la
 //! signature redevient celle qu'on veut écrire :
 //!
-//! ```ignore
+//! ```text
 //! <button onClick={move |_| {
 //!     if let Ok(paths) = dialog::open(Ask::new("Choisir une image")
 //!         .filter("Images", ["png", "jpg"])) { ouvrir(&paths[0]); }

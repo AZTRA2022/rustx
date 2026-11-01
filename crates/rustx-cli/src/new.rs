@@ -87,7 +87,11 @@ fn manifest(name: &str) -> String {
          version = \"0.1.0\"\n\
          edition = \"2024\"\n\n\
          [dependencies]\n\
-         rustx = \"0.1\"\n"
+         # Le paquet s'appelle `rustx-app` sur crates.io, parce que\n\
+         # `rustx` y est pris. La bibliothèque s'appelle `rustx`, donc\n\
+         # le code et la documentation écrivent `rustx::` comme si de\n\
+         # rien n'était.\n\
+         rustx = {{ package = \"rustx-app\", version = \"0.1\" }}\n"
     )
 }
 

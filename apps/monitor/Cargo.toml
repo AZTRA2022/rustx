@@ -7,7 +7,7 @@ license.workspace = true
 description = "A monitor fed by a background thread, and a store two components share."
 
 [dependencies]
-rustx = { path = "../../crates/rustx" }
+rustx = { package = "rustx-app", path = "../../crates/rustx" }
 rustx-dom = { path = "../../crates/rustx-dom" }
 # Named by the generated pages, never by a line a developer writes.
 rustx-engine = { path = "../../crates/rustx-engine" }

@@ -21,6 +21,15 @@ Trois commandes, et une fenêtre. Ce que `rustx new` écrit tient en cinq
 fichiers : un `Cargo.toml`, un `src/main.rs`, une page, un `.gitignore`
 et un dossier `assets/`. Pas de `build.rs`, rien à configurer.
 
+Le `Cargo.toml` nomme le paquet `rustx-app`, parce que `rustx` est pris
+sur crates.io par un autre projet ; la bibliothèque, elle, s'appelle
+`rustx`, donc tout ce qui suit s'écrit `rustx::` :
+
+```toml
+[dependencies]
+rustx = { package = "rustx-app", version = "0.1" }
+```
+
 Le `main.rs`, en entier :
 
 ```rust
@@ -185,3 +194,10 @@ code --install-extension editors/vscode/rustx-0.1.0.vsix
 | `crates/rustx-lsp` | ce qu'un éditeur demande à propos d'un `.rsx` |
 | `apps/` | les applications qui servent de preuve aux plans |
 | `docs/superpowers/` | la spécification et les plans |
+| `crates/rustx-os` | le presse-papiers, les dialogues, la barre système |
+| `crates/rustx-macros` | `#[rustx::main]`, `#[derive(ToValue)]` |
+| `docs/publier.md` | les huit paquets, et sous quels noms ils partent |
+
+## La licence
+
+MIT ou Apache-2.0, au choix — `LICENSE-MIT` et `LICENSE-APACHE`.

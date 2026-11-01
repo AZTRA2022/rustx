@@ -116,7 +116,7 @@ dependencies = [
 name = "capture"
 version = "0.1.0"
 dependencies = [
- "rustx",
+ "rustx-app",
  "rustx-dom",
  "rustx-engine",
 ]
@@ -125,7 +125,7 @@ dependencies = [
 name = "catalogue"
 version = "0.1.0"
 dependencies = [
- "rustx",
+ "rustx-app",
  "rustx-dom",
  "rustx-engine",
 ]
@@ -271,7 +271,7 @@ dependencies = [
 name = "counter"
 version = "0.1.0"
 dependencies = [
- "rustx",
+ "rustx-app",
  "rustx-dom",
  "rustx-engine",
 ]
@@ -465,7 +465,7 @@ checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 name = "hybrid"
 version = "0.1.0"
 dependencies = [
- "rustx",
+ "rustx-app",
  "rustx-dom",
  "rustx-engine",
 ]
@@ -686,7 +686,7 @@ dependencies = [
 name = "monitor"
 version = "0.1.0"
 dependencies = [
- "rustx",
+ "rustx-app",
  "rustx-dom",
  "rustx-engine",
 ]
@@ -873,12 +873,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
-name = "rustx"
+name = "rustx-app"
 version = "0.1.0"
 dependencies = [
  "rustx-dom",
  "rustx-engine",
- "rustx-macros",
+ "rustx-macro",
  "rustx-os",
 ]
 
@@ -919,7 +919,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustx-macros"
+name = "rustx-macro"
 version = "0.1.0"
 dependencies = [
  "proc-macro2",
@@ -1604,7 +1604,7 @@ checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 name = "zoo"
 version = "0.1.0"
 dependencies = [
- "rustx",
+ "rustx-app",
  "rustx-dom",
  "rustx-engine",
 ]

@@ -1,5 +1,5 @@
 [package]
-name = "rustx-macros"
+name = "rustx-macro"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -14,6 +14,10 @@ categories = ["development-tools::procedural-macro-helpers", "gui"]
 
 [lib]
 proc-macro = true
+# Publié sous `rustx-macro` : `rustx_macros` est pris. Le nom de la
+# bibliothèque ne change pas, donc rien dans le code ne change.
+name = "rustx_macros"
+path = "src/lib.rs"
 
 [dependencies]
 proc-macro2 = "1"
