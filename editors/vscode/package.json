@@ -8,7 +8,15 @@
     "vscode": "^1.90.0"
   },
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Language Packs",
+    "Themes",
+    "Snippets",
+    "Linters",
+    "Debuggers"
+  ],
+  "extensionPack": [
+    "rust-lang.rust-analyzer"
   ],
   "contributes": {
     "languages": [
@@ -21,7 +29,11 @@
         "extensions": [
           ".rsx"
         ],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "dark": "./icons/rustx-logo.png",
+          "light": "./icons/rustx-logo.png"
+        }
       }
     ],
     "grammars": [
