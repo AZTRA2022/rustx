@@ -190,6 +190,18 @@
       return { component: own };
     }
 
+    // The application's own components next — `components/ui`, where
+    // `shadcn add` leaves them. Explicitly, and not by the order the
+    // entry point happens to declare its libraries in: a page that
+    // writes `<Dialog>` means the `Dialog` in its own folder, not the
+    // primitive from `@radix-ui/react-dialog` that its own `Dialog`
+    // was built from. That is what makes `ui::` unnecessary, and
+    // `<ui::Dialog>` keeps working for anyone who wrote it.
+    const ui = (libraries.ui ?? {})[name] ?? ((libraries.ui ?? {}).default ?? {})[name];
+    if (ui !== undefined) {
+      return { component: ui };
+    }
+
     const exporters = Object.entries(libraries).filter(
       ([module, library]) =>
         module !== "components" &&

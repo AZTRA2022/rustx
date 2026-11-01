@@ -17,6 +17,8 @@ pub mod diagnostics;
 pub mod downstream;
 pub mod inside;
 pub mod json;
+pub mod libraries;
+
 pub mod picked;
 pub mod rpc;
 pub mod shadow;
@@ -326,7 +328,7 @@ fn offer(
         // The expression's own completions come from `rust-analyzer`.
         inside::Place::Expression { .. } => return None,
     };
-    Some(suggest::json(&items))
+    Some(suggest::list(&items))
 }
 
 /// Ask the downstream server what the editor asked us, about the shadow

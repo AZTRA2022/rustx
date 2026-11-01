@@ -104,7 +104,7 @@ fn an_installed_component_is_offered_by_its_name() {
     // it.
     let page = Page {
         components: Vec::new(),
-        libraries: vec!["Button".to_string(), "Card".to_string()],
+        libraries: vec![from("Button", "ui"), from("Card", "ui")],
     };
     let got = labels(&suggest::tags("Bu", &page));
     assert!(got.contains(&"Button".to_string()), "got {got:?}");
@@ -259,7 +259,7 @@ fn inside_a_style_object_the_keys_are_css_and_not_attributes() {
 fn an_installed_component_says_where_it_comes_from() {
     let page = Page {
         components: Vec::new(),
-        libraries: vec!["Button".to_string()],
+        libraries: vec![from("Button", "ui")],
     };
     let items = suggest::attributes("Button", "class", &page, &[]);
     let class = items
@@ -386,4 +386,73 @@ fn Page() -> Element {
         Place::TagName { typed } => assert_eq!(typed, "l"),
         other => panic!("got {other:?}"),
     }
+}
+
+/// One name a library exports, as the server reads them off disk.
+fn from(name: &str, library: &str) -> rustx_lsp::libraries::Export {
+    rustx_lsp::libraries::Export {
+        name: name.to_string(),
+        from: library.to_string(),
+    }
+}
+
+#[test]
+fn a_component_of_an_installed_library_says_which_library() {
+    // `recharts` exports `LineChart`; the editor offers the bare name,
+    // with the library on the line beside it.
+    let page = Page {
+        components: Vec::new(),
+        libraries: vec![from("LineChart", "recharts")],
+    };
+    let items = suggest::tags("Line", &page);
+    let chart = items
+        .iter()
+        .find(|item| item.label == "LineChart")
+        .unwrap_or_else(|| panic!("got {:?}", labels(&items)));
+    assert_eq!(chart.detail, "recharts");
+}
+
+#[test]
+fn a_name_two_libraries_export_offers_the_explicit_form_too() {
+    // `Dialog` is in `components/ui` and in `@radix-ui/react-dialog`.
+    // The bare name resolves to the application's own; the one who
+    // wants the primitive has to be told what to write.
+    let page = Page {
+        components: Vec::new(),
+        libraries: vec![from("Dialog", "ui"), from("Dialog", "radixUiReactDialog")],
+    };
+    let got = labels(&suggest::tags("Dia", &page));
+    assert!(got.contains(&"Dialog".to_string()), "got {got:?}");
+    assert!(
+        got.contains(&"radixUiReactDialog::Dialog".to_string()),
+        "the explicit form is not offered: {got:?}"
+    );
+}
+
+#[test]
+fn a_name_one_library_exports_is_not_repeated_in_full() {
+    // Nobody needs `recharts::LineChart` offered when nothing else has
+    // a `LineChart`: a list twice as long is a list half as useful.
+    let page = Page {
+        components: Vec::new(),
+        libraries: vec![from("LineChart", "recharts")],
+    };
+    let got = labels(&suggest::tags("", &page));
+    assert!(
+        !got.contains(&"recharts::LineChart".to_string()),
+        "got {got:?}"
+    );
+}
+
+#[test]
+fn the_explicit_form_is_offered_to_whoever_starts_typing_it() {
+    let page = Page {
+        components: Vec::new(),
+        libraries: vec![from("LineChart", "recharts")],
+    };
+    let got = labels(&suggest::tags("recharts::", &page));
+    assert!(
+        got.contains(&"recharts::LineChart".to_string()),
+        "got {got:?}"
+    );
 }

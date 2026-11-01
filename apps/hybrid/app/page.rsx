@@ -10,6 +10,7 @@
 
 let mut points = 0;
 
+
 fn Page() -> Element {
     // The application's own data, for a component it did not write.
     let data: Vec<Point> = (0..=points)
@@ -75,27 +76,28 @@ fn Page() -> Element {
             <section className="mt-16">
                 <h2 className="text-2xl font-semibold tracking-tight">Ce que ça change</h2>
 
-                <ui::Tabs defaultValue="pont" className="mt-6">
-                    <ui::TabsList className="bg-zinc-900">
-                        <ui::TabsTrigger value="pont">Le pont</ui::TabsTrigger>
-                        <ui::TabsTrigger value="dom">Le DOM</ui::TabsTrigger>
-                        <ui::TabsTrigger value="npm">L'écosystème</ui::TabsTrigger>
-                    </ui::TabsList>
-                    <ui::TabsContent value="pont" className="mt-4 text-sm leading-relaxed text-zinc-400">
+                <Tabs defaultValue="pont" className="mt-6">
+                    <TabsList className="bg-zinc-900">
+                        <TabsTrigger value="pont">Le pont</TabsTrigger>
+                        <TabsTrigger value="dom">Le DOM</TabsTrigger>
+                        <TabsTrigger value="npm">L'écosystème</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="pont" className="mt-4 text-sm leading-relaxed text-zinc-400">
                         Les props traversent comme valeurs V8, dans le processus de rendu.
                         Rien n'est encodé en texte.
-                    </ui::TabsContent>
-                    <ui::TabsContent value="dom" className="mt-4 text-sm leading-relaxed text-zinc-400">
+                    </TabsContent>
+                    <TabsContent value="dom" className="mt-4 text-sm leading-relaxed text-zinc-400">
                         rustx ne regarde pas dans un nœud de React, React ne touche pas à un
                         nœud de rustx.
-                    </ui::TabsContent>
-                    <ui::TabsContent value="npm" className="mt-4 text-sm leading-relaxed text-zinc-400">
+                    </TabsContent>
+                    <TabsContent value="npm" className="mt-4 text-sm leading-relaxed text-zinc-400">
                         shadcn, Radix, recharts, Tailwind : installés avec npm, écrits comme
                         des balises.
-                    </ui::TabsContent>
-                </ui::Tabs>
+                    </TabsContent>
+                    
+                </Tabs>
 
-                <div className="mt-6 grid gap-6 md:grid-cols-3">
+                <div  className="mt-6 grid gap-6 md:grid-cols-3">
                     {Feature(
                         "Pas de pont sérialisé".to_string(),
                         "Les props traversent comme valeurs V8, dans le processus de rendu.".to_string(),
@@ -125,16 +127,16 @@ fn Header() -> Element {
                     R
                 </div>
                 <span className="text-lg font-semibold tracking-tight">rustx</span>
-                <ui::Badge className="bg-violet-500/10 text-violet-300 hover:bg-violet-500/10">
+                <Badge className="bg-violet-500/10 text-violet-300 hover:bg-violet-500/10">
                     hybride
-                </ui::Badge>
+                </Badge>
             </div>
 
             <div className="flex items-center gap-4 text-sm text-zinc-400">
                 <span>shadcn/ui</span>
-                <ui::Separator orientation="vertical" className="h-4 bg-zinc-800" />
+                <Separator orientation="vertical" className="h-4 bg-zinc-800" />
                 <span>Radix</span>
-                <ui::Separator orientation="vertical" className="h-4 bg-zinc-800" />
+                <Separator orientation="vertical" className="h-4 bg-zinc-800" />
                 <span>recharts</span>
             </div>
         </div>
@@ -144,9 +146,9 @@ fn Header() -> Element {
 /// The first screenful.
 fn Hero() -> Element {
     return <section className="pt-16">
-        <ui::Badge className="bg-violet-500/10 text-violet-300 hover:bg-violet-500/10">
+        <Badge className="bg-violet-500/10 text-violet-300 hover:bg-violet-500/10">
             un seul processus
-        </ui::Badge>
+        </Badge>
 
         <h1 className="mt-6 text-5xl font-semibold tracking-tight">
             Une page, deux propriétaires.
@@ -170,29 +172,29 @@ fn Hero() -> Element {
 /// and a trigger that is this page's own `Button` handed to it with
 /// `asChild`.
 fn About() -> Element {
-    return <ui::Dialog>
-        <ui::DialogTrigger asChild={true}>
+    return <Dialog>
+        <DialogTrigger asChild={true}>
             <Button id="open-dialog" className="px-5">
                 Voir ce que fait cette page
             </Button>
-        </ui::DialogTrigger>
-        <ui::DialogContent className="border-zinc-800 p-6 sm:max-w-md">
-            <ui::DialogHeader>
-                <ui::DialogTitle>One DOM, two owners</ui::DialogTitle>
-                <ui::DialogDescription className="text-zinc-400">
+        </DialogTrigger>
+        <DialogContent className="border-zinc-800 p-6 sm:max-w-md">
+            <DialogHeader>
+                <DialogTitle>One DOM, two owners</DialogTitle>
+                <DialogDescription className="text-zinc-400">
                     Ce dialogue est un composant shadcn/ui installé dans ce projet :
                     Radix pour le comportement, Tailwind pour le reste. Radix le met
                     dans un portail — ailleurs dans le document — et rustx ne le
                     cherche pas : ce qui est à React est à React.
-                </ui::DialogDescription>
-            </ui::DialogHeader>
-            <ui::DialogFooter>
-                <ui::DialogClose id="close-dialog" className="inline-flex items-center justify-center rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-800">
+                </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+                <DialogClose id="close-dialog" className="inline-flex items-center justify-center rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-800">
                     fermer
-                </ui::DialogClose>
-            </ui::DialogFooter>
-        </ui::DialogContent>
-    </ui::Dialog>;
+                </DialogClose>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>;
 }
 
 /// The line under everything.

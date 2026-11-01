@@ -71,8 +71,9 @@ pub struct Page {
     /// written.
     pub components: Vec<(String, Vec<String>)>,
     /// The component names the application's libraries export — the
-    /// packages of its `package.json` and the files of `components/ui`.
-    pub libraries: Vec<String>,
+    /// packages of its `package.json` and the files of `components/ui`
+    /// — each with the library it comes from.
+    pub libraries: Vec<crate::libraries::Export>,
 }
 
 /// The tags to offer for what has been typed so far.
@@ -93,16 +94,10 @@ pub fn tags(typed: &str, page: &Page) -> Vec<Item> {
         found.push(Item::new(name, Kind::Component, &detail));
     }
 
-    for name in &page.libraries {
-        if matches(name, typed) && !found.iter().any(|item| &item.label == name) {
-            found.push(Item::new(
-                name,
-                Kind::Component,
-                "a component of an installed library",
-            ));
-        }
-    }
-
+    // Then the tags the framework itself knows, before the installed
+    // libraries. An application with `lucide-react` in it has seven
+    // thousand names, and a list that long is cut somewhere: better at
+    // the tail of the icons than at `div`.
     for tag in rustx_compiler::tags::html() {
         if matches(tag, typed) {
             found.push(Item::new(tag, Kind::Tag, "HTML"));
@@ -113,6 +108,57 @@ pub fn tags(typed: &str, page: &Page) -> Vec<Item> {
             found.push(Item::new(tag, Kind::Tag, "SVG"));
         }
     }
+
+    // Then what the application installed. The bare name, with the
+    // library it comes from on the line beside it — because that is
+    // what a page writes, and `ui::Button` is not something anybody
+    // should have to type.
+    for export in &page.libraries {
+        if !matches(&export.name, typed) {
+            continue;
+        }
+        if let Some(already) = found.iter_mut().find(|item| item.label == export.name) {
+            // Two libraries export it, or the page declares it too. The
+            // line says both, and the explicit form is offered below.
+            if already.kind == Kind::Component && !already.detail.contains(&export.from) {
+                already.detail = format!("{} · {}", already.detail, export.from);
+            }
+            continue;
+        }
+        found.push(Item::new(&export.name, Kind::Component, &export.from));
+    }
+
+    // And the explicit form, for a name two libraries export: a page
+    // that wants the other one writes `recharts::LineChart`, and an
+    // editor that only offered the bare name would not say so.
+    for export in &page.libraries {
+        let qualified = format!("{}::{}", export.from, export.name);
+        let shared = page
+            .libraries
+            .iter()
+            .filter(|each| each.name == export.name)
+            .count()
+            > 1;
+        // Offered to whoever typed the library's name, and — when two
+        // libraries share the name — to whoever typed the name itself,
+        // because that is where the question comes up.
+        let asked = matches(&qualified, typed) || (shared && matches(&export.name, typed));
+        if !asked {
+            continue;
+        }
+        if !shared && !typed.contains("::") {
+            continue;
+        }
+        if found.iter().any(|item| item.label == qualified) {
+            continue;
+        }
+        found.push(Item::new(
+            &qualified,
+            Kind::Component,
+            &format!("{} from {}, said in full", export.name, export.from),
+        ));
+    }
+
     found
 }
 
@@ -151,7 +197,10 @@ pub fn attributes(tag: &str, typed: &str, page: &Page, already: &[String]) -> Ve
         return found;
     }
 
-    let installed = page.libraries.iter().any(|name| name == tag);
+    let installed = page
+        .libraries
+        .iter()
+        .any(|export| export.name == tag || format!("{}::{}", export.from, export.name) == tag);
     for name in rustx_compiler::attributes::known() {
         if matches(name, typed) && !already.iter().any(|written| written == name) {
             found.push(Item::new(
@@ -185,12 +234,13 @@ pub fn style_keys(typed: &str) -> Vec<Item> {
         .collect()
 }
 
-/// What an application's own components are called, read off the files
-/// `shadcn add` and friends leave behind.
+/// What this file declares, and what the application around it
+/// installed.
 ///
-/// `components/ui/button.tsx` exports `Button`; a page writes
-/// `<Button>`. The file name is enough — reading the TypeScript to find
-/// its exports is a TypeScript server's work, and that is another plan.
+/// The libraries are read from `node_modules` and from
+/// `components/ui/*.tsx` — see [`crate::libraries`]. `CardHeader` and
+/// `LineChart` are in no list the framework keeps, and they are most of
+/// what a page made of installed components is written with.
 pub fn page_of(source: &str, path: &Path) -> Page {
     let components = rustx_compiler::promote::component_signatures(source);
     Page {
@@ -200,53 +250,14 @@ pub fn page_of(source: &str, path: &Path) -> Page {
 }
 
 /// The component names the application around `page` installed.
-fn installed(page: &Path) -> Vec<String> {
+fn installed(page: &Path) -> Vec<crate::libraries::Export> {
     let Some(application) = crate::crate_for_pages::application_of(page) else {
         return Vec::new();
     };
     let Some(root) = application.parent() else {
         return Vec::new();
     };
-    let mut found = Vec::new();
-
-    // The components installed as source — `components/ui/button.tsx`.
-    if let Ok(entries) = std::fs::read_dir(root.join("components").join("ui")) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let is_source = path
-                .extension()
-                .and_then(|kind| kind.to_str())
-                .is_some_and(|kind| matches!(kind, "ts" | "tsx" | "js" | "jsx"));
-            if !is_source {
-                continue;
-            }
-            if let Some(stem) = path.file_stem().and_then(|name| name.to_str()) {
-                // `button.tsx` is `Button`, `alert-dialog.tsx` is
-                // `AlertDialog`: the spelling shadcn itself uses.
-                found.push(capitalised(stem));
-            }
-        }
-    }
-    found.sort();
-    found.dedup();
-    found
-}
-
-/// `alert-dialog` becomes `AlertDialog`.
-fn capitalised(name: &str) -> String {
-    let mut out = String::with_capacity(name.len());
-    let mut next_is_capital = true;
-    for letter in name.chars() {
-        match letter {
-            '-' | '_' | '.' => next_is_capital = true,
-            letter if next_is_capital => {
-                out.extend(letter.to_uppercase());
-                next_is_capital = false;
-            }
-            letter => out.push(letter),
-        }
-    }
-    out
+    crate::libraries::exports_for(root)
 }
 
 /// Does `candidate` answer what has been typed?
@@ -255,6 +266,25 @@ fn capitalised(name: &str) -> String {
 /// after us — being stricter here would hide what it would have kept.
 fn matches(candidate: &str, typed: &str) -> bool {
     typed.is_empty() || candidate.to_lowercase().starts_with(&typed.to_lowercase())
+}
+
+/// How many things are offered at once.
+///
+/// `lucide-react` alone exports close to seven thousand names, and an
+/// application that installs it would otherwise have every keystroke
+/// answered with a megabyte of JSON. What is cut is the tail of the
+/// list, and the editor is told the answer is partial — so it asks
+/// again on the next letter, when the prefix has narrowed it.
+pub const AT_MOST: usize = 800;
+
+/// The LSP answer, as a list that says whether it is the whole of one.
+pub fn list(items: &[Item]) -> String {
+    let partial = items.len() > AT_MOST;
+    let shown = if partial { &items[..AT_MOST] } else { items };
+    format!(
+        "{{\"isIncomplete\":{partial},\"items\":{}}}",
+        json(shown)
+    )
 }
 
 /// The LSP answer for a list of items.
