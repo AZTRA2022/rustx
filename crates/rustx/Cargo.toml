@@ -3,12 +3,19 @@ name = "rustx"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+authors.workspace = true
 description = "What an application writes: a window, its pages, and nothing else."
+keywords = ["gui", "desktop", "react", "native", "rsx"]
+categories = ["gui", "web-programming"]
 
 [dependencies]
-rustx-dom = { path = "../rustx-dom" }
-rustx-engine = { path = "../rustx-engine" }
-rustx-macros = { path = "../rustx-macros" }
+rustx-dom = { path = "../rustx-dom", version = "0.1.0" }
+rustx-engine = { path = "../rustx-engine", version = "0.1.0" }
+rustx-macros = { path = "../rustx-macros", version = "0.1.0" }
 # Ce que le web ne sait pas faire : le presse-papiers, les dialogues, les
 # appareils. Un répertoire par système, à l'intérieur.
-rustx-os = { path = "../rustx-os" }
+rustx-os = { path = "../rustx-os", version = "0.1.0" }

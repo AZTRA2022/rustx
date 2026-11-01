@@ -3,6 +3,13 @@ name = "rustx-dom"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The element tree a rustx component returns."
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+authors.workspace = true
+description = "The element tree a rustx component returns, its state and its routes."
+keywords = ["gui", "dom", "state", "rustx"]
+categories = ["gui", "data-structures"]
 
 [dependencies]

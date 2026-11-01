@@ -3,6 +3,14 @@ name = "rustx-engine"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+authors.workspace = true
+description = "The CEF host a rustx window is drawn by: the frame loop, the router, the React boundary."
+keywords = ["cef", "chromium", "gui", "desktop", "rustx"]
+categories = ["gui", "api-bindings"]
 
 [dependencies]
 # `sandbox` is on by default and builds the CEF wrapper with USE_SANDBOX=ON,
@@ -13,4 +21,4 @@ license.workspace = true
 # content. Left on, every sandboxed sub-process dies with an access violation
 # and Chromium falls back to software rendering after a visible blank window.
 cef = { version = "156.2.0", default-features = false, features = ["resources"] }
-rustx-dom = { path = "../rustx-dom" }
+rustx-dom = { path = "../rustx-dom", version = "0.1.0" }
