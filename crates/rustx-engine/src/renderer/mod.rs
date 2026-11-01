@@ -95,6 +95,17 @@ pub(crate) fn install(frame: Option<&mut Frame>, context: &V8Context) {
         crate::guard::refuse(&url);
         return;
     }
+    if std::env::var("RUSTX_TRACE").is_ok() {
+        eprintln!(
+            "rustx: contexte créé — processus {}, fil {:?}, url {url}",
+            std::process::id(),
+            std::thread::current().id()
+        );
+    }
+    // L'URL de cette page, pour le routeur : une deuxième fenêtre reçoit
+    // le même document que la première, et c'est son fragment qui dit la
+    // route sur laquelle elle s'ouvre.
+    crate::window::loaded_at(&url);
 
     remember(context);
     crate::frame::open();
@@ -309,6 +320,19 @@ thread_local! {
 /// Remember the context a page was given, and forget it when it goes.
 pub(crate) fn remember(context: &V8Context) {
     CONTEXT.with(|held| *held.borrow_mut() = Some(context.clone()));
+}
+
+/// The frame this page lives in, for the engine's own work.
+///
+/// A page asking for a second window is the one caller: the request has
+/// to travel to the process that owns the windows, and a frame is what
+/// carries it. `None` outside the render process, or before a page.
+pub(crate) fn page_frame() -> Option<Frame> {
+    let context = CONTEXT.with(|held| held.borrow().clone())?;
+    if context.is_valid() == 0 {
+        return None;
+    }
+    context.frame()
 }
 
 pub(crate) fn forget_context() {

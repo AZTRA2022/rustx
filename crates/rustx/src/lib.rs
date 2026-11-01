@@ -42,7 +42,7 @@ pub use rustx_os::OsError;
 
 pub use rustx_engine::{
     Document, DomError, NativeError, Node, PostError, Poster, foreign, mount, mount_at_id,
-    dropped, on_context_created, on_frame, poster, register_native, render, router, task,
+    dropped, on_context_created, on_frame, poster, register_native, render, router, task, window,
 };
 
 /// What can go wrong while an application starts.
@@ -397,7 +397,14 @@ fn start_router(
     // process, if there was one: a developer who saves a file while
     // looking at the third screen of a form wants the third screen of
     // the form back, not the first.
-    let start = rustx_dom::carried::page().unwrap_or_else(|| start.to_string());
+    // Dans l'ordre : la route que cette fenêtre-ci porte dans son URL
+    // — c'est ainsi qu'une deuxième fenêtre apprend la sienne, et elle
+    // passe devant tout le reste parce que c'est une demande explicite
+    // —, puis l'écran qui était ouvert quand `rustx dev` a remplacé le
+    // dernier processus, puis la route de départ de l'application.
+    let start = rustx_engine::window::page_asked_for()
+        .or_else(rustx_dom::carried::page)
+        .unwrap_or_else(|| start.to_string());
     let started = Cell::new(false);
     rustx_engine::on_frame(move || {
         if started.get() {

@@ -43,6 +43,35 @@
       const rustx_soon = (then) => setTimeout(then, 16);
       // The hosts are named apart from the elements the components
       // return, which carry #panel and #header themselves.
+      // Deux fenêtres. La première en ouvre une deuxième sur /pause ; la
+      // deuxième se reconnaît à son fragment et dit ce qu'elle voit.
+      if (rustx_scenario() === "windows") {
+        const second = location.hash.length > 1;
+        const settle = () => {
+          if (second) {
+            const paused = document.querySelector("#paused");
+            if (!paused) { rustx_soon(settle); return; }
+            rustx_report("second_hash", location.hash);
+            rustx_report("second_screen", paused.textContent);
+            return;
+          }
+          const another = document.querySelector("#another");
+          if (!another) { rustx_soon(settle); return; }
+          another.click();
+          rustx_report("asked_for_a_window", "yes");
+          // La première est-elle encore vivante après ? Son fil la
+          // conduit, donc son compteur avance.
+          const before = Number(rustx_shared("ticks"));
+          setTimeout(() => {
+            rustx_report(
+              "first_still_ticking",
+              Number(rustx_shared("ticks")) > before ? "yes" : "no"
+            );
+            rustx_report("handler_ran", rustx_shared("opens"));
+          }, 600);
+        };
+        rustx_soon(settle);
+      }
       if (rustx_scenario() === "page") {
         const panel = () => document.querySelector("#panel");
         const header = () => document.querySelector("#header");

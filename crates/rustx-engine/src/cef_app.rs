@@ -20,6 +20,9 @@ use crate::panics::contain;
 /// What `on_context_initialized` needs in order to open the window.
 #[derive(Clone)]
 pub struct WindowSpec {
+    /// Le nom sous lequel la page désigne cette fenêtre. `"main"` pour
+    /// celle que l'application ouvre en démarrant.
+    pub name: String,
     pub title: String,
     pub width: u32,
     pub height: u32,
@@ -222,12 +225,21 @@ pub fn child_app() -> App {
     EngineApp::new(None)
 }
 
-fn open_window(spec: &WindowSpec) {
+/// Ouvrir une fenêtre. Sur le thread de l'interface du processus
+/// navigateur, et nulle part ailleurs : c'est la contrainte de CEF, et
+/// c'est pourquoi une page passe par le pont pour en demander une.
+pub(crate) fn open_window(spec: &WindowSpec) {
+    // Le nom que `on_after_created` donnera à cette fenêtre.
+    crate::window::expecting(&spec.name);
+
     let mut window_info =
         WindowInfo::default().set_as_popup(cef::sys::HWND(std::ptr::null_mut()), &spec.title);
+    // Décalée d'autant de fenêtres qu'il y en a : une deuxième fenêtre
+    // exactement sur la première a l'air de ne pas s'être ouverte.
+    let step = 40 * crate::window::how_many_are_open() as i32;
     window_info.bounds = Rect {
-        x: 80,
-        y: 80,
+        x: 80 + step,
+        y: 80 + step,
         width: spec.width as i32,
         height: spec.height as i32,
     };

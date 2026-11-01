@@ -161,7 +161,7 @@ thread avec sa propre fenêtre invisible suffit.
 - Modify: `crates/rustx/src/lib.rs` (`rustx::window::open`, `Config::single_instance`, `Config::autostart`)
 - Test: `crates/rustx-engine/tests/second_window.rs`, `crates/rustx-os/tests/instance.rs`, `apps/monitor/tests/app.rs`
 
-**État : les deux tiers sont faits** (commit `cb92f75`). L'instance
+**État : fait.** L'instance
 unique et le démarrage automatique sont écrits, testés, et dans la
 structure par système. Reste la deuxième fenêtre, ci-dessous.
 
@@ -202,13 +202,15 @@ si `start_router` lit un fragment, tout le reste suit.
 
 **Interfaces:**
 - Produces: `window::open(What) -> Result<Window, EngineError>` où `struct What { pub title: String, pub width: u32, pub height: u32, pub at: String }` (`at` est la route sur laquelle la fenêtre s'ouvre) ; `Window::close(self)` et un `Drop` qui ferme ; `instance::only_one(name: &str) -> Result<Only, OsError>` dont l'échec porte les arguments de la première instance ; `instance::handed_over() -> Vec<String>` ; `autostart::set(on: bool, name: &str) -> Result<(), OsError>` et `autostart::is_on(name: &str) -> bool`.
-- Les deux fenêtres partagent le magasin : elles vivent dans le même processus de rendu, donc un `let mut` partagé est le même objet — ce que la §7.4 annonçait comme le travail de la couche OS se trouve être, dans cette architecture, déjà vrai. Le test le prouve plutôt que la documentation ne le promette.
+- ~~Les deux fenêtres partagent le magasin : elles vivent dans le même processus de rendu.~~ **Mesuré faux.** `RUSTX_TRACE=1` sur deux fenêtres du même document : processus 9268 et 1116, chacune son contexte, chacune son `ThreadId(1)`. Chromium donne un processus de rendu par fenêtre créée, et deux fenêtres sont donc **deux états**. Ce qu'elles partageront, elles le partageront par le pont, et c'est un autre plan. Écrit dans la documentation plutôt que promis à l'envers.
+- **Ruling : le `Drop` d'une fenêtre ne la ferme pas.** Une page ouvre une fenêtre depuis un gestionnaire d'événement, et le jeton meurt à la fin du gestionnaire : une fenêtre qui se refermerait avec lui ne serait jamais vue. Elle se ferme quand on le dit (`Window::close`) ou quand l'utilisateur la ferme. *Coût si c'est faux :* une fenêtre oubliée reste ouverte, ce qu'un utilisateur sait réparer — l'inverse est une fenêtre qui clignote et disparaît, que personne ne sait réparer.
+- **Et la route voyage dans le fragment**, comme la voie 1 l'espérait : `file:///…/index.html#/pause` arrive intact dans `frame.url()` du processus de rendu, et `start_router` le lit avant tout le reste. Une URL qui dit la vérité, lisible dans les traces.
 
-- [ ] **Step 1** : les tests — `a_second_window_opens_on_the_route_it_was_given`, `two_windows_share_one_store` (Review Focus 2), `closing_one_window_leaves_the_other_alone` (Review Focus 2), `a_second_instance_hands_over_and_leaves` (Review Focus 4 : deux processus, un mutex nommé, les arguments qui traversent), `autostart_is_set_and_unset_and_nothing_is_left_behind` (la clé de registre est retirée).
-- [ ] **Step 2** : rouge.
-- [ ] **Step 3** : la seconde fenêtre, le mutex nommé, la clé `Run`.
-- [ ] **Step 4** : vert, plus `cargo test --workspace` et `cargo clippy --workspace --all-targets`.
-- [ ] **Step 5** : commit `feat(os): a second window, and only one instance`.
+- [x] **Step 1** : les tests — `a_second_window_opens_on_the_route_it_was_given` et `opening_a_window_leaves_the_first_one_alone` (`apps/monitor/tests/app.rs`, sur deux vraies fenêtres : les deux rapportent dans le même fichier, donc ce que la deuxième a vu se lit depuis le test), `one_click_asks_for_one_window`, les six de `crates/rustx-engine/tests/second_window.rs` pour ce qui ne demande pas deux processus, `a_second_instance_hands_over_and_leaves` et `autostart_is_set_and_unset_and_nothing_is_left_behind` (faits en `cb92f75`). `two_windows_share_one_store` n'est pas écrit : la mesure dit l'inverse (voir ci-dessus).
+- [x] **Step 2** : rouge.
+- [x] **Step 3** : `bridge::ask` (page → fenêtre), `window::asked` dans le `on_process_message_received` du *Client*, le registre des fenêtres ouvertes par nom sur le thread de l'interface, et `on_before_close` qui n'arrête la boucle qu'à la dernière.
+- [x] **Step 4** : vert — 6/6 pour `second_window`, 6/6 pour monitor, et mesuré à la main : `une autre fenêtre` ouvre `#/pause`, la première continue de battre.
+- [x] **Step 5** : commit.
 
 ---
 

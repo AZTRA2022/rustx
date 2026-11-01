@@ -21,13 +21,14 @@
 //! bridge::listen("rustx.dropped", |valeurs| { … });
 //! ```
 //!
-//! # Une seule direction, pour l'instant
+//! # Deux directions, et aucune réponse
 //!
-//! De la fenêtre vers la page, sans réponse. L'autre direction — une
-//! question posée depuis la page, une réponse qui revient sous le même
-//! numéro — n'a qu'un seul usage à venir, une deuxième fenêtre, et
-//! s'écrira avec elle. Un registre de questions en attente que
-//! personne ne pose serait du code qu'on garde sans le mesurer.
+//! [`tell`] va de la fenêtre vers la page, [`ask`] de la page vers la
+//! fenêtre. Ni l'une ni l'autre ne répond : le registre de
+//! questions-en-attente que ce pont devait porter s'est révélé inutile
+//! le jour où la deuxième fenêtre est arrivée, parce qu'une page nomme
+//! elle-même la fenêtre qu'elle ouvre et n'a donc pas besoin qu'on lui
+//! réponde un identifiant. Une notification, pas une question.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -58,6 +59,32 @@ pub(crate) fn tell(frame: &Frame, what: &str, values: &[Value]) {
     };
     traced(&format!("fenêtre → page : {what} ({} valeur(s))", values.len()));
     frame.send_process_message(ProcessId::RENDERER, Some(&mut message));
+}
+
+/// Demander quelque chose à la fenêtre. Appelé dans le processus de rendu.
+///
+/// L'autre direction, et la seule chose qui l'exige : une fenêtre ne
+/// peut être créée que par le processus navigateur, et `window::open`
+/// est appelé là où la page est écrite. Sans réponse non plus — la page
+/// nomme elle-même la fenêtre qu'elle ouvre, donc elle n'a pas besoin
+/// qu'on lui réponde un identifiant.
+///
+/// Rend `false` quand il n'y a pas de page d'où demander : un appel
+/// depuis un thread de travail, ou avant que le contexte existe.
+pub(crate) fn ask(what: &str, values: &[Value]) -> bool {
+    let Some(frame) = crate::renderer::page_frame() else {
+        traced(&format!("page → fenêtre : {what} sans page d'où partir"));
+        return false;
+    };
+    let Some(mut message) = saying(what, values) else {
+        return false;
+    };
+    traced(&format!(
+        "page → fenêtre : {what} ({} valeur(s))",
+        values.len()
+    ));
+    frame.send_process_message(ProcessId::BROWSER, Some(&mut message));
+    true
 }
 
 /// Écouter ce nom. Appelé dans le processus de rendu.
@@ -212,6 +239,6 @@ fn plain(name: &str) -> &str {
 /// fenêtre — et que la différence a coûté un aller-retour.
 fn traced(what: &str) {
     if std::env::var("RUSTX_TRACE").is_ok() {
-        eprintln!("rustx: {what}");
+        eprintln!("rustx: [{}] {what}", std::process::id());
     }
 }

@@ -28,15 +28,29 @@ impl Report {
     }
 }
 
-/// Run the application on its only scenario and collect what it reported.
+/// Run the application on its first scenario and collect what it reported.
 pub fn run_monitor_scenario() -> Report {
+    run("page", "ticking_after_unmount")
+}
+
+/// Deux fenêtres : la première en ouvre une deuxième sur une route.
+///
+/// Les deux rapportent dans le même fichier, parce qu'elles sont la même
+/// application lancée avec les mêmes arguments — et c'est ce qui permet
+/// de lire d'ici ce que la deuxième fenêtre a vu.
+pub fn run_window_scenario() -> Report {
+    run("windows", "handler_ran")
+}
+
+/// Run one scenario, and wait until the page has reported `until`.
+fn run(scenario: &str, until: &str) -> Report {
     // A name nobody else can be holding. A fixed one was removed at
     // the start of a run, and on Windows that removal fails silently
     // while a process from the last run still has the file open — so
     // the tests read a stale report and passed in under two seconds.
     let report_file = std::env::temp_dir().join(format!(
         "rustx-report-{}-{}-{}.txt",
-        "monitor",
+        scenario,
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -52,7 +66,8 @@ pub fn run_monitor_scenario() -> Report {
     let _alone = alone();
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_monitor"))
-        .arg("--scenario=page")
+        .arg(format!("--scenario={scenario}"))
+
         .arg(format!("--report={}", report_file.display()))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -78,11 +93,7 @@ pub fn run_monitor_scenario() -> Report {
     // number of seconds: starting Chromium takes much longer on a machine
     // that has just run the engine's own suite, and a flat sleep turns
     // that into a failure that looks like a bug in the application.
-    wait_for_report(
-        &report_file,
-        "ticking_after_unmount",
-        Duration::from_secs(150),
-    );
+    wait_for_report(&report_file, until, Duration::from_secs(150));
 
     let _ = Command::new("taskkill")
         .args(["/T", "/F", "/PID", &child.id().to_string()])

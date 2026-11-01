@@ -24,6 +24,11 @@ wrap_life_span_handler! {
         /// description, because Chromium makes the window itself and
         /// the handle is the first thing it hands back.
         fn on_after_created(&self, browser: Option<&mut Browser>) {
+            if let Some(browser) = browser.as_deref() {
+                // Elle prend le nom qui l'attendait, pour que la page
+                // puisse la refermer en le disant.
+                crate::window::created(browser);
+            }
             let handle = browser
                 .and_then(|browser| browser.host())
                 .map(|host| host.window_handle());
@@ -32,7 +37,12 @@ wrap_life_span_handler! {
             }
         }
 
-        fn on_before_close(&self, _browser: Option<&mut Browser>) {
+        fn on_before_close(&self, browser: Option<&mut Browser>) {
+            // La dernière, ou pas : une application à deux fenêtres dont
+            // on ferme la première ne s'arrête pas.
+            if !crate::window::gone(browser.as_deref()) {
+                return;
+            }
             // The window is going: stop accepting work from threads that
             // are still producing, then let the loop end.
             crate::frame::shutdown();
@@ -161,6 +171,28 @@ wrap_client! {
 
         fn display_handler(&self) -> Option<DisplayHandler> {
             Some(Console::new())
+        }
+
+        /// Ce que la page demande à la fenêtre.
+        ///
+        /// L'autre moitié du pont : le gestionnaire du processus de
+        /// rendu écoute ce que la fenêtre dit à la page, et ceci écoute
+        /// ce que la page demande à la fenêtre — une deuxième fenêtre,
+        /// qui ne peut naître que de ce côté-ci.
+        fn on_process_message_received(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _source_process: cef::ProcessId,
+            message: Option<&mut cef::ProcessMessage>,
+        ) -> ::std::os::raw::c_int {
+            let mut handled = 0;
+            crate::panics::contain("on_process_message_received", || {
+                if let Some(message) = message {
+                    handled = i32::from(crate::window::asked(message));
+                }
+            });
+            handled
         }
     }
 }
