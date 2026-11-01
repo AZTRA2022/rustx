@@ -91,7 +91,12 @@ impl App {
             ..Default::default()
         };
 
+        // D'où partent les fenêtres suivantes : le même document, avec
+        // un fragment qui dit leur route.
+        crate::window::opens_from(&url);
+
         let mut application = engine_app(WindowSpec {
+            name: "main".to_string(),
             title: self.config.title.clone(),
             width: self.config.width,
             height: self.config.height,

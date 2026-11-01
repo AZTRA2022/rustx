@@ -95,9 +95,32 @@ pub(crate) fn install(frame: Option<&mut Frame>, context: &V8Context) {
         crate::guard::refuse(&url);
         return;
     }
+    if std::env::var("RUSTX_TRACE").is_ok() {
+        eprintln!(
+            "rustx: contexte créé — processus {}, fil {:?}, url {url}",
+            std::process::id(),
+            std::thread::current().id()
+        );
+    }
+    // L'URL de cette page, pour le routeur : une deuxième fenêtre reçoit
+    // le même document que la première, et c'est son fragment qui dit la
+    // route sur laquelle elle s'ouvre.
+    crate::window::loaded_at(&url);
 
     remember(context);
     crate::frame::open();
+    // Ce que la fenêtre a à dire à la page est écouté dès maintenant, et
+    // non à la première lecture : des fichiers lâchés sur la fenêtre
+    // avant le premier battement d'une page seraient sinon perdus.
+    crate::dropped::ready();
+    register_native("__rustx_dropped", |_args| {
+        crate::dropped::landed();
+        Ok(Value::Null)
+    });
+    // Et le lâcher appartient à l'application : sans cela, Chromium
+    // navigue vers le fichier lâché et la fenêtre n'est plus celle du
+    // logiciel.
+    inject("rustx-dropped", crate::dropped::LISTENER);
     // And the floor under the loop, which is the engine's own timer: a
     // window that is never asked to draw still has to run.
     crate::frame::watch();
@@ -297,6 +320,19 @@ thread_local! {
 /// Remember the context a page was given, and forget it when it goes.
 pub(crate) fn remember(context: &V8Context) {
     CONTEXT.with(|held| *held.borrow_mut() = Some(context.clone()));
+}
+
+/// The frame this page lives in, for the engine's own work.
+///
+/// A page asking for a second window is the one caller: the request has
+/// to travel to the process that owns the windows, and a frame is what
+/// carries it. `None` outside the render process, or before a page.
+pub(crate) fn page_frame() -> Option<Frame> {
+    let context = CONTEXT.with(|held| held.borrow().clone())?;
+    if context.is_valid() == 0 {
+        return None;
+    }
+    context.frame()
 }
 
 pub(crate) fn forget_context() {

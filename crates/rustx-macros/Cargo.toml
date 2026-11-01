@@ -1,14 +1,25 @@
 [package]
-name = "rustx-macros"
+name = "rustx-macro"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The attribute that writes a rustx application's ceremony."
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+authors.workspace = true
+description = "The attribute that writes a rustx application's ceremony: #[rustx::main]."
+keywords = ["macro", "rsx", "gui", "rustx"]
+categories = ["development-tools::procedural-macro-helpers", "gui"]
 
 [lib]
 proc-macro = true
+# Publié sous `rustx-macro` : `rustx_macros` est pris. Le nom de la
+# bibliothèque ne change pas, donc rien dans le code ne change.
+name = "rustx_macros"
+path = "src/lib.rs"
 
 [dependencies]
 proc-macro2 = "1"
 quote = "1"
-rustx-compiler = { path = "../rustx-compiler" }
+rustx-compiler = { path = "../rustx-compiler", version = "0.1.0" }

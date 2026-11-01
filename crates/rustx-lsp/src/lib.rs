@@ -15,9 +15,14 @@ use std::io::{BufRead, Write};
 pub mod crate_for_pages;
 pub mod diagnostics;
 pub mod downstream;
+pub mod inside;
 pub mod json;
+pub mod libraries;
+
+pub mod picked;
 pub mod rpc;
 pub mod shadow;
+pub mod suggest;
 
 /// Answer an editor until it says goodbye.
 ///
@@ -158,6 +163,11 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
     // The page each open document compiles to, by the document's URI.
     let mut shadows: std::collections::HashMap<String, shadow::Shadow> =
         std::collections::HashMap::new();
+    // And the text itself, as the editor last sent it. The markup half
+    // of completion reads this rather than the generated file: what is
+    // being completed is usually not valid Rust yet, and that is the
+    // normal state of a file somebody is typing in.
+    let mut sources: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
     while let Some(message) = rpc::read(input) {
         let Some(method) = json::field(&message, "method") else {
@@ -176,11 +186,22 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
                 // server itself starts at the first page opened, which
                 // is the first moment anything says which application
                 // is being worked on.
+                // Completion is promised whatever else is installed: the
+                // tags, the attributes, the components and the style
+                // keys are the server's own, and they need no
+                // `rust-analyzer`, no built project and no compile at
+                // all. An editor that was not told so would never ask.
+                //
+                // The trigger characters are where a developer is when
+                // they want a list: `<` opens a tag, a space starts an
+                // attribute, `/` closes a tag, and `{`, `.` and `:` are
+                // inside an expression.
+                let completion = ",\"completionProvider\":{\"triggerCharacters\":\
+                                  [\"<\",\" \",\"/\",\"{\",\".\",\":\"]}";
                 let assistance = if downstream.exists() {
-                    ",\"completionProvider\":{\"triggerCharacters\":[\".\",\":\"]},\
-                     \"hoverProvider\":true,\"definitionProvider\":true"
+                    format!("{completion},\"hoverProvider\":true,\"definitionProvider\":true")
                 } else {
-                    ""
+                    completion.to_string()
                 };
                 rpc::write(
                     output,
@@ -198,7 +219,14 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
             // back is told where it really is.
             "textDocument/completion" | "textDocument/hover" | "textDocument/definition" => {
                 let id = json::number(&message, "id").unwrap_or(0);
-                let answer = assist(&method, &message, &shadows, downstream.held());
+                // The markup first: it needs nothing but the text, so
+                // it answers while `rust-analyzer` is still loading, and
+                // it answers for positions that have no counterpart in
+                // the generated file at all.
+                let answer = match offer(&method, &message, &sources) {
+                    Some(items) => items,
+                    None => assist(&method, &message, &shadows, &sources, downstream.held()),
+                };
                 rpc::write(
                     output,
                     &format!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{answer}}}"),
@@ -216,6 +244,7 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
                 };
                 let found = diagnostics::of(&text);
                 rpc::write(output, &diagnostics::notification(&uri, &found));
+                sources.insert(uri.clone(), text.clone());
 
                 // The underlining goes out first: it is what a keystroke
                 // is waiting for, and the shadow is for the question
@@ -253,6 +282,55 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
     }
 }
 
+/// What the server offers out of its own head, or nothing when the
+/// position is not in the markup.
+///
+/// `None` means "not mine": the caller then asks `rust-analyzer`
+/// through the position map, which is the right answer for a position in
+/// the developer's own Rust.
+fn offer(
+    method: &str,
+    message: &str,
+    sources: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    // A hover or a definition on a tag name has nothing to say that the
+    // tag itself does not: the markup half answers completion only.
+    if method != "textDocument/completion" {
+        return None;
+    }
+    let uri = json::field(message, "uri")?;
+    let source = sources.get(&uri)?;
+    let line = json::number(message, "line")?.max(0) as usize + 1;
+    let character = json::number(message, "character")?.max(0) as usize + 1;
+
+    let page = match shadow::path_of(&uri) {
+        Some(path) => suggest::page_of(source, &path),
+        None => suggest::Page {
+            components: rustx_compiler::promote::component_signatures(source),
+            libraries: Vec::new(),
+        },
+    };
+
+    let items = match inside::at(source, line, character) {
+        inside::Place::Rust => return None,
+        inside::Place::TagName { typed } => suggest::tags(&typed, &page),
+        inside::Place::ClosingTag { open } => suggest::closing(&open),
+        inside::Place::AttributeName {
+            tag,
+            typed,
+            already,
+        } => suggest::attributes(&tag, &typed, &page, &already),
+        inside::Place::StyleKey { typed } => suggest::style_keys(&typed),
+        // In an attribute's value, or in the text between two tags:
+        // nothing the server knows, and a list of tags in the middle of
+        // a sentence would be worse than nothing.
+        inside::Place::AttributeValue { .. } => Vec::new(),
+        // The expression's own completions come from `rust-analyzer`.
+        inside::Place::Expression { .. } => return None,
+    };
+    Some(suggest::list(&items))
+}
+
 /// Ask the downstream server what the editor asked us, about the shadow
 /// instead of the page, and say where the answer really is.
 ///
@@ -263,6 +341,7 @@ fn assist(
     method: &str,
     message: &str,
     shadows: &std::collections::HashMap<String, shadow::Shadow>,
+    sources: &std::collections::HashMap<String, String>,
     downstream: Option<&mut downstream::Server>,
 ) -> String {
     let empty = if method.ends_with("hover") {
@@ -285,12 +364,30 @@ fn assist(
     ) else {
         return empty.to_string();
     };
+    let (asked_line, asked_character) = (line.max(0) as usize + 1, character.max(0) as usize + 1);
+
+    // A position inside a `{…}` has no column in the generated file,
+    // because a whole region is emitted on one line. So the file is
+    // rebuilt for this one question, with the expression at its own
+    // line and column — and then the position needs no translation at
+    // all.
+    let picked = sources
+        .get(&uri)
+        .and_then(|source| picked::file(source, &shadow.rust, asked_line, asked_character));
+    if let Some(made) = picked {
+        let answered = ask_about(server, method, shadow, &made, asked_line, asked_character);
+        return answered
+            .unwrap_or_else(|| empty.to_string())
+            .replace(&shadow.uri, &uri);
+    }
+
     let Some((line, character)) = shadow
         .map
-        .to_generated_position(line.max(0) as usize + 1, character.max(0) as usize + 1)
+        .to_generated_position(asked_line, asked_character)
     else {
-        // Inside a tag, or on a line the rewrite rebuilt. A position
-        // next door is not an answer, it is a wrong one.
+        // On a line the rewrite rebuilt, or in the markup itself, where
+        // the position has no counterpart. A position next door is not
+        // an answer, it is a wrong one.
         return empty.to_string();
     };
 
@@ -310,6 +407,47 @@ fn assist(
     // whole translation.
     let result = cut_result(&answer).unwrap_or(empty);
     result.replace(&shadow.uri, &uri)
+}
+
+/// Ask `server` about `made` — a file built for this question — and put
+/// the real one back afterwards, whatever happened.
+///
+/// The downstream server holds one text per file; leaving the made one
+/// in place would mean the next underlining, the next hover and the next
+/// change were all computed against a file nobody wrote.
+fn ask_about(
+    server: &mut downstream::Server,
+    method: &str,
+    shadow: &shadow::Shadow,
+    made: &str,
+    line: usize,
+    character: usize,
+) -> Option<String> {
+    server.tell(
+        "textDocument/didChange",
+        &shadow::changed(&shadow.uri, made),
+    );
+    let asked = format!(
+        "{{\"textDocument\":{{\"uri\":\"{}\"}},\"position\":{{\"line\":{},\"character\":{}}}}}",
+        json::escape(&shadow.uri),
+        line - 1,
+        character - 1
+    );
+    // Once, quickly; and if that said nothing, once more with patience.
+    // `rust-analyzer` answers `null` to a question about a file it has
+    // only just been handed, and the file built for this question is
+    // always one of those. Without the second attempt the first list a
+    // developer asks for in a session is empty, every session.
+    let mut answer = server.ask(method, &asked);
+    if answer.as_deref().and_then(cut_result).unwrap_or("null") == "null" {
+        answer = server.ask_again(method, &asked);
+    }
+    // Back to the real file before anything else is asked.
+    server.tell(
+        "textDocument/didChange",
+        &shadow::changed(&shadow.uri, &shadow.rust),
+    );
+    cut_result(answer.as_deref()?).map(str::to_string)
 }
 
 /// The `result` of an answer, as text, braces and brackets balanced.

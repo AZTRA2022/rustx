@@ -179,3 +179,31 @@ fn a_plain_tag_is_its_own_name() {
     };
     assert_eq!(said, "div");
 }
+
+#[test]
+fn the_applications_own_component_wins_over_the_library_it_was_built_from() {
+    // `components/ui/dialog.tsx` is built *on* `@radix-ui/react-dialog`,
+    // and both export `Dialog`. A page that writes `<Dialog>` means its
+    // own — which is why nobody has to write `<ui::Dialog>`.
+    let Some(said) = ask(
+        "rustx.use({ radixUiReactDialog: { Dialog: 'the primitive' }, \
+         ui: { Dialog: 'the own one' } });\n\
+         console.log(rustx.resolve('Dialog').component);",
+    ) else {
+        return;
+    };
+    assert_eq!(said, "the own one");
+}
+
+#[test]
+fn the_explicit_form_still_asks_for_the_primitive() {
+    // Removing the prefix must not remove the way back to the library.
+    let Some(said) = ask(
+        "rustx.use({ radixUiReactDialog: { Dialog: 'the primitive' }, \
+         ui: { Dialog: 'the own one' } });\n\
+         console.log(rustx.resolve('radixUiReactDialog::Dialog').component);",
+    ) else {
+        return;
+    };
+    assert_eq!(said, "the primitive");
+}

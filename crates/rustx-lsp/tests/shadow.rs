@@ -95,3 +95,26 @@ fn a_uri_and_a_path_are_the_same_thing_twice() {
     assert!(uri.starts_with("file:///"), "got {uri}");
     assert_eq!(shadow::path_of(&uri).as_deref(), Some(path));
 }
+
+#[test]
+fn each_change_tells_the_downstream_a_new_version() {
+    // A document version that does not move is a document
+    // `rust-analyzer` is entitled to ignore, and the file it then
+    // answers about is the one before the change. Every change this
+    // server sends is a new version of the shadow.
+    let first = rustx_lsp::shadow::changed("file:///a.rs", "fn main() {}");
+    let second = rustx_lsp::shadow::changed("file:///a.rs", "fn main() {} // more");
+    let version = |body: &str| {
+        let at = body.find("\"version\":").expect("a version") + "\"version\":".len();
+        body[at..]
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>()
+            .parse::<usize>()
+            .expect("a number")
+    };
+    assert!(
+        version(&second) > version(&first),
+        "the version did not move: {first} then {second}"
+    );
+}

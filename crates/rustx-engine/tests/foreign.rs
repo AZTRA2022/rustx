@@ -180,3 +180,24 @@ fn a_childs_props_reach_react_without_the_parent_changing() {
         report().raw()
     );
 }
+
+#[test]
+fn a_handler_on_a_node_inside_the_boundary_reaches_rust() {
+    // A page built out of installed components is components inside
+    // components: a button three cards deep is the ordinary case. Its
+    // handler has to cross like the root's, or the page is a picture.
+    assert_eq!(
+        report().get("child_handler_is_a_function"),
+        "yes",
+        "the child's handler never reached the library:
+{}",
+        report().raw()
+    );
+    assert_eq!(
+        report().get("child_handler_reached_rust"),
+        "picked",
+        "the library called it and Rust never heard:
+{}",
+        report().raw()
+    );
+}

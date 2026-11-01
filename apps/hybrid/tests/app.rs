@@ -135,11 +135,16 @@ fn a_tailwind_class_written_in_a_page_reaches_the_screen() {
         "the stylesheet never reached the document:\n{}",
         report().raw()
     );
-    // A colour, read on the page's own hero badge.
-    assert_eq!(
-        report().get("hero_badge_background"),
-        "rgba(139, 92, 246, 0.1)",
-        "`bg-violet-500/10` did not reach the screen:\n{}",
+    // A colour, read on the page's own hero badge — violet at a tenth,
+    // written in whichever colour space the installed Tailwind uses.
+    // Tailwind 3 says `rgba(…)`, Tailwind 4 says `oklab(…)`: the same
+    // violet, and which of the two arrives is the application's choice
+    // of version, not something this test has an opinion about.
+    let reported = report();
+    let background = reported.get("hero_badge_background");
+    assert!(
+        ["rgba(139, 92, 246, 0.1)", "oklab(0.606 0.096545 -0.230606 / 0.1)"].contains(&background),
+        "`bg-violet-500/10` did not reach the screen (got {background}):\n{}",
         report().raw()
     );
     // And a utility on a node Radix rendered, which the page never
@@ -162,6 +167,27 @@ fn a_tailwind_class_written_in_a_page_reaches_the_screen() {
         report().get("dialog_padding"),
         "24px",
         "`p-6` did not reach the dialog:\n{}",
+        report().raw()
+    );
+}
+
+#[test]
+fn a_handler_on_an_installed_component_reaches_rust() {
+    // `#add` is shadcn's own `Button` — TypeScript that `npx shadcn add`
+    // put in `components/ui/`, three components deep inside a `Card`.
+    // Its `onClick` is a Rust closure. Until the boundary carried the
+    // handlers of the nodes *inside* it, a page of installed components
+    // drew perfectly and did nothing at all when clicked.
+    assert_eq!(
+        report().get("dots_after_two_points"),
+        "3",
+        "two clicks on an installed component never reached Rust:\n{}",
+        report().raw()
+    );
+    assert_eq!(
+        report().get("counter_in_panel"),
+        "2",
+        "full output:\n{}",
         report().raw()
     );
 }

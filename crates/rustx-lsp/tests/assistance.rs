@@ -87,13 +87,18 @@ fn asked(method: &str, uri: &str, line: usize, character: usize, id: usize) -> S
 
 #[test]
 fn capabilities_do_not_promise_what_there_is_no_server_for() {
+    // Hovers and definitions come from `rust-analyzer`; completion does
+    // not have to, because the markup's half is the server's own.
     let said = conversation(
         &["{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}"],
         None,
     );
-    assert!(!said[0].contains("completionProvider"), "got {}", said[0]);
-    // What it does without one is what it has always done.
+    assert!(!said[0].contains("hoverProvider"), "got {}", said[0]);
+    assert!(!said[0].contains("definitionProvider"), "got {}", said[0]);
+    // What it does without one is what it has always done, plus the
+    // completions that are its own.
     assert!(said[0].contains("textDocumentSync"), "got {}", said[0]);
+    assert!(said[0].contains("completionProvider"), "got {}", said[0]);
 }
 
 #[test]
@@ -129,10 +134,11 @@ fn a_hover_in_a_component_body_comes_back_with_what_rust_said() {
 }
 
 #[test]
-fn a_completion_inside_a_tag_answers_nothing() {
-    // Line 3 from the `<` on is one Rust expression: a column in there
-    // has no counterpart, and an answer from a position next door would
-    // complete the wrong word.
+fn a_completion_inside_an_expression_comes_back_from_rust() {
+    // `{title}` on line 3. A column inside a region has no counterpart
+    // in the generated file — the whole region is one line there — so
+    // the question is asked against a file built for it, with the
+    // expression at its own line and column. The answer is the real one.
     let (root, uri) = a_page();
     let said = conversation(
         &[
@@ -147,10 +153,9 @@ fn a_completion_inside_a_tag_answers_nothing() {
         .iter()
         .find(|body| body.contains("\"id\":8"))
         .unwrap_or_else(|| panic!("the completion was not answered: {said:?}"));
-    assert!(!answer.contains("wrong"), "got {answer}");
     assert!(
-        answer.contains("[]") || answer.contains("null"),
-        "got {answer}"
+        answer.contains("wrong"),
+        "the expression's own completions never came back: {answer}"
     );
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -222,4 +227,109 @@ fn a_question_about_a_page_that_was_never_opened_answers_nothing() {
         said.iter().any(|body| body.contains("\"id\":11")),
         "a question must always be answered: {said:?}"
     );
+}
+
+#[test]
+fn a_hover_inside_a_tag_answers_nothing() {
+    // The markup half answers completion — a tag name, an attribute —
+    // and nothing else: there is no type to show for a `<p>`, and an
+    // answer taken from the position next door would be about something
+    // the developer is not looking at.
+    let (root, uri) = a_page();
+    let said = conversation(
+        &[
+            opened(&uri).as_str(),
+            asked("textDocument/hover", &uri, 2, 12, 9).as_str(),
+        ],
+        Some(canned(&[
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"contents\":\"wrong\"}}",
+        ])),
+    );
+    let answer = said
+        .iter()
+        .find(|body| body.contains("\"id\":9"))
+        .unwrap_or_else(|| panic!("the hover was not answered: {said:?}"));
+    assert!(!answer.contains("wrong"), "got {answer}");
+    assert!(answer.contains("null"), "got {answer}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn the_trigger_characters_are_where_a_developer_wants_a_list() {
+    let said = conversation(
+        &["{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}"],
+        Some(canned(&[])),
+    );
+    for character in ["<", "/", "{", "."] {
+        assert!(
+            said[0].contains(&format!("\\\"{character}\\\"")) || said[0].contains(character),
+            "`{character}` does not ask for a list: {}",
+            said[0]
+        );
+    }
+}
+
+#[test]
+fn completion_is_promised_even_without_a_downstream() {
+    // The tags, the attributes and the components need nothing
+    // installed. An editor that was not told so would never ask.
+    let said = conversation(
+        &["{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}"],
+        None,
+    );
+    assert!(said[0].contains("completionProvider"), "got {}", said[0]);
+    assert!(!said[0].contains("hoverProvider"), "got {}", said[0]);
+}
+
+#[test]
+fn a_tag_completes_without_any_downstream() {
+    // End to end, through the real server, with nothing behind it: the
+    // half that needs nobody answers.
+    let (root, uri) = a_page();
+    let said = conversation(
+        &[
+            opened(&uri).as_str(),
+            // Line 3, just after the `<` of `<p>`.
+            asked("textDocument/completion", &uri, 2, 12, 11).as_str(),
+        ],
+        None,
+    );
+    let answer = said
+        .iter()
+        .find(|body| body.contains("\"id\":11"))
+        .unwrap_or_else(|| panic!("the completion was not answered: {said:?}"));
+    assert!(
+        answer.contains("\"label\":\"p\"") || answer.contains("\"label\":\"path\""),
+        "a tag name was not offered: {answer}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_completion_rust_was_not_ready_for_is_asked_again() {
+    // `rust-analyzer` answers `null` to a question it is not ready for
+    // — a workspace still loading, a file it has just been handed — and
+    // a developer typing in a page that was opened a second ago is
+    // exactly that moment. Asked once, the list is empty for no reason
+    // the developer can see; asked twice, it is the real list.
+    let (root, uri) = a_page();
+    let said = conversation(
+        &[
+            opened(&uri).as_str(),
+            asked("textDocument/completion", &uri, 2, 16, 12).as_str(),
+        ],
+        Some(canned(&[
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"items\":[{\"label\":\"later\"}]}}",
+        ])),
+    );
+    let answer = said
+        .iter()
+        .find(|body| body.contains("\"id\":12"))
+        .unwrap_or_else(|| panic!("the completion was not answered: {said:?}"));
+    assert!(
+        answer.contains("later"),
+        "the second answer never came back: {answer}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
 }

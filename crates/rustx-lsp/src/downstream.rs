@@ -32,6 +32,16 @@ const PATIENCE: Duration = Duration::from_millis(3000);
 /// server that has just started has a manifest to read.
 const HANDSHAKE: Duration = Duration::from_secs(20);
 
+/// How long a second attempt waits.
+///
+/// There is a second attempt because the first question of a session is
+/// answered `null`, or not at all: a workspace is still loading, a file
+/// has just been handed over, and `rust-analyzer` says so by saying
+/// nothing. Waiting this long on the *first* question would hang an
+/// editor on every keystroke; waiting it on the second costs nothing,
+/// because the second only happens when the first came back empty.
+const AGAIN: Duration = Duration::from_secs(12);
+
 /// A language server this one talks to.
 pub struct Server {
     answers: mpsc::Receiver<String>,
@@ -144,6 +154,11 @@ impl Server {
     /// whose asker has already given up.
     pub fn ask(&mut self, method: &str, params: &str) -> Option<String> {
         self.asked(method, params, PATIENCE)
+    }
+
+    /// Ask again, waiting longer, after an answer that said nothing.
+    pub fn ask_again(&mut self, method: &str, params: &str) -> Option<String> {
+        self.asked(method, params, AGAIN)
     }
 
     /// The same, for the handshake, which nobody is typing through.

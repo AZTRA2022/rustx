@@ -15,18 +15,36 @@ elles ont été écrites, pendant la frappe.
 - **Le serveur** (`rustx-lsp`) — il compile le fichier à chaque frappe et
   publie ce que le compilateur a refusé, aux coordonnées du `.rsx`.
   Ouvrir un fichier ne lance jamais `cargo`.
-- **La complétion, le survol et « aller à la définition »** — ils viennent
-  de `rust-analyzer`, que le serveur lance lui-même et interroge sur le
-  `.rs` que la construction génère déjà pour la page. Donc le vocabulaire
-  est celui de la caisse de l.application : ses propres modules, `rustx`,
-  toutes ses dépendances. Si `rust-analyzer` n.est pas sur le `PATH`,
-  `rustx.rustAnalyzer.path` dit où il est ; s.il n.est pas là du tout, il
-  n.y a pas de complétion et le soulignement continue.
+- **La complétion dans le balisage** — elle vient du serveur lui-même et
+  n'attend personne : les balises HTML et SVG, les attributs, les
+  événements (insérés comme `onClick={move |_| }`), les clés d'un
+  `style={{ … }}`, les composants déclarés dans le fichier avec leurs
+  paramètres, et ceux que l'application a installés — `npx shadcn add
+  button` donne `<Button>`. Les listes sont celles du compilateur, donc
+  ce qui est proposé est ce qui est accepté. Rien à construire, rien à
+  installer.
 
-  À l.intérieur d.une balise, la réponse est vide, et c.est assumé : une
-  région JSX tient plusieurs lignes du `.rsx` et une seule expression
-  Rust, donc la colonne n.a pas d.équivalent — et une réponse fausse
-  serait pire que pas de réponse.
+- **La complétion, le survol et « aller à la définition » dans le Rust** —
+  ils viennent de `rust-analyzer`, que le serveur lance lui-même et
+  interroge sur le `.rs` que la construction génère déjà pour la page.
+  Le vocabulaire est donc celui de la caisse de l'application : ses
+  propres modules, `rustx`, toutes ses dépendances. Si `rust-analyzer`
+  n'est pas sur le `PATH`, `rustx.rustAnalyzer.path` dit où il est ;
+  s'il n'est pas là du tout, le balisage se complète quand même et le
+  soulignement continue.
+
+- **Et dans un `{…}` du balisage** — les vraies complétions, avec les
+  types. Une région JSX est émise sur une seule ligne de Rust, donc une
+  colonne dedans n'a pas d'équivalent : le serveur fabrique, pour cette
+  question-là, un fichier où l'expression sous le curseur est posée à sa
+  ligne et à sa colonne, entourée du vrai code de la page. Donc
+  `onClick={move |_| points.` propose ce que `points` a vraiment.
+  Demande que l'application ait été construite une fois, parce que
+  `rust-analyzer` lit un projet construit. Les premières secondes d'une
+  session, il charge encore l'espace de travail et ne répond rien : le
+  serveur repose alors la question, une fois, en patientant plus
+  longtemps — c'est pourquoi la toute première liste peut mettre
+  quelques secondes à venir.
 
 ## Développement
 

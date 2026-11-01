@@ -79,9 +79,10 @@ pub fn start(
     if let Some(asked_for) = ASKED_FOR.with(|held| held.borrow_mut().take()) {
         history.push(asked_for);
     }
-    store::<Current>().set(Current(
-        history.last().cloned().unwrap_or_else(|| path.to_string()),
-    ));
+    let here = history.last().cloned().unwrap_or_else(|| path.to_string());
+    // So that `rustx dev` can open the next window on this screen.
+    rustx_dom::carried::be_at(&here);
+    store::<Current>().set(Current(here));
     ROUTER.with(|router| {
         *router.borrow_mut() = Some(Mounted {
             table,
@@ -111,6 +112,7 @@ pub fn navigate(path: impl Into<String>) {
         ASKED_FOR.with(|held| *held.borrow_mut() = Some(path));
         return;
     }
+    rustx_dom::carried::be_at(&path);
     store::<Current>().set(Current(path));
 }
 
@@ -128,6 +130,7 @@ pub fn back() -> bool {
 
     match previous {
         Some(path) => {
+            rustx_dom::carried::be_at(&path);
             store::<Current>().set(Current(path));
             true
         }

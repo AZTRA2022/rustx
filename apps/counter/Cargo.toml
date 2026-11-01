@@ -1,12 +1,13 @@
 [package]
 name = "counter"
+publish = false
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "The counter of the design document, written in .rsx."
 
 [dependencies]
-rustx = { path = "../../crates/rustx" }
+rustx = { package = "rustx-app", path = "../../crates/rustx" }
 rustx-dom = { path = "../../crates/rustx-dom" }
 # Named by the generated pages, never by a line a developer writes.
 rustx-engine = { path = "../../crates/rustx-engine" }

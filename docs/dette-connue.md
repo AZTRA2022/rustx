@@ -175,3 +175,30 @@ champ contrôlé sera re-rendu. **On s'en occupe au plan 3.**
 `scan.rs` accepte les octets `>= 0x80` dans un nom de balise, `parse.rs`
 non. Ne produit qu'une erreur un peu confuse. Les deux devraient partager
 une seule fonction.
+
+### 18. Un composant rustx écrit *dans* un composant JS est refusé
+
+`<ui::CardContent>{Feature("…")}</ui::CardContent>` ne compile pas : un
+`{…}` à l'intérieur d'une frontière est émis en `ForeignChild::Value`,
+donc passé par `ToValue`, et `Element` n'est pas une valeur. Le message
+que voit le développeur est `the trait bound rustx::Element: ToValue is
+not satisfied` dans un fichier généré — c'est-à-dire incompréhensible.
+
+Ce qui marche aujourd'hui : un nœud que rustx possède (`#panel-host`) et
+`rustx_component("Nom", "id")` depuis le JavaScript de la page, ce que
+prouve `apps/hybrid`. Ce qui manque est la forme naturelle, et elle
+manquera vite : une page faite de composants installés est faite de
+composants dans des composants.
+
+Ce qu'il faudrait : une variante `ForeignChild::Ours(Element)`, un
+emplacement que le runtime rend à la place (`<span data-rustx-slot>`), et
+le montage du sous-arbre rustx dedans sur la même frame — avec la vie du
+sous-arbre liée à celle du nœud React, puisque React peut le démonter
+quand il veut. Le compilateur ne peut pas choisir la variante sur un type
+qu'il ne connaît pas, donc il faudra un trait (`IntoForeignChild`) avec
+la spécialisation par autoref, ou une méthode sur `Element` que le
+`{…}` appelle quand elle existe.
+
+**À faire** : son propre petit plan, après les médias. En attendant, le
+refus doit au moins être une phrase du compilateur qui nomme la forme
+qui marche, au lieu d'une erreur de trait dans un fichier généré.

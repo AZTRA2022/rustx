@@ -1158,6 +1158,10 @@ thread_local! {
     static AXIS: RefCell<Option<rustx_dom::state::State<String>>> = const { RefCell::new(None) };
     /// Whether the chart is on screen at all.
     static CHART_SHOWN: RefCell<Option<rustx_dom::state::State<bool>>> = const { RefCell::new(None) };
+    /// What a handler on the chart's *child* was called with. A page of
+    /// installed components is components inside components, and a
+    /// button three cards deep is the ordinary case, not the exotic one.
+    static PICKED: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
 fn chart_screen() -> Element {
@@ -1201,7 +1205,18 @@ fn chart_screen() -> Element {
                 children: vec![rustx_dom::ForeignChild::Node(rustx_dom::ForeignNode {
                     component: "Axis".to_string(),
                     props: vec![("dataKey".to_string(), Value::String(axis.get()))],
-                    callbacks: Vec::new(),
+                    // A handler on a node that is *inside* the boundary.
+                    callbacks: vec![(
+                        "onPick".to_string(),
+                        rustx_dom::Callback::new(|arguments: &[Value]| {
+                            let said = match arguments.first() {
+                                Some(Value::String(said)) => said.clone(),
+                                Some(other) => format!("{other:?}"),
+                                None => "nothing".to_string(),
+                            };
+                            PICKED.with(|picked| *picked.borrow_mut() = Some(said));
+                        }),
+                    )],
                     children: Vec::new(),
                 })],
             },
@@ -1215,6 +1230,14 @@ fn chart_screen() -> Element {
 }
 
 fn install_foreign_natives() {
+    register_native("rustx_foreign_picked", |_args| {
+        Ok(Value::String(
+            PICKED
+                .with(|picked| picked.borrow().clone())
+                .unwrap_or_default(),
+        ))
+    });
+
     register_native("rustx_mount_chart", |_args| {
         rustx_engine::render::mount_app(chart_screen, "chart")?;
         Ok(Value::Null)

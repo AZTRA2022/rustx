@@ -3,10 +3,18 @@ name = "rustx-lsp"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "What an editor asks about a .rsx: where the mistakes are."
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+authors.workspace = true
+description = "What an editor asks about a .rsx: where the mistakes are, and what can be written here."
+keywords = ["lsp", "editor", "rsx", "completion", "rustx"]
+categories = ["development-tools", "text-editors"]
 
 [dependencies]
-rustx-compiler = { path = "../rustx-compiler" }
+rustx-compiler = { path = "../rustx-compiler", version = "0.1.0" }
 
 [dev-dependencies]
-rustx-compiler = { path = "../rustx-compiler" }
+# To prove that what is handed to rust-analyzer is a file a parser accepts.
+syn = { version = "2", features = ["full", "parsing"] }

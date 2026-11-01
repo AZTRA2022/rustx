@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use rustx_engine::{Bootstrap, Role, bootstrap, process};
 
+mod common;
+
 #[test]
 fn parent_process_is_identified_as_browser() {
     // No sub-process argument is present on a test harness command line.
@@ -60,6 +62,13 @@ fn the_application_survives_startup_without_a_fatal_error() {
 /// the whole process tree and returns everything it wrote to stdout and
 /// stderr. CEF reports sub-process failures on stderr, so both matter.
 fn run_hello(args: &[&str]) -> Run {
+    // Une fenêtre à la fois sur cette machine. Chromium tient une
+    // session par répertoire de cache : deux binaires de test lancés en
+    // parallèle par `cargo test` se donnent leurs fenêtres l'un à
+    // l'autre, et celui qui n'a pas démarré le premier échoue pour une
+    // raison qui n'est pas dans son code.
+    let _alone = common::alone();
+
     let mut child = Command::new(env!("CARGO_BIN_EXE_hello"))
         .args(args)
         .stdout(Stdio::piped())

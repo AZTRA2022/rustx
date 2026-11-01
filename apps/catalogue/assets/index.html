@@ -49,6 +49,21 @@
           rustx_report("html", root.innerHTML);
           document.querySelector("#shout").click();
           rustx_report("clicked", rustx_shared("clicked"));
+
+          // Le dépôt de fichiers, pour la moitié qui se prouve sans
+          // main humaine : le moteur a-t-il posé son écouteur, et le
+          // lâcher arrive-t-il jusqu'à Rust ?
+          //
+          // Les chemins, eux, ne peuvent venir que d'un vrai geste :
+          // c'est le gestionnaire natif de Chromium qui les connaît, et
+          // aucun événement fabriqué en JavaScript n'en porte.
+          rustx_report("drop_native", typeof __rustx_dropped);
+          const dropped = new Event("drop", { cancelable: true });
+          window.dispatchEvent(dropped);
+          rustx_report("drop_prevented", String(dropped.defaultPrevented));
+          const over = new Event("dragover", { cancelable: true });
+          window.dispatchEvent(over);
+          rustx_report("dragover_prevented", String(over.defaultPrevented));
         };
         rustx_soon(settle);
       }

@@ -12,6 +12,11 @@ pub enum EngineError {
     RemoteContentForbidden,
     /// CEF failed to initialize.
     EngineInit(String),
+    /// A window was asked for from somewhere that cannot ask: outside the
+    /// render process, or before a page exists. Only a page can ask for a
+    /// second window, because only a page has the frame the request
+    /// travels on.
+    NoPage,
 }
 
 impl fmt::Display for EngineError {
@@ -29,6 +34,11 @@ impl fmt::Display for EngineError {
             Self::EngineInit(detail) => {
                 write!(f, "could not initialize the engine: {detail}")
             }
+            Self::NoPage => write!(
+                f,
+                "a window can only be opened from a page: there is no frame here \
+                 to carry the request to the process that owns the windows"
+            ),
         }
     }
 }

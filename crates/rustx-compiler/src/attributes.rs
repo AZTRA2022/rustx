@@ -314,6 +314,18 @@ const HTML_SPELLINGS: &[(&str, &str)] = &[
     ("accept-charset", "acceptCharset"),
 ];
 
+/// Every attribute the framework knows, sorted. Lent to the language
+/// server, like the tags: a second copy of this list elsewhere would be
+/// a second list to keep in step.
+pub fn known() -> &'static [&'static str] {
+    ATTRIBUTES
+}
+
+/// Every `on…` an element can be given.
+pub fn events() -> &'static [&'static str] {
+    EVENTS
+}
+
 /// Is this attribute an event handler rather than a value?
 pub fn is_event(name: &str) -> bool {
     EVENTS.contains(&name)

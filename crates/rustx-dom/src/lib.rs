@@ -6,6 +6,7 @@
 //! DOM, so it sits in its own crate — the compiler must not depend on CEF,
 //! and the engine must not depend on a parser.
 
+pub mod carried;
 pub mod diff;
 mod element;
 pub mod route;

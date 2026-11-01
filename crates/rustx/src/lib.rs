@@ -33,9 +33,16 @@ pub use rustx_dom::{
     AttributeValue, Element, Handler, IntoElement, Key, TagElement, Value, into_element, route,
     state, store, value,
 };
+/// Ce qui touche la machine et non la page : le presse-papiers, les
+/// dialogues de fichiers, les appareils, la barre système, les
+/// notifications. Chacun dit, avant qu'on lui demande quoi que ce soit,
+/// si cette plateforme sait le faire.
+pub use rustx_os::{autostart, clipboard, devices, dialog, instance, notify, shortcut, tray};
+pub use rustx_os::OsError;
+
 pub use rustx_engine::{
     Document, DomError, NativeError, Node, PostError, Poster, foreign, mount, mount_at_id,
-    on_context_created, on_frame, poster, register_native, render, router, task,
+    dropped, on_context_created, on_frame, poster, register_native, render, router, task, window,
 };
 
 /// What can go wrong while an application starts.
@@ -269,6 +276,12 @@ impl App {
         let start = config.start.clone();
         let not_found = config.not_found.unwrap_or(no_such_page);
 
+        // Before anything renders: what the process this one replaced was
+        // holding, when `rustx dev` is the one that started it. Nothing
+        // else sets `RUSTX_CARRIED`, so outside a watching loop this is
+        // one lookup and nothing more.
+        rustx_engine::on_context_created(carry_state);
+
         if let Some(routes) = routes {
             rustx_engine::on_context_created(move || {
                 start_router(routes, &host, &start, not_found)
@@ -380,7 +393,18 @@ fn start_router(
     not_found: fn() -> Element,
 ) {
     let host = host.to_string();
-    let start = start.to_string();
+    // The screen that was open when `rustx dev` replaced the last
+    // process, if there was one: a developer who saves a file while
+    // looking at the third screen of a form wants the third screen of
+    // the form back, not the first.
+    // Dans l'ordre : la route que cette fenêtre-ci porte dans son URL
+    // — c'est ainsi qu'une deuxième fenêtre apprend la sienne, et elle
+    // passe devant tout le reste parce que c'est une demande explicite
+    // —, puis l'écran qui était ouvert quand `rustx dev` a remplacé le
+    // dernier processus, puis la route de départ de l'application.
+    let start = rustx_engine::window::page_asked_for()
+        .or_else(rustx_dom::carried::page)
+        .unwrap_or_else(|| start.to_string());
     let started = Cell::new(false);
     rustx_engine::on_frame(move || {
         if started.get() {
@@ -390,6 +414,18 @@ fn start_router(
             started.set(true);
         }
     });
+}
+
+/// Read what `rustx dev` carried over, when it is `rustx dev` that
+/// started this process.
+///
+/// The file holds the values that have a name and the page that was
+/// open. Nothing else in the world sets `RUSTX_CARRIED`, so a shipped
+/// application never reads or writes it.
+fn carry_state() {
+    if let Some(file) = std::env::var_os("RUSTX_CARRIED") {
+        rustx_dom::carried::carrying(std::path::Path::new(&file));
+    }
 }
 
 /// A string as JavaScript would write it.
