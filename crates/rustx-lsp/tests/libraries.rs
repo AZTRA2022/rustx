@@ -102,7 +102,7 @@ fn what_is_not_a_component_is_not_offered_as_a_tag() {
         "a type is not a tag: {names:?}"
     );
     assert!(
-        !names.iter().any(|name| *name == "Clsx"),
+        !names.contains(&"Clsx"),
         "a library of functions is not a library of components: {names:?}"
     );
 }

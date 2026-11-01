@@ -11,7 +11,7 @@ fait quatre lignes, parce que la cérémonie est le travail du framework.
 ## Démarrer
 
 ```
-cargo install rustx-cli
+cargo install rustx-app
 rustx new mon-app
 cd mon-app
 rustx dev
@@ -78,12 +78,12 @@ framework.
 
 ## Les commandes
 
-| | |
-|---|---|
-| `rustx new <nom>` | écrit un projet qui compile du premier coup |
-| `rustx dev` | regarde les fichiers, reconstruit, ramène la fenêtre |
-| `rustx build` | construit, et donne au `.exe` son nom et son icône |
-| `rustx run` | construit et lance une fois, sans surveiller |
+|                   |                                                      |
+| ----------------- | ---------------------------------------------------- |
+| `rustx new <nom>` | écrit un projet qui compile du premier coup          |
+| `rustx dev`       | regarde les fichiers, reconstruit, ramène la fenêtre |
+| `rustx build`     | construit, et donne au `.exe` son nom et son icône   |
+| `rustx run`       | construit et lance une fois, sans surveiller         |
 
 `rustx build --release` pour la version à livrer. `cargo build` marche
 toujours : le binaire produit fonctionne, il a seulement l'air anonyme
@@ -107,7 +107,7 @@ Ne la traversent pas :
   ni un nombre, ni une chaîne, ni un booléen, reparti de son
   initialisateur.
 
-Une valeur dont le *type* a changé entre deux compilations est jetée, pas
+Une valeur dont le _type_ a changé entre deux compilations est jetée, pas
 réinjectée de force.
 
 ## Ce que le web ne sait pas faire
@@ -184,19 +184,19 @@ code --install-extension editors/vscode/rustx-0.1.0.vsix
 
 ## L'organisation du dépôt
 
-| | |
-|---|---|
-| `crates/rustx` | la façade : `App`, `Config`, `#[rustx::main]` |
-| `crates/rustx-compiler` | `.rsx` → `.rs`, et la carte des positions |
-| `crates/rustx-dom` | l'arbre, l'état, le diff, les routes |
-| `crates/rustx-engine` | l'hôte CEF, la boucle de frames, le routeur |
-| `crates/rustx-cli` | `rustx new`, `dev`, `build`, `run` |
-| `crates/rustx-lsp` | ce qu'un éditeur demande à propos d'un `.rsx` |
-| `apps/` | les applications qui servent de preuve aux plans |
-| `docs/superpowers/` | la spécification et les plans |
-| `crates/rustx-os` | le presse-papiers, les dialogues, la barre système |
-| `crates/rustx-macros` | `#[rustx::main]`, `#[derive(ToValue)]` |
-| `docs/publier.md` | les huit paquets, et sous quels noms ils partent |
+|                         |                                                    |
+| ----------------------- | -------------------------------------------------- |
+| `crates/rustx`          | la façade : `App`, `Config`, `#[rustx::main]`      |
+| `crates/rustx-compiler` | `.rsx` → `.rs`, et la carte des positions          |
+| `crates/rustx-dom`      | l'arbre, l'état, le diff, les routes               |
+| `crates/rustx-engine`   | l'hôte CEF, la boucle de frames, le routeur        |
+| `crates/rustx-cli`      | `rustx new`, `dev`, `build`, `run`                 |
+| `crates/rustx-lsp`      | ce qu'un éditeur demande à propos d'un `.rsx`      |
+| `apps/`                 | les applications qui servent de preuve aux plans   |
+| `docs/superpowers/`     | la spécification et les plans                      |
+| `crates/rustx-os`       | le presse-papiers, les dialogues, la barre système |
+| `crates/rustx-macros`   | `#[rustx::main]`, `#[derive(ToValue)]`             |
+| `docs/publier.md`       | les huit paquets, et sous quels noms ils partent   |
 
 ## La licence
 

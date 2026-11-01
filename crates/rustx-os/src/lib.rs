@@ -93,9 +93,14 @@ mod tests {
             said.contains(std::env::consts::OS),
             "the platform is not named: {said}"
         );
-        assert!(
-            !super::linux_also_compiles::clipboard::AVAILABLE,
-            "a platform that refuses must not say it is available"
-        );
+        // `const`, donc l'assertion est constante : c'est voulu, elle
+        // épingle la constante d'un fichier qu'on remplira un jour.
+        #[allow(clippy::assertions_on_constants)]
+        {
+            assert!(
+                !super::linux_also_compiles::clipboard::AVAILABLE,
+                "a platform that refuses must not say it is available"
+            );
+        }
     }
 }

@@ -110,7 +110,7 @@ impl Icon {
         let window = heard
             .recv()
             .map_err(|_| OsError::Platform("le fil de l'icône s'est arrêté aussitôt".to_string()))?
-            .map_err(|why| why)?;
+            ?;
 
         Ok(Self {
             shared,
