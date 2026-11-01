@@ -108,7 +108,7 @@ dialogue qui rend un chemin, ni poser une icône à côté de l'horloge.
 C'est ce que `rustx-os` fait, et ça s'écrit dans une page comme le reste :
 
 ```rust
-use rustx::{clipboard, dialog, notify, tray};
+use rustx::{autostart, clipboard, dialog, dropped, instance, notify, shortcut, tray};
 
 // Le presse-papiers : du texte, une image, ou un format à soi.
 clipboard::set_text("copié depuis Rust")?;
@@ -123,7 +123,27 @@ let icon = tray::Icon::new(Path::new("assets/icon.ico"), "Mon logiciel")?;
 icon.menu(&[tray::Item::new("quitter", "Quitter")])?;
 
 notify::show(notify::What::new("Fini", "Le rendu est terminé."))?;
+
+// Un raccourci qui marche quand la fenêtre n'a pas le focus.
+let capture = shortcut::Shortcut::listen("Ctrl+Shift+R")?;
+if capture.pressed() > 0 { commencer(); }
+
+// Les fichiers lâchés sur la fenêtre, avec leur vrai chemin — ce
+// qu'une page web ne peut pas savoir.
+dropped::on_files(|paths| for path in paths { ouvrir(&path); });
+
+// Une seule instance : la deuxième passe ses arguments et s'en va.
+let Ok(only) = instance::Only::one("mon-logiciel") else {
+    instance::hand_over("mon-logiciel", &arguments)?;
+    return Ok(());
+};
+autostart::set(true, "mon-logiciel")?;
 ```
+
+Chaque chose enregistrée auprès du système est un **jeton** : l'icône,
+le raccourci, le nom de l'instance. Lâché, il la retire — une icône
+morte dans la barre ou un `Ctrl+Shift+R` qu'aucune application ne rend
+sont des défauts que l'utilisateur ne peut réparer qu'en redémarrant.
 
 Un répertoire par système à l'intérieur — `windows/`, `linux/`, le reste
 — et une capacité est un fichier par système, avec les mêmes noms de

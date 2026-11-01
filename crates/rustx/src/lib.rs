@@ -37,7 +37,7 @@ pub use rustx_dom::{
 /// dialogues de fichiers, les appareils, la barre système, les
 /// notifications. Chacun dit, avant qu'on lui demande quoi que ce soit,
 /// si cette plateforme sait le faire.
-pub use rustx_os::{clipboard, devices, dialog, notify, tray};
+pub use rustx_os::{autostart, clipboard, devices, dialog, instance, notify, shortcut, tray};
 pub use rustx_os::OsError;
 
 pub use rustx_engine::{

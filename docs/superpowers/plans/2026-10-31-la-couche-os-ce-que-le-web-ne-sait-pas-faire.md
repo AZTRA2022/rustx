@@ -161,19 +161,44 @@ thread avec sa propre fenêtre invisible suffit.
 - Modify: `crates/rustx/src/lib.rs` (`rustx::window::open`, `Config::single_instance`, `Config::autostart`)
 - Test: `crates/rustx-engine/tests/second_window.rs`, `crates/rustx-os/tests/instance.rs`, `apps/monitor/tests/app.rs`
 
-**Prérequis, trouvé à la tâche 2 : le pont entre les deux processus.**
-Une fenêtre ne peut être créée que par le processus navigateur
-(`browser_host_create_browser` sur le thread de son interface), et
-`window::open` est appelé là où la page est écrite, c'est-à-dire dans le
-processus de rendu. Il faut donc un passage : un `ProcessMessage`
-`rustx.ask` qui part de la page avec un numéro, le processus de la
-fenêtre qui le sert, un `rustx.answer` qui revient sous le même numéro,
-et un registre des questions en attente vidé quand la page s'en va.
-C'est un fichier, `crates/rustx-engine/src/bridge.rs`, et il est le
-Step 0 de cette tâche — avec ses propres tests : un numéro jamais
-réutilisé, une réponse reprise une fois et une seule, les valeurs qui
-traversent intactes, et une question que personne ne sert qui reçoit
-quand même une réponse vide (sans quoi la page attend pour toujours).
+**État : les deux tiers sont faits** (commit `cb92f75`). L'instance
+unique et le démarrage automatique sont écrits, testés, et dans la
+structure par système. Reste la deuxième fenêtre, ci-dessous.
+
+**Le pont existe, dans une direction** (`crates/rustx-engine/src/bridge.rs`,
+commit `86c32f4`) : de la fenêtre vers la page, sans réponse, écrit pour
+le glisser-déposer de la tâche 4. Une fenêtre ne peut être créée que par
+le processus navigateur (`browser_host_create_browser` sur le thread de
+son interface), et `window::open` est appelé là où la page est écrite —
+il faut donc l'autre direction.
+
+**Ruling : une notification, pas une question.** Le registre de
+questions-en-attente que ce plan décrivait n'est pas nécessaire : si la
+page nomme elle-même la fenêtre qu'elle ouvre (`window::open` prend un
+nom), elle n'a pas besoin qu'on lui réponde un identifiant, et
+`Window::close` est une deuxième notification portant le même nom. Le
+registre `LISTENING` du pont est un `thread_local` : le même
+`listen`/`told` sert donc des deux côtés, et il ne manque que
+`tell_browser` (qui envoie à `ProcessId::BROWSER`) plus l'appel de
+`bridge::told` dans le `on_process_message_received` du *Client*, à côté
+de celui déjà branché dans le gestionnaire du processus de rendu.
+*Coût si c'est faux :* une page ne peut pas ouvrir deux fenêtres sans
+nom distinct, ce qui est une contrainte qu'on écrit dans la
+documentation plutôt qu'un registre qu'on maintient.
+
+**Et la question que la deuxième fenêtre pose vraiment : sur quelle
+route s'ouvre-t-elle ?** La route d'une application rustx vit dans
+l'état de la page, pas dans l'URL — `carried::page()` au démarrage,
+`navigate` ensuite. Une deuxième fenêtre reçoit la même URL
+(`assets/index.html`) et doit donc apprendre sa route autrement. Deux
+voies, à choisir en l'écrivant :
+1. le fragment de l'URL (`index.html#/merci`), lu par `start_router`
+   quand il y en a un. Une ligne dans le routeur, et une URL qui dit la
+   vérité — ce qu'un développeur peut lire dans les traces.
+2. un message du pont juste après la création, ce qui demande de savoir
+   quand la page de la nouvelle fenêtre est prête.
+La première est préférable, et c'est elle qu'il faut mesurer d'abord :
+si `start_router` lit un fragment, tout le reste suit.
 
 **Interfaces:**
 - Produces: `window::open(What) -> Result<Window, EngineError>` où `struct What { pub title: String, pub width: u32, pub height: u32, pub at: String }` (`at` est la route sur laquelle la fenêtre s'ouvre) ; `Window::close(self)` et un `Drop` qui ferme ; `instance::only_one(name: &str) -> Result<Only, OsError>` dont l'échec porte les arguments de la première instance ; `instance::handed_over() -> Vec<String>` ; `autostart::set(on: bool, name: &str) -> Result<(), OsError>` et `autostart::is_on(name: &str) -> bool`.
