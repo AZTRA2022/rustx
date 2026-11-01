@@ -83,9 +83,9 @@
   "dependencies": {
     "vscode-languageclient": "9.0.1"
   },
-  "publisher": "rustx",
+  "publisher": "AztraOpenSource",
   "repository": {
     "type": "git",
-    "url": "https://github.com/aztra/rustx"
+    "url": "https://github.com/AZTRA2022/rustx"
   }
 }

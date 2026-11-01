@@ -249,6 +249,7 @@ pub fn build(app: &Path) -> Result<Built, String> {
         .arg("--format=iife")
         .arg("--target=chrome120")
         .arg("--minify")
+        .arg("--platform=node")
         // React reads it on its first line, and a shell is what used to
         // eat the quotes: there is no shell here.
         .arg("--define:process.env.NODE_ENV=\"production\"")
