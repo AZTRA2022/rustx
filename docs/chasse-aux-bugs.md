@@ -15,11 +15,19 @@ Le labo pointe sur les sources du dépôt par un `[patch.crates-io]`, donc
 chaque correction se vérifie dans la seconde.
 
 Ce qu'il reste à la fin : un `tests/app.rs` dans le labo qui ouvre une
-vraie fenêtre et lit ce qu'elle dessine. Six assertions, toutes vertes :
+vraie fenêtre et lit ce qu'elle dessine. Onze assertions, toutes vertes :
 une `Card` de shadcn montée par React, sa classe Tailwind appliquée, un
-TipTap vivant dans un composant React que le projet a écrit lui-même, et
-un `onClick` en Rust appelé depuis l'intérieur de React qui fait monter
-un `let mut` partagé de la page.
+TipTap vivant dans un composant React que le projet a écrit lui-même, un
+`onClick` en Rust appelé depuis l'intérieur de React qui fait monter un
+`let mut` partagé de la page, un bloc `async` qui écrit un fichier avec
+`tokio::fs` sans bloquer la fenêtre — relu depuis le processus de test,
+hors de la fenêtre — et une valeur attendue avec `.await` dans un
+composant, affichée par la frame qui suit son arrivée.
+
+Une deuxième vague est partie d'un seul message : « pourquoi est-on
+obligé d'utiliser `task(...)` », « je remarque des `rustx::tokio::...` »,
+« certaines opérations effectuées avant le retour du code UI bloquent le
+rendu ». Les trois étaient justes, et les numéros 14 à 17 en viennent.
 
 ---
 
@@ -40,6 +48,12 @@ un `let mut` partagé de la page.
 | 11 | important | `rustx-compiler` | deux bibliothèques pour un seul nom de balise, en silence | corrigé |
 | 12 | important | les harnais de test | un échec qui accuse le framework à la place du pilote 3D | corrigé |
 | 13 | bloquant | `rustx-lsp` | la complétion des balises npm n'a jamais marché | corrigé |
+| 14 | important | `rustx-compiler` | `task(…)` autour d'un bloc `async` ne disait rien | corrigé |
+| 15 | important | `rustx-macro` | `rustx::tokio::` est un chemin que personne n'écrit | corrigé |
+| 16 | bloquant | `rustx-compiler`, `rustx-engine` | attendre avant le `return` bloquait le rendu | corrigé |
+| 17 | bloquant | `rustx-compiler` | un commentaire français faisait paniquer le compilateur | corrigé |
+| 18 | important | `rustx-lsp` | l'éditeur n'offrait aucune prop des balises npm | corrigé |
+| 19 | important | extension VS Code | taper `>` ne fermait pas la balise | corrigé |
 
 ---
 
@@ -292,6 +306,143 @@ test qui part de là où l'éditeur part : un projet écrit sur le disque,
 un `node_modules`, un `components/ui`, un `components/Editor.tsx`, et
 `page_of(source, &root.join("app/page.rsx"))` —
 `a_page_is_offered_what_the_application_around_it_installed`.
+
+### 14. `task(…)` autour d'un bloc `async` ne disait rien
+
+Rapporté en lisant le labo : « pourquoi est-on obligé d'utiliser
+`task(...)`, alors qu'en JSX on n'utilise rien de tout ça ». La question
+était juste. Le premier mot de l'argument de `task` était déjà ce qui
+décidait entre un fil et une future :
+
+```rust
+CallKind::Task if is_a_future(arguments) => future_task(…),
+CallKind::Task => spawn(…),
+```
+
+Donc `task` ne portait aucune information que le `async` ne portait pas.
+C'était une cérémonie, et une cérémonie dans un framework dont l'argument
+de vente est qu'il n'y en a pas.
+
+**Correction.** Un bloc `async` écrit comme **instruction** d'un composant
+est reconnu tel quel, avec la même émission. Un bloc qui est une *valeur*
+— `let tenu = async { … };`, ou un argument — est laissé tranquille :
+quatre tests le disent. `task(async { … })` marche toujours, et veut dire
+la même chose.
+
+Ce que ça a révélé au passage : lire « est-ce une instruction ? » ne
+remontait que les espaces, donc **tout bloc précédé d'un commentaire**
+passait pour le milieu d'une expression — et presque tous le sont.
+
+### 15. `rustx::tokio::` est un chemin que personne n'écrit
+
+Rapporté sur le même message : « je remarque des `rustx::tokio::...`,
+non ». La façade réexportait tokio en entier, et le réexport se lisait
+dans le chemin. Un développeur qui copie une ligne de la documentation de
+`tokio` devait la réécrire, et un extrait collé de `sqlx` ou de `reqwest`
+ne compilait pas.
+
+**Correction.** Le nom, pas le chemin : `pub(crate) use rustx::tokio;`
+dans le module des pages, et un `use rustx::tokio;` **à côté** de `main`
+plutôt que dedans — parce que le code d'une application qui attend n'est
+pas tout dans `main`, et une `async fn` écrite à côté en a autant besoin.
+Une page écrit `tokio::fs::write(…)` et `tokio::select! { … }` comme
+n'importe quel code Rust, sans déclarer tokio.
+
+Pourquoi ce n'est pas un conflit pour une application qui déclare tokio
+elle-même : cargo n'en résout qu'un seul en 1.x, donc c'est le même
+crate, et un `use` nommé bat de toute façon le prélude externe.
+
+### 16. Attendre avant le `return` bloquait le rendu
+
+Rapporté sur le même message : « certaines opérations effectuées avant le
+retour du code UI bloquent le rendu ». Un composant est interrogé sur
+l'écran tel qu'il est maintenant, donc il ne peut pas attendre — et la
+seule réponse du framework était une phrase qui renvoyait vers
+`task(…)`. Ce qui veut dire : pour afficher une valeur qui vient d'un
+fichier ou d'un serveur, il fallait écrire soi-même la cellule
+`Option<T>`, le handle, le `match`, et le rendu vide.
+
+**Correction.** `let x = travail().await;` dans un composant s'écrit tel
+quel. Ce que le compilateur en fait, en deux éditions aux deux bouts de
+l'instruction et rien entre les deux :
+
+```rust
+let Some(x) = rustx_engine::task::awaited(
+    rustx_dom::state::cell(SLOT_A, || None), SLOT_B,
+    || { let __work = travail(); async move { __work.await } },
+) else { return Element::Empty; };
+```
+
+La future est **construite sur le thread qui dessine** — c'est ce qui
+permet à l'expression de lire une cellule — et **attendue sur ceux du
+runtime**. La question n'est posée qu'une fois, le type écrit est gardé,
+et l'expression reste exactement là où elle a été écrite, donc une
+lecture d'état dedans est réécrite par la passe qui réécrit toutes les
+autres.
+
+Ce que ça a révélé : `.await.unwrap_or_else(…)` et `.await.ok()` sont la
+façon normale d'écrire ça, et la première règle — « le `.await` doit être
+la dernière chose de la valeur » — les refusait. Ce qui suit l'`await`
+travaille sur la réponse, qui n'existe qu'à côté de la fenêtre : il part
+donc avec la future.
+
+Et deux refus, parce qu'ils ne peuvent pas être autre chose : un `.await`
+enterré dans un argument (`f(g().await)` attend avant que `f` soit même
+appelée), et une lecture d'une valeur de la page **après** l'`await`, pour
+la même raison qu'une lecture dans un bloc `async`.
+
+### 17. Un commentaire français faisait paniquer le compilateur
+
+Trouvé en reconstruisant le labo, par le code du n° 14 : lire en arrière
+par-dessus un commentaire comparait deux octets à `*/` sans vérifier que
+la frontière en était une.
+
+```rust
+if index >= 2 && &source[index - 2..index] == "*/" {
+```
+
+Un commentaire fini par « déjà. » met un `à` de deux octets juste avant le
+point, donc `index - 2` tombait **au milieu du caractère** et Rust
+paniquait. Le message que voyait le développeur :
+`custom attribute panicked … start byte index 832 is not a char
+boundary`, sans un mot sur quel fichier ni quelle ligne.
+
+**Correction.** `source.is_char_boundary(index - 2)` avant la tranche, et
+un test dont le commentaire finit par « déjà. » — parce que mon premier
+test disait « fenêtre » et que l'accent n'y était pas dans les deux
+derniers octets, donc il passait.
+
+### 18. L'éditeur n'offrait aucune prop des balises npm
+
+Rapporté avec le n° 13, et seule la moitié avait été corrigée : les
+**noms** des balises arrivaient, pas ce qu'elles prennent. Sur
+`<Button `, la liste était celle des attributs HTML — `accept`,
+`accesskey`, `action` — et `variant`, `size`, `asChild` n'y étaient
+nulle part. `suggest::attributes` ne lisait les paramètres que pour les
+composants déclarés dans le fichier même.
+
+**Correction.** Les props sont lues là où les noms sont : `interface
+ButtonProps { … }` ou `type CardProps = { … }` dans le `.d.ts` du
+paquet, le paramètre déstructuré de la fonction pour ce que `shadcn add`
+écrit (il n'y a pas de type de props du tout), et sinon le type que la
+déclaration nomme, suivi jusqu'à sa propre `interface`. Lues **par
+balise** et pas listées : `lucide-react` en exporte près de sept mille,
+et lire sept mille déclarations à chaque frappe se sentirait.
+
+### 19. Taper `>` ne fermait pas la balise
+
+Rapporté sur le même message. VS Code apparie des **caractères**
+(`autoClosingPairs`), et une balise fermante est un **nom** : il n'y a
+rien à déclarer pour ça dans un `language-configuration.json`.
+
+**Correction.** La règle est à nous, et la partie difficile n'est pas le
+JSX, c'est le Rust autour : un `.rsx` fini par `Vec<u32>` répondu par
+`</u32>` serait pire que rien. Trois choses doivent tenir, toutes sur la
+forme de ce qui est écrit plutôt que sur une liste de noms — le `<` n'est
+pas collé à un mot (`Vec<` l'est, `<div` ne l'est jamais), ce qui le suit
+est un nom sans espace devant (ce qui écarte `a < b > c`), et `::<`
+comme `<<` ne sont pas des balises. Quinze tests, dont dix sur ce qui
+doit rester intact.
 
 ### Une régression, attrapée par la suite
 

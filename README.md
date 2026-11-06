@@ -984,6 +984,14 @@ Ce qu'elle donne :
 - la complétion des **composants des bibliothèques installées** —
   `CardHeader`, `TabsTrigger`, `LineChart` sont lus dans `node_modules`
   et dans `components/ui`, avec le nom de la bibliothèque à côté ;
+- la complétion de **ce que ces balises prennent** : sur `<Button `,
+  `variant`, `size` et `asChild` avant les attributs HTML, lus dans le
+  `.d.ts` du paquet ou dans le `components/ui/*.tsx` que `shadcn add` a
+  écrit ;
+- la **fermeture des balises** : taper le `>` de `<Card>` écrit
+  `</Card>` derrière le curseur. `Vec<u32>`, `a < b >`, `=>` et une
+  balise qui s'est fermée toute seule sont laissés tranquilles ;
+  `rustx.closeTags` le coupe ;
 - à l'intérieur d'un `{ … }`, c'est `rust-analyzer` qui répond, derrière
   le serveur : complétion, survol, aller-à-la-définition.
 
