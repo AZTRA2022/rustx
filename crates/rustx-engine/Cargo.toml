@@ -22,3 +22,13 @@ categories = ["gui", "api-bindings"]
 # and Chromium falls back to software rendering after a visible blank window.
 cef = { version = "156.2.0", default-features = false, features = ["resources"] }
 rustx-dom = { path = "../rustx-dom", version = "0.1.0" }
+# Le reacteur qu'un `Future` attend. `rt-multi-thread` parce que les
+# threads de l'async ne sont jamais celui du rendu ; `time` et `net`
+# parce qu'un timer et une socket sont ce que les bibliotheques de
+# l'ecosysteme enregistrent aupres de lui.
+tokio = { version = "1.47", default-features = false, features = ["rt-multi-thread", "time", "net"] }
+
+[dev-dependencies]
+# Les tests d'integration lient la caisse, pas ses dependances : ils ont
+# besoin de leur propre tokio pour ecrire un `sleep` dans un `await`.
+tokio = { version = "1.47", default-features = false, features = ["rt-multi-thread", "time"] }

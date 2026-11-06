@@ -179,6 +179,12 @@ pub fn shutdown() {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     *guard = None;
+    drop(guard);
+    // And the async runtime, in the process that has one. A future left
+    // polling after its window has gone has nobody to post to and
+    // nothing to draw; in the browser process there is no runtime and
+    // this is a lock and a look.
+    crate::runtime::stop();
 }
 
 /// How long the loop waits for a frame of its own before running one.

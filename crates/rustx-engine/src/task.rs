@@ -65,6 +65,10 @@ impl Alive {
 /// the work lasts precisely as long as the component does.
 pub struct Task {
     shared: Arc<Shared>,
+    /// Set when the body is a `Future` rather than a thread. A thread is
+    /// asked to stop and notices; a future is abandoned where it waits,
+    /// because an `await` has no flag to look at.
+    abandon: Option<tokio::task::AbortHandle>,
 }
 
 impl Task {
@@ -80,6 +84,9 @@ impl Task {
 impl Drop for Task {
     fn drop(&mut self) {
         self.shared.alive.store(false, Ordering::Release);
+        if let Some(abandon) = self.abandon.take() {
+            abandon.abort();
+        }
     }
 }
 
@@ -105,7 +112,51 @@ pub fn spawn(work: impl FnOnce(Alive) + Send + 'static) -> Task {
         }
     });
 
-    Task { shared }
+    Task {
+        shared,
+        abandon: None,
+    }
+}
+
+/// Run `future` on the async runtime, until it finishes or the token goes.
+///
+/// The same token as [`spawn`], so the same `Drop` ends it and the same
+/// cell of a component holds it. What differs is what ending means: a
+/// thread is asked to stop and looks at the flag when it next can, while
+/// a future is abandoned at the `await` it is parked on. A library that
+/// has nothing to poll cannot be asked politely.
+///
+/// The runtime starts here, on the first future of the process, and not
+/// before — an application that writes no `async` pays for no thread.
+pub fn spawn_future(future: impl Future<Output = ()> + Send + 'static) -> Task {
+    let shared = Arc::new(Shared {
+        alive: AtomicBool::new(true),
+        running: AtomicBool::new(true),
+    });
+    // Owned by the future, so it is dropped when the future finishes and
+    // also when the future is abandoned without ever being polled.
+    let finished = Finished(Arc::clone(&shared));
+
+    let handle = crate::runtime::handle();
+    let body = handle.spawn(async move {
+        let _finished = finished;
+        future.await;
+    });
+    let abandon = body.abort_handle();
+
+    // A panic in a future arrives as a `JoinError`, and somebody has to
+    // be waiting for it or nothing would ever be said. Abandoning the
+    // body is not a panic, so a cancelled task stays quiet.
+    handle.spawn(async move {
+        if body.await.is_err_and(|ended| ended.is_panic()) {
+            report_panic();
+        }
+    });
+
+    Task {
+        shared,
+        abandon: Some(abandon),
+    }
 }
 
 /// Says the body is over on the way out, whichever way it went.
