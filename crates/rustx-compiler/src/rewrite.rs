@@ -168,7 +168,15 @@ fn call_edit(source: &str, component: &Component, call: &crate::promote::Call) -
             format!("rustx_dom::state::keep_at({slot}, || {arguments})")
         }
         CallKind::Task => {
-            format!("rustx_dom::state::keep_at({slot}, || rustx_engine::task::spawn({arguments}))")
+            // A closure is a thread, an `async` block is a future, and
+            // the first word of the argument is what says which.
+            let spawn = match is_a_future(arguments) {
+                true => "spawn_future",
+                false => "spawn",
+            };
+            format!(
+                "rustx_dom::state::keep_at({slot}, || rustx_engine::task::{spawn}({arguments}))"
+            )
         }
         CallKind::Effect => {
             let (watched, run) = split_first_argument(arguments);
@@ -188,6 +196,22 @@ fn call_edit(source: &str, component: &Component, call: &crate::promote::Call) -
         span: call.span,
         text,
     }
+}
+
+/// Is this `task(…)` argument a `Future` rather than a closure?
+///
+/// Read off the first word, because that is the whole difference a
+/// developer writes: `task(|alive| …)` is a thread that looks at a flag,
+/// `task(async move { … })` is a future that is abandoned where it
+/// waits. Nothing else in the argument is examined — what follows is
+/// Rust, and Rust is not this function's business.
+fn is_a_future(arguments: &str) -> bool {
+    let Some(rest) = arguments.strip_prefix("async") else {
+        return false;
+    };
+    // `asyncwork()` is a name that begins with those five letters and is
+    // not a block.
+    !rest.starts_with(|letter: char| letter.is_alphanumeric() || letter == '_')
 }
 
 /// `text`, with as many trailing newlines as `original` has.

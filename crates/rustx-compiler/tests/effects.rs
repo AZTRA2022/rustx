@@ -163,3 +163,40 @@ fn a_call_inside_a_nested_fn_is_left_alone() {
     let rust = rewrite_one(source);
     assert!(!rust.contains("keep_at"), "got {rust}");
 }
+
+#[test]
+fn a_task_whose_argument_is_an_async_block_spawns_a_future() {
+    // The second form of `task`. What decides is the first word of the
+    // argument: a closure is a thread, `async` is a future.
+    let rust = rewrite_one(
+        "fn C() -> Element {\n    task(async move { work().await; });\n    return <p>ok</p>;\n}",
+    );
+    assert!(rust.contains("keep_at"), "got {rust}");
+    assert!(
+        rust.contains("rustx_engine::task::spawn_future(async move { work().await; })"),
+        "got {rust}"
+    );
+}
+
+#[test]
+fn a_task_whose_argument_is_a_closure_still_spawns_a_thread() {
+    let rust = rewrite_one(
+        "fn C() -> Element {\n    task(move |alive| while alive.get() {});\n    return <p>ok</p>;\n}",
+    );
+    assert!(rust.contains("task::spawn("), "got {rust}");
+    assert!(!rust.contains("spawn_future"), "got {rust}");
+}
+
+#[test]
+fn an_async_task_keeps_the_line_count_of_what_it_replaced() {
+    // Plan 2's position map rests on the line count: an error `rustc`
+    // reports at line 4 has to be line 4 of the `.rsx`.
+    let source =
+        "fn C() -> Element {\n    task(async move {\n        work().await;\n    });\n    return <p>ok</p>;\n}";
+    let rust = rewrite_one(source);
+    assert_eq!(
+        rust.matches('\n').count(),
+        source.matches('\n').count(),
+        "the rewrite changed how many lines the file has:\n{rust}"
+    );
+}
