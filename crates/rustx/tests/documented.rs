@@ -114,3 +114,50 @@ and rustx says:
         );
     }
 }
+
+#[test]
+fn what_the_readme_examples_transpile_to_is_valid_rust() {
+    // `rustc` cannot be run over these: they name functions they do not
+    // define, which is right for a page of documentation. But half of
+    // what `rustc` would say is about the shape of the tokens, not about
+    // what they mean -- an unbalanced brace, an `else` with nowhere to
+    // go, a `let` without its semicolon -- and that half is exactly the
+    // half a transpiler gets wrong. The parser answers it without
+    // needing `charger` to exist.
+    let examples = examples();
+    let mut checked = 0;
+    for example in &examples {
+        // An example that says `let data: Vec<Point> = …;` is prose
+        // wearing a fence: the ellipsis stands for what the reader would
+        // write, and no parser can be asked to accept it.
+        if example.contains('…') {
+            continue;
+        }
+        let Ok(built) = rustx_compiler::transpile::transpile(example) else {
+            // The refusals are the business of the tests above. A block
+            // the compiler declines is not a block with bad tokens.
+            continue;
+        };
+        // A README example is sometimes a whole page and sometimes a
+        // fragment -- a bare `return <button …>;` has no item in it at
+        // all. Either shape is fine; what is not fine is tokens that
+        // close nothing, and neither shape accepts those.
+        let shaped = syn::parse_file(&built.rust).map(|_| ()).or_else(|_| {
+            syn::parse_str::<syn::Block>(&(String::from("{") + &built.rust + "}"))
+                .map(|_| ())
+        });
+        if let Err(broken) = shaped {
+            eprintln!("the README says:");
+            eprintln!("{example}");
+            eprintln!("and rustx emitted Rust that does not parse:");
+            eprintln!("{}", built.rust);
+            panic!("{broken}");
+        }
+        checked += 1;
+    }
+    assert!(
+        checked > 10,
+        "only {checked} of {} examples were transpiled and parsed",
+        examples.len()
+    );
+}

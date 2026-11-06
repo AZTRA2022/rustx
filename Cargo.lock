@@ -923,6 +923,7 @@ dependencies = [
  "rustx-engine",
  "rustx-macro",
  "rustx-os",
+ "syn 2.0.119",
  "tokio",
 ]
 

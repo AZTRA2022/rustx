@@ -35,6 +35,11 @@ tokio = { version = "1.47", features = ["full"] }
 # la documentation est un bug, et le seul moyen de le savoir est de
 # passer le compilateur dessus.
 rustx-compiler = { path = "../rustx-compiler", version = "0.1.0" }
+# Et pour lire ce qu'il en sort. Le transpileur peut emettre du Rust
+# qui ne tient pas -- une accolade de trop, un `else` sans place -- et
+# `rustc` ne peut pas le dire ici, parce que les exemples nomment des
+# fonctions qu'ils ne definissent pas. L'analyseur, lui, peut.
+syn = { version = "2", features = ["full", "parsing"] }
 
 # Publié sous `rustx-app`, parce que `rustx` est pris sur crates.io par
 # un autre projet. La bibliothèque, elle, s'appelle `rustx` : un
