@@ -96,6 +96,19 @@ fn edits_for(source: &str, component: &Component) -> Vec<Edit> {
             if promoted.reads.is_empty() && promoted.mutations.is_empty() {
                 continue;
             }
+            // The same, for a value only a future writes: the future
+            // builds its own handle before the block, so a binding out
+            // here is one `rustc` would warn about in a generated file.
+            let only_in_a_future = promoted.reads.is_empty()
+                && promoted.mutations.iter().all(|mutation| {
+                    component
+                        .remote_regions
+                        .iter()
+                        .any(|region| contains(*region, mutation.span))
+                });
+            if only_in_a_future {
+                continue;
+            }
             format!(
                 "let {name} = rustx_dom::store::shared(\"{name}\", || {initializer});",
                 name = promoted.name,
@@ -225,7 +238,14 @@ fn future_task(source: &str, component: &Component, call: &crate::promote::Call,
             preamble.push_str(&format!("let {name} = {name}.remote(); "));
         }
         for mutation in &mutations {
-            edits.push(rewrite_mutation(source, name, mutation, call.arguments, &[]));
+            edits.push(rewrite_mutation_for(
+                source,
+                name,
+                mutation,
+                call.arguments,
+                &[],
+                Owning::Moved,
+            ));
         }
     }
 
@@ -395,8 +415,43 @@ fn rewrite_mutation(
     handler: Span,
     reads: &[Edit],
 ) -> Edit {
+    rewrite_mutation_for(source, name, mutation, handler, reads, Owning::Borrowed)
+}
+
+/// Does the closure a write becomes own what it captures?
+///
+/// A handler runs on the thread that made it and may borrow what is
+/// around it. A write posted from a future is a `FnOnce + Send +
+/// 'static` that the frame runs later, so it owns everything it was
+/// given — without this, `rows.push(step)` in an `async` block was a
+/// closure borrowing a loop variable, and the error named a file the
+/// developer had never opened.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Owning {
+    Borrowed,
+    Moved,
+}
+
+impl Owning {
+    fn keyword(self) -> &'static str {
+        match self {
+            Owning::Borrowed => "",
+            Owning::Moved => "move ",
+        }
+    }
+}
+
+fn rewrite_mutation_for(
+    source: &str,
+    name: &str,
+    mutation: &crate::promote::Mutation,
+    handler: Span,
+    reads: &[Edit],
+    owning: Owning,
+) -> Edit {
     let bytes = source.as_bytes();
     let after = skip_spaces(bytes, mutation.span.end);
+    let owned = owning.keyword();
 
     match mutation.kind {
         MutationKind::Assign => {
@@ -419,7 +474,7 @@ fn rewrite_mutation(
                     end: value.end,
                 },
                 text: format!(
-                    "{name}.update(|__v| *__v {operator} {})",
+                    "{name}.update({owned}|__v| *__v {operator} {})",
                     read_patched(source, value, reads)
                 ),
             }
@@ -432,7 +487,7 @@ fn rewrite_mutation(
                     end: call.end,
                 },
                 text: format!(
-                    "{name}.update(|__v| __v{})",
+                    "{name}.update({owned}|__v| __v{})",
                     read_patched(source, call, reads)
                 ),
             }

@@ -53,13 +53,22 @@ const NO_DRIVER: &str = "\
 
 /// Run the application on its only scenario and collect what it reported.
 pub fn run_hybrid_scenario() -> Report {
+    run_hybrid_scenario_named("page")
+}
+
+/// The same, on a scenario this application names.
+///
+/// The name reaches two places: the page drives itself from
+/// `rustx_scenario()`, and `main.rs` opens the window on the route the
+/// scenario is about.
+pub fn run_hybrid_scenario_named(scenario: &str) -> Report {
     // A name nobody else can be holding. A fixed one was removed at
     // the start of a run, and on Windows that removal fails silently
     // while a process from the last run still has the file open — so
     // the tests read a stale report and passed in under two seconds.
     let report_file = std::env::temp_dir().join(format!(
         "rustx-report-{}-{}-{}.txt",
-        "hybrid",
+        scenario,
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -75,7 +84,7 @@ pub fn run_hybrid_scenario() -> Report {
     let _alone = alone();
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_hybrid"))
-        .arg("--scenario=page")
+        .arg(format!("--scenario={scenario}"))
         .arg(format!("--report={}", report_file.display()))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

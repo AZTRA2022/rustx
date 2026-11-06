@@ -19,6 +19,10 @@ rustx-macros = { package = "rustx-macro", path = "../rustx-macros", version = "0
 # Ce que le web ne sait pas faire : le presse-papiers, les dialogues, les
 # appareils. Un répertoire par système, à l'intérieur.
 rustx-os = { path = "../rustx-os", version = "0.1.0" }
+# Reexporte, pas utilise : une page ecrit `rustx::time::sleep` et ne
+# nomme jamais tokio dans son `Cargo.toml`. C'est le meme runtime que
+# celui de `rustx-engine`, par la meme version du workspace.
+tokio = { version = "1.47", default-features = false, features = ["rt-multi-thread", "time", "net"] }
 
 # Publié sous `rustx-app`, parce que `rustx` est pris sur crates.io par
 # un autre projet. La bibliothèque, elle, s'appelle `rustx` : un

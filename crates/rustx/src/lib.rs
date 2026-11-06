@@ -38,6 +38,18 @@ pub use rustx_dom;
 #[doc(hidden)]
 pub use rustx_engine;
 
+/// Ce qu'un `await` attend.
+///
+/// `rustx::time::sleep(…)`, et tout ce que tokio appelle le temps. Une
+/// page ne nomme pas tokio dans son `Cargo.toml` : c'est le meme
+/// runtime que celui qui fait tourner ses `task(async { … })`, et deux
+/// tokio dans un processus seraient deux reacteurs dont un seul aurait
+/// les timers.
+pub use tokio::time;
+/// Le reste du runtime, pour une application qui en veut plus que le
+/// temps : `rustx::tokio::sync`, `rustx::tokio::select!`.
+pub use tokio;
+
 pub use rustx_dom::value::{ToValue, record};
 pub use rustx_dom::{
     AttributeValue, Element, Handler, IntoElement, Key, TagElement, Value, into_element, route,

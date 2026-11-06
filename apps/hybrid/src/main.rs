@@ -26,7 +26,25 @@ pub struct Point {
 
 #[rustx::main]
 fn main() -> Result<(), rustx::Error> {
-    let app = App::new(Config::new("Hybrid").size(900, 640))?;
+    let app = App::new(Config::new("Hybrid").size(900, 640).start(opening_route()))?;
 
     app.run()
+}
+
+/// Where the window opens.
+///
+/// `/` for a person, and the page a scenario is about when one is
+/// named — `--scenario=attente` opens on `/attente`. The scenario
+/// cannot navigate by itself: a route is Rust, and the only JavaScript
+/// in this application is the one that drives it.
+fn opening_route() -> &'static str {
+    match named_scenario().as_deref() {
+        Some("attente") => "/attente",
+        _ => "/",
+    }
+}
+
+fn named_scenario() -> Option<String> {
+    std::env::args()
+        .find_map(|argument| argument.strip_prefix("--scenario=").map(str::to_string))
 }
