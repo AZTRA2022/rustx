@@ -28,7 +28,3 @@ rustx-dom = { path = "../rustx-dom", version = "0.1.0" }
 # l'ecosysteme enregistrent aupres de lui.
 tokio = { version = "1.47", default-features = false, features = ["rt-multi-thread", "time", "net", "sync", "macros"] }
 
-[dev-dependencies]
-# Les tests d'integration lient la caisse, pas ses dependances : ils ont
-# besoin de leur propre tokio pour ecrire un `sleep` dans un `await`.
-tokio = { version = "1.47", default-features = false, features = ["rt-multi-thread", "time", "net", "sync", "macros"] }
