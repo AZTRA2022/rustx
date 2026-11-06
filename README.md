@@ -590,9 +590,103 @@ task(move |alive| {
 Hors d'un composant, `rustx::poster()` donne le même jeton, et
 `rustx::task::spawn(travail)` un fil dont on garde le `Task`.
 
-> L'`async` (`async fn`, tokio) dans un composant n'est **pas** encore
-> là : le plan est écrit, le code ne l'est pas. Un travail qui attend
-> s'écrit aujourd'hui dans un `task`.
+### L'asynchrone : `task(async { … })`
+
+Un `task` prend aussi un `Future`. Le premier mot de l'argument est ce
+qui décide : une fermeture est un fil, `async` est une tâche portée par
+un runtime tokio qui vit sur ses propres threads.
+
+```rust
+let mut lignes = Vec::<String>::new();
+
+fn Panneau() -> Element {
+    task(async move {
+        let reponse = charger().await;
+        lignes.push(reponse);
+    });
+
+    return <ul>{lignes.len()} lignes</ul>;
+}
+```
+
+`.await` marche sur tout ce que l'écosystème écrit — `reqwest`, `sqlx`,
+un `Future` de `std`, un timer. Le runtime démarre à la **première**
+future du processus et jamais avant : une application qui n'écrit aucun
+`async` ne paie pas un thread de plus.
+
+Le temps vient de la façade, donc une application ne nomme pas tokio
+dans son `Cargo.toml` :
+
+```rust
+let mut battements = 0;
+
+fn Horloge() -> Element {
+    task(async move {
+        loop {
+            rustx::time::sleep(std::time::Duration::from_millis(500)).await;
+            battements += 1;
+        }
+    });
+
+    return <p>{battements}</p>;
+}
+```
+
+Pour le reste du runtime — `select!`, un canal, un verrou asynchrone —
+`rustx::tokio`.
+
+#### Écrire l'état depuis un `await`
+
+Comme depuis un `onClick`, et rien de plus à écrire. Ce qui se passe
+dessous : l'état appartient au thread qui dessine, donc la future ne le
+touche pas. Elle tient un **handle** qui dit où est la valeur, l'écriture
+part sur la file de la frame, et c'est la frame qui l'applique.
+
+Les conséquences se lisent, et ce sont les mêmes que pour un fil :
+
+- **mille écritures dans une boucle `async` font un rendu**, parce
+  qu'elles salissent la même valeur une fois. Il n'y a ni *debounce* à
+  régler ni limitation à apprendre ;
+- une écriture postée **après la fermeture de la fenêtre** est refusée,
+  et une écriture qui arrive pour un composant **déjà parti** est jetée.
+  Ni l'une ni l'autre ne panique, et aucune des deux n'est une faute du
+  développeur ;
+- un `let mut` écrit depuis un bloc `async` est un état, exactement comme
+  un `let mut` écrit depuis un gestionnaire. La règle de promotion ne
+  change pas.
+
+**Une lecture dans le bloc est refusée**, et c'est dit en toutes lettres :
+la valeur vit sur le thread qui dessine, et le bloc tourne à côté. Ce
+qu'il faut lire se lit **avant** le bloc, et la copie y entre :
+
+```rust
+let mut resultats = Vec::<String>::new();
+let mut filtre = String::new();
+
+fn Recharger() -> Element {
+    let maintenant = filtre.clone();
+
+    task(async move {
+        resultats = chercher(&maintenant).await;
+    });
+
+    return <p>{resultats.len()} trouvés</p>;
+}
+```
+
+#### Quitter l'écran arrête le travail
+
+Le jeton que `task` rend est une cellule du composant. Le composant
+s'en va, la cellule est lâchée, et la future est **abandonnée là où elle
+attend** — un `await` n'a pas de drapeau à regarder, contrairement au
+`alive.get()` d'un fil. Rien à nettoyer à la main, et rien à annuler par
+son nom.
+
+> **Un composant n'est jamais `async`.** `async fn Page()` est refusé en
+> toutes lettres, et le refus nomme `task(…)`. On demande à un composant
+> l'écran tel qu'il est **maintenant** : s'il pouvait attendre, la frame
+> attendrait avec lui, et une fenêtre qui attend est une fenêtre gelée.
+> C'est la seule raison, et elle suffit.
 
 ## Ce que le web ne sait pas faire
 
@@ -917,7 +1011,6 @@ du code qu'on aurait pu écrire à la main.
 ## Ce qui reste
 
 - macOS et Linux : chaque module compile et nomme ce qui lui manque ;
-- l'`async` (tokio, `async fn`) dans un composant : le plan est écrit ;
 - l'enregistrement et la capture au-delà de ce que Chromium donne déjà ;
 - un site de documentation, quand il aura à dire autre chose que ceci.
 

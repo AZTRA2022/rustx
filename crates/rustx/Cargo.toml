@@ -24,6 +24,12 @@ rustx-os = { path = "../rustx-os", version = "0.1.0" }
 # celui de `rustx-engine`, par la meme version du workspace.
 tokio = { version = "1.47", default-features = false, features = ["rt-multi-thread", "time", "net"] }
 
+[dev-dependencies]
+# Pour lire les exemples du README et les compiler. Un exemple faux dans
+# la documentation est un bug, et le seul moyen de le savoir est de
+# passer le compilateur dessus.
+rustx-compiler = { path = "../rustx-compiler", version = "0.1.0" }
+
 # Publié sous `rustx-app`, parce que `rustx` est pris sur crates.io par
 # un autre projet. La bibliothèque, elle, s'appelle `rustx` : un
 # `cargo add rustx-app` et le code s'écrit `rustx::App`, comme tout ce
