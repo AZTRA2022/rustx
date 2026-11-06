@@ -225,3 +225,79 @@ fn a_let_mut_nothing_writes_to_warns_about_nothing() {
         "got {rust}"
     );
 }
+
+#[test]
+fn a_write_in_an_async_block_promotes_the_local() {
+    // The spec names the asynchronous block beside the handler: a local
+    // written from one is state, for the same reason and in the same
+    // words.
+    let rust = rewrite_one(
+        "fn C() -> Element {\n    let mut n = 0;\n    task(async move { n += 1; });\n    return <p>{n}</p>;\n}",
+    );
+    assert!(
+        rust.contains("rustx_dom::state::cell"),
+        "the local stayed a plain local: {rust}"
+    );
+}
+
+#[test]
+fn a_write_in_an_async_block_goes_through_the_remote() {
+    // A cell is an `Rc<RefCell<…>>` on the render thread, and a future
+    // runs on the runtime's threads. What crosses is a handle that says
+    // where the cell is, and the write lands on a frame.
+    let rust = rewrite_one(
+        "fn C() -> Element {\n    let mut n = 0;\n    task(async move { n += 1; });\n    return <p>{n}</p>;\n}",
+    );
+    assert!(rust.contains("n.remote()"), "got {rust}");
+    assert!(rust.contains("spawn_future"), "got {rust}");
+    assert!(
+        rust.contains("n.update("),
+        "the write did not become an update: {rust}"
+    );
+    assert!(
+        !rust.contains("n += 1"),
+        "a bare write to state survived into the future: {rust}"
+    );
+}
+
+#[test]
+fn a_shared_value_written_in_an_async_block_is_bound_before_the_block() {
+    // `let mut rows = …` at the top of a page. The handle is built on
+    // the render thread, where the store lives, and moved in.
+    let rust = rewrite_one(
+        "let mut rows = 0;\n\nfn C() -> Element {\n    task(async move { rows += 1; });\n    return <p>{rows}</p>;\n}",
+    );
+    assert!(
+        rust.contains("rustx_dom::store::shared(\"rows\", || 0).remote()"),
+        "got {rust}"
+    );
+    assert!(rust.contains("rows.update("), "got {rust}");
+}
+
+#[test]
+fn a_read_of_state_in_an_async_block_is_refused_in_words() {
+    // A cell cannot be read from another thread, and pretending
+    // otherwise would hand the developer a borrow error about a
+    // generated file. Refused where it was written, with the way out.
+    let said = transpile(
+        "fn C() -> Element {\n    let mut n = 0;\n    task(async move { let copy = n; n += copy; });\n    return <p>{n}</p>;\n}",
+    )
+    .expect_err("should refuse");
+    let said = format!("{said:?}");
+    assert!(said.contains("read"), "got {said}");
+    assert!(
+        said.contains("async") || said.contains("task"),
+        "the refusal does not say where the read is: {said}"
+    );
+}
+
+#[test]
+fn an_async_task_that_writes_keeps_the_line_count() {
+    let source = "fn C() -> Element {\n    let mut n = 0;\n    task(async move {\n        n += 1;\n    });\n    return <p>{n}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert_eq!(
+        rust.matches('\n').count(),
+        source.matches('\n').count(),
+        "got {rust}"
+    );
+}

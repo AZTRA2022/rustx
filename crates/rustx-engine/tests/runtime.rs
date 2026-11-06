@@ -98,3 +98,42 @@ fn a_future_that_panics_leaves_the_runtime_alive() {
         "the runtime died with the future that panicked"
     );
 }
+
+#[test]
+fn a_write_posted_from_a_future_lands_on_a_frame() {
+    // The whole round trip, in one process and with no window: a cell
+    // on this thread, a future on the runtime's threads, a write that
+    // crosses as a handle, and a frame that applies it.
+    use rustx_dom::state::{InstanceId, Scope, Slot, cell, take_dirty};
+
+    let id = InstanceId(8_001);
+    let _scope = Scope::enter(id);
+    let counter = cell(
+        Slot {
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        },
+        || 0_i32,
+    );
+    let remote = counter.remote();
+    let _ = take_dirty();
+
+    let _task = task::spawn_future(async move {
+        remote.update(|value| *value += 3);
+    });
+
+    // The future runs beside the frame, so the frame is what has to be
+    // waited for — and nothing applies until one runs.
+    assert!(
+        within(PATIENCE, || {
+            rustx_engine::frame::tick();
+            counter.get() == 3
+        }),
+        "a write posted from a future never reached the cell"
+    );
+    assert!(
+        take_dirty().contains(&id),
+        "the write landed and nothing asked for a render"
+    );
+}

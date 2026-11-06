@@ -111,7 +111,13 @@ pub fn frame_count() -> u64 {
 /// to explain it, the queue would grow without bound behind it, and the
 /// application the framework is built for — one that drives hardware —
 /// is precisely the kind where a job panics sooner or later.
-pub(crate) fn tick() {
+pub fn tick() {
+    // The writes a future posted since the last frame, first: a write
+    // that landed has to be in the render it asked for and not in the
+    // one after. State is this thread's, so this is the only thread
+    // that could apply them.
+    rustx_dom::state::apply_remote();
+
     let jobs = {
         let mut guard = queue()
             .lock()
@@ -180,6 +186,10 @@ pub fn shutdown() {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     *guard = None;
     drop(guard);
+    // And the mailbox a future writes state through. Same reason: a
+    // write posted after this has no frame to land on, so it is refused
+    // rather than left waiting.
+    rustx_dom::state::close_remote();
     // And the async runtime, in the process that has one. A future left
     // polling after its window has gone has nobody to post to and
     // nothing to draw; in the browser process there is no runtime and

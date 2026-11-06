@@ -31,6 +31,10 @@ pub struct Component {
     pub returns_jsx: Vec<Span>,
     /// The `{…}` of every `on*` attribute in those regions.
     pub handlers: Vec<Span>,
+    /// The arguments of every `task(async … )`, which run on another
+    /// thread. A write in one is state, like a write in a handler, and
+    /// it is rewritten to go through a handle that may cross a thread.
+    pub remote_regions: Vec<Span>,
     pub promoted: Vec<Promoted>,
     /// The `keep`, `effect` and `task` calls written in the body.
     pub calls: Vec<Call>,
@@ -149,16 +153,41 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
         let calls = calls_of(source, body, &in_code, &handlers)?;
         let inside_a_call = |span: &Span| calls.iter().any(|call| contains(call.span, *span));
 
+        // `task(async move { … })`. What decides is the first word of
+        // the argument, exactly as it decides which spawn is emitted.
+        let remote_regions: Vec<Span> = calls
+            .iter()
+            .filter(|call| call.kind == CallKind::Task)
+            .filter(|call| {
+                let arguments = source[call.arguments.start..call.arguments.end].trim_start();
+                arguments.strip_prefix("async").is_some_and(|rest| {
+                    !rest.starts_with(|letter: char| letter.is_alphanumeric() || letter == '_')
+                })
+            })
+            .map(|call| call.arguments)
+            .collect();
+        let writes_from = |name: &str| -> Vec<Mutation> {
+            let in_a_handler = handlers
+                .iter()
+                .flat_map(|handler| mutations_in(source, name, *handler, &in_code, true));
+            // A handler is one of the braced regions `in_code` holds, so
+            // it is found there. The arguments of a call are inside one
+            // of those regions rather than being one, so the region is
+            // its own code — the same thing `uses_in` does for exactly
+            // this reason.
+            let in_a_future = remote_regions
+                .iter()
+                .flat_map(|region| mutations_in(source, name, *region, &[*region], true));
+            in_a_handler.chain(in_a_future).collect()
+        };
+
         let mut promoted = Vec::new();
         let mut unwritten = Vec::new();
         for local in &locals {
             if parameters.contains(&local.name) {
                 continue;
             }
-            let mutations: Vec<Mutation> = handlers
-                .iter()
-                .flat_map(|handler| mutations_in(source, &local.name, *handler, &in_code, true))
-                .collect();
+            let mutations: Vec<Mutation> = writes_from(&local.name);
 
             if mutations.is_empty() {
                 // Nothing writes to it, so there is nothing to keep
@@ -202,12 +231,7 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             {
                 continue;
             }
-            let mutations: Vec<Mutation> = handlers
-                .iter()
-                .flat_map(|handler| {
-                    mutations_in(source, &declaration.name, *handler, &in_code, true)
-                })
-                .collect();
+            let mutations: Vec<Mutation> = writes_from(&declaration.name);
             let every_use = occurrences(source, &declaration.name, &in_code);
             let reads: Vec<Span> = every_use
                 .iter()
@@ -275,8 +299,30 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             }
         }
 
+        // A read of state inside an `async` block. The cell is an `Rc`
+        // on the render thread and the block runs on another, so there
+        // is nothing to read from there — and leaving it would hand the
+        // developer a type error about a generated file. Refused where
+        // it was written, with the way out.
+        for held in &promoted {
+            for region in &remote_regions {
+                let (reads, _) = uses_in(source, &held.name, *region);
+                if let Some(read) = reads.first() {
+                    return Err(CompileError::flagged(
+                        read.start,
+                        format!(
+                            "`{}` is read inside a `task(async ...)`. A value lives on the thread that draws, and this block runs beside it, so there is nothing there to read -- read it before the block and move the copy in, or post the work back with a write.",
+                            held.name
+                        ),
+                    )
+                    .resolve(source));
+                }
+            }
+        }
+
         components.push(Component {
             handlers,
+            remote_regions,
             name,
             body,
             returns_jsx,

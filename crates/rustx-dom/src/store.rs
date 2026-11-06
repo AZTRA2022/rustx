@@ -193,7 +193,7 @@ pub fn shared<T: 'static>(name: &'static str, initial: impl FnOnce() -> T) -> Sh
         crate::carried::text_of::<T>(&value)
     });
 
-    Shared { held }
+    Shared { held, name }
 }
 
 /// A handle on one shared value.
@@ -204,12 +204,16 @@ pub fn shared<T: 'static>(name: &'static str, initial: impl FnOnce() -> T) -> Sh
 /// `let mut` is a `let mut` wherever it is written.
 pub struct Shared<T> {
     held: Rc<Held<T>>,
+    /// The name it was declared under. Carried so that a handle which
+    /// crosses a thread can say which value it means without holding it.
+    name: &'static str,
 }
 
 impl<T> Clone for Shared<T> {
     fn clone(&self) -> Self {
         Self {
             held: Rc::clone(&self.held),
+            name: self.name,
         }
     }
 }
@@ -238,6 +242,15 @@ impl<T: 'static> Shared<T> {
         drop(previous);
         soil(&self.held);
         crate::carried::keep();
+    }
+
+    /// A handle on this value that may cross a thread.
+    ///
+    /// What a `task(async { … })` captures when the page declared the
+    /// value at its top. Writing through it posts on the mailbox of the
+    /// thread this call is made on, and the frame applies it.
+    pub fn remote(&self) -> crate::state::Remote<T> {
+        crate::state::remote_for_shared(self.name)
     }
 
     /// Change the value in place.
@@ -310,4 +323,29 @@ fn forget_unmounted_readers() {
 /// is being replaced.
 pub fn reset() {
     STORES.with(|stores| stores.borrow_mut().clear());
+}
+
+/// Apply `change` to the value declared under `name`, or say it has gone.
+///
+/// Runs on the thread that owns the stores, which is the only thread
+/// that can look in them. A value nobody has asked for yet has nothing
+/// to change: a write that arrives first is thrown away rather than
+/// creating the value from an initializer this function does not have.
+pub(crate) fn write_to_shared<T: 'static>(name: &'static str, change: impl FnOnce(&mut T)) -> bool {
+    let found = STORES.with(|stores| {
+        let stores = stores.borrow();
+        stores
+            .get(&Key::Name(name))
+            .map(|entry| Rc::clone(&entry.held))
+    });
+    let Some(found) = found else {
+        return false;
+    };
+    let Ok(held) = found.downcast::<Held<T>>() else {
+        return false;
+    };
+    change(&mut held.value.borrow_mut());
+    soil(&held);
+    crate::carried::keep();
+    true
 }

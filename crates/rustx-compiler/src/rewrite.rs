@@ -167,16 +167,12 @@ fn call_edit(source: &str, component: &Component, call: &crate::promote::Call) -
         CallKind::Keep => {
             format!("rustx_dom::state::keep_at({slot}, || {arguments})")
         }
+        // A closure is a thread, an `async` block is a future, and the
+        // first word of the argument is what says which. A future needs
+        // its handles built before it, so it has a shape of its own.
+        CallKind::Task if is_a_future(arguments) => future_task(source, component, call, &slot),
         CallKind::Task => {
-            // A closure is a thread, an `async` block is a future, and
-            // the first word of the argument is what says which.
-            let spawn = match is_a_future(arguments) {
-                true => "spawn_future",
-                false => "spawn",
-            };
-            format!(
-                "rustx_dom::state::keep_at({slot}, || rustx_engine::task::{spawn}({arguments}))"
-            )
+            format!("rustx_dom::state::keep_at({slot}, || rustx_engine::task::spawn({arguments}))")
         }
         CallKind::Effect => {
             let (watched, run) = split_first_argument(arguments);
@@ -196,6 +192,49 @@ fn call_edit(source: &str, component: &Component, call: &crate::promote::Call) -
         span: call.span,
         text,
     }
+}
+
+/// `task(async { … })`, with its writes turned into remote writes.
+///
+/// Two halves. Before the block, on the render thread, a handle per
+/// value the block writes — that is the only place a handle can be
+/// built, because the cell and the store live here. Inside the block,
+/// `n += 1` becomes `n.update(|__v| *__v += 1)`, which is the same shape
+/// a handler gets; `Remote` answers to the same two names as `State` on
+/// purpose, so the rewrite of a write does not have to know where it is.
+fn future_task(source: &str, component: &Component, call: &crate::promote::Call, slot: &str) -> String {
+    let text = &source[call.arguments.start..call.arguments.end];
+    let mut preamble = String::new();
+    let mut edits = Vec::new();
+
+    for promoted in &component.promoted {
+        let (_, mutations) = crate::promote::uses_in(source, &promoted.name, call.arguments);
+        if mutations.is_empty() {
+            continue;
+        }
+        let name = promoted.name.as_str();
+        // A value the page declared is found by its name, wherever the
+        // component is; a value this component declared is already bound
+        // above, as a cell.
+        if promoted.shared {
+            let initializer = &source[promoted.initializer.start..promoted.initializer.end];
+            preamble.push_str(&format!(
+                "let {name} = rustx_dom::store::shared(\"{name}\", || {initializer}).remote(); "
+            ));
+        } else {
+            preamble.push_str(&format!("let {name} = {name}.remote(); "));
+        }
+        for mutation in &mutations {
+            edits.push(rewrite_mutation(source, name, mutation, call.arguments, &[]));
+        }
+    }
+
+    let arguments = apply_relative(text, call.arguments.start, edits);
+    let arguments = arguments.trim();
+    format!(
+        "rustx_dom::state::keep_at({slot}, || {{ {preamble}\
+         rustx_engine::task::spawn_future({arguments}) }})"
+    )
 }
 
 /// Is this `task(…)` argument a `Future` rather than a closure?
