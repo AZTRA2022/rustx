@@ -367,15 +367,23 @@ pub fn cell<T: 'static>(slot: Slot, initial: impl FnOnce() -> T) -> State<T> {
 
     let key = (slot, key_path());
     touch(key.clone());
-    let named = key.clone();
 
     let value = CELLS.with(|cells| {
         let mut cells = cells.borrow_mut();
         let slots = cells.entry(owner).or_default();
-        let existing = slots
-            .entry(named)
-            .or_insert_with(|| Rc::new(RefCell::new(initial())));
-        Rc::clone(existing)
+        // `entry` wants the key owned, and half of this key is a
+        // `String`. Every render after the first finds the cell already
+        // there, so that clone would be made and thrown away on the one
+        // path every cell of every component takes every frame. Asked
+        // for first, cloned only when there is something to insert.
+        match slots.get(&key) {
+            Some(existing) => Rc::clone(existing),
+            None => {
+                let made: Rc<dyn Any> = Rc::new(RefCell::new(initial()));
+                slots.insert(key.clone(), Rc::clone(&made));
+                made
+            }
+        }
     });
 
     // The downcast cannot fail: the same slot is the same `let mut`, and
@@ -899,9 +907,32 @@ impl Cancel {
     }
 }
 
+/// A thread's own end of its mailbox.
+///
+/// The mailbox outlives the thread, because every handle given out holds
+/// an `Arc` to it. What must not outlive the thread is its being *open*:
+/// a render thread that ends without `close_remote` -- a panic, a test,
+/// a window whose teardown did not run -- would otherwise leave every
+/// future posting into a vector nobody will ever drain again, neither
+/// applied nor refused, and growing for as long as the future produces.
+/// This end is dropped when the thread is, and closing it there is what
+/// turns those writes into refusals.
+struct Owned(std::sync::Arc<Mailbox>);
+
+impl Drop for Owned {
+    fn drop(&mut self) {
+        let mut jobs = self
+            .0
+            .jobs
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *jobs = None;
+    }
+}
+
 thread_local! {
     /// This thread's mailbox, made on the first `remote()` it is asked for.
-    static MAILBOX: RefCell<Option<std::sync::Arc<Mailbox>>> = const { RefCell::new(None) };
+    static MAILBOX: RefCell<Option<Owned>> = const { RefCell::new(None) };
     /// Writes that arrived for a component that had already gone.
     static DROPPED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// Has a remote write changed a value `rustx dev` carries over?
@@ -911,8 +942,11 @@ thread_local! {
 fn mailbox() -> std::sync::Arc<Mailbox> {
     MAILBOX.with(|held| {
         let mut held = held.borrow_mut();
-        held.get_or_insert_with(|| std::sync::Arc::new(Mailbox::new()))
-            .clone()
+        std::sync::Arc::clone(
+            &held
+                .get_or_insert_with(|| Owned(std::sync::Arc::new(Mailbox::new())))
+                .0,
+        )
     })
 }
 
@@ -1084,6 +1118,19 @@ impl<T: 'static> Remote<T> {
         T: Send,
     {
         self.update(move |held| *held = value);
+    }
+
+    /// Is there still somewhere for a write through this handle to go?
+    ///
+    /// `false` once the window has gone, or once the thread that owned
+    /// the cell has. A future that computes something expensive can ask
+    /// before it starts rather than post into a refusal.
+    pub fn is_open(&self) -> bool {
+        self.mailbox
+            .jobs
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_some()
     }
 
     fn post(&self, job: RemoteJob) {

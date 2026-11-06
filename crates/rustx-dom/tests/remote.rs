@@ -295,3 +295,27 @@ fn reopening_the_mailbox_keeps_the_handles_already_given_out() {
         "a handle given out before the mailbox reopened was orphaned"
     );
 }
+
+#[test]
+fn the_mailbox_of_a_thread_that_has_gone_takes_nothing_more() {
+    // A render thread that ends without closing its mailbox -- a panic,
+    // a test, a window whose teardown did not run -- leaves every handle
+    // a future holds pointing at a vector nobody will ever drain. The
+    // writes there are neither applied nor refused: they pile up, and
+    // nothing in the process will ever look at them again.
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        open_remote();
+        let _scope = Scope::enter(InstanceId(7_601));
+        let counter = cell(here!(), || 0_i32);
+        send.send(counter.remote()).expect("the handle crossed");
+    })
+    .join()
+    .expect("the thread that owned the cell ran");
+
+    let orphan = receive.recv().expect("a handle outlived its thread");
+    assert!(
+        !orphan.is_open(),
+        "the mailbox of a thread that has gone is still taking writes"
+    );
+}

@@ -55,6 +55,7 @@ rendu ». Les trois étaient justes, et les numéros 14 à 17 en viennent.
 | 18 | important | `rustx-lsp` | l'éditeur n'offrait aucune prop des balises npm | corrigé |
 | 19 | important | extension VS Code | taper `>` ne fermait pas la balise | corrigé |
 | 20 | mineur | `rustx-compiler` | trois refus arrivaient avec des rafales d'espaces | corrigé |
+| 21 | important | `rustx-dom` | la boîte aux lettres d'un thread parti grossissait sans fin | corrigé |
 
 ---
 
@@ -481,6 +482,28 @@ le message**. Les tests existants n'assertaient que de courts fragments
 qui ne regarde pas un fragment mais la forme : aucun refus ne contient
 deux espaces d'affilée. C'est la seule assertion qui tient quel que soit
 le texte, donc elle vaut pour les refus qui n'existent pas encore.
+
+### 21. La boîte aux lettres d'un thread parti grossissait sans fin
+
+Trouvé en dépilant les mineurs laissés de côté. Une future n'écrit
+jamais dans une cellule : elle poste dans la boîte aux lettres du thread
+qui la possède, et la frame vide la boîte. Deux états étaient prévus --
+ouverte, et fermée par `close_remote` quand la fenêtre s'en va, qui
+refuse les écritures suivantes au lieu de les garder.
+
+Il en manquait un troisième : le thread qui se termine **sans** fermer.
+Une panique, un test, une fenêtre dont le démontage n'a pas tourné. La
+boîte survit au thread -- chaque handle déjà donné en tient un `Arc` --
+donc elle restait *ouverte*, et une future qui produit encore empilait
+dans un vecteur que plus rien au monde ne viderait. Ni appliquées, ni
+refusées : gardées, aussi longtemps que la future produit.
+
+**Correction.** Le bout que le thread tient est maintenant une valeur à
+lui, et son `Drop` ferme la boîte. C'est la seule place qui soit sûre :
+elle tourne quand le thread s'en va, quelle que soit la raison, y
+compris celle qu'on n'a pas prévue. Avec, un `Remote::is_open()` --
+parce que le test avait besoin de la question, et qu'une future qui
+s'apprête à calculer cher a autant besoin de la poser.
 
 ## Ce que la chasse n'a pas corrigé, et pourquoi
 
