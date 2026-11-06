@@ -141,6 +141,15 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
                     // `rustx-dom` ni `rustx-engine` dans son `Cargo.toml`.
                     #[allow(unused_imports)]
                     pub(crate) use rustx::{rustx_dom, rustx_engine};
+                    // Les crates que la facade porte, sous le nom que
+                    // tout le monde leur donne. Une page ecrit
+                    // `tokio::fs::write(...)` comme n'importe quel code
+                    // Rust : `rustx::tokio::` etait un chemin que
+                    // personne n'ecrit ailleurs, et cargo n'unifie
+                    // qu'un seul tokio 1.x de toute facon, donc une
+                    // application qui le declare aussi obtient le meme.
+                    #[allow(unused_imports)]
+                    pub(crate) use rustx::tokio;
 
                     include!(#generated);
                     #(#watched)*
@@ -206,6 +215,14 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
 
     quote! {
         #pages
+
+        // Le meme nom que dans une page, et a cote de `main` plutot que
+        // dedans : le code de l'application qui attend n'est pas tout
+        // dans `main`, et une `async fn` ecrite a cote en a autant
+        // besoin. Un seul tokio 1.x est resolu de toute facon, donc une
+        // application qui le declare aussi obtient le meme.
+        #[allow(unused_imports)]
+        use rustx::tokio;
 
         #signature {
             #prelude

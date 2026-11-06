@@ -26,13 +26,16 @@ fn Page() -> Element {
     let drawn = keep(std::cell::Cell::new(0u32));
     drawn.with(|count| count.set(count.get() + 1));
 
-    // Three awaits, and a write after each one.
-    task(async move {
+    // Three awaits, and a write after each one. No `task(…)` around it
+    // and no `rustx::` in front of `tokio`: a bare `async` block is
+    // work to run, and the crates the framework carries are in scope
+    // like any other.
+    async move {
         for step in 1..=3u32 {
-            rustx::time::sleep(std::time::Duration::from_millis(40)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(40)).await;
             rows.push(step);
         }
-    });
+    };
 
     // A thousand writes with nothing between them. They are posted on
     // the mailbox and applied together by the frame that drains it, so
@@ -74,6 +77,8 @@ fn Page() -> Element {
 
         <ul id="rows" className="mt-6 space-y-1 text-sm">{written}</ul>
 
+        {Reponse()}
+
         <dl className="mt-8 grid grid-cols-3 gap-4 text-sm">
             <div>
                 <dt className="text-zinc-500">écrites</dt>
@@ -95,4 +100,17 @@ fn Page() -> Element {
             onClick={move |_| { rustx::router::navigate("/merci"); }}
         >Quitter</button>
     </section>;
+}
+
+// Une valeur attendue avant le rendu, qui ne bloque pas le rendu.
+//
+// `let x = ....await;` dans un composant : la premiere frame demande et
+// ne dessine rien, la frame qui suit l'arrivee de la reponse la dessine.
+// Rien ici ne dit comment -- ni `task`, ni `Option`, ni etat.
+fn Reponse() -> Element {
+    let reponse: u32 = crate::reponse_lente().await;
+
+    return <p id="reponse" className="mt-6 text-sm text-emerald-400">
+        La reponse est {reponse}.
+    </p>;
 }

@@ -64,6 +64,10 @@ fn edits_for(source: &str, component: &Component) -> Vec<Edit> {
         edits.push(call_edit(source, component, call));
     }
 
+    for waited in &component.awaited {
+        edits.extend(awaited_edits(source, waited));
+    }
+
     // A `let mut` nothing writes to is left exactly as it was written —
     // there is no state to keep — but the warning it earns names a
     // generated file, so it is silenced where it is generated. On the
@@ -166,6 +170,51 @@ fn edits_for(source: &str, component: &Component) -> Vec<Edit> {
 /// token. Nothing else ties the thread to the component — the token is a
 /// value the component holds, so it is dropped at unmount, so the task
 /// stops.
+/// `let answer = work().await;` without the waiting.
+///
+/// Two edits, one at each end of the statement, and nothing in between:
+/// the expression stays exactly where it was written, so a read of state
+/// inside it is rewritten by the same pass that rewrites every other
+/// read. What the ends become is an ask that is remembered and a render
+/// that draws nothing until the answer is there.
+fn awaited_edits(source: &str, waited: &crate::promote::Awaited) -> Vec<Edit> {
+    let slot_at = |at: usize| {
+        let (line, column) = line_and_column(source, at);
+        format!(
+            "rustx_dom::state::Slot {{ file: file!(), line: {line}u32, column: {column}u32 }}"
+        )
+    };
+    // Two places, because one slot holds one type: the cell the answer
+    // lands in, and the memory of having asked.
+    let held = slot_at(waited.prefix.start);
+    let asked = slot_at(waited.suffix.start);
+    let bound = if waited.mutable {
+        format!("mut {}", waited.name)
+    } else {
+        waited.name.clone()
+    };
+    // The type the developer wrote is kept, around the `Option` the cell
+    // holds, so inference has no more to do than it had before.
+    let annotation = match &waited.annotation {
+        Some(written) => format!(": Option<{written}>"),
+        None => String::new(),
+    };
+    let opening = format!(
+        "let Some({bound}){annotation} = rustx_engine::task::awaited(         rustx_dom::state::cell({held}, || None), {asked}, || "
+    );
+    let closing = ") else { return Element::Empty; };".to_string();
+    vec![
+        Edit {
+            span: waited.prefix,
+            text: pad_to(opening, &source[waited.prefix.start..waited.prefix.end]),
+        },
+        Edit {
+            span: waited.suffix,
+            text: pad_to(closing, &source[waited.suffix.start..waited.suffix.end]),
+        },
+    ]
+}
+
 fn call_edit(source: &str, component: &Component, call: &crate::promote::Call) -> Edit {
     let (line, column) = line_and_column(source, call.span.start);
     let slot =
@@ -184,6 +233,9 @@ fn call_edit(source: &str, component: &Component, call: &crate::promote::Call) -
         // first word of the argument is what says which. A future needs
         // its handles built before it, so it has a shape of its own.
         CallKind::Task if crate::promote::is_a_future(arguments) => future_task(source, component, call, &slot),
+        // A bare `async { … }`: already a future, by the only word that
+        // could have made it one.
+        CallKind::Async => future_task(source, component, call, &slot),
         CallKind::Task => {
             format!("rustx_dom::state::keep_at({slot}, || rustx_engine::task::spawn({arguments}))")
         }

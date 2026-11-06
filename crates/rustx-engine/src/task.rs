@@ -155,6 +155,42 @@ pub fn spawn_future_until(
     spawn_future_for(future, Some(until))
 }
 
+/// The value of a future, on the render that has it -- and nothing on
+/// the ones before.
+///
+/// What `let x = f().await;` in a page becomes. A component is asked for
+/// the screen as it is now, so it cannot stop and wait: the first render
+/// asks for the future and is handed `None`, the future runs beside the
+/// window on the runtime's own threads, and the frame that drains its
+/// write draws the component again -- this time with the value.
+///
+/// `held` is the cell the answer lands in, and `slot` is where the asking
+/// is remembered, so the future is started once and not once per frame.
+/// The compiler writes two different places for them because one slot
+/// holds one type.
+pub fn awaited<T, F>(
+    held: rustx_dom::state::State<Option<T>>,
+    slot: rustx_dom::state::Slot,
+    work: impl FnOnce() -> F,
+) -> Option<T>
+where
+    T: Clone + Send + 'static,
+    F: Future<Output = T> + Send + 'static,
+{
+    // Kept, so this runs on the first render of this component and not
+    // again; held, so the task is abandoned when the component goes.
+    let _asked = rustx_dom::state::keep_at(slot, || {
+        let cancel = rustx_dom::state::Cancel::new();
+        let answer = held.remote_until(&cancel);
+        let work = work();
+        spawn_future_until(cancel, async move {
+            let got = work.await;
+            answer.update(move |held| *held = Some(got));
+        })
+    });
+    held.get()
+}
+
 fn spawn_future_for(
     future: impl Future<Output = ()> + Send + 'static,
     until: Option<rustx_dom::state::Cancel>,

@@ -93,3 +93,24 @@ fn leaving_the_page_stops_the_work_it_started() {
         report().raw()
     );
 }
+
+#[test]
+fn a_component_that_awaits_its_value_draws_nothing_until_it_has_one() {
+    // `let reponse: u32 = crate::reponse_lente().await;` in a page, and
+    // nothing else: no `task`, no `Option`, no state. The first look is
+    // a frame the window produced while the answer was still two
+    // hundred milliseconds away -- which is the whole claim, because a
+    // render that had waited would not have produced it.
+    assert_eq!(
+        report().get("answer_at_first_look"),
+        "nothing",
+        "the render waited for the future instead of drawing:\n{}",
+        report().raw()
+    );
+    assert_eq!(
+        report().get("answer_later"),
+        "La reponse est 42.",
+        "the answer never reached the page:\n{}",
+        report().raw()
+    );
+}

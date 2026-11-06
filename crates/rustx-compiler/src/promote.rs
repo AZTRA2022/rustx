@@ -42,6 +42,28 @@ pub struct Component {
     /// locals. Half-written state: the value is there, the handler that
     /// will change it is not typed yet.
     pub unwritten: Vec<Span>,
+    /// The `let`s whose value is awaited, which are asked for once and
+    /// read on every render after.
+    pub awaited: Vec<Awaited>,
+}
+
+/// A `let` in a component whose value is awaited.
+///
+/// A component is asked for the screen as it is now, so the waiting
+/// cannot happen in it. What is kept here is where the statement begins
+/// and where it ends -- the expression between the two is left exactly
+/// where it was written, so a read of state inside it is rewritten like
+/// any other, and only the two ends change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Awaited {
+    /// `let [mut] NAME [: TYPE] =`, the `=` included.
+    pub prefix: Span,
+    /// From the `.` of `.await` through the `;`.
+    pub suffix: Span,
+    pub name: String,
+    pub mutable: bool,
+    /// The type as written, when one was.
+    pub annotation: Option<String>,
 }
 
 /// A call to one of the three names a component is given.
@@ -69,6 +91,10 @@ pub enum CallKind {
     Effect,
     /// `task(WORK)` — a thread that stops when the component goes.
     Task,
+    /// A bare `async { … }` written as a statement of a component: the
+    /// same thing as `task(async { … })`, without the wrapper. JSX asks
+    /// for none, and the `async` already said everything `task` said.
+    Async,
 }
 
 /// A local that became state.
@@ -157,7 +183,7 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
         // the argument, exactly as it decides which spawn is emitted.
         let remote_regions: Vec<Span> = calls
             .iter()
-            .filter(|call| call.kind == CallKind::Task)
+            .filter(|call| matches!(call.kind, CallKind::Task | CallKind::Async))
             .filter(|call| is_a_future(&source[call.arguments.start..call.arguments.end]))
             .map(|call| call.arguments)
             .collect();
@@ -176,6 +202,8 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             in_a_handler.chain(in_a_future).collect()
         };
 
+        let awaited = awaited_of(source, body, &in_code, &handlers, &calls)?;
+
         let mut promoted = Vec::new();
         let mut unwritten = Vec::new();
         for local in &locals {
@@ -183,6 +211,28 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
                 continue;
             }
             let mutations: Vec<Mutation> = writes_from(&local.name);
+
+            // A value that comes from a future is bound again on every
+            // render, out of the cell the answer landed in. It cannot
+            // also *be* that cell: there would be two declarations of
+            // one name on one line, each written by a different half of
+            // the compiler.
+            if let Some(waited) = awaited
+                .iter()
+                .find(|waited| waited.prefix.start == local.declaration.start)
+            {
+                if mutations.is_empty() {
+                    continue;
+                }
+                return Err(CompileError::flagged(
+                    waited.prefix.start,
+                    format!(
+                        "`{name}` is awaited and also written from a handler. A value that                          comes from a future is read again on every render, so it cannot be                          the thing a handler changes -- await it into a value of its own, and                          keep what the handler changes in a `let mut` beside it.",
+                        name = waited.name
+                    ),
+                )
+                .resolve(source));
+            }
 
             if mutations.is_empty() {
                 // Nothing writes to it, so there is nothing to keep
@@ -324,6 +374,7 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             promoted,
             calls,
             unwritten,
+            awaited,
         });
     }
     Ok(components)
@@ -386,6 +437,51 @@ fn calls_of(
         }
     }
 
+    // A bare `async` block written as a statement is work to run beside
+    // the render. Nothing in JSX needs a wrapper to say "do this", and
+    // `task(…)` around an `async` block said nothing the `async` had not
+    // already said -- so the wrapper is optional, not required. A block
+    // that is a *value* (`let held = async { … };`, or an argument) is
+    // left alone: what the component does with a future it holds is its
+    // own business.
+    for span in occurrences(source, "async", in_code) {
+        if handlers.iter().any(|handler| contains(*handler, span)) {
+            continue;
+        }
+        if nested.iter().any(|inner| contains(*inner, span)) {
+            continue;
+        }
+        if calls.iter().any(|call| contains(call.arguments, span)) {
+            continue;
+        }
+        if !starts_a_statement(source, body, span.start) {
+            continue;
+        }
+        // `async move { … }` as well as `async { … }`.
+        let mut open = skip_spaces(bytes, span.end);
+        if source[open..].starts_with("move") {
+            open = skip_spaces(bytes, open + "move".len());
+        }
+        if bytes.get(open) != Some(&b'{') {
+            continue;
+        }
+        let Some(close) = matching(bytes, open, b'{', b'}') else {
+            continue;
+        };
+        // The block is both the call and its argument: there are no
+        // parentheses, so the thing to spawn is the thing that was
+        // written.
+        let whole = Span {
+            start: span.start,
+            end: close + 1,
+        };
+        calls.push(Call {
+            kind: CallKind::Async,
+            span: whole,
+            arguments: whole,
+        });
+    }
+
     calls.sort_by_key(|call| call.span.start);
 
     // Two edits over the same bytes shred each other: the inner one is
@@ -428,6 +524,126 @@ fn calls_of(
     Ok(calls)
 }
 
+/// Every `let` of this body whose value is awaited.
+///
+/// And a sentence for every other `.await`: one that is not the value of
+/// a `let` has nowhere for its answer to land, so there is nothing
+/// honest to turn it into.
+fn awaited_of(
+    source: &str,
+    body: Span,
+    in_code: &[Span],
+    handlers: &[Span],
+    calls: &[Call],
+) -> Result<Vec<Awaited>, CompileError> {
+    let bytes = source.as_bytes();
+    let nested = nested_functions(source, body);
+    // A handler runs long after the render returned, a nested `fn` may
+    // be `async` itself, and an `async` block is the one place in a
+    // component where waiting is exactly right.
+    let elsewhere = |span: Span| {
+        handlers.iter().any(|handler| contains(*handler, span))
+            || nested.iter().any(|inner| contains(*inner, span))
+            || calls.iter().any(|call| contains(call.span, span))
+    };
+
+    let mut found: Vec<Awaited> = Vec::new();
+    for span in occurrences(source, "let", in_code) {
+        if elsewhere(span) || !starts_a_statement(source, body, span.start) {
+            continue;
+        }
+        let Some(semicolon) = statement_end(source, span.start, body.end) else {
+            continue;
+        };
+        // The `.await` has to be the last thing the value does. Anything
+        // after it -- `f().await.len()` -- is work on the answer, and
+        // the answer is not there yet on the render that asks.
+        let value_end = skip_spaces_back(bytes, semicolon);
+        if !source[..value_end].ends_with("await") {
+            continue;
+        }
+        let word = value_end - "await".len();
+        let dot = skip_spaces_back(bytes, word);
+        if dot == 0 || bytes[dot - 1] != b'.' {
+            continue;
+        }
+        let Some((first, after_first)) = word_after(source, span.end) else {
+            continue;
+        };
+        let (name, mutable, after) = if first == "mut" {
+            match word_after(source, after_first) {
+                Some((name, after)) => (name, true, after),
+                None => continue,
+            }
+        } else {
+            (first, false, after_first)
+        };
+        if name.is_empty() {
+            continue;
+        }
+        let Some(equals) = assignment_in(source, after, semicolon) else {
+            continue;
+        };
+        // What sits between the name and the `=` is either nothing or
+        // the type the developer wrote.
+        let between = source[after..equals].trim();
+        let annotation = match between.strip_prefix(':') {
+            Some(written) => Some(written.trim().to_string()),
+            None if between.is_empty() => None,
+            // A pattern rather than a name: `let (a, b) = …`. Left
+            // unclaimed, so the sentence below explains it.
+            None => continue,
+        };
+        found.push(Awaited {
+            prefix: Span {
+                start: span.start,
+                end: equals + 1,
+            },
+            suffix: Span {
+                start: dot - 1,
+                end: semicolon + 1,
+            },
+            name,
+            mutable,
+            annotation,
+        });
+    }
+
+    for span in occurrences(source, "await", in_code) {
+        let before = skip_spaces_back(bytes, span.start);
+        if before == 0 || bytes[before - 1] != b'.' {
+            continue;
+        }
+        if elsewhere(span) || found.iter().any(|waited| contains(waited.suffix, span)) {
+            continue;
+        }
+        return Err(CompileError::flagged(
+            span.start,
+            "this `.await` would stop the render. rustx takes `let answer = work().await;`              off the render thread by itself -- the first frame draws nothing and the frame              after the answer lands draws it -- but it has to be the whole value of a `let`.              Anything else belongs in an `async { … }` block, whose writes are posted back              to the page."
+                .to_string(),
+        )
+        .resolve(source));
+    }
+
+    Ok(found)
+}
+
+/// The `=` of an assignment between `from` and `limit`, skipping `==`.
+fn assignment_in(source: &str, from: usize, limit: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut index = from;
+    while index < limit.min(bytes.len()) {
+        if bytes[index] == b'='
+            && bytes.get(index + 1) != Some(&b'=')
+            && (index == 0 || bytes[index - 1] != b'=')
+        {
+            return Some(index);
+        }
+        index += 1;
+    }
+    None
+}
+
 /// The first pair where one call is written inside another's arguments.
 fn nested_pair(calls: &[Call]) -> Option<(&Call, &Call)> {
     calls.iter().find_map(|outer| {
@@ -444,6 +660,7 @@ fn name_of(kind: CallKind) -> &'static str {
         CallKind::Keep => "keep",
         CallKind::Effect => "effect",
         CallKind::Task => "task",
+        CallKind::Async => "async",
     }
 }
 
@@ -980,6 +1197,83 @@ fn opens_a_closure_body(bytes: &[u8], handler: Span, at: usize) -> bool {
         index = skip_spaces_back(bytes, index - 4);
     }
     index == handler.start + 1
+}
+
+/// Is what sits at `at` the first thing of a statement?
+///
+/// What decides is the byte before it: a `;` ends the statement before,
+/// a `{` opens the block, and a `}` closes a statement that was a block.
+/// Anything else -- `=`, `(`, `,`, `=>`, `return` -- means the thing at
+/// `at` is a value somebody is being given, not work to do.
+fn starts_a_statement(source: &str, body: Span, at: usize) -> bool {
+    let before = skip_trivia_back(source, at);
+    if before <= body.start {
+        return true;
+    }
+    matches!(source.as_bytes()[before - 1], b';' | b'{' | b'}')
+}
+
+/// The first offset at or before `from` that is neither whitespace nor
+/// a comment.
+///
+/// Written because what sits in front of a statement is almost always a
+/// line explaining it: reading only the whitespace back made every
+/// commented block look like the middle of an expression.
+fn skip_trivia_back(source: &str, from: usize) -> usize {
+    let bytes = source.as_bytes();
+    let mut index = skip_spaces_back(bytes, from);
+    loop {
+        if index == 0 {
+            return 0;
+        }
+        if index >= 2 && &source[index - 2..index] == "*/" {
+            match source[..index - 2].rfind("/*") {
+                Some(open) => {
+                    index = skip_spaces_back(bytes, open);
+                    continue;
+                }
+                None => return index,
+            }
+        }
+        let line_start = source[..index].rfind('\n').map_or(0, |at| at + 1);
+        match line_comment_in(&source[line_start..index]) {
+            Some(at) => {
+                index = skip_spaces_back(bytes, line_start + at);
+            }
+            None => return index,
+        }
+    }
+}
+
+/// Where a line comment starts in one line of code, if one does.
+///
+/// Quote-aware, so the `//` of `"http://example"` is not a comment and
+/// the line before a statement is read for what it is.
+fn line_comment_in(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut inside: Option<u8> = None;
+    let mut escaped = false;
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if escaped {
+            escaped = false;
+        } else if let Some(quote) = inside {
+            match byte {
+                b'\\' => escaped = true,
+                _ if byte == quote => inside = None,
+                _ => {}
+            }
+        } else {
+            match byte {
+                b'"' | b'\'' => inside = Some(byte),
+                b'/' if bytes.get(index + 1) == Some(&b'/') => return Some(index),
+                _ => {}
+            }
+        }
+        index += 1;
+    }
+    None
 }
 
 fn skip_spaces_back(bytes: &[u8], from: usize) -> usize {

@@ -397,3 +397,132 @@ fn an_applications_own_async_fn_is_awaited_from_a_page() {
     assert!(rust.contains("crate::charger().await"), "got {rust}");
     assert!(rust.contains("charge.update("), "got {rust}");
 }
+
+#[test]
+fn a_bare_async_block_in_a_component_is_a_task() {
+    // JSX asks for no wrapper, so neither does this: an `async` block
+    // written as a statement of a component is work that runs beside
+    // the render, and `task(...)` around it said nothing the `async`
+    // did not.
+    let source = "let mut n = 0;\n\nfn C() -> Element {\n    async move {\n        n += 1;\n    };\n    return <p>{n}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("spawn_future_until("), "the block was not spawned: {rust}");
+    assert!(rust.contains(".remote_until(&__cancel)"), "no handle was built for it: {rust}");
+    assert!(rust.contains("n.update("), "the write inside it was missed: {rust}");
+    assert_eq!(
+        rust.matches('\n').count(),
+        source.matches('\n').count(),
+        "got {rust}"
+    );
+}
+
+#[test]
+fn an_async_block_that_is_a_value_is_left_alone() {
+    // `let held = async { … };` is a future the component holds, and
+    // whatever it does with it is its business. Only a block written as
+    // a statement is work to run.
+    let source = "fn C() -> Element {\n    let held = async { 1u8 };\n    let _ = held;\n    return <p>ok</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(
+        !rust.contains("spawn_future"),
+        "a future the component holds was spawned behind its back: {rust}"
+    );
+    assert!(rust.contains("let held = async { 1u8 };"), "got {rust}");
+}
+
+#[test]
+fn an_async_block_passed_to_something_is_left_alone() {
+    let source = "fn C() -> Element {\n    let _ = taken(async { 1u8 });\n    return <p>ok</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(
+        !rust.contains("spawn_future"),
+        "an argument was spawned: {rust}"
+    );
+}
+
+#[test]
+fn task_around_an_async_block_still_means_the_same_thing() {
+    // The explicit form keeps working, and spawns once -- not twice.
+    let source = "let mut n = 0;\n\nfn C() -> Element {\n    task(async move {\n        n += 1;\n    });\n    return <p>{n}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert_eq!(
+        rust.matches("spawn_future_until(").count(),
+        1,
+        "got {rust}"
+    );
+}
+
+#[test]
+fn a_bare_async_block_behind_a_comment_is_still_a_statement() {
+    // What sits in front of a block is almost always a line saying what
+    // it is for. Reading only the whitespace back made every explained
+    // block look like the middle of an expression.
+    let source = "let mut n = 0;\n\nfn C() -> Element {\n    // What this does, and the url \"http://example\" in it.\n    async move {\n        n += 1;\n    };\n    return <p>{n}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("spawn_future_until("), "got {rust}");
+}
+
+#[test]
+fn an_await_before_the_return_does_not_block_the_render() {
+    // A component is asked for the screen as it is now. What it waits
+    // for, it waits for beside the render: the first frame gets nothing
+    // and draws nothing, the frame after the future lands gets the
+    // value, and the window never stopped.
+    let source = "fn C() -> Element {\n    let greeting = fetch().await;\n    return <p>{greeting}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("rustx_engine::task::awaited("),
+        "the await was left on the render thread: {rust}"
+    );
+    assert!(rust.contains("let Some(greeting)"), "got {rust}");
+    assert!(rust.contains("else { return Element::Empty; }"), "got {rust}");
+    assert!(rust.contains("fetch()"), "the expression was lost: {rust}");
+    assert!(!rust.contains(".await"), "the await survived: {rust}");
+    assert_eq!(
+        rust.matches('\n').count(),
+        source.matches('\n').count(),
+        "got {rust}"
+    );
+}
+
+#[test]
+fn an_awaited_value_that_is_mutable_stays_mutable() {
+    let source = "fn C() -> Element {\n    let mut rows = load().await;\n    rows.push(1);\n    return <p>{rows.len()}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("let Some(mut rows)"), "got {rust}");
+}
+
+#[test]
+fn an_awaited_value_keeps_the_type_it_was_written_with() {
+    let source = "fn C() -> Element {\n    let name: String = ask().await;\n    return <p>{name}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("let Some(name): Option<String>"), "got {rust}");
+}
+
+#[test]
+fn an_awaited_expression_can_read_state() {
+    // `fetch(id)` where `id` is a cell: the expression is left where it
+    // was written, so the read in it is rewritten like any other.
+    let source = "let mut id = 0;\n\nfn C() -> Element {\n    let got = fetch(id).await;\n    return <p onClick={move |_| id += 1}>{got}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("fetch(id.get())"), "the read was missed: {rust}");
+    assert!(rust.contains("rustx_engine::task::awaited("), "got {rust}");
+}
+
+#[test]
+fn an_await_inside_an_async_block_is_left_alone() {
+    let source = "let mut n = 0;\n\nfn C() -> Element {\n    async move {\n        tick().await;\n        n += 1;\n    };\n    return <p>{n}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("tick().await"), "got {rust}");
+    assert!(!rust.contains("task::awaited("), "got {rust}");
+}
+
+#[test]
+fn an_await_that_is_not_the_value_of_a_let_is_refused_in_words() {
+    let source = "fn C() -> Element {\n    ping().await;\n    return <p>ok</p>;\n}";
+    let error = rustx_compiler::transpile::transpile(source).expect_err("refused");
+    assert!(
+        error.message.contains("await") && error.message.contains("async"),
+        "got {error:?}"
+    );
+}

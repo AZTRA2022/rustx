@@ -41,6 +41,15 @@
           return found === null ? null : found.textContent.trim();
         };
 
+        // What a component that awaits its value shows before the value
+        // is there: nothing. Read on the first look, which is a frame
+        // the window produced while the answer was still coming -- so
+        // this line is also the proof that the await did not block it.
+        rustx_report(
+          "answer_at_first_look",
+          text("#reponse") === null ? "nothing" : text("#reponse")
+        );
+
         // The page opens on `/attente`, so the three awaits are already
         // in flight. Each one writes a row, and the timer they wait on
         // is the runtime's: it fires on a machine whose window produces
@@ -50,6 +59,13 @@
           () => {
             rustx_report("rows_after_three_awaits", text("#rows-count"));
             rustx_report("rows_drawn", String(document.querySelectorAll("#rows .row").length));
+
+            // And the answer, once it is there: the component that was
+            // drawing nothing draws it, without the page asking again.
+            waitFor(
+              () => text("#reponse") !== null,
+              () => {
+            rustx_report("answer_later", text("#reponse"));
 
             // A thousand writes with nothing between them, applied by
             // the frame that drained them.
@@ -82,6 +98,8 @@
                     }, 400);
                   }
                 );
+              }
+            );
               }
             );
           }

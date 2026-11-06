@@ -30,12 +30,21 @@ pub struct Point {
 /// own runtime: `main` cannot be async, and an application should not
 /// have to know that. What it buys here is the line below — work done
 /// before the window opens, awaited rather than blocked on.
+/// Une question dont la reponse met du temps a venir.
+///
+/// Une `async fn` de l'application, attendue depuis une page -- la page
+/// n'ecrit ni `task`, ni `spawn`, ni `Option`.
+pub async fn reponse_lente() -> u32 {
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    42
+}
+
 #[rustx::main]
 async fn main() -> Result<(), rustx::Error> {
     // Anything at all, awaited before there is a window. A real
     // application reads a configuration file or asks a server; this
     // only has to prove that `.await` works here.
-    rustx::time::sleep(std::time::Duration::from_millis(1)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
 
     let app = App::new(Config::new("Hybrid").size(900, 640).start(opening_route()))?;
 
