@@ -1,15 +1,18 @@
 //! Deciding which locals become state. Only deciding.
 //!
-//! The rule, from §7.4 of the design document: a local that is **read in
-//! the JSX the component returns** and **mutated from an event handler's
-//! closure** becomes a persistent cell. Everything else stays an ordinary
-//! `let`, recomputed each render, costing nothing.
+//! The rule: a local **mutated from an event handler's closure**
+//! becomes a persistent cell. Everything else stays an ordinary `let`,
+//! recomputed each render, costing nothing.
 //!
-//! Both halves matter. A local only read is recomputed anyway and has
-//! nothing to remember. A local only mutated is written and thrown away,
-//! and nobody would see it change. It is the combination — something the
-//! screen shows and a click changes — that needs to survive the render
-//! that drew it.
+//! The reading half used to count too — §7.4 of the design document
+//! asked for a local both shown and written. It was dropped because a
+//! local written by a handler and shown nowhere has no second meaning
+//! to fall back on: a handler is stored as an `Rc<dyn Fn>`, so a
+//! closure that assigns to a captured local does not compile at all,
+//! and the developer read a borrow-check error about a file in a
+//! temporary directory. Promoting it costs one cell and makes the
+//! sentence in the documentation true as written — a `let mut`, and
+//! its place says its scope.
 //!
 //! The rewrite lives next door, in `rewrite.rs`. Keeping the decision
 //! here means it can be tested by asking what was decided, rather than by
@@ -157,25 +160,13 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
                 .flat_map(|handler| mutations_in(source, &local.name, *handler, &in_code, true))
                 .collect();
 
-            // "Read in the JSX" means read by what is drawn, not read by
-            // a handler that happens to sit inside the JSX. A handler is
-            // written between the tags, so without this an `onClick` that
-            // only writes would look like a read of itself and promote a
-            // variable nobody ever shows.
-            let shown = occurrences(source, &local.name, &in_jsx_code(&in_code, &returns_jsx))
-                .into_iter()
-                .filter(|span| !handlers.iter().any(|handler| contains(*handler, *span)))
-                .count();
-
-            if shown == 0 || mutations.is_empty() {
+            if mutations.is_empty() {
                 // Nothing writes to it, so there is nothing to keep
                 // across renders and it stays what it was written as —
                 // a plain local, which `rustc` then warns is mutable
                 // for no reason, pointing at a file in a temporary
                 // directory the developer has never seen.
-                if mutations.is_empty() {
-                    unwritten.push(local.declaration);
-                }
+                unwritten.push(local.declaration);
                 continue;
             }
 
@@ -1060,15 +1051,6 @@ impl Component {
             .copied()
             .find(|handler| contains(*handler, span))
     }
-}
-
-/// The code spans that fall inside a JSX region — the braced
-/// expressions, which is where a read can be.
-fn in_jsx_code(code: &[Span], regions: &[Span]) -> Vec<Span> {
-    code.iter()
-        .filter(|span| regions.iter().any(|region| contains(*region, **span)))
-        .copied()
-        .collect()
 }
 
 /// The second declaration of a name already declared in this component.

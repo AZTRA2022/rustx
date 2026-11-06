@@ -30,7 +30,7 @@ pub fn write(name: &str, into: &Path) -> Result<Vec<PathBuf>, String> {
         (root.join("Cargo.toml"), manifest(name)),
         (root.join("src").join("main.rs"), main_for(name)),
         (root.join("app").join("page.rsx"), page()),
-        (root.join(".gitignore"), "/target\n".to_string()),
+        (root.join(".gitignore"), ignored()),
         (root.join("assets").join("readme.md"), assets_note()),
     ];
 
@@ -155,6 +155,17 @@ fn page() -> String {
      \x20   </main>;\n\
      }\n"
     .to_string()
+}
+
+/// What a project does not commit.
+///
+/// Four lines rather than one, because three of them are output the
+/// framework writes on every build: the entry point and the bundle in
+/// `.rustx`, the copy of the bundle the document loads from `assets`,
+/// and `node_modules`. A project whose first `git add .` carried two
+/// megabytes of minified JavaScript learned that from here.
+fn ignored() -> String {
+    "/target\n/node_modules\n/.rustx/\n/assets/rustx-bundle.js\n".to_string()
 }
 
 fn assets_note() -> String {

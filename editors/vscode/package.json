@@ -2,7 +2,7 @@
   "name": "rustx",
   "displayName": "rustx",
   "description": "What an editor needs to know about a .rsx: its colours, its pairs, and where the mistakes are.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "engines": {
     "vscode": "^1.90.0"
@@ -87,5 +87,8 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/AZTRA2022/rustx"
+  },
+  "allowScripts": {
+    "esbuild@0.24.2": true
   }
 }

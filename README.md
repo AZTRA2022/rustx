@@ -366,6 +366,105 @@ n'accepte pas : `recharts` reste `recharts`, `@radix-ui/react-dialog`
 devient `radixUiReactDialog`. Deux bibliothèques qui exportent le même
 nom, et c'est dit dans la console avec la forme explicite à écrire.
 
+### shadcn
+
+`npx shadcn add` marche. `npx shadcn init` **non** : il cherche un
+framework qu'il connaît — Next, Vite, Remix — et s'arrête en disant
+qu'il n'en trouve aucun. Ce qu'il aurait écrit s'écrit à la main, une
+fois, et ce sont deux fichiers.
+
+`components.json`, qui dit à `shadcn add` où poser ce qu'il télécharge :
+
+```json
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "new-york",
+  "rsc": false,
+  "tsx": true,
+  "tailwind": {
+    "config": "",
+    "css": "assets/tailwind.css",
+    "baseColor": "neutral",
+    "cssVariables": true
+  },
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils",
+    "ui": "@/components/ui",
+    "lib": "@/lib",
+    "hooks": "@/hooks"
+  },
+  "iconLibrary": "lucide"
+}
+```
+
+`tsconfig.json`, qui dit à esbuild ce que `@/` veut dire — les
+composants de shadcn s'importent entre eux par cet alias :
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": { "@/*": ["./*"] }
+  },
+  "include": ["components/**/*", "lib/**/*", "hooks/**/*"]
+}
+```
+
+Ensuite, `npx shadcn add button card dialog` pose ses fichiers dans
+`components/ui/`, et une balise majuscule les trouve. Les paires que
+shadcn n'installe pas toujours lui-même se demandent comme le reste :
+`npm install class-variance-authority lucide-react`.
+
+### Les composants React que le projet écrit lui-même
+
+`components/` en entier, pas seulement `components/ui/`. Un composant à
+soi — celui qui appelle un hook, ce qu'une page `.rsx` ne sait pas
+faire — se range là, et son `export default` est une balise sous le nom
+de son fichier :
+
+```tsx
+// components/Editor.tsx
+import { useEditor, EditorContent } from "@tiptap/react"
+import StarterKit from "@tiptap/starter-kit"
+
+export default function Editor({ contenu }: { contenu?: string }) {
+  const editor = useEditor({ extensions: [StarterKit], content: contenu })
+  return <EditorContent editor={editor} />
+}
+```
+
+```rust
+return <Editor contenu="<p>Écrire ici.</p>" />;
+```
+
+C'est la porte de sortie pour tout ce qu'un hook fait et qu'une page ne
+peut pas : TipTap, une carte, un éditeur de code. La page garde l'état
+et les props ; le hook reste en TypeScript, là où il est chez lui.
+
+### Les paquets que le paquet n'embarque pas
+
+Trois sortes de `dependencies` ne vont pas dans le paquet du
+navigateur, et le framework les laisse de côté sans rien demander :
+
+- **les outils de la construction** — `tailwindcss`,
+  `@tailwindcss/cli`, `esbuild`, `typescript`, `vite`. Un navigateur ne
+  rend pas un compilateur ;
+- **ceux qui n'exportent que des sous-chemins** — `@tiptap/pm` exporte
+  `./state` et `./view` et pas de racine : une page écrit
+  `@tiptap/pm/state` ou rien ;
+- **ceux dont le point d'entrée est une feuille de style** —
+  `tw-animate-css` appartient à la feuille, pas au paquet.
+
+Un paquet déclaré dans `dependencies` et absent de `node_modules`, lui,
+est dit par son nom, parce que la réparation est une commande.
+
 ### Les props qui traversent
 
 Ce qu'on passe à un composant JavaScript est une valeur V8, dans le même
@@ -390,6 +489,17 @@ Il marche, en version 3 comme en 4, et le framework lit laquelle
 `@source` et `@import "tailwindcss"` pour la 4. Les classes sont
 cherchées dans les `.rsx`, et la feuille de style est posée dans la page
 sans qu'on l'écrive nulle part.
+
+En 4, la ligne de commande vit dans un paquet à elle : il faut les deux,
+`npm install tailwindcss @tailwindcss/cli`, comme la page de Tailwind le
+dit. Avec la bibliothèque seule, la construction refuse en nommant la
+commande qui manque — elle se taisait, et la fenêtre s'ouvrait avec
+tous ses `className` et pas une règle.
+
+Les classes sont cherchées dans `app/**/*.rsx`, `src/**/*.rs`,
+`components/**` et `lib/**` : les pages, le Rust — un nom de classe peut
+vivre dans un `const` — et les composants React du projet, où shadcn
+garde les siens.
 
 C'est la **seule** exception à la règle « aucune ligne du framework ne
 nomme une bibliothèque ni une version », parce qu'un programme que la
@@ -741,10 +851,28 @@ oublié, ou un composant de la page appelé comme une balise
 **« this application declares JavaScript libraries … and has no
 node_modules »** — `npm install` dans le dossier de l'application.
 
+**« … names `recharts` under `dependencies`, and `node_modules` has
+nothing of that name »** — le `package.json` a grandi depuis le dernier
+`npm install`. La même commande, dans le même dossier.
+
+**« this application installed tailwindcss and nothing that can run it
+»** — Tailwind 4 garde sa ligne de commande dans
+`@tailwindcss/cli` : `npm install @tailwindcss/cli`.
+
+**Une balise majuscule que la page ne trouve pas, alors que le fichier
+existe dans `components/`** — un composant à soi est pris sous le nom de
+son fichier quand il a un `export default`. `components/Editor.tsx`
+donne `<Editor>` ; une fonction exportée par son nom donne ce nom.
+
 **La fenêtre est blanche et le journal répète « Failed to create shared
 context »** — la machine n'a pas de pilote 3D utilisable (machine
 virtuelle, bureau distant). `RUSTX_SOFTWARE=1` compose sur le
 processeur : plus lent, et ça marche toujours.
+
+La même chose vaut pour la suite : la moitié des scénarios attendent une
+frame, et une fenêtre qui n'est pas composée n'en produit aucune. Sur une
+telle machine, `RUSTX_SOFTWARE=1 cargo test --workspace`. Les harnais le
+disent eux-mêmes quand ils reconnaissent le journal.
 
 **Un message entre la fenêtre et la page n'arrive pas** —
 `RUSTX_TRACE=1` trace les deux bouts : ce qui part, ce qui arrive, et ce
@@ -783,6 +911,7 @@ du code qu'on aurait pu écrire à la main.
 | `editors/vscode` | l'extension |
 | `docs/superpowers/` | la spécification et les plans |
 | `docs/dette-connue.md` | ce qu'on sait imparfait, et ce qui nous ferait changer d'avis |
+| `docs/chasse-aux-bugs.md` | ce qu'un projet écrit du dehors a cassé, et ce qui l'a réparé |
 | `docs/publier.md` | les huit paquets, et sous quels noms ils partent |
 
 ## Ce qui reste

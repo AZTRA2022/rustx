@@ -136,6 +136,11 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
                     #(#opened)*
                     pub(crate) use rustx::Element;
                     pub(crate) use rustx::state::with_key;
+                    // Ce que le code engendré nomme. Importé ici, par la
+                    // façade, pour qu'une application n'ait pas à déclarer
+                    // `rustx-dom` ni `rustx-engine` dans son `Cargo.toml`.
+                    #[allow(unused_imports)]
+                    pub(crate) use rustx::{rustx_dom, rustx_engine};
 
                     include!(#generated);
                     #(#watched)*

@@ -99,10 +99,18 @@ fn changed_at(application: &Path) -> Stamp {
             .and_then(|about| about.modified())
             .ok()
     };
-    (
-        when(application.join("package.json")),
-        when(application.join("components").join("ui")),
-    )
+    // The newest of the whole tree, and not the folder's own stamp: a
+    // file added inside `components/ui` moves that folder and leaves
+    // `components` untouched, so a stamp on the top folder alone never
+    // noticed `shadcn add badge`.
+    let own = rustx_compiler::bundle::own_components(application)
+        .into_iter()
+        .chain(std::iter::once(rustx_compiler::bundle::own_directory(
+            application,
+        )))
+        .filter_map(when)
+        .max();
+    (when(application.join("package.json")), own)
 }
 
 /// The whole read, without the cache in front of it.
@@ -111,14 +119,31 @@ pub fn read(application: &Path) -> Vec<Export> {
 
     // The application's own components first: they are the ones a page
     // means when both it and a library have the name.
-    for file in sources_in(&application.join("components").join("ui")) {
-        if let Ok(source) = std::fs::read_to_string(&file) {
-            for name in exported_in(&source) {
-                found.push(Export {
-                    name,
-                    from: "ui".to_string(),
-                });
-            }
+    for file in rustx_compiler::bundle::own_components(application) {
+        let Ok(source) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        for name in exported_in(&source) {
+            found.push(Export {
+                name,
+                from: "ui".to_string(),
+            });
+        }
+        // And the default export, under the name of the file, which is
+        // what the generated index calls it and therefore what a page
+        // writes. A component a developer wrote is almost always one.
+        if !rustx_compiler::bundle::has_a_default(&file) {
+            continue;
+        }
+        let named = file
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(rustx_compiler::bundle::component_name);
+        if let Some(name) = named {
+            found.push(Export {
+                name,
+                from: "ui".to_string(),
+            });
         }
     }
 
@@ -223,24 +248,6 @@ fn value_of(manifest: &str, field: &str) -> Option<String> {
     let rest = &rest[open + 1..];
     let close = rest.find('"')?;
     Some(rest[..close].to_string())
-}
-
-/// The `.ts`, `.tsx`, `.js` and `.jsx` files of a directory.
-fn sources_in(directory: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(directory) else {
-        return Vec::new();
-    };
-    let mut found: Vec<PathBuf> = entries
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.extension()
-                .and_then(|kind| kind.to_str())
-                .is_some_and(|kind| matches!(kind, "ts" | "tsx" | "js" | "jsx"))
-        })
-        .collect();
-    found.sort();
-    found
 }
 
 /// Every capitalised name this TypeScript says can be imported.

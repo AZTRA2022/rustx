@@ -136,3 +136,41 @@ fn every_command_is_read_from_what_was_typed() {
         arguments::Command::Unknown("biuld".to_string())
     );
 }
+
+#[test]
+fn a_new_project_ignores_what_the_build_writes() {
+    // `/target` alone was the whole file, and the first `git add .` of
+    // a project with npm libraries carried two megabytes of minified
+    // JavaScript, a `node_modules`, and the entry point the framework
+    // generates.
+    let into = somewhere();
+    new::write("mon-app", &into).expect("a project");
+    let ignored = fs::read_to_string(into.join("mon-app").join(".gitignore")).expect("a file");
+    for line in ["/target", "/node_modules", "/.rustx/", "/assets/rustx-bundle.js"] {
+        assert!(
+            ignored.lines().any(|written| written == line),
+            "`{line}` is not ignored: {ignored}"
+        );
+    }
+}
+
+#[test]
+fn a_new_project_names_one_dependency_and_one_only() {
+    // The documentation's promise: "Une application n'en nomme qu'un :
+    // `rustx-app`." The generated pages name `rustx_dom` and
+    // `rustx_engine`, so the facade re-exports them and the prelude of
+    // `#[rustx::main]` imports them -- which is what makes the promise
+    // true rather than aspirational. A project written before that did
+    // not compile at all.
+    let into = somewhere();
+    new::write("mon-app", &into).expect("a project");
+    let manifest = fs::read_to_string(into.join("mon-app").join("Cargo.toml")).expect("a file");
+    let dependencies: Vec<&str> = manifest
+        .lines()
+        .skip_while(|line| !line.starts_with("[dependencies]"))
+        .skip(1)
+        .filter(|line| !line.trim().is_empty() && !line.trim_start().starts_with('#'))
+        .collect();
+    assert_eq!(dependencies.len(), 1, "got {dependencies:?}");
+    assert!(dependencies[0].starts_with("rustx ="), "got {dependencies:?}");
+}

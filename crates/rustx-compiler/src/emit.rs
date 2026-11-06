@@ -507,7 +507,13 @@ fn foreign_node(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, Com
                 (
                     #name.to_string(),
                     rustx_dom::Callback::new({
-                        let __called = #inner;
+                        // `mut`, because a handler that writes an
+                        // état is `FnMut` and a `FnMut` is called
+                        // through a mutable binding. Without it,
+                        // `onClick={move |_| ouvert = !ouvert}` on a
+                        // library's component did not compile.
+                        #[allow(unused_mut)]
+                        let mut __called = #inner;
                         move |__arguments: &[rustx_dom::Value]| {
                             __called(rustx_dom::Callback::first(__arguments))
                         }

@@ -29,7 +29,166 @@ const TOOLS: &[&str] = &[
     "typescript",
     "vite",
     "webpack",
+    "rollup",
+    "parcel",
+    "@biomejs/biome",
+    "prettier",
+    "eslint",
 ];
+
+/// The scopes whose packages are tools, whatever they are called
+/// inside.
+///
+/// `npm install tailwindcss @tailwindcss/cli` is the first line of
+/// Tailwind 4's own getting-started page, and it puts the command-line
+/// tool in `dependencies`. A bundle that imports it asks a browser to
+/// run a compiler.
+const TOOL_SCOPES: &[&str] = &["@tailwindcss/", "@esbuild/", "@swc/", "@parcel/", "@rollup/"];
+
+/// Is this package a tool of the build rather than a library of the
+/// page?
+fn is_a_tool(package: &str) -> bool {
+    TOOLS.contains(&package) || TOOL_SCOPES.iter().any(|scope| package.starts_with(scope))
+}
+
+/// What `node_modules` holds for a package a page might write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Installed {
+    /// There, and a page can `import * as x from "<package>"`.
+    Importable,
+    /// There, and there is nothing to import from its root.
+    ///
+    /// Two shapes, and both used to take the whole build down with an
+    /// esbuild error about a path nobody wrote: sub-paths and no root,
+    /// which is what `@tiptap/pm` is (a page writes `@tiptap/pm/state`,
+    /// never `@tiptap/pm`); and a stylesheet for an entry point, which
+    /// is what `tw-animate-css` is, and which belongs to the
+    /// stylesheet and not to the bundle.
+    ///
+    /// Left out of the entry rather than refused: neither is a mistake
+    /// the developer made, and a `package.json` written the way the
+    /// library's own page says to write it has to build.
+    NothingToImport,
+    /// Declared and never installed. That one is worth a sentence,
+    /// because the fix is a command.
+    Absent,
+}
+
+/// What `node_modules` holds for `package`.
+pub fn installed(app: &Path, package: &str) -> Installed {
+    let directory = package
+        .split('/')
+        .fold(app.join("node_modules"), |at, part| at.join(part));
+    let Ok(manifest) = std::fs::read_to_string(directory.join("package.json")) else {
+        return Installed::Absent;
+    };
+    match root_export_of(&manifest) {
+        Some(entry) if !entry.ends_with(".css") => Installed::Importable,
+        _ => Installed::NothingToImport,
+    }
+}
+
+/// The root entry of an installed package, as its own manifest declares
+/// it — or `None` when it declares none.
+///
+/// Read by hand, like the dependencies: what is wanted is whether a
+/// root entry exists and whether it is a stylesheet, and neither
+/// question is worth a JSON parser.
+fn root_export_of(manifest: &str) -> Option<String> {
+    if let Some(exports) = value_after(manifest, "\"exports\"") {
+        // `"exports": "./index.js"` — a root, and that is all of it.
+        if exports.starts_with('"') {
+            return Some(exports.trim_matches('"').to_string());
+        }
+        // `"exports": { … }` — a root only if a key is `"."` or a
+        // condition (`"import"`, `"default"`). Keys that all begin with
+        // `"./"` are sub-paths, and a sub-path is not a root.
+        let keys = keys_of(exports);
+        if keys.is_empty() {
+            return None;
+        }
+        if keys.iter().any(|key| key == "." || !key.starts_with("./")) {
+            // What it resolves to is esbuild's business; that there is
+            // one is all this has to know.
+            return Some(String::from("."));
+        }
+        return None;
+    }
+    for field in ["\"module\"", "\"main\""] {
+        if let Some(value) = value_after(manifest, field)
+            && value.starts_with('"')
+        {
+            return Some(value.trim_matches('"').to_string());
+        }
+    }
+    // No `exports`, no `main`: node falls back to `index.js`.
+    Some(String::from("index.js"))
+}
+
+/// The text of the value that follows `key`, trimmed, or `None`.
+fn value_after<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+    let at = text.find(key)? + key.len();
+    let rest = text[at..].trim_start().strip_prefix(':')?.trim_start();
+    if rest.starts_with('"') {
+        let end = rest[1..].find('"')? + 2;
+        return Some(&rest[..end]);
+    }
+    if rest.starts_with('{') {
+        let mut depth = 0usize;
+        let mut inside = false;
+        for (index, letter) in rest.char_indices() {
+            match letter {
+                '"' => inside = !inside,
+                '{' if !inside => depth += 1,
+                '}' if !inside => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(&rest[..=index]);
+                    }
+                }
+                _ => {}
+            }
+        }
+        return None;
+    }
+    None
+}
+
+/// The keys of a JSON object, at its first level only.
+fn keys_of(object: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    let mut depth = 0usize;
+    let mut current = String::new();
+    let mut inside = false;
+    let mut expecting_key = false;
+    for letter in object.chars() {
+        match letter {
+            '"' if !inside => {
+                inside = true;
+                current.clear();
+            }
+            '"' if inside => {
+                inside = false;
+                if depth == 1 && expecting_key {
+                    keys.push(current.clone());
+                    expecting_key = false;
+                }
+            }
+            _ if inside => current.push(letter),
+            '{' => {
+                depth += 1;
+                if depth == 1 {
+                    expecting_key = true;
+                }
+            }
+            '}' => depth = depth.saturating_sub(1),
+            ',' if depth == 1 => expecting_key = true,
+            ':' => {}
+            _ => {}
+        }
+    }
+    keys
+}
 
 /// What React is imported under, and what it is called in the page.
 const REACT: &[(&str, &str)] = &[
@@ -46,7 +205,7 @@ const REACT: &[(&str, &str)] = &[
 /// nobody imports them, so a page that wrote `<Button />` would find
 /// nothing — unless the framework puts them in the bundle, which is
 /// what this is.
-const OWN: &[&str] = &["components", "ui"];
+const OWN: &str = "components";
 
 /// What Tailwind reads, as one comma-separated list.
 ///
@@ -73,6 +232,31 @@ fn sources() -> [&'static str; 4] {
     ]
 }
 
+/// Every component file the application wrote itself, as an absolute
+/// path.
+///
+/// The one walk both halves of the framework read: the bundle, which
+/// has to re-export them, and the editor, which has to offer them. They
+/// disagreed once — the bundle read `components/ui` and the Tailwind
+/// globs read `components/**` — and what fell in the gap was a
+/// developer's own `components/Editor.tsx`, a tag that compiled and
+/// found nothing at runtime.
+pub fn own_components(app: &Path) -> Vec<PathBuf> {
+    let directory = app.join(OWN);
+    let mut files = Vec::new();
+    collect_components(&directory, &directory, &mut files);
+    files.sort();
+    files
+        .iter()
+        .map(|relative| directory.join(relative))
+        .collect()
+}
+
+/// Where the application keeps the components it owns.
+pub fn own_directory(app: &Path) -> PathBuf {
+    app.join(OWN)
+}
+
 /// A module re-exporting every component the application wrote, or
 /// `None` when it wrote none.
 ///
@@ -81,22 +265,9 @@ fn sources() -> [&'static str; 4] {
 /// to date — and it is regenerated at every build, which is what makes
 /// `shadcn add dialog` take effect without anybody editing anything.
 pub fn index_for(app: &Path) -> Option<String> {
-    let directory = OWN.iter().fold(app.to_path_buf(), |at, part| at.join(part));
-    let mut files: Vec<String> = std::fs::read_dir(&directory)
-        .ok()?
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.extension()
-                .and_then(|kind| kind.to_str())
-                .is_some_and(|kind| matches!(kind, "ts" | "tsx" | "js" | "jsx"))
-        })
-        .filter_map(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .map(str::to_string)
-        })
-        .collect();
+    let directory = app.join(OWN);
+    let mut files = Vec::new();
+    collect_components(&directory, &directory, &mut files);
     if files.is_empty() {
         return None;
     }
@@ -108,13 +279,113 @@ pub fn index_for(app: &Path) -> Option<String> {
         "// Generated by rustx from this application's own components.\n\
          // Nobody edits this file, and nobody commits it.\n\n",
     );
-    for file in files {
-        out.push_str(&format!(
-            "export * from \"../{}/{}/{file}\";\n",
-            OWN[0], OWN[1]
-        ));
+    let mut named: Vec<String> = Vec::new();
+    for file in &files {
+        out.push_str(&format!("export * from \"../{OWN}/{file}\";\n"));
+        // And the default export, under the name of the file. A
+        // developer's own React component is almost always
+        // `export default function Editor()`, and `export *` does not
+        // carry a default: without this a page that wrote `<Editor>`
+        // found nothing, while shadcn's own components — which export
+        // by name — worked, and the difference was invisible.
+        let Some(name) = component_name(file) else {
+            continue;
+        };
+        if named.contains(&name) {
+            continue;
+        }
+        if has_a_default(&directory.join(file)) {
+            out.push_str(&format!(
+                "export {{ default as {name} }} from \"../{OWN}/{file}\";\n"
+            ));
+            named.push(name);
+        }
     }
     Some(out)
+}
+
+/// Every component file under `at`, by its path relative to `root`,
+/// with `/` for a separator whatever the system writes.
+///
+/// Recursive, because `components/ui` is where `shadcn add` leaves its
+/// own and `components/` is where a developer leaves theirs -- and the
+/// Tailwind globs beside this have always read both.
+fn collect_components(root: &Path, at: &Path, into: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(at) else {
+        return;
+    };
+    for path in entries.flatten().map(|entry| entry.path()) {
+        if path.is_dir() {
+            collect_components(root, &path, into);
+            continue;
+        }
+        let is_a_component = path
+            .extension()
+            .and_then(|kind| kind.to_str())
+            .is_some_and(|kind| matches!(kind, "ts" | "tsx" | "js" | "jsx"));
+        if !is_a_component {
+            continue;
+        }
+        // A declaration file declares; it exports no value a page could
+        // render.
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(".d.ts"))
+        {
+            continue;
+        }
+        if let Ok(relative) = path.strip_prefix(root) {
+            into.push(
+                relative
+                    .components()
+                    .map(|part| part.as_os_str().to_string_lossy().to_string())
+                    .collect::<Vec<String>>()
+                    .join("/"),
+            );
+        }
+    }
+}
+
+/// The name a page would write for the default export of this file.
+///
+/// `Editor.tsx` is `Editor`; `my-editor.tsx` is `MyEditor`. A file
+/// whose name is not a name -- `index.ts` -- gets none, because
+/// `<Index>` is nothing anybody means.
+pub fn component_name(file: &str) -> Option<String> {
+    let base = file.rsplit('/').next()?;
+    let stem = base.split('.').next()?;
+    if stem.is_empty() || stem.eq_ignore_ascii_case("index") {
+        return None;
+    }
+    let mut name = String::new();
+    let mut capitalise = true;
+    for letter in stem.chars() {
+        match letter {
+            '-' | '_' | '.' => capitalise = true,
+            _ if capitalise => {
+                name.extend(letter.to_uppercase());
+                capitalise = false;
+            }
+            _ => name.push(letter),
+        }
+    }
+    if name.starts_with(|letter: char| letter.is_ascii_digit()) {
+        return None;
+    }
+    Some(name)
+}
+
+/// Does this file have a default export?
+pub fn has_a_default(path: &Path) -> bool {
+    std::fs::read_to_string(path)
+        .map(|text| {
+            text.lines().any(|line| {
+                let line = line.trim_start();
+                line.starts_with("export default") || line.starts_with("export { default")
+            })
+        })
+        .unwrap_or(false)
 }
 
 pub fn entry_for(dependencies: &[String]) -> String {
@@ -130,7 +401,7 @@ pub fn entry_for_in(dependencies: &[String], app: &Path) -> String {
 fn entry_for_with(dependencies: &[String], own: bool) -> String {
     let libraries: Vec<(String, &String)> = dependencies
         .iter()
-        .filter(|package| !TOOLS.contains(&package.as_str()))
+        .filter(|package| !is_a_tool(package))
         .filter(|package| !REACT.iter().any(|(_, from)| from == package))
         .map(|package| (name_for(package), package))
         .collect();
@@ -191,6 +462,23 @@ pub fn name_for(package: &str) -> String {
     name
 }
 
+/// Two packages whose names, once made into identifiers, are the same.
+///
+/// `@tiptap/react` and `tiptap-react` both come to `tiptapReact`. The
+/// entry point would write the second over the first in one object
+/// literal, which JavaScript allows and nobody can see.
+pub fn a_collision_in(packages: &[String]) -> Option<(String, String)> {
+    for (at, one) in packages.iter().enumerate() {
+        let name = name_for(one);
+        for two in &packages[at + 1..] {
+            if name_for(two) == name {
+                return Some((one.clone(), two.clone()));
+            }
+        }
+    }
+    None
+}
+
 /// What the framework built for an application.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Built {
@@ -210,8 +498,14 @@ pub fn build(app: &Path) -> Result<Built, String> {
         return Ok(Built::default());
     };
     let stylesheet = styles(app)?;
-    let dependencies = dependencies_in(&declared);
-    if dependencies.is_empty() {
+    // The build tools go first, and before anything else is asked of
+    // the disk: an application whose only dependencies are Tailwind and
+    // its command line wants no esbuild, no entry point and no bundle.
+    let libraries: Vec<String> = dependencies_in(&declared)
+        .into_iter()
+        .filter(|package| !is_a_tool(package))
+        .collect();
+    if libraries.is_empty() {
         return Ok(Built {
             bundle: None,
             stylesheet,
@@ -220,12 +514,49 @@ pub fn build(app: &Path) -> Result<Built, String> {
 
     let esbuild = esbuild_in(app).ok_or_else(|| {
         format!(
-            "this application declares JavaScript libraries in {} and has no \
-             `node_modules` to load them from. Run `npm install` in {}.",
+            "this application declares JavaScript libraries in {} and has no `node_modules` to load them from. Run `npm install` in {}.",
             manifest.display(),
             app.display()
         )
     })?;
+
+    // And what each library is: in the bundle, left out of it, or
+    // declared and never installed.
+    let mut dependencies = Vec::new();
+    let mut absent = Vec::new();
+    for package in libraries {
+        match installed(app, &package) {
+            Installed::Importable => dependencies.push(package),
+            Installed::NothingToImport => {}
+            Installed::Absent => absent.push(package),
+        }
+    }
+    if !absent.is_empty() {
+        return Err(format!(
+            "{} names `{}` under `dependencies`, and `node_modules` has nothing of that name. Run `npm install` in {}.",
+            manifest.display(),
+            absent.join("`, `"),
+            app.display()
+        ));
+    }
+    // Two libraries that come to the same name. The entry point would
+    // declare the second one over the first in `window.rustxLibraries`,
+    // and a page would get the components of a library it did not mean
+    // — silently, because a duplicate key in an object literal is legal
+    // JavaScript.
+    if let Some((one, two)) = a_collision_in(&dependencies) {
+        return Err(format!(
+            "`{one}` and `{two}` both come to `{}`, which is the name a page writes. One of \
+             the two has to go, or be imported from a component of the application instead.",
+            name_for(&one)
+        ));
+    }
+    if dependencies.is_empty() {
+        return Ok(Built {
+            bundle: None,
+            stylesheet,
+        });
+    }
 
     let out = app.join(DIRECTORY);
     std::fs::create_dir_all(&out)
@@ -249,7 +580,10 @@ pub fn build(app: &Path) -> Result<Built, String> {
         .arg("--format=iife")
         .arg("--target=chrome120")
         .arg("--minify")
-        .arg("--platform=node")
+        // The page is a browser, whatever the machine running the build
+        // is. `--platform=node` left `require("fs")` in an IIFE and
+        // picked the server build of a library that has two.
+        .arg("--platform=browser")
         // React reads it on its first line, and a shell is what used to
         // eat the quotes: there is no shell here.
         .arg("--define:process.env.NODE_ENV=\"production\"")
@@ -304,6 +638,20 @@ pub const SERVED: &str = "rustx-bundle.js";
 /// in its world has that extension.
 fn styles(app: &Path) -> Result<Option<PathBuf>, String> {
     let Some(tailwind) = tool_in(app, "tailwindcss") else {
+        // Tailwind in `node_modules` and no command line to run it:
+        // Tailwind 4 moved the binary into a package of its own, and an
+        // application that installed only the library got a window with
+        // every `className` in it and not one rule — silently, which is
+        // the worst of the two ways to be wrong.
+        if app.join("node_modules").join("tailwindcss").exists() {
+            return Err(format!(
+                "this application installed tailwindcss and nothing that can run it. \
+                 Tailwind 4 keeps its command line in a package of its own: run \
+                 `npm install @tailwindcss/cli` in {} (on Tailwind 3, `npm install \
+                 tailwindcss@3`, which carries its own).",
+                app.display()
+            ));
+        }
         return Ok(None);
     };
     let out = app.join(DIRECTORY);

@@ -456,3 +456,62 @@ fn the_explicit_form_is_offered_to_whoever_starts_typing_it() {
         "got {got:?}"
     );
 }
+
+#[test]
+fn a_page_is_offered_what_the_application_around_it_installed() {
+    // The end-to-end shape, from a path on disk: a project with a
+    // `package.json`, a `node_modules`, a `components/ui`, and a page
+    // in `app/`. Nothing here mocks the lookup, which is the point —
+    // the server read `node_modules` from the application's *parent*
+    // for a while, so this list came back empty in every real project
+    // and the editor offered HTML tags and nothing else.
+    let root = std::env::temp_dir().join(format!(
+        "rustx-suggest-installed-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_nanos())
+            .unwrap_or(0)
+    ));
+    let written = |at: std::path::PathBuf, what: &str| {
+        std::fs::create_dir_all(at.parent().expect("a parent")).expect("a directory");
+        std::fs::write(at, what).expect("a file");
+    };
+    // What makes a directory an application: a manifest and `app/`.
+    written(root.join("Cargo.toml"), "[package]\nname = \"mon-app\"\n");
+    written(root.join("app/page.rsx"), "fn Page() -> Element { return <main></main>; }\n");
+    written(
+        root.join("package.json"),
+        "{\"dependencies\": {\"recharts\": \"2.12.7\"}}",
+    );
+    written(
+        root.join("node_modules/recharts/package.json"),
+        "{\"name\": \"recharts\", \"types\": \"./index.d.ts\"}",
+    );
+    written(
+        root.join("node_modules/recharts/index.d.ts"),
+        "export { LineChart } from './chart/LineChart';\n",
+    );
+    written(
+        root.join("components/ui/card.tsx"),
+        "export function Card() { return null }\n",
+    );
+    written(
+        root.join("components/Editor.tsx"),
+        "export default function Editor() { return null }\n",
+    );
+
+    let source = std::fs::read_to_string(root.join("app/page.rsx")).expect("the page");
+    let page = suggest::page_of(&source, &root.join("app/page.rsx"));
+    let names: Vec<&str> = page
+        .libraries
+        .iter()
+        .map(|export| export.name.as_str())
+        .collect();
+
+    assert!(names.contains(&"LineChart"), "a library off npm: {names:?}");
+    assert!(names.contains(&"Card"), "what shadcn add wrote: {names:?}");
+    assert!(names.contains(&"Editor"), "a component of its own: {names:?}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}

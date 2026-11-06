@@ -129,3 +129,24 @@ fn an_answer_is_remembered_until_the_application_changes() {
         again.iter().map(|e| &e.name).collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn a_component_the_project_wrote_outside_ui_is_offered_too() {
+    // `components/ui` is `shadcn add`'s; `components/` is the
+    // developer's, and that is where the component that calls a hook
+    // lives. The editor read only the first, so the one name a page
+    // could not guess was the one it was never offered.
+    let application = an_application("own-outside-ui");
+    written(
+        &application.0.join("components/Editor.tsx"),
+        "export default function Editor() { return null }\n",
+    );
+    let found = libraries::read(&application.0);
+    let names: Vec<&str> = found.iter().map(|export| export.name.as_str()).collect();
+    assert!(
+        names.contains(&"Editor"),
+        "a default export is a tag under the name of its file: {names:?}"
+    );
+    // And what `shadcn add` wrote is still there.
+    assert!(names.contains(&"Card"), "{names:?}");
+}

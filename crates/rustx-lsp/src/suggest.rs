@@ -250,14 +250,19 @@ pub fn page_of(source: &str, path: &Path) -> Page {
 }
 
 /// The component names the application around `page` installed.
+///
+/// The application's own directory, which is where `package.json`,
+/// `node_modules` and `components/` are — and not its parent, which is
+/// what this read for a while: `apps/zoo/app/page.rsx` was answered
+/// from `apps/`, and `labo-rustx/app/page.rsx` from `projects/`. Both
+/// have no `node_modules`, so the list came back empty and the editor
+/// offered HTML tags and nothing else. Every other reader in the
+/// server already used the application itself.
 fn installed(page: &Path) -> Vec<crate::libraries::Export> {
     let Some(application) = crate::crate_for_pages::application_of(page) else {
         return Vec::new();
     };
-    let Some(root) = application.parent() else {
-        return Vec::new();
-    };
-    crate::libraries::exports_for(root)
+    crate::libraries::exports_for(&application)
 }
 
 /// Does `candidate` answer what has been typed?

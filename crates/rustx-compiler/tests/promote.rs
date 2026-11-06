@@ -17,10 +17,21 @@ fn a_variable_read_in_the_jsx_and_mutated_in_a_handler_is_promoted() {
 }
 
 #[test]
-fn a_variable_only_mutated_in_a_handler_is_not_promoted() {
-    // Review Focus 2. Nothing reads it, so nothing needs to survive.
+fn a_variable_only_mutated_in_a_handler_is_promoted_anyway() {
+    // Review Focus 2 used to say the opposite: nothing reads it, so
+    // nothing needs to survive. What the opposite produced was Rust
+    // that does not compile. A handler is stored as an `Rc<dyn Fn>`,
+    // and a closure that assigns to a captured local cannot be one,
+    // so the developer got a borrow-check error about a generated
+    // file they had never opened. One cell is cheaper than that.
     let source = "fn C() -> Element {\n    let mut log = 0;\n    return <button onClick={|| log += 1}>go</button>;\n}";
-    assert!(analyse(source).unwrap()[0].promoted.is_empty());
+    let components = analyse(source).unwrap();
+    let promoted: Vec<&str> = components[0]
+        .promoted
+        .iter()
+        .map(|held| held.name.as_str())
+        .collect();
+    assert_eq!(promoted, ["log"]);
 }
 
 #[test]

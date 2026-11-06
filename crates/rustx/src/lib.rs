@@ -28,6 +28,16 @@ use std::path::{Path, PathBuf};
 
 pub use rustx_macros::{ToValue, main};
 
+// Les deux caisses que le code engendré par le compilateur nomme —
+// `rustx_dom::Element`, `rustx_engine::task::spawn`. Elles passent par
+// la façade pour qu'une application n'en déclare qu'une seule dans son
+// `Cargo.toml`, ce que la documentation promet. Rien à écrire pour le
+// développeur : le prélude de `#[rustx::main]` les importe.
+#[doc(hidden)]
+pub use rustx_dom;
+#[doc(hidden)]
+pub use rustx_engine;
+
 pub use rustx_dom::value::{ToValue, record};
 pub use rustx_dom::{
     AttributeValue, Element, Handler, IntoElement, Key, TagElement, Value, into_element, route,
