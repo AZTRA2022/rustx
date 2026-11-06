@@ -293,6 +293,302 @@ pub fn exported_in(source: &str) -> Vec<String> {
     found
 }
 
+/// The props one tag takes, in the application around `page`.
+///
+/// Looked up by tag rather than listed for every export: `lucide-react`
+/// alone has close to seven thousand of them, and reading every one of
+/// their declarations on a keystroke would be felt. Cached on the same
+/// stamp as the exports, so `shadcn add` and `npm install` are noticed.
+pub fn props_for(application: &Path, tag: &str) -> Vec<Prop> {
+    // `ui::Button` is `Button`, said in full.
+    let tag = tag.rsplit("::").next().unwrap_or(tag);
+    let asked = (application.to_path_buf(), tag.to_string());
+    let stamp = changed_at(application);
+    let held = props_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some((when, found)) = held.get(&asked) {
+        if *when == stamp {
+            return found.clone();
+        }
+    }
+    drop(held);
+
+    let found = read_props(application, tag);
+    props_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(asked, (stamp, found.clone()));
+    found
+}
+
+fn props_cache() -> &'static Mutex<HashMap<(PathBuf, String), (Stamp, Vec<Prop>)>> {
+    static CACHE: OnceLock<Mutex<HashMap<(PathBuf, String), (Stamp, Vec<Prop>)>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn read_props(application: &Path, tag: &str) -> Vec<Prop> {
+    // The application's own components first, for the same reason the
+    // exports are read in that order: they are what a page means when
+    // both it and a library have the name.
+    for file in rustx_compiler::bundle::own_components(application) {
+        let Ok(source) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        let found = props_in(&source, tag);
+        if !found.is_empty() {
+            return found;
+        }
+    }
+    for package in packages_of(application) {
+        let root = application.join("node_modules").join(&package);
+        let Some(types) = declarations_in(&root) else {
+            continue;
+        };
+        let Ok(source) = std::fs::read_to_string(&types) else {
+            continue;
+        };
+        let found = props_in(&source, tag);
+        if !found.is_empty() {
+            return found;
+        }
+    }
+    Vec::new()
+}
+
+/// A prop a tag takes, and the type as it was written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Prop {
+    /// `variant`.
+    pub name: String,
+    /// `"default" | "outline"`, as written, or empty when nothing said.
+    pub kind: String,
+}
+
+/// Every prop `tag` takes, read out of this TypeScript.
+///
+/// Three places, in the order a library is likely to have put them:
+///
+/// 1. `interface ButtonProps { … }` or `type ButtonProps = { … }` —
+///    the convention npm follows almost without exception;
+/// 2. the destructured parameter of the function itself, which is where
+///    `shadcn add button` leaves them and nowhere else;
+/// 3. the type the declaration names — `function Table(props: Settings)`
+///    — followed to its own `interface` or `type`.
+///
+/// A prop it misses is one an editor does not offer, which is a smaller
+/// loss than a wrong one: the compiler and React resolve what is really
+/// there.
+pub fn props_in(source: &str, tag: &str) -> Vec<Prop> {
+    for named in [format!("{tag}Props"), format!("{tag}Properties")] {
+        if let Some(body) = object_named(source, &named) {
+            return fields_in(body);
+        }
+    }
+    if let Some(found) = destructured_parameter_of(source, tag) {
+        return found;
+    }
+    let Some(named) = props_type_of(source, tag) else {
+        return Vec::new();
+    };
+    object_named(source, &named)
+        .map(fields_in)
+        .unwrap_or_default()
+}
+
+/// The `{ … }` of `interface NAME` or `type NAME =`.
+fn object_named<'a>(source: &'a str, name: &str) -> Option<&'a str> {
+    for form in [format!("interface {name}"), format!("type {name}")] {
+        let mut from = 0;
+        while let Some(at) = source[from..].find(&form) {
+            let at = from + at;
+            from = at + form.len();
+            if !on_a_boundary(source, at, form.len()) {
+                continue;
+            }
+            // `interface X extends Y {` and `type X = { … }` both put
+            // the object at the first brace after the name.
+            let rest = &source[from..];
+            let Some(open) = rest.find('{') else {
+                continue;
+            };
+            // `type X = string;` has no object of its own.
+            if rest[..open].contains(';') {
+                continue;
+            }
+            let Some(close) = closing_brace(rest, open) else {
+                continue;
+            };
+            return Some(&rest[open + 1..close]);
+        }
+    }
+    None
+}
+
+/// The names a function destructures out of its props parameter.
+///
+/// `function Button({ className, variant, ...props }: …)`. The rest
+/// element is not a prop anybody writes; the names before it are.
+fn destructured_parameter_of(source: &str, tag: &str) -> Option<Vec<Prop>> {
+    for form in [
+        format!("function {tag}("),
+        format!("const {tag} = ("),
+        format!("const {tag} = function ("),
+    ] {
+        let Some(at) = source.find(&form) else {
+            continue;
+        };
+        let rest = &source[at + form.len()..];
+        let Some(open) = rest.find(|letter: char| !letter.is_whitespace()) else {
+            continue;
+        };
+        if rest.as_bytes()[open] != b'{' {
+            continue;
+        }
+        let Some(close) = closing_brace(rest, open) else {
+            continue;
+        };
+        let found: Vec<Prop> = split_at_depth(&rest[open + 1..close])
+            .into_iter()
+            .filter_map(|piece| {
+                let piece = piece.trim();
+                if piece.is_empty() || piece.starts_with("...") {
+                    return None;
+                }
+                // `asChild = false` is one name with a default.
+                let name = piece
+                    .split(['=', ':'])
+                    .next()
+                    .unwrap_or(piece)
+                    .trim()
+                    .to_string();
+                is_a_name(&name).then(|| Prop {
+                    name,
+                    kind: String::new(),
+                })
+            })
+            .collect();
+        if !found.is_empty() {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// The name of the type a declaration says the props are.
+fn props_type_of(source: &str, tag: &str) -> Option<String> {
+    for form in [
+        format!("function {tag}("),
+        format!("const {tag}:"),
+        format!("let {tag}:"),
+    ] {
+        let Some(at) = source.find(&form) else {
+            continue;
+        };
+        let rest = &source[at + form.len()..];
+        // `(props: Settings)` and `React.FC<ButtonProps>` both put the
+        // name after the punctuation that introduces it.
+        let Some(after) = rest.find([':', '<']) else {
+            continue;
+        };
+        let name = name_at(rest[after + 1..].trim_start());
+        if is_a_name(name) && name.starts_with(|letter: char| letter.is_ascii_uppercase()) {
+            return Some(name.to_string());
+        }
+    }
+    None
+}
+
+/// The fields of an object type, at its own depth and not deeper.
+fn fields_in(body: &str) -> Vec<Prop> {
+    split_at_depth(body)
+        .into_iter()
+        .filter_map(|piece| {
+            let piece = piece.trim();
+            if piece.is_empty() || piece.starts_with("//") || piece.starts_with('[') {
+                return None;
+            }
+            let (written, kind) = match piece.split_once(':') {
+                Some((written, kind)) => (written, kind.trim()),
+                None => (piece, ""),
+            };
+            let name = written.trim().trim_end_matches('?').trim();
+            is_a_name(name).then(|| Prop {
+                name: name.to_string(),
+                kind: kind.trim_end_matches(';').trim().to_string(),
+            })
+        })
+        .collect()
+}
+
+/// One object's own pieces: split at the separators that belong to it,
+/// so a nested `{ … }` or a `Map<a, b>` stays in one piece.
+fn split_at_depth(body: &str) -> Vec<&str> {
+    let bytes = body.as_bytes();
+    let mut pieces = Vec::new();
+    let mut depth = 0i32;
+    let mut from = 0;
+    let mut inside: Option<u8> = None;
+    let mut escaped = false;
+    for (index, byte) in bytes.iter().enumerate() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if let Some(quote) = inside {
+            if *byte == b'\\' {
+                escaped = true;
+            } else if *byte == quote {
+                inside = None;
+            }
+            continue;
+        }
+        match *byte {
+            b'"' | b'\'' | b'`' => inside = Some(*byte),
+            b'{' | b'[' | b'(' | b'<' => depth += 1,
+            b'}' | b']' | b')' | b'>' => depth -= 1,
+            b';' | b',' | b'\n' if depth <= 0 => {
+                pieces.push(&body[from..index]);
+                from = index + 1;
+            }
+            _ => {}
+        }
+    }
+    if from < body.len() {
+        pieces.push(&body[from..]);
+    }
+    pieces
+}
+
+/// The brace matching the one at `open`.
+fn closing_brace(text: &str, open: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut depth = 0i32;
+    for (index, byte) in bytes.iter().enumerate().skip(open) {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Is the text at `at` a whole word rather than the tail of one?
+fn on_a_boundary(source: &str, at: usize, length: usize) -> bool {
+    let bytes = source.as_bytes();
+    let is_word = |byte: Option<&u8>| {
+        byte.is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_' || *byte == b'$')
+    };
+    !is_word(at.checked_sub(1).and_then(|before| bytes.get(before)))
+        && !is_word(bytes.get(at + length))
+}
+
 /// A name worth offering as a tag.
 fn keep(name: &str, found: &mut Vec<String>) {
     let name = name.trim();
@@ -353,6 +649,77 @@ fn ceiling(text: &str, at: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_props_of_an_interface_are_read() {
+        let found = props_in(
+            "interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+                 variant?: \"default\" | \"outline\";
+                 size?: Size;
+                 asChild?: boolean;
+             }
+             export declare const Button: React.FC<ButtonProps>;",
+            "Button",
+        );
+        let names: Vec<&str> = found.iter().map(|prop| prop.name.as_str()).collect();
+        assert_eq!(names, vec!["variant", "size", "asChild"]);
+        assert_eq!(found[2].kind, "boolean");
+    }
+
+    #[test]
+    fn the_props_of_a_type_alias_are_read() {
+        let found = props_in("type CardProps = {
+  title: string;
+  rows?: number;
+};", "Card");
+        let names: Vec<&str> = found.iter().map(|prop| prop.name.as_str()).collect();
+        assert_eq!(names, vec!["title", "rows"]);
+    }
+
+    #[test]
+    fn what_shadcn_destructures_is_read_off_the_function_itself() {
+        // `components/ui/button.tsx`, as `shadcn add button` writes it:
+        // no props type anywhere, the names are in the parameter.
+        let found = props_in(
+            "function Button({ className, variant, size, asChild = false, ...props }:              React.ComponentProps<\"button\">) {
+  return null;
+}",
+            "Button",
+        );
+        let names: Vec<&str> = found.iter().map(|prop| prop.name.as_str()).collect();
+        assert_eq!(names, vec!["className", "variant", "size", "asChild"]);
+    }
+
+    #[test]
+    fn a_props_type_named_by_the_declaration_is_followed() {
+        let found = props_in(
+            "interface Settings {
+  dense?: boolean;
+}
+             export declare function Table(props: Settings): JSX.Element;",
+            "Table",
+        );
+        let names: Vec<&str> = found.iter().map(|prop| prop.name.as_str()).collect();
+        assert_eq!(names, vec!["dense"]);
+    }
+
+    #[test]
+    fn a_tag_with_no_props_anywhere_offers_none() {
+        assert!(props_in("export declare const Spinner: React.FC;", "Spinner").is_empty());
+    }
+
+    #[test]
+    fn a_nested_object_does_not_leak_its_own_fields() {
+        let found = props_in(
+            "type ChartProps = {
+  margin?: { top: number; left: number };
+  data: Row[];
+};",
+            "Chart",
+        );
+        let names: Vec<&str> = found.iter().map(|prop| prop.name.as_str()).collect();
+        assert_eq!(names, vec!["margin", "data"]);
+    }
 
     #[test]
     fn a_list_of_exports_is_read() {

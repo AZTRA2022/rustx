@@ -308,6 +308,7 @@ fn offer(
         None => suggest::Page {
             components: rustx_compiler::promote::component_signatures(source),
             libraries: Vec::new(),
+            application: None,
         },
     };
 

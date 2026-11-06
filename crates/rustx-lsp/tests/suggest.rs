@@ -35,6 +35,7 @@ fn empty_page() -> Page {
     Page {
         components: Vec::new(),
         libraries: Vec::new(),
+        application: None,
     }
 }
 
@@ -78,6 +79,7 @@ fn a_component_of_the_file_is_offered_by_its_name() {
             ("Footer".to_string(), Vec::new()),
         ],
         libraries: Vec::new(),
+        application: None,
     };
     let got = labels(&suggest::tags("He", &page));
     assert!(got.contains(&"Header".to_string()), "got {got:?}");
@@ -105,6 +107,7 @@ fn an_installed_component_is_offered_by_its_name() {
     let page = Page {
         components: Vec::new(),
         libraries: vec![from("Button", "ui"), from("Card", "ui")],
+        application: None,
     };
     let got = labels(&suggest::tags("Bu", &page));
     assert!(got.contains(&"Button".to_string()), "got {got:?}");
@@ -182,6 +185,7 @@ fn a_components_own_parameters_are_the_attributes_offered() {
             vec!["number: String".to_string(), "unit: String".to_string()],
         )],
         libraries: Vec::new(),
+        application: None,
     };
     let items = suggest::attributes("Stat", "", &page, &[]);
     let got = labels(&items);
@@ -260,6 +264,7 @@ fn an_installed_component_says_where_it_comes_from() {
     let page = Page {
         components: Vec::new(),
         libraries: vec![from("Button", "ui")],
+        application: None,
     };
     let items = suggest::attributes("Button", "class", &page, &[]);
     let class = items
@@ -403,6 +408,7 @@ fn a_component_of_an_installed_library_says_which_library() {
     let page = Page {
         components: Vec::new(),
         libraries: vec![from("LineChart", "recharts")],
+        application: None,
     };
     let items = suggest::tags("Line", &page);
     let chart = items
@@ -420,6 +426,7 @@ fn a_name_two_libraries_export_offers_the_explicit_form_too() {
     let page = Page {
         components: Vec::new(),
         libraries: vec![from("Dialog", "ui"), from("Dialog", "radixUiReactDialog")],
+        application: None,
     };
     let got = labels(&suggest::tags("Dia", &page));
     assert!(got.contains(&"Dialog".to_string()), "got {got:?}");
@@ -436,6 +443,7 @@ fn a_name_one_library_exports_is_not_repeated_in_full() {
     let page = Page {
         components: Vec::new(),
         libraries: vec![from("LineChart", "recharts")],
+        application: None,
     };
     let got = labels(&suggest::tags("", &page));
     assert!(
@@ -449,6 +457,7 @@ fn the_explicit_form_is_offered_to_whoever_starts_typing_it() {
     let page = Page {
         components: Vec::new(),
         libraries: vec![from("LineChart", "recharts")],
+        application: None,
     };
     let got = labels(&suggest::tags("recharts::", &page));
     assert!(

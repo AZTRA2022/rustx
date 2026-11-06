@@ -74,6 +74,11 @@ pub struct Page {
     /// packages of its `package.json` and the files of `components/ui`
     /// — each with the library it comes from.
     pub libraries: Vec<crate::libraries::Export>,
+    /// The application this page belongs to, which is where the props of
+    /// an installed tag are read from. Looked up when asked rather than
+    /// listed up front: a library with seven thousand exports has
+    /// seven thousand sets of props.
+    pub application: Option<std::path::PathBuf>,
 }
 
 /// The tags to offer for what has been typed so far.
@@ -201,8 +206,37 @@ pub fn attributes(tag: &str, typed: &str, page: &Page, already: &[String]) -> Ve
         .libraries
         .iter()
         .any(|export| export.name == tag || format!("{}::{}", export.from, export.name) == tag);
+
+    // What the library says this tag takes, before the HTML attributes
+    // it passes on. First because they are the answer: `variant` and
+    // `size` are what somebody opening a `<Button` is looking for, and
+    // a list that began with `accept` and `accesskey` buried them.
+    if installed {
+        if let Some(application) = &page.application {
+            for prop in crate::libraries::props_for(application, tag) {
+                if !matches(&prop.name, typed)
+                    || already.iter().any(|written| written == &prop.name)
+                {
+                    continue;
+                }
+                let detail = if prop.kind.is_empty() {
+                    tag.to_string()
+                } else {
+                    prop.kind.clone()
+                };
+                found.push(
+                    Item::new(&prop.name, Kind::Property, &detail)
+                        .inserting(&format!("{}={{}}", prop.name)),
+                );
+            }
+        }
+    }
+
     for name in rustx_compiler::attributes::known() {
-        if matches(name, typed) && !already.iter().any(|written| written == name) {
+        if matches(name, typed)
+            && !already.iter().any(|written| written == name)
+            && !found.iter().any(|item| item.label == *name)
+        {
             found.push(Item::new(
                 name,
                 Kind::Attribute,
@@ -215,7 +249,10 @@ pub fn attributes(tag: &str, typed: &str, page: &Page, already: &[String]) -> Ve
         }
     }
     for name in rustx_compiler::attributes::events() {
-        if matches(name, typed) && !already.iter().any(|written| written == name) {
+        if matches(name, typed)
+            && !already.iter().any(|written| written == name)
+            && !found.iter().any(|item| item.label == *name)
+        {
             found.push(
                 Item::new(name, Kind::Event, "a handler: |event| …")
                     .inserting(&format!("{name}={{move |_| }}")),
@@ -243,9 +280,11 @@ pub fn style_keys(typed: &str) -> Vec<Item> {
 /// what a page made of installed components is written with.
 pub fn page_of(source: &str, path: &Path) -> Page {
     let components = rustx_compiler::promote::component_signatures(source);
+    let application = crate::crate_for_pages::application_of(path);
     Page {
         components,
         libraries: installed(path),
+        application,
     }
 }
 
@@ -410,3 +449,74 @@ const PROPERTIES: &[&str] = &[
     "wordBreak",
     "zIndex",
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An application on disk, because what the props are read from is
+    /// files: a `components/ui/button.tsx` the way `shadcn add button`
+    /// writes it, and a manifest.
+    fn an_application_with_a_button() -> std::path::PathBuf {
+        let root = std::env::temp_dir().join("rustx-lsp-props-test");
+        let ui = root.join("components").join("ui");
+        std::fs::create_dir_all(&ui).expect("a place to put the fixture");
+        std::fs::write(root.join("package.json"), "{
+  \"dependencies\": {}
+}")
+            .expect("a manifest");
+        std::fs::write(
+            ui.join("button.tsx"),
+            "import * as React from \"react\";
+             function Button({ className, variant, size, asChild = false, ...props }) {
+                 return null;
+             }
+             export { Button };
+",
+        )
+        .expect("a component");
+        root
+    }
+
+    #[test]
+    fn the_props_of_an_installed_tag_are_offered_before_the_html_ones() {
+        let root = an_application_with_a_button();
+        let page = Page {
+            components: Vec::new(),
+            libraries: vec![crate::libraries::Export {
+                name: "Button".to_string(),
+                from: "ui".to_string(),
+            }],
+            application: Some(root),
+        };
+
+        let offered = attributes("Button", "", &page, &[]);
+        let labels: Vec<&str> = offered.iter().map(|item| item.label.as_str()).collect();
+        assert!(
+            labels.starts_with(&["className", "variant", "size", "asChild"]),
+            "the component own props were not offered first: {labels:?}"
+        );
+        // And what the library passes on is still there, after them.
+        assert!(labels.contains(&"id"), "got {labels:?}");
+        assert!(labels.contains(&"onClick"), "got {labels:?}");
+    }
+
+    #[test]
+    fn a_prop_already_written_is_not_offered_again() {
+        let root = an_application_with_a_button();
+        let page = Page {
+            components: Vec::new(),
+            libraries: vec![crate::libraries::Export {
+                name: "Button".to_string(),
+                from: "ui".to_string(),
+            }],
+            application: Some(root),
+        };
+
+        let offered = attributes("Button", "var", &page, &["variant".to_string()]);
+        assert!(
+            !offered.iter().any(|item| item.label == "variant"),
+            "it was offered twice: {offered:?}"
+        );
+    }
+}

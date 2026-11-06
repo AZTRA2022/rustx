@@ -2,7 +2,7 @@
   "name": "rustx",
   "displayName": "rustx",
   "description": "What an editor needs to know about a .rsx: its colours, its pairs, and where the mistakes are.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "license": "MIT",
   "engines": {
     "vscode": "^1.90.0"
@@ -53,6 +53,11 @@
           "type": "string",
           "default": "",
           "description": "Where `rustx-lsp` is. Empty means: on the PATH."
+        },
+        "rustx.closeTags": {
+          "type": "boolean",
+          "default": true,
+          "description": "Close a tag when its `>` is typed. A Rust generic, a comparison and a tag that closed itself are left alone."
         },
         "rustx.rustAnalyzer.path": {
           "type": "string",
