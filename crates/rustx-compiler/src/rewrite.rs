@@ -199,10 +199,19 @@ fn awaited_edits(source: &str, waited: &crate::promote::Awaited) -> Vec<Edit> {
         Some(written) => format!(": Option<{written}>"),
         None => String::new(),
     };
+    // The future is built on the render thread -- which is what lets the
+    // expression read a cell -- and awaited on the runtime's. What the
+    // developer wrote after the `.await` goes with it, because the
+    // answer it works on only exists there.
+    let tail = source[waited.suffix.start + ".await".len()..waited.suffix.end]
+        .trim_end()
+        .trim_end_matches(';');
     let opening = format!(
-        "let Some({bound}){annotation} = rustx_engine::task::awaited(         rustx_dom::state::cell({held}, || None), {asked}, || "
+        "let Some({bound}){annotation} = rustx_engine::task::awaited(         rustx_dom::state::cell({held}, || None), {asked},          || {{ let __work = "
     );
-    let closing = ") else { return Element::Empty; };".to_string();
+    let closing = format!(
+        "; async move {{ __work.await{tail} }} }}) else {{ return Element::Empty; }};"
+    );
     vec![
         Edit {
             span: waited.prefix,

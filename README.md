@@ -590,53 +590,61 @@ task(move |alive| {
 Hors d'un composant, `rustx::poster()` donne le même jeton, et
 `rustx::task::spawn(travail)` un fil dont on garde le `Task`.
 
-### L'asynchrone : `task(async { … })`
+### L'asynchrone : un bloc `async`
 
-Un `task` prend aussi un `Future`. Le premier mot de l'argument est ce
-qui décide : une fermeture est un fil, `async` est une tâche portée par
-un runtime tokio qui vit sur ses propres threads.
+Un bloc `async` écrit comme une instruction d'un composant est du
+travail qui tourne à côté du rendu, porté par un runtime tokio qui vit
+sur ses propres threads. Il n'y a rien à mettre autour : en JSX on
+n'enveloppe rien non plus, et le mot `async` disait déjà tout ce que
+`task(…)` ajoutait.
 
 ```rust
 let mut lignes = Vec::<String>::new();
 
 fn Panneau() -> Element {
-    task(async move {
+    async move {
         let reponse = charger().await;
         lignes.push(reponse);
-    });
+    };
 
     return <ul>{lignes.len()} lignes</ul>;
 }
 ```
+
+Un bloc qui est une **valeur** est laissé tranquille : `let tenu = async
+{ … };` est une future que le composant garde, et ce qu'il en fait lui
+appartient. `task(async { … })` marche toujours, et veut dire la même
+chose — la forme explicite, pour qui préfère la nommer.
 
 `.await` marche sur tout ce que l'écosystème écrit — `reqwest`, `sqlx`,
 un `Future` de `std`, un timer. Le runtime démarre à la **première**
 future du processus et jamais avant : une application qui n'écrit aucun
 `async` ne paie pas un thread de plus.
 
-Le temps vient de la façade, donc une application ne nomme pas tokio
-dans son `Cargo.toml` :
+`tokio` vient de la façade, donc une application ne le nomme ni dans
+son `Cargo.toml` ni dans ses `use`, et l'écrit du nom que tout le monde
+lui donne :
 
 ```rust
 let mut battements = 0;
 
 fn Horloge() -> Element {
-    task(async move {
+    async move {
         loop {
-            rustx::time::sleep(std::time::Duration::from_millis(500)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             battements += 1;
         }
-    });
+    };
 
     return <p>{battements}</p>;
 }
 ```
 
-Pour le reste du runtime, `rustx::tokio` : c'est tokio en entier, avec
-`full`. `rustx::tokio::fs`, `::net`, `::io`, `::sync`, `::process`,
-`select!`, `spawn` — ce qu'un code async ordinaire écrit, écrit pareil.
-Une application ne nomme tokio ni dans son `Cargo.toml` ni dans ses
-`use`, et ce n'est pas un sous-ensemble choisi par le framework.
+C'est tokio en entier, avec `full` : `tokio::fs`, `::net`, `::io`,
+`::sync`, `::process`, `select!`, `spawn` — ce qu'un code async
+ordinaire écrit, écrit pareil, et pas un sous-ensemble choisi par le
+framework. Une application qui déclare tokio elle-même obtient le même :
+cargo n'en résout qu'un seul en 1.x.
 
 ### `async fn main`
 
@@ -647,7 +655,7 @@ use rustx::{App, Config};
 
 #[rustx::main]
 async fn main() -> Result<(), rustx::Error> {
-    let reglages = rustx::tokio::fs::read_to_string("reglages.toml").await?;
+    let reglages = tokio::fs::read_to_string("reglages.toml").await?;
 
     let app = App::new(Config::new(&titre_de(&reglages)).size(900, 640))?;
 
@@ -660,9 +668,37 @@ framework — donc l'attribut lui retire son `async` et exécute le corps
 sur le runtime. Il n'y a rien d'autre à savoir : pas de `#[tokio::main]`
 à écrire à côté, et pas de `block_on` à la main.
 
-Ce qui reste vrai : **un composant** n'attend jamais. Le `main` prépare,
-la page dessine, et ce qui attend pendant qu'elle est à l'écran est un
-`task(async { … })`.
+Ce qui reste vrai : **un composant** ne s'arrête jamais pour attendre.
+Il peut demander, et c'est la section suivante.
+
+### Attendre une valeur sans bloquer le rendu
+
+`let x = travail().await;` dans un composant s'écrit tel quel :
+
+```rust
+fn Reglages() -> Element {
+    let texte = tokio::fs::read_to_string("reglages.toml")
+        .await
+        .unwrap_or_default();
+
+    return <pre>{texte}</pre>;
+}
+```
+
+Un composant est interrogé sur l'écran **tel qu'il est maintenant**,
+donc il ne s'arrête pas : la première frame demande et ne dessine rien,
+la frame qui suit l'arrivée de la réponse la dessine. La question n'est
+posée qu'une fois, le type écrit est gardé, et le reste de la page est
+dessiné pendant ce temps — l'attente appartient au composant qui l'a
+écrite.
+
+Ce qui suit le `.await` part avec la future, parce que la réponse
+n'existe que là-bas : `.unwrap_or_default()`, `.ok()`, un autre `.await`
+y sont à leur place. Un `.await` enterré dans un argument —
+`f(g().await)` — attend avant que `f` soit même appelée, et obtient une
+phrase au lieu d'une compilation. Lire une valeur de la page **après**
+le `.await` en obtient une aussi : ce code tourne à côté de la fenêtre,
+où il n'y a pas de cellule à lire.
 
 #### Écrire l'état depuis un `await`
 
@@ -697,9 +733,9 @@ let mut filtre = String::new();
 fn Recharger() -> Element {
     let maintenant = filtre.clone();
 
-    task(async move {
+    async move {
         resultats = chercher(&maintenant).await;
-    });
+    };
 
     return <p>{resultats.len()} trouvés</p>;
 }

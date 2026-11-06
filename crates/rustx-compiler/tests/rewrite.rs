@@ -477,7 +477,12 @@ fn an_await_before_the_return_does_not_block_the_render() {
     assert!(rust.contains("let Some(greeting)"), "got {rust}");
     assert!(rust.contains("else { return Element::Empty; }"), "got {rust}");
     assert!(rust.contains("fetch()"), "the expression was lost: {rust}");
-    assert!(!rust.contains(".await"), "the await survived: {rust}");
+    // The await is inside an `async move` block, which is the only
+    // place it can be: the component itself stayed synchronous.
+    assert!(
+        rust.contains("async move { __work.await }"),
+        "the await was not moved into a future: {rust}"
+    );
     assert_eq!(
         rust.matches('\n').count(),
         source.matches('\n').count(),
@@ -525,4 +530,74 @@ fn an_await_that_is_not_the_value_of_a_let_is_refused_in_words() {
         error.message.contains("await") && error.message.contains("async"),
         "got {error:?}"
     );
+}
+
+#[test]
+fn work_after_the_await_goes_with_it() {
+    // `.await.unwrap_or_else(…)` and `.await.ok()` are how anybody
+    // writes this. The tail runs on the answer, which only exists
+    // beside the window -- so it travels with the future rather than
+    // being left on the render thread.
+    let source = "fn C() -> Element {
+    let texte = read(\"x\").await.unwrap_or_default();
+    return <p>{texte}</p>;
+}";
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("async move { __work.await.unwrap_or_default() }"),
+        "got {rust}"
+    );
+    assert!(rust.contains("let Some(texte)"), "got {rust}");
+    assert_eq!(
+        rust.matches('\n').count(),
+        source.matches('\n').count(),
+        "got {rust}"
+    );
+}
+
+#[test]
+fn an_await_buried_in_an_argument_is_refused_in_words() {
+    // `f(g().await)` waits for `g` before `f` is called, which is a wait
+    // on the render thread whatever is done with the result.
+    let source = "fn C() -> Element {
+    let got = wrap(inner().await);
+    return <p>{got}</p>;
+}";
+    let error = rustx_compiler::transpile::transpile(source).expect_err("refused");
+    assert!(error.message.contains("await"), "got {error:?}");
+}
+
+#[test]
+fn a_read_of_state_after_the_await_is_refused_in_words() {
+    // What follows the await runs beside the window. A cell is not
+    // there, so this is the same refusal an `async` block gets.
+    let source = "let mut n = 0;
+
+fn C() -> Element {
+    let got = load().await.max(n);
+    return <p onClick={move |_| n += 1}>{got}</p>;
+}";
+    let error = rustx_compiler::transpile::transpile(source).expect_err("refused");
+    assert!(
+        error.message.contains("after an `.await`"),
+        "got {error:?}"
+    );
+}
+
+#[test]
+fn an_accent_in_front_of_a_block_is_not_cut_in_half() {
+    // The offsets here are bytes and the text is French: a comment
+    // ending on an accented word put a slice boundary inside a
+    // character, and the compiler panicked instead of compiling.
+    let source = "let mut n = 0;
+
+fn C() -> Element {
+    // Le `async` le disait déjà.
+    async move {
+        n += 1;
+    };
+    return <p>{n}</p>;
+}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("spawn_future_until("), "got {rust}");
 }

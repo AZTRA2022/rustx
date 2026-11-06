@@ -349,6 +349,29 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
         // is nothing to read from there — and leaving it would hand the
         // developer a type error about a generated file. Refused where
         // it was written, with the way out.
+        // What is written after an `.await` runs when the answer does, on
+        // the runtime's threads -- so a value of the page cannot be read
+        // there, for the same reason it cannot be read inside an `async`
+        // block. Said where it was written.
+        for held in &promoted {
+            for waited in &awaited {
+                let (reads, _) = uses_in(source, &held.name, waited.suffix, false);
+                if let Some(read) = reads.first() {
+                    return Err(CompileError::flagged(
+                        read.start,
+                        format!(
+                            "`{}` is read after an `.await`. What follows the await runs when the answer \
+                             does, beside the window rather than on it, so there is no cell \
+                             there to read -- read it before the await, or do the reading \
+                             once the answer is bound.",
+                            held.name
+                        ),
+                    )
+                    .resolve(source));
+                }
+            }
+        }
+
         for held in &promoted {
             for region in &remote_regions {
                 let (reads, _) = uses_in(source, &held.name, *region, true);
@@ -555,18 +578,6 @@ fn awaited_of(
         let Some(semicolon) = statement_end(source, span.start, body.end) else {
             continue;
         };
-        // The `.await` has to be the last thing the value does. Anything
-        // after it -- `f().await.len()` -- is work on the answer, and
-        // the answer is not there yet on the render that asks.
-        let value_end = skip_spaces_back(bytes, semicolon);
-        if !source[..value_end].ends_with("await") {
-            continue;
-        }
-        let word = value_end - "await".len();
-        let dot = skip_spaces_back(bytes, word);
-        if dot == 0 || bytes[dot - 1] != b'.' {
-            continue;
-        }
         let Some((first, after_first)) = word_after(source, span.end) else {
             continue;
         };
@@ -582,6 +593,13 @@ fn awaited_of(
             continue;
         }
         let Some(equals) = assignment_in(source, after, semicolon) else {
+            continue;
+        };
+        // The `.await` of the value itself, and not one buried in an
+        // argument: `f(g().await)` waits for `g` before `f` is even
+        // called, which is a wait on the render thread whatever is done
+        // with it afterwards.
+        let Some(dot) = await_at(source, equals + 1, semicolon) else {
             continue;
         };
         // What sits between the name and the `=` is either nothing or
@@ -600,7 +618,7 @@ fn awaited_of(
                 end: equals + 1,
             },
             suffix: Span {
-                start: dot - 1,
+                start: dot,
                 end: semicolon + 1,
             },
             name,
@@ -619,13 +637,45 @@ fn awaited_of(
         }
         return Err(CompileError::flagged(
             span.start,
-            "this `.await` would stop the render. rustx takes `let answer = work().await;`              off the render thread by itself -- the first frame draws nothing and the frame              after the answer lands draws it -- but it has to be the whole value of a `let`.              Anything else belongs in an `async { … }` block, whose writes are posted back              to the page."
+            "this `.await` would stop the render. rustx takes `let answer = work().await;`              off the render thread by itself -- the first frame draws nothing and the frame              after the answer lands draws it -- but the await has to be the value's own,              not one inside an argument or a closure. Anything else belongs in an              `async { … }` block, whose writes are posted back to the page."
                 .to_string(),
         )
         .resolve(source));
     }
 
     Ok(found)
+}
+
+/// The `.` of the `.await` this value waits on, at its own depth.
+///
+/// Its own depth, because the answer has to be the whole value: an
+/// `.await` inside an argument or inside a closure is a wait somewhere
+/// this cannot move.
+fn await_at(source: &str, from: usize, limit: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut index = from;
+    let mut depth = 0_i32;
+    while index < limit.min(bytes.len()) {
+        match bytes[index] {
+            b'(' | b'[' => depth += 1,
+            b')' | b']' => depth -= 1,
+            b'{' => index = skip_braces(source, index).ok()? - 1,
+            b'"' => index = crate::scan::skip_string(source, index).ok()? - 1,
+            b'.' if depth == 0 => {
+                let word = skip_spaces(bytes, index + 1);
+                if source[word..].starts_with("await")
+                    && !bytes
+                        .get(word + "await".len())
+                        .is_some_and(|byte| is_word_byte(*byte))
+                {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    None
 }
 
 /// The `=` of an assignment between `from` and `limit`, skipping `==`.
@@ -1226,7 +1276,9 @@ fn skip_trivia_back(source: &str, from: usize) -> usize {
         if index == 0 {
             return 0;
         }
-        if index >= 2 && &source[index - 2..index] == "*/" {
+        // Bytes, and the text may be French: a boundary two bytes back
+        // can sit inside a character, and slicing there is a panic.
+        if index >= 2 && source.is_char_boundary(index - 2) && &source[index - 2..index] == "*/" {
             match source[..index - 2].rfind("/*") {
                 Some(open) => {
                     index = skip_spaces_back(bytes, open);
