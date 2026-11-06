@@ -232,28 +232,39 @@ fn call_edit(source: &str, component: &Component, call: &crate::promote::Call) -
         format!("rustx_dom::state::Slot {{ file: file!(), line: {line}u32, column: {column}u32 }}");
     // A shared value written inside these arguments is reached by its
     // name, not by a handle: this code runs later, and on another
-    // thread for a task, where a handle could not go.
-    let patched = patched_arguments(source, component, call);
-    let arguments = patched.trim();
+    // thread for a task, where a handle could not go. A future does not
+    // want this rewrite -- it builds its own, through handles -- so the
+    // pass is asked for, not done in advance.
+    let patched = || patched_arguments(source, component, call);
 
     let text = match call.kind {
         CallKind::Keep => {
-            format!("rustx_dom::state::keep_at({slot}, || {arguments})")
+            let patched = patched();
+            format!("rustx_dom::state::keep_at({slot}, || {})", patched.trim())
         }
         // A closure is a thread, an `async` block is a future, and the
         // first word of the argument is what says which. A future needs
         // its handles built before it, so it has a shape of its own.
-        CallKind::Task if crate::promote::is_a_future(arguments) => {
+        CallKind::Task
+            if crate::promote::is_a_future(
+                source[call.arguments.start..call.arguments.end].trim(),
+            ) =>
+        {
             future_task(source, component, call, &slot)
         }
         // A bare `async { … }`: already a future, by the only word that
         // could have made it one.
         CallKind::Async => future_task(source, component, call, &slot),
         CallKind::Task => {
-            format!("rustx_dom::state::keep_at({slot}, || rustx_engine::task::spawn({arguments}))")
+            let patched = patched();
+            format!(
+                "rustx_dom::state::keep_at({slot}, || rustx_engine::task::spawn({}))",
+                patched.trim()
+            )
         }
         CallKind::Effect => {
-            let (watched, run) = split_first_argument(arguments);
+            let patched = patched();
+            let (watched, run) = split_first_argument(patched.trim());
             format!("rustx_dom::state::effect_at({slot}, {watched}, {run})")
         }
     };
