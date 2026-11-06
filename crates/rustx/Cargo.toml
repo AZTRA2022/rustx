@@ -22,7 +22,7 @@ rustx-os = { path = "../rustx-os", version = "0.1.0" }
 # Reexporte, pas utilise : une page ecrit `rustx::time::sleep` et ne
 # nomme jamais tokio dans son `Cargo.toml`. C'est le meme runtime que
 # celui de `rustx-engine`, par la meme version du workspace.
-tokio = { version = "1.47", default-features = false, features = ["rt-multi-thread", "time", "net"] }
+tokio = { version = "1.47", default-features = false, features = ["rt-multi-thread", "time", "net", "sync", "macros"] }
 
 [dev-dependencies]
 # Pour lire les exemples du README et les compiler. Un exemple faux dans

@@ -129,8 +129,10 @@ fn root_export_of(manifest: &str) -> Option<String> {
 fn value_after<'a>(text: &'a str, key: &str) -> Option<&'a str> {
     let at = text.find(key)? + key.len();
     let rest = text[at..].trim_start().strip_prefix(':')?.trim_start();
-    if rest.starts_with('"') {
-        let end = rest[1..].find('"')? + 2;
+    if let Some(inside) = rest.strip_prefix('"') {
+        // The closing quote, counted from the start of `rest` so that
+        // what comes back includes both quotes.
+        let end = inside.find('"')? + 2;
         return Some(&rest[..end]);
     }
     if rest.starts_with('{') {

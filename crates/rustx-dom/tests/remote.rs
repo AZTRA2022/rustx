@@ -190,3 +190,108 @@ fn a_remote_write_to_a_shared_value_lands_on_the_next_frame() {
         "the component that read it was not asked to render again"
     );
 }
+
+// --- What the final review of 2026-11-06 found ---------------------
+
+#[test]
+fn a_write_posted_before_the_token_was_dropped_is_still_refused() {
+    // The plan's Global Constraint: "laisser tomber le `Task` abandonne
+    // le `Future` et refuse ce qu'il avait encore a dire." Abandoning
+    // the future stops it making new writes; it says nothing about the
+    // ones already in the mailbox. For a component cell that was masked
+    // -- the instance is gone, so the write is dropped on arrival -- but
+    // a shared value is found by a process-global name, so it landed.
+    open_remote();
+    let id = InstanceId(7_010);
+    let _scope = Scope::enter(id);
+    let rows = rustx_dom::store::shared("refused-rows", Vec::<u32>::new);
+    let _ = rows.get();
+
+    let cancel = rustx_dom::state::Cancel::new();
+    let remote = rows.remote_until(&cancel);
+    remote.update(|held| held.push(1));
+
+    // The component left and its token went with it, while that write
+    // was still waiting for a frame.
+    cancel.cancel();
+    let before = remote_refused();
+    apply_remote();
+
+    assert!(
+        rows.get().is_empty(),
+        "a cancelled task's write was applied: {:?}",
+        rows.get()
+    );
+    assert_eq!(
+        remote_refused(),
+        before + 1,
+        "the write was dropped without being counted as refused"
+    );
+}
+
+#[test]
+fn a_remote_with_no_token_keeps_writing() {
+    // `State::remote()` and `Shared::remote()` have no task behind
+    // them, so nothing cancels them. Only the compiler's
+    // `task(async …)` binds a token.
+    open_remote();
+    let id = InstanceId(7_011);
+    let slot = here!();
+    let _scope = Scope::enter(id);
+    let counter = cell(slot, || 0_i32);
+    counter.remote().update(|value| *value += 2);
+    apply_remote();
+
+    assert_eq!(counter.get(), 2);
+}
+
+#[test]
+fn a_refusal_is_counted_where_the_frame_can_read_it() {
+    // The counter used to be a thread-local incremented by the posting
+    // thread, which in a window is always a runtime worker -- so the
+    // render thread, the only one that ever asks, read zero however
+    // many writes had been refused.
+    open_remote();
+    let id = InstanceId(7_012);
+    let slot = here!();
+    let _scope = Scope::enter(id);
+    let counter = cell(slot, || 0_i32);
+    let remote = counter.remote();
+    close_remote();
+    let before = remote_refused();
+
+    std::thread::spawn(move || remote.update(|value| *value += 1))
+        .join()
+        .expect("the writing thread");
+
+    assert_eq!(
+        remote_refused(),
+        before + 1,
+        "a write refused on another thread was invisible to this one"
+    );
+    open_remote();
+}
+
+#[test]
+fn reopening_the_mailbox_keeps_the_handles_already_given_out() {
+    // `open_remote` used to install a fresh `Arc`, so every `Remote`
+    // handed out before it kept the old one and wrote into a vector
+    // nobody drained -- neither applied nor refused.
+    open_remote();
+    let id = InstanceId(7_013);
+    let slot = here!();
+    let _scope = Scope::enter(id);
+    let counter = cell(slot, || 0_i32);
+    let remote = counter.remote();
+
+    close_remote();
+    open_remote();
+    remote.update(|value| *value += 9);
+    apply_remote();
+
+    assert_eq!(
+        counter.get(),
+        9,
+        "a handle given out before the mailbox reopened was orphaned"
+    );
+}

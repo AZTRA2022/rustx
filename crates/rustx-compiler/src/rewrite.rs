@@ -183,7 +183,7 @@ fn call_edit(source: &str, component: &Component, call: &crate::promote::Call) -
         // A closure is a thread, an `async` block is a future, and the
         // first word of the argument is what says which. A future needs
         // its handles built before it, so it has a shape of its own.
-        CallKind::Task if is_a_future(arguments) => future_task(source, component, call, &slot),
+        CallKind::Task if crate::promote::is_a_future(arguments) => future_task(source, component, call, &slot),
         CallKind::Task => {
             format!("rustx_dom::state::keep_at({slot}, || rustx_engine::task::spawn({arguments}))")
         }
@@ -221,7 +221,8 @@ fn future_task(source: &str, component: &Component, call: &crate::promote::Call,
     let mut edits = Vec::new();
 
     for promoted in &component.promoted {
-        let (_, mutations) = crate::promote::uses_in(source, &promoted.name, call.arguments);
+        let (_, mutations) =
+            crate::promote::uses_in(source, &promoted.name, call.arguments, true);
         if mutations.is_empty() {
             continue;
         }
@@ -232,10 +233,11 @@ fn future_task(source: &str, component: &Component, call: &crate::promote::Call,
         if promoted.shared {
             let initializer = &source[promoted.initializer.start..promoted.initializer.end];
             preamble.push_str(&format!(
-                "let {name} = rustx_dom::store::shared(\"{name}\", || {initializer}).remote(); "
+                "let {name} = rustx_dom::store::shared(\"{name}\", || {initializer})\
+                 .remote_until(&__cancel); "
             ));
         } else {
-            preamble.push_str(&format!("let {name} = {name}.remote(); "));
+            preamble.push_str(&format!("let {name} = {name}.remote_until(&__cancel); "));
         }
         for mutation in &mutations {
             edits.push(rewrite_mutation_for(
@@ -251,28 +253,97 @@ fn future_task(source: &str, component: &Component, call: &crate::promote::Call,
 
     let arguments = apply_relative(text, call.arguments.start, edits);
     let arguments = arguments.trim();
+    // The token every handle in the preamble shares with the `Task`.
+    // Dropping the token cancels it, so a write this future had already
+    // posted is refused rather than applied to the page that came next
+    // -- the only thing that stops it for a value found by a name,
+    // because a name outlives every page.
     format!(
-        "rustx_dom::state::keep_at({slot}, || {{ {preamble}\
-         rustx_engine::task::spawn_future({arguments}) }})"
+        "rustx_dom::state::keep_at({slot}, || {{ \
+         let __cancel = rustx_dom::state::Cancel::new(); {preamble}\
+         rustx_engine::task::spawn_future_until(__cancel, {arguments}) }})"
     )
 }
 
-/// Is this `task(…)` argument a `Future` rather than a closure?
+
+/// The arguments of a method call, as the text between its parentheses
+/// split at the commas that belong to it.
 ///
-/// Read off the first word, because that is the whole difference a
-/// developer writes: `task(|alive| …)` is a thread that looks at a flag,
-/// `task(async move { … })` is a future that is abandoned where it
-/// waits. Nothing else in the argument is examined — what follows is
-/// Rust, and Rust is not this function's business.
-fn is_a_future(arguments: &str) -> bool {
-    let Some(rest) = arguments.strip_prefix("async") else {
-        return false;
-    };
-    // `asyncwork()` is a name that begins with those five letters and is
-    // not a block.
-    !rest.starts_with(|letter: char| letter.is_alphanumeric() || letter == '_')
+/// Depth-aware, so `insert(k, f(a, b))` is two arguments and not three,
+/// and quote-aware, so a comma inside a string is not a separator.
+fn arguments_of(call: &str) -> Option<(&str, Vec<&str>, &str)> {
+    let open = call.find('(')?;
+    let bytes = call.as_bytes();
+    let mut depth = 0usize;
+    let mut inside: Option<u8> = None;
+    let mut escaped = false;
+    let mut close = None;
+    let mut commas = Vec::new();
+    for (index, byte) in bytes.iter().enumerate().skip(open) {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match (inside, byte) {
+            (Some(_), b'\\') => escaped = true,
+            (Some(quote), byte) if *byte == quote => inside = None,
+            (Some(_), _) => {}
+            (None, b'"') => inside = Some(b'"'),
+            (None, b'\'') => inside = Some(b'\''),
+            (None, b'(' | b'[' | b'{') => depth += 1,
+            (None, b')' | b']' | b'}') => {
+                depth -= 1;
+                if depth == 0 {
+                    close = Some(index);
+                    break;
+                }
+            }
+            (None, b',') if depth == 1 => commas.push(index),
+            (None, _) => {}
+        }
+    }
+    let close = close?;
+    let mut arguments = Vec::new();
+    let mut from = open + 1;
+    for comma in commas {
+        arguments.push(call[from..comma].trim());
+        from = comma + 1;
+    }
+    let last = call[from..close].trim();
+    if !last.is_empty() || !arguments.is_empty() {
+        arguments.push(last);
+    }
+    Some((&call[..open], arguments, &call[close + 1..]))
 }
 
+/// A method write whose arguments are evaluated before the closure.
+///
+/// `rows.push(r.clone())` becomes
+/// `{ let __a0 = r.clone(); rows.update(move |__v| __v.push(__a0)) }`
+/// rather than `rows.update(move |__v| __v.push(r.clone()))`. Both are
+/// `Send + 'static`, and only the first leaves `r` usable on the line
+/// after: a `move` closure takes ownership of everything the expression
+/// mentions, and the error it produced named a generated file for code
+/// that would have compiled against a plain local.
+///
+/// One line, because plan 2's position map rests on the line count — a
+/// braced block keeps it.
+fn moved_method(name: &str, call: &str) -> Option<String> {
+    let (before, arguments, after) = arguments_of(call)?;
+    let mut bound = String::new();
+    let mut passed = Vec::new();
+    for (at, argument) in arguments.iter().enumerate() {
+        if argument.is_empty() {
+            continue;
+        }
+        bound.push_str(&format!("let __a{at} = {argument}; "));
+        passed.push(format!("__a{at}"));
+    }
+    Some(format!(
+        "{{ {bound}{name}.update(move |__v| __v{before}({}){after}) }}",
+        passed.join(", ")
+    ))
+}
 /// `text`, with as many trailing newlines as `original` has.
 fn pad_to(text: String, original: &str) -> String {
     let wanted = original.matches('\n').count();
@@ -432,15 +503,6 @@ enum Owning {
     Moved,
 }
 
-impl Owning {
-    fn keyword(self) -> &'static str {
-        match self {
-            Owning::Borrowed => "",
-            Owning::Moved => "move ",
-        }
-    }
-}
-
 fn rewrite_mutation_for(
     source: &str,
     name: &str,
@@ -451,7 +513,6 @@ fn rewrite_mutation_for(
 ) -> Edit {
     let bytes = source.as_bytes();
     let after = skip_spaces(bytes, mutation.span.end);
-    let owned = owning.keyword();
 
     match mutation.kind {
         MutationKind::Assign => {
@@ -473,10 +534,18 @@ fn rewrite_mutation_for(
                     start: mutation.span.start,
                     end: value.end,
                 },
-                text: format!(
-                    "{name}.update({owned}|__v| *__v {operator} {})",
-                    read_patched(source, value, reads)
-                ),
+                text: match owning {
+                    Owning::Borrowed => format!(
+                        "{name}.update(|__v| *__v {operator} {})",
+                        read_patched(source, value, reads)
+                    ),
+                    // The right-hand side first, so the closure owns a
+                    // binding and not everything the expression named.
+                    Owning::Moved => format!(
+                        "{{ let __a0 = {}; {name}.update(move |__v| *__v {operator} __a0) }}",
+                        read_patched(source, value, reads)
+                    ),
+                },
             }
         }
         MutationKind::Method => {
@@ -486,10 +555,17 @@ fn rewrite_mutation_for(
                     start: mutation.span.start,
                     end: call.end,
                 },
-                text: format!(
-                    "{name}.update({owned}|__v| __v{})",
-                    read_patched(source, call, reads)
-                ),
+                text: {
+                    let patched = read_patched(source, call, reads);
+                    match owning {
+                        Owning::Borrowed => format!("{name}.update(|__v| __v{patched})"),
+                        Owning::Moved => moved_method(name, &patched).unwrap_or_else(|| {
+                            // Not a call this can take apart — then the
+                            // blunt form, which is what it was before.
+                            format!("{name}.update(move |__v| __v{patched})")
+                        }),
+                    }
+                },
             }
         }
     }
@@ -624,7 +700,8 @@ fn patched_arguments(source: &str, component: &Component, call: &crate::promote:
             "rustx_dom::store::shared(\"{name}\", || {initializer})",
             name = promoted.name
         );
-        let (reads, mutations) = crate::promote::uses_in(source, &promoted.name, call.arguments);
+        let (reads, mutations) =
+            crate::promote::uses_in(source, &promoted.name, call.arguments, false);
 
         let read_edits: Vec<Edit> = reads
             .iter()

@@ -158,12 +158,7 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
         let remote_regions: Vec<Span> = calls
             .iter()
             .filter(|call| call.kind == CallKind::Task)
-            .filter(|call| {
-                let arguments = source[call.arguments.start..call.arguments.end].trim_start();
-                arguments.strip_prefix("async").is_some_and(|rest| {
-                    !rest.starts_with(|letter: char| letter.is_alphanumeric() || letter == '_')
-                })
-            })
+            .filter(|call| is_a_future(&source[call.arguments.start..call.arguments.end]))
             .map(|call| call.arguments)
             .collect();
         let writes_from = |name: &str| -> Vec<Mutation> {
@@ -306,7 +301,7 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
         // it was written, with the way out.
         for held in &promoted {
             for region in &remote_regions {
-                let (reads, _) = uses_in(source, &held.name, *region);
+                let (reads, _) = uses_in(source, &held.name, *region, true);
                 if let Some(read) = reads.first() {
                     return Err(CompileError::flagged(
                         read.start,
@@ -1207,8 +1202,37 @@ pub fn shared_of(source: &str) -> Vec<SharedDeclaration> {
 /// For the arguments of `keep`, `effect` and `task`, which are code
 /// that runs later — on the next render, or on another thread — and so
 /// cannot hold a handle the way a handler can.
-pub fn uses_in(source: &str, name: &str, region: Span) -> (Vec<Span>, Vec<Mutation>) {
-    let mutations = mutations_in(source, name, region, &[region], false);
+/// Is this `task(…)` argument a `Future` rather than a closure?
+///
+/// Read off the first word, because that is the whole difference a
+/// developer writes. One definition, called by the promotion that
+/// decides a region is remote and by the emission that spawns it: two
+/// copies one edit apart would let promotion treat a region as remote
+/// while emission spawned a thread, which is a `Send` error about a
+/// file nobody wrote.
+pub fn is_a_future(arguments: &str) -> bool {
+    let Some(rest) = arguments.trim_start().strip_prefix("async") else {
+        return false;
+    };
+    // `asyncwork()` is a name that begins with those five letters and is
+    // not a block.
+    !rest.starts_with(|letter: char| letter.is_alphanumeric() || letter == '_')
+}
+
+/// Every use of `name` inside `region`, split into reads and writes.
+///
+/// `tail_discarded` says whether an expression that ends the region
+/// with no semicolon is a statement. For an `async` block it is:
+/// `spawn_future` wants `Output = ()`, so the tail value is thrown away
+/// by construction, and `rows.push(1)` with no semicolon is a write. For
+/// a `keep` argument it is not: the tail *is* the value.
+pub fn uses_in(
+    source: &str,
+    name: &str,
+    region: Span,
+    tail_discarded: bool,
+) -> (Vec<Span>, Vec<Mutation>) {
+    let mutations = mutations_in(source, name, region, &[region], tail_discarded);
     let reads = occurrences(source, name, &[region])
         .into_iter()
         .filter(|span| !mutations.iter().any(|mutation| mutation.span == *span))

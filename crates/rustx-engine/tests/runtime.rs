@@ -137,3 +137,50 @@ fn a_write_posted_from_a_future_lands_on_a_frame() {
         "the write landed and nothing asked for a render"
     );
 }
+
+#[test]
+fn dropping_the_token_refuses_what_the_future_had_already_posted() {
+    // Abandoning a future stops it making new writes. What the final
+    // review found is that it said nothing about the ones already in
+    // the mailbox -- and a value found by a name outlives the page, so
+    // they landed on the next one.
+    use rustx_dom::state::{InstanceId, Scope, open_remote, remote_refused};
+
+    open_remote();
+    let id = InstanceId(8_010);
+    let _scope = Scope::enter(id);
+    let rows = rustx_dom::store::shared("engine-refused-rows", Vec::<u32>::new);
+    let _ = rows.get();
+
+    let posted = Arc::new(AtomicBool::new(false));
+    let said = Arc::clone(&posted);
+    let cancel = rustx_dom::state::Cancel::new();
+    let remote = rows.remote_until(&cancel);
+    let task = task::spawn_future_until(cancel, async move {
+        remote.update(|held| held.push(1));
+        said.store(true, Ordering::Release);
+        // Long enough that the token is dropped while this is parked.
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    });
+
+    // The write is posted and waiting for a frame; the component now
+    // leaves, which is what drops the token.
+    assert!(
+        within(PATIENCE, || posted.load(Ordering::Acquire)),
+        "the future never posted its write"
+    );
+    let before = remote_refused();
+    drop(task);
+
+    rustx_engine::frame::tick();
+    assert!(
+        rows.get().is_empty(),
+        "a cancelled task's write was applied: {:?}",
+        rows.get()
+    );
+    assert_eq!(
+        remote_refused(),
+        before + 1,
+        "the write was not counted as refused"
+    );
+}

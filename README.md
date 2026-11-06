@@ -648,9 +648,11 @@ Les conséquences se lisent, et ce sont les mêmes que pour un fil :
   qu'elles salissent la même valeur une fois. Il n'y a ni *debounce* à
   régler ni limitation à apprendre ;
 - une écriture postée **après la fermeture de la fenêtre** est refusée,
-  et une écriture qui arrive pour un composant **déjà parti** est jetée.
-  Ni l'une ni l'autre ne panique, et aucune des deux n'est une faute du
-  développeur ;
+  et une écriture qu'une tâche avait postée **avant de s'en aller** l'est
+  aussi — le jeton que `task` rend la refuse, ce qui compte surtout pour
+  un `let mut` du haut de la page : un nom survit à l'écran, donc sans ça
+  l'écriture d'une page partie atterrissait sur la suivante. Rien ne
+  panique, et aucun des deux cas n'est une faute du développeur ;
 - un `let mut` écrit depuis un bloc `async` est un état, exactement comme
   un `let mut` écrit depuis un gestionnaire. La règle de promotion ne
   change pas.

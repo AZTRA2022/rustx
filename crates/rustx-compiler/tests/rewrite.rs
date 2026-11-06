@@ -248,7 +248,7 @@ fn a_write_in_an_async_block_goes_through_the_remote() {
     let rust = rewrite_one(
         "fn C() -> Element {\n    let mut n = 0;\n    task(async move { n += 1; });\n    return <p>{n}</p>;\n}",
     );
-    assert!(rust.contains("n.remote()"), "got {rust}");
+    assert!(rust.contains("n.remote_until(&__cancel)"), "got {rust}");
     assert!(rust.contains("spawn_future"), "got {rust}");
     assert!(
         rust.contains("n.update("),
@@ -268,7 +268,7 @@ fn a_shared_value_written_in_an_async_block_is_bound_before_the_block() {
         "let mut rows = 0;\n\nfn C() -> Element {\n    task(async move { rows += 1; });\n    return <p>{rows}</p>;\n}",
     );
     assert!(
-        rust.contains("rustx_dom::store::shared(\"rows\", || 0).remote()"),
+        rust.contains("rustx_dom::store::shared(\"rows\", || 0).remote_until(&__cancel)"),
         "got {rust}"
     );
     assert!(rust.contains("rows.update("), "got {rust}");
@@ -300,4 +300,50 @@ fn an_async_task_that_writes_keeps_the_line_count() {
         source.matches('\n').count(),
         "got {rust}"
     );
+}
+
+#[test]
+fn a_write_with_no_semicolon_in_an_async_block_is_a_write_and_not_a_read() {
+    // `uses_in` hardcoded `tail_discarded = false`, so a method write
+    // that ends the block without a semicolon was classified as a read
+    // and the file was refused -- telling the developer to move a read
+    // that does not exist. `spawn_future` wants `Output = ()`, so an
+    // async block's tail value is discarded by construction.
+    let rust = rewrite_one(
+        "let mut rows = Vec::<u32>::new();\n\nfn C() -> Element {\n    task(async move { rows.push(1) });\n    return <p>{rows.len()}</p>;\n}",
+    );
+    assert!(rust.contains("rows.update("), "got {rust}");
+}
+
+#[test]
+fn a_write_in_an_async_block_leaves_what_it_used_borrowable_afterwards() {
+    // `move |__v| __v.push(reponse)` took ownership of everything the
+    // expression mentioned, so a line after it that used the same value
+    // was a use-after-move -- reported against a generated file, for
+    // code that would have compiled had the target been a plain local.
+    // The value is bound first and only the binding is moved.
+    let rust = rewrite_one(
+        "let mut lignes = Vec::<String>::new();\n\nfn C() -> Element {\n    task(async move { let r = charger().await; lignes.push(r.clone()); journal(&r); });\n    return <p>{lignes.len()}</p>;\n}",
+    );
+    assert!(
+        rust.contains("let __a0 = r.clone();"),
+        "the argument was not bound before the closure: {rust}"
+    );
+    assert!(
+        rust.contains("__v.push(__a0)"),
+        "the closure did not take the binding: {rust}"
+    );
+    assert!(rust.contains("journal(&r)"), "got {rust}");
+}
+
+#[test]
+fn an_async_task_binds_a_token_its_writes_are_refused_by() {
+    // Abandoning a future stops it making new writes. The ones already
+    // posted are refused by a token the handles share with the `Task`.
+    let rust = rewrite_one(
+        "let mut rows = Vec::<u32>::new();\n\nfn C() -> Element {\n    task(async move { rows.push(1); });\n    return <p>{rows.len()}</p>;\n}",
+    );
+    assert!(rust.contains("Cancel::new()"), "got {rust}");
+    assert!(rust.contains(".remote_until(&"), "got {rust}");
+    assert!(rust.contains("spawn_future_until("), "got {rust}");
 }

@@ -250,7 +250,16 @@ impl<T: 'static> Shared<T> {
     /// value at its top. Writing through it posts on the mailbox of the
     /// thread this call is made on, and the frame applies it.
     pub fn remote(&self) -> crate::state::Remote<T> {
-        crate::state::remote_for_shared(self.name)
+        crate::state::remote_for_shared(self.name, None)
+    }
+
+    /// The same, bound to a task: when `until` is cancelled, what this
+    /// handle had already posted is refused instead of applied. A value
+    /// found by a name outlives every page, so this is the only thing
+    /// that stops a departed component's future writing into the next
+    /// one.
+    pub fn remote_until(&self, until: &crate::state::Cancel) -> crate::state::Remote<T> {
+        crate::state::remote_for_shared(self.name, Some(until.clone()))
     }
 
     /// Change the value in place.
@@ -346,6 +355,10 @@ pub(crate) fn write_to_shared<T: 'static>(name: &'static str, change: impl FnOnc
     };
     change(&mut held.value.borrow_mut());
     soil(&held);
-    crate::carried::keep();
+    // Not `carried::keep()` here: that is a synchronous write of the
+    // whole carried-state file, and a thousand writes from an `async`
+    // loop are a thousand jobs in one frame. The frame persists once,
+    // after it has drained them all.
+    crate::state::carried_is_stale();
     true
 }

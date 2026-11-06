@@ -69,6 +69,10 @@ pub struct Task {
     /// asked to stop and notices; a future is abandoned where it waits,
     /// because an `await` has no flag to look at.
     abandon: Option<tokio::task::AbortHandle>,
+    /// What the writes this task posted are bound to. Abandoning the
+    /// future stops it making new ones; this is what refuses the ones
+    /// already waiting for a frame.
+    until: Option<rustx_dom::state::Cancel>,
 }
 
 impl Task {
@@ -84,6 +88,9 @@ impl Task {
 impl Drop for Task {
     fn drop(&mut self) {
         self.shared.alive.store(false, Ordering::Release);
+        if let Some(until) = self.until.take() {
+            until.cancel();
+        }
         if let Some(abandon) = self.abandon.take() {
             abandon.abort();
         }
@@ -115,6 +122,7 @@ pub fn spawn(work: impl FnOnce(Alive) + Send + 'static) -> Task {
     Task {
         shared,
         abandon: None,
+        until: None,
     }
 }
 
@@ -129,6 +137,28 @@ pub fn spawn(work: impl FnOnce(Alive) + Send + 'static) -> Task {
 /// The runtime starts here, on the first future of the process, and not
 /// before — an application that writes no `async` pays for no thread.
 pub fn spawn_future(future: impl Future<Output = ()> + Send + 'static) -> Task {
+    spawn_future_for(future, None)
+}
+
+/// The same, with the token the writes of this future are bound to.
+///
+/// What the compiler emits for `task(async { … })`: the handles are
+/// built before the block, on the render thread, and they hold the other
+/// end of this token. Dropping the `Task` cancels it, so a write that
+/// was already in the mailbox is refused rather than applied — which
+/// for a value found by a name is the difference between landing on the
+/// next page and not.
+pub fn spawn_future_until(
+    until: rustx_dom::state::Cancel,
+    future: impl Future<Output = ()> + Send + 'static,
+) -> Task {
+    spawn_future_for(future, Some(until))
+}
+
+fn spawn_future_for(
+    future: impl Future<Output = ()> + Send + 'static,
+    until: Option<rustx_dom::state::Cancel>,
+) -> Task {
     let shared = Arc::new(Shared {
         alive: AtomicBool::new(true),
         running: AtomicBool::new(true),
@@ -156,6 +186,7 @@ pub fn spawn_future(future: impl Future<Output = ()> + Send + 'static) -> Task {
     Task {
         shared,
         abandon: Some(abandon),
+        until,
     }
 }
 

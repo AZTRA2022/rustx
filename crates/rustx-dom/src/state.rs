@@ -857,23 +857,55 @@ type RemoteJob = Box<dyn FnOnce() + Send>;
 /// still producing can be told to stop.
 struct Mailbox {
     jobs: std::sync::Mutex<Option<Vec<RemoteJob>>>,
+    /// Writes this mailbox would not take, counted here rather than in a
+    /// thread-local: posting happens on a runtime worker and asking
+    /// happens on the render thread, so a per-thread count was always
+    /// zero to the only thread that ever asked.
+    refused: std::sync::atomic::AtomicU64,
 }
 
 impl Mailbox {
     fn new() -> Self {
         Self {
             jobs: std::sync::Mutex::new(Some(Vec::new())),
+            refused: std::sync::atomic::AtomicU64::new(0),
         }
+    }
+}
+
+/// A token that says whether the work behind a handle is still wanted.
+///
+/// `Clone` and `Send`, and it carries one bit. The engine's `Task` holds
+/// one and drops it when the component goes; every [`Remote`] built for
+/// that task holds the other end. Abandoning a future stops it making
+/// new writes, and this is what refuses the ones it had already posted
+/// — which for a value found by name is the difference between a write
+/// that lands on the next page and one that does not.
+#[derive(Clone, Default)]
+pub struct Cancel(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl Cancel {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The work is no longer wanted.
+    pub fn cancel(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Acquire)
     }
 }
 
 thread_local! {
     /// This thread's mailbox, made on the first `remote()` it is asked for.
     static MAILBOX: RefCell<Option<std::sync::Arc<Mailbox>>> = const { RefCell::new(None) };
-    /// Writes refused because the mailbox was closed.
-    static REFUSED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// Writes that arrived for a component that had already gone.
     static DROPPED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Has a remote write changed a value `rustx dev` carries over?
+    static CARRIED_STALE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 fn mailbox() -> std::sync::Arc<Mailbox> {
@@ -890,8 +922,18 @@ fn mailbox() -> std::sync::Arc<Mailbox> {
 /// test. A thread that has never closed its mailbox needs no call: the
 /// first `remote()` opens one.
 pub fn open_remote() {
-    let fresh = std::sync::Arc::new(Mailbox::new());
-    MAILBOX.with(|held| *held.borrow_mut() = Some(fresh));
+    // In place, not a fresh mailbox: every handle already given out
+    // holds an `Arc` to this one, and replacing it would orphan them —
+    // their writes would go into a vector nobody drains, neither
+    // applied nor refused.
+    let held = mailbox();
+    let mut jobs = held
+        .jobs
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if jobs.is_none() {
+        *jobs = Some(Vec::new());
+    }
 }
 
 /// Refuse remote writes on this thread from now on.
@@ -932,14 +974,28 @@ pub fn apply_remote() {
             eprintln!("rustx: a write posted from a future panicked; the frame carried on");
         }
     }
+    // Once for the whole drain. A thousand writes from an `async` loop
+    // cost one render, and they have to cost one file write too, or the
+    // frame they are coalesced into is the one that stalls.
+    if CARRIED_STALE.with(|stale| stale.replace(false)) {
+        crate::carried::keep();
+    }
 }
 
 /// How many writes this thread refused because its window had gone.
 pub fn remote_refused() -> u64 {
-    REFUSED.with(std::cell::Cell::get)
+    mailbox()
+        .refused
+        .load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// How many writes arrived for a component that had already left.
+/// Said by a remote write to a shared value: the file `rustx dev`
+/// carries over is out of date, and the frame will say so once.
+pub(crate) fn carried_is_stale() {
+    CARRIED_STALE.with(|stale| stale.set(true));
+}
+
 pub fn remote_dropped() -> u64 {
     DROPPED.with(std::cell::Cell::get)
 }
@@ -952,6 +1008,9 @@ pub fn remote_dropped() -> u64 {
 pub struct Remote<T> {
     which: Which,
     mailbox: std::sync::Arc<Mailbox>,
+    /// The task this handle belongs to, when it belongs to one. `None`
+    /// for a handle a page asked for itself, which nothing cancels.
+    until: Option<Cancel>,
     what: std::marker::PhantomData<fn(T)>,
 }
 
@@ -974,6 +1033,7 @@ impl<T> Clone for Remote<T> {
         Self {
             which: self.which.clone(),
             mailbox: std::sync::Arc::clone(&self.mailbox),
+            until: self.until.clone(),
             what: std::marker::PhantomData,
         }
     }
@@ -995,7 +1055,19 @@ impl<T: 'static> Remote<T> {
     /// [`remote_refused`] and [`remote_dropped`] say how often.
     pub fn update(&self, change: impl FnOnce(&mut T) + Send + 'static) {
         let which = self.which.clone();
+        let until = self.until.clone();
+        let mailbox = std::sync::Arc::clone(&self.mailbox);
         self.post(Box::new(move || {
+            // The task went while this was waiting for a frame. A
+            // component's cell would have been gone too, but a shared
+            // value is found by a name the next page also uses — so the
+            // refusal has to be said here, not left to a lookup.
+            if until.is_some_and(|until| until.is_cancelled()) {
+                mailbox
+                    .refused
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                return;
+            }
             let landed = match which {
                 Which::Cell(owner, key) => write_to_cell(owner, key, change),
                 Which::Shared(name) => crate::store::write_to_shared(name, change),
@@ -1022,7 +1094,11 @@ impl<T: 'static> Remote<T> {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         match jobs.as_mut() {
             Some(waiting) => waiting.push(job),
-            None => REFUSED.with(|refused| refused.set(refused.get() + 1)),
+            None => {
+                self.mailbox
+                    .refused
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
         }
     }
 }
@@ -1065,11 +1141,39 @@ impl<T: 'static> State<T> {
     /// the mailbox of the thread this call is made on — the render
     /// thread, because that is where a component renders.
     pub fn remote(&self) -> Remote<T> {
+        self.remote_for(None)
+    }
+
+    /// The same, bound to a task: when `until` is cancelled, what this
+    /// handle had already posted is refused instead of applied.
+    pub fn remote_until(&self, until: &Cancel) -> Remote<T> {
+        self.remote_for(Some(until.clone()))
+    }
+
+    fn remote_for(&self, until: Option<Cancel>) -> Remote<T> {
         Remote {
             which: Which::Cell(self.owner, self.key.clone()),
             mailbox: mailbox(),
+            until,
             what: std::marker::PhantomData,
         }
+    }
+}
+
+/// A remote on the value the page declared under `name`.
+///
+/// Built here rather than in `store`, because the mailbox and the job
+/// are this module's, and a shared value differs only in how the frame
+/// finds it.
+pub(crate) fn remote_for_shared<T: 'static>(
+    name: &'static str,
+    until: Option<Cancel>,
+) -> Remote<T> {
+    Remote {
+        which: Which::Shared(name),
+        mailbox: mailbox(),
+        until,
+        what: std::marker::PhantomData,
     }
 }
 
@@ -1118,18 +1222,5 @@ mod tests {
         drop_instance(InstanceId(20));
 
         assert_eq!(*seen.borrow(), vec![InstanceId(20), InstanceId(21)]);
-    }
-}
-
-/// A remote on the value the page declared under `name`.
-///
-/// Built here rather than in `store`, because the mailbox and the job
-/// are this module's, and a shared value differs only in how the frame
-/// finds it.
-pub(crate) fn remote_for_shared<T: 'static>(name: &'static str) -> Remote<T> {
-    Remote {
-        which: Which::Shared(name),
-        mailbox: mailbox(),
-        what: std::marker::PhantomData,
     }
 }

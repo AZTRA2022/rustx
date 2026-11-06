@@ -167,13 +167,15 @@ fn a_call_inside_a_nested_fn_is_left_alone() {
 #[test]
 fn a_task_whose_argument_is_an_async_block_spawns_a_future() {
     // The second form of `task`. What decides is the first word of the
-    // argument: a closure is a thread, `async` is a future.
+    // argument: a closure is a thread, `async` is a future. The token
+    // goes with it: dropping the `Task` has to refuse the writes the
+    // future had already posted, not only abandon the future.
     let rust = rewrite_one(
         "fn C() -> Element {\n    task(async move { work().await; });\n    return <p>ok</p>;\n}",
     );
     assert!(rust.contains("keep_at"), "got {rust}");
     assert!(
-        rust.contains("rustx_engine::task::spawn_future(async move { work().await; })"),
+        rust.contains("rustx_engine::task::spawn_future_until(__cancel, async move { work().await; })"),
         "got {rust}"
     );
 }

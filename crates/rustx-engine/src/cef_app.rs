@@ -113,11 +113,24 @@ wrap_render_process_handler! {
             // when the window closes (`LifeSpanHandler::on_before_close`),
             // not here. The DOM handles belong to the main frame's
             // document, so only the main frame's release makes them stale.
+            //
+            // The mailbox and the async runtime are a third thing again:
+            // they belong to **this thread**, and this is the only hook
+            // the render process gets. `on_before_close` runs in the
+            // browser process, where there is no runtime and where
+            // asking for the mailbox makes a new one just to close it —
+            // so leaving it to that call left a future writing into the
+            // page that came next, through a shared value found by its
+            // name. `frame::open` takes the mailbox again when the next
+            // context arrives, and the runtime starts again at the next
+            // future.
             contain("on_context_released", || {
                 let is_main = frame.is_some_and(|frame| frame.is_main() != 0);
                 if is_main {
                     crate::dom::context_released();
                     crate::renderer::forget_context();
+                    rustx_dom::state::close_remote();
+                    crate::runtime::stop();
                 }
             });
         }
