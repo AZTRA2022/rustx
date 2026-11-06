@@ -54,6 +54,7 @@ rendu ». Les trois étaient justes, et les numéros 14 à 17 en viennent.
 | 17 | bloquant | `rustx-compiler` | un commentaire français faisait paniquer le compilateur | corrigé |
 | 18 | important | `rustx-lsp` | l'éditeur n'offrait aucune prop des balises npm | corrigé |
 | 19 | important | extension VS Code | taper `>` ne fermait pas la balise | corrigé |
+| 20 | mineur | `rustx-compiler` | trois refus arrivaient avec des rafales d'espaces | corrigé |
 
 ---
 
@@ -459,6 +460,27 @@ onze corrections, deux régressions ont été attrapées par des tests que
 personne n'a écrits pour l'occasion.
 
 ---
+
+### 20. Trois refus arrivaient avec des rafales d'espaces
+
+Trouvé en relisant les lignes trop longues du n° 16. Un message de refus
+est lu par un développeur dans un terminal, et trois des miens étaient
+écrits sur une seule ligne de source de trois cents caractères :
+
+```
+this `.await` would stop the render. rustx takes `let answer =
+work().await;`              off the render thread by itself -- ...
+```
+
+Les continuations `\` que j'avais écrites avaient été mangées par
+l'outillage, donc l'indentation de la ligne suivante atterrissait **dans
+le message**. Les tests existants n'assertaient que de courts fragments
+— `error.message.contains("await")` — et ne pouvaient pas le voir.
+
+**Correction.** Les trois chaînes remises en continuations, et un test
+qui ne regarde pas un fragment mais la forme : aucun refus ne contient
+deux espaces d'affilée. C'est la seule assertion qui tient quel que soit
+le texte, donc elle vaut pour les refus qui n'existent pas encore.
 
 ## Ce que la chasse n'a pas corrigé, et pourquoi
 

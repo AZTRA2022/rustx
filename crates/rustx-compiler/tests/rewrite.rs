@@ -601,3 +601,26 @@ fn C() -> Element {
     let rust = rewrite_one(source);
     assert!(rust.contains("spawn_future_until("), "got {rust}");
 }
+
+#[test]
+fn a_refusal_is_one_sentence_of_prose_and_not_a_wall_of_spaces() {
+    // A refusal is read by a developer in a terminal. A line continued
+    // in the source carries a `\` or the indentation of the next line
+    // lands in the message itself, and what they read is
+    // "A value that            comes from a future".
+    let walls = [
+        "fn C() -> Element {\n    ping().await;\n    return <p>ok</p>;\n}",
+        "fn C() -> Element {
+    let mut compte = load().await;
+    return <p onClick={move |_| compte += 1}>{compte}</p>;
+}",
+    ];
+    for source in walls {
+        let error = rustx_compiler::transpile::transpile(source).expect_err("refused");
+        assert!(
+            !error.message.contains("  "),
+            "two spaces in a row: {:?}",
+            error.message
+        );
+    }
+}

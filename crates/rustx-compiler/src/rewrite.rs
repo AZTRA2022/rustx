@@ -207,7 +207,9 @@ fn awaited_edits(source: &str, waited: &crate::promote::Awaited) -> Vec<Edit> {
         .trim_end()
         .trim_end_matches(';');
     let opening = format!(
-        "let Some({bound}){annotation} = rustx_engine::task::awaited(         rustx_dom::state::cell({held}, || None), {asked},          || {{ let __work = "
+        "let Some({bound}){annotation} = rustx_engine::task::awaited( \
+         rustx_dom::state::cell({held}, || None), {asked}, \
+         || {{ let __work = "
     );
     let closing = format!(
         "; async move {{ __work.await{tail} }} }}) else {{ return Element::Empty; }};"
@@ -241,7 +243,9 @@ fn call_edit(source: &str, component: &Component, call: &crate::promote::Call) -
         // A closure is a thread, an `async` block is a future, and the
         // first word of the argument is what says which. A future needs
         // its handles built before it, so it has a shape of its own.
-        CallKind::Task if crate::promote::is_a_future(arguments) => future_task(source, component, call, &slot),
+        CallKind::Task if crate::promote::is_a_future(arguments) => {
+            future_task(source, component, call, &slot)
+        }
         // A bare `async { … }`: already a future, by the only word that
         // could have made it one.
         CallKind::Async => future_task(source, component, call, &slot),
@@ -276,7 +280,12 @@ fn call_edit(source: &str, component: &Component, call: &crate::promote::Call) -
 /// `n += 1` becomes `n.update(|__v| *__v += 1)`, which is the same shape
 /// a handler gets; `Remote` answers to the same two names as `State` on
 /// purpose, so the rewrite of a write does not have to know where it is.
-fn future_task(source: &str, component: &Component, call: &crate::promote::Call, slot: &str) -> String {
+fn future_task(
+    source: &str,
+    component: &Component,
+    call: &crate::promote::Call,
+    slot: &str,
+) -> String {
     let text = &source[call.arguments.start..call.arguments.end];
     let mut preamble = String::new();
     let mut edits = Vec::new();

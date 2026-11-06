@@ -227,7 +227,10 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
                 return Err(CompileError::flagged(
                     waited.prefix.start,
                     format!(
-                        "`{name}` is awaited and also written from a handler. A value that                          comes from a future is read again on every render, so it cannot be                          the thing a handler changes -- await it into a value of its own, and                          keep what the handler changes in a `let mut` beside it.",
+                        "`{name}` is awaited and also written from a handler. A value that \
+                         comes from a future is read again on every render, so it cannot be \
+                         the thing a handler changes -- await it into a value of its own, \
+                         and keep what the handler changes in a `let mut` beside it.",
                         name = waited.name
                     ),
                 )
@@ -379,7 +382,10 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
                     return Err(CompileError::flagged(
                         read.start,
                         format!(
-                            "`{}` is read inside a `task(async ...)`. A value lives on the thread that draws, and this block runs beside it, so there is nothing there to read -- read it before the block and move the copy in, or post the work back with a write.",
+                            "`{}` is read inside a `task(async ...)`. A value lives on the \
+                             thread that draws, and this block runs beside it, so there is \
+                             nothing there to read -- read it before the block and move the \
+                             copy in, or post the work back with a write.",
                             held.name
                         ),
                     )
@@ -637,7 +643,11 @@ fn awaited_of(
         }
         return Err(CompileError::flagged(
             span.start,
-            "this `.await` would stop the render. rustx takes `let answer = work().await;`              off the render thread by itself -- the first frame draws nothing and the frame              after the answer lands draws it -- but the await has to be the value's own,              not one inside an argument or a closure. Anything else belongs in an              `async { … }` block, whose writes are posted back to the page."
+            "this `.await` would stop the render. rustx takes `let answer = work().await;` \
+             off the render thread by itself -- the first frame draws nothing and the frame \
+             after the answer lands draws it -- but the await has to be the value's own, \
+             not one inside an argument or a closure. Anything else belongs in an `async { \
+             … }` block, whose writes are posted back to the page."
                 .to_string(),
         )
         .resolve(source));

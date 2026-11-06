@@ -681,7 +681,8 @@ mod tests {
         // `components/ui/button.tsx`, as `shadcn add button` writes it:
         // no props type anywhere, the names are in the parameter.
         let found = props_in(
-            "function Button({ className, variant, size, asChild = false, ...props }:              React.ComponentProps<\"button\">) {
+            "function Button({ className, variant, size, asChild = false, ...props }: \
+             React.ComponentProps<\"button\">) {
   return null;
 }",
             "Button",
@@ -723,7 +724,8 @@ mod tests {
 
     #[test]
     fn a_list_of_exports_is_read() {
-        let found = exported_in("declare const Dialog: unknown;\nexport { Dialog, DialogTrigger };");
+        let found =
+            exported_in("declare const Dialog: unknown;\nexport { Dialog, DialogTrigger };");
         assert_eq!(found, vec!["Dialog", "DialogTrigger"]);
     }
 
@@ -774,7 +776,10 @@ mod tests {
     #[test]
     fn a_types_field_is_read_out_of_a_manifest() {
         assert_eq!(
-            value_of("{\n  \"name\": \"recharts\",\n  \"types\": \"./types/index.d.ts\"\n}", "\"types\""),
+            value_of(
+                "{\n  \"name\": \"recharts\",\n  \"types\": \"./types/index.d.ts\"\n}",
+                "\"types\"",
+            ),
             Some("./types/index.d.ts".to_string())
         );
     }
