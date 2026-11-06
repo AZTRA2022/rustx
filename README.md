@@ -632,8 +632,37 @@ fn Horloge() -> Element {
 }
 ```
 
-Pour le reste du runtime — `select!`, un canal, un verrou asynchrone —
-`rustx::tokio`.
+Pour le reste du runtime, `rustx::tokio` : c'est tokio en entier, avec
+`full`. `rustx::tokio::fs`, `::net`, `::io`, `::sync`, `::process`,
+`select!`, `spawn` — ce qu'un code async ordinaire écrit, écrit pareil.
+Une application ne nomme tokio ni dans son `Cargo.toml` ni dans ses
+`use`, et ce n'est pas un sous-ensemble choisi par le framework.
+
+### `async fn main`
+
+Le `main` peut attendre, comme n'importe où ailleurs :
+
+```rust
+use rustx::{App, Config};
+
+#[rustx::main]
+async fn main() -> Result<(), rustx::Error> {
+    let reglages = rustx::tokio::fs::read_to_string("reglages.toml").await?;
+
+    let app = App::new(Config::new(&titre_de(&reglages)).size(900, 640))?;
+
+    app.run()
+}
+```
+
+`main` lui-même ne peut pas être `async` — c'est Rust qui le dit, pas le
+framework — donc l'attribut lui retire son `async` et exécute le corps
+sur le runtime. Il n'y a rien d'autre à savoir : pas de `#[tokio::main]`
+à écrire à côté, et pas de `block_on` à la main.
+
+Ce qui reste vrai : **un composant** n'attend jamais. Le `main` prépare,
+la page dessine, et ce qui attend pendant qu'elle est à l'écran est un
+`task(async { … })`.
 
 #### Écrire l'état depuis un `await`
 

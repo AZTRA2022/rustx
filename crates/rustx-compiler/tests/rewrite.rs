@@ -347,3 +347,53 @@ fn an_async_task_binds_a_token_its_writes_are_refused_by() {
     assert!(rust.contains(".remote_until(&"), "got {rust}");
     assert!(rust.contains("spawn_future_until("), "got {rust}");
 }
+
+// --- Anything a crate's macro writes, inside a page -----------------
+//
+// "It should work for any crate that uses a macro or whatever." A page
+// is Rust, so a page may call a macro, derive a trait, or carry an
+// attribute — and the `.rsx` compiler scans braces to find the JSX, so
+// a macro with a brace body is exactly where a brace scanner goes wrong.
+
+#[test]
+fn a_macro_with_a_brace_body_inside_an_async_block_is_left_alone() {
+    // `tokio::select! { … => … }`. The arms are braces that are not JSX
+    // and not a closure, inside an argument the compiler rewrites.
+    let source = "let mut n = 0;\n\nfn C() -> Element {\n    task(async move {\n        rustx::tokio::select! {\n            _ = tick() => { n += 1; }\n            _ = stop() => {}\n        }\n    });\n    return <p>{n}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("select!"), "the macro call was mangled: {rust}");
+    assert!(rust.contains("n.update("), "the write inside an arm was missed: {rust}");
+    assert_eq!(
+        rust.matches('\n').count(),
+        source.matches('\n').count(),
+        "got {rust}"
+    );
+}
+
+#[test]
+fn a_derive_and_an_attribute_in_a_page_survive() {
+    let source = "#[derive(Debug, Clone, PartialEq)]\npub struct Point {\n    pub at: f64,\n}\n\n#[allow(dead_code)]\nfn aside() -> u8 { 1 }\n\nfn C() -> Element {\n    return <p>ok</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("#[derive(Debug, Clone, PartialEq)]"), "got {rust}");
+    assert!(rust.contains("#[allow(dead_code)]"), "got {rust}");
+}
+
+#[test]
+fn a_macro_that_takes_braces_in_the_body_of_a_component_is_left_alone() {
+    // `vec![]`, `format!` with its own braces, and a declarative macro
+    // whose body is a block — all before the `return`.
+    let source = "fn C() -> Element {\n    let rows = vec![1, 2, 3];\n    let said = format!(\"{} rows\", rows.len());\n    let _held = matches!(rows.len(), 3);\n    return <p>{said}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("vec![1, 2, 3]"), "got {rust}");
+    assert!(rust.contains("format!(\"{} rows\""), "got {rust}");
+}
+
+#[test]
+fn an_applications_own_async_fn_is_awaited_from_a_page() {
+    // An `async fn` written anywhere in the crate, awaited in a page.
+    // Nothing about it is the framework's business — which is the claim.
+    let source = "let mut charge = 0;\n\nfn C() -> Element {\n    task(async move {\n        let got = crate::charger().await;\n        charge += got;\n    });\n    return <p>{charge}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("crate::charger().await"), "got {rust}");
+    assert!(rust.contains("charge.update("), "got {rust}");
+}

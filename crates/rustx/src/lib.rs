@@ -93,6 +93,16 @@ thread_local! {
     static STYLESHEET: Cell<Option<&'static str>> = const { Cell::new(None) };
 }
 
+/// Attendre une future jusqu'au bout, depuis `main`.
+///
+/// Ce que `#[rustx::main]` enveloppe autour d'un `async fn main`. Un
+/// composant, lui, n'attend jamais : on lui demande l'ecran tel qu'il
+/// est maintenant, et ce qui attend s'ecrit dans un `task(async { … })`.
+#[doc(hidden)]
+pub fn block_on<T>(work: impl std::future::Future<Output = T>) -> T {
+    rustx_engine::runtime::block_on(work)
+}
+
 /// Said by `#[rustx::main]`, which is where `env!` reads the
 /// application's own crate rather than this one.
 #[doc(hidden)]

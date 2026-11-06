@@ -22,7 +22,13 @@ rustx-os = { path = "../rustx-os", version = "0.1.0" }
 # Reexporte, pas utilise : une page ecrit `rustx::time::sleep` et ne
 # nomme jamais tokio dans son `Cargo.toml`. C'est le meme runtime que
 # celui de `rustx-engine`, par la meme version du workspace.
-tokio = { version = "1.47", default-features = false, features = ["rt-multi-thread", "time", "net", "sync", "macros"] }
+# `full`, et pas une liste choisie a la main : la facade reexporte
+# tokio, donc elle reexporte tokio. Un developpeur qui ecrit
+# `rustx::tokio::fs::write` ou un `#[rustx::main] async fn main`
+# ecrit de l'async ordinaire, et une liste de features coupee en
+# trois lui repondait « could not find `fs` in `tokio` » a propos
+# d'une caisse qu'il n'a jamais nommee.
+tokio = { version = "1.47", features = ["full"] }
 
 [dev-dependencies]
 # Pour lire les exemples du README et les compiler. Un exemple faux dans

@@ -191,6 +191,19 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let body = body.stream();
+
+    // `#[rustx::main] async fn main` — async as a developer writes it
+    // anywhere else. `main` itself cannot be async, so the `async` is
+    // taken off the signature and the body is run on the framework's own
+    // runtime instead. A sub-process of Chromium runs this same `main`,
+    // so the runtime it builds is the one its futures would have used.
+    let (signature, waits) = without_async(signature);
+    let body = if waits {
+        quote! { rustx::block_on(async move { #body }) }
+    } else {
+        body
+    };
+
     quote! {
         #pages
 
@@ -260,6 +273,25 @@ fn collect(directory: &Path, into: &mut Vec<PathBuf>) {
 
 /// The function's tokens, split into everything before its block and
 /// the block itself.
+/// The signature without its `async`, and whether it had one.
+///
+/// Only the function's own `async` is taken: the first one at the top
+/// level, before the parameter list. An `async` inside the parameters
+/// (a default value, a closure type) is somebody else's.
+fn without_async(signature: TokenStream2) -> (TokenStream2, bool) {
+    let mut kept = Vec::new();
+    let mut waits = false;
+    for token in signature {
+        let is_async = matches!(&token, TokenTree::Ident(name) if name == "async");
+        if is_async && !waits {
+            waits = true;
+            continue;
+        }
+        kept.push(token);
+    }
+    (kept.into_iter().collect(), waits)
+}
+
 fn split_body(item: TokenStream2) -> Option<(TokenStream2, Group)> {
     let tokens: Vec<TokenTree> = item.into_iter().collect();
     let (last, rest) = tokens.split_last()?;

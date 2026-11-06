@@ -57,6 +57,18 @@ pub fn handle() -> Handle {
         .unwrap_or_else(|| unreachable!("{CANNOT_BUILD}: just built"))
 }
 
+/// Run `work` to completion on this thread, and give back what it said.
+///
+/// What `#[rustx::main] async fn main` is wrapped in, and the one place
+/// in the framework that blocks on a future. It is sound precisely
+/// because of where it is: `main` is not a runtime thread, and the
+/// window is not open yet. Nothing else may call it — a frame that
+/// waited would be a frozen window, which is the defect the rest of
+/// this module exists to avoid.
+pub fn block_on<T>(work: impl std::future::Future<Output = T>) -> T {
+    handle().block_on(work)
+}
+
 /// Let go of the runtime, abandoning whatever it still had to do.
 ///
 /// Called when a window is going. `shutdown_background` rather than a
