@@ -13,6 +13,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Child;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::build;
@@ -62,6 +63,9 @@ pub fn watch(project: &Path) -> Result<(), String> {
             project.join("assets"),
         ],
         &["rsx", "rs", "css", "js", "jsx", "ts", "tsx", "json", "html"],
+        // The bundle is written into `assets/` by every build. Watching
+        // it would mean one saved page becomes a rebuild for ever.
+        &[rustx_compiler::bundle::SERVED],
     );
     let mut coalescing = Coalescing::new(QUIET);
 
@@ -103,6 +107,66 @@ pub fn carried_file(project: &Path) -> PathBuf {
     project.join("target").join("rustx-dev-state.txt")
 }
 
+/// Where the copies that are actually launched live.
+///
+/// Under `target/`, because they are build artefacts and `target/` is
+/// the one directory a project already ignores.
+pub fn copies(project: &Path) -> PathBuf {
+    project.join("target").join("rustx-dev")
+}
+
+/// Copy what cargo built, and give back the copy to launch.
+///
+/// A running `.exe` is held by Windows: cargo cannot replace it and
+/// `resources::stamp` cannot reopen it to put the logo in, so a loop
+/// that launches `target/debug/<bin>.exe` directly refuses its own next
+/// build with an access error on every save. The rule above -- the old
+/// process is killed only once the new binary exists -- is what makes
+/// the file busy at exactly the wrong moment, and it is a rule worth
+/// keeping: a typo must not take the window off the screen. So the
+/// process holds a copy instead, and the file cargo writes is never
+/// held by anybody.
+///
+/// Each turn gets its own directory, because the copy of the turn
+/// before is still running while this one is made. The turn is in the
+/// directory's name and not the file's, so that the application keeps
+/// the name the developer gave it -- in a task manager, and anywhere
+/// else a running program is called by its file.
+pub fn launchable(project: &Path, exe: &Path) -> Result<PathBuf, String> {
+    let turn = TURN.fetch_add(1, Ordering::Relaxed);
+    let directory = copies(project).join(format!("{}-{turn}", std::process::id()));
+    std::fs::create_dir_all(&directory)
+        .map_err(|error| format!("{} could not be made ({error}).", directory.display()))?;
+
+    let named = exe.file_name().unwrap_or(std::ffi::OsStr::new("app.exe"));
+    let copy = directory.join(named);
+    std::fs::copy(exe, &copy).map_err(|error| {
+        format!(
+            "{} could not be copied to {} ({error}).",
+            exe.display(),
+            copy.display()
+        )
+    })?;
+
+    // Tidying up is a courtesy and not the job: a copy from a turn
+    // whose process has not quite finished dying is still held, and
+    // that must not turn a build that worked into a failure.
+    if let Ok(entries) = std::fs::read_dir(copies(project)) {
+        for entry in entries.flatten() {
+            if entry.path() == directory {
+                continue;
+            }
+            let _ = std::fs::remove_dir_all(entry.path());
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+
+    Ok(copy)
+}
+
+/// Which turn of the loop this is, so two copies never share a name.
+static TURN: AtomicU64 = AtomicU64::new(0);
+
 /// Build, and put the new window where the old one was.
 ///
 /// The order matters: the previous process is killed only once the new
@@ -111,6 +175,19 @@ pub fn carried_file(project: &Path) -> PathBuf {
 fn restart(project: &Path, carried: &Path, running: &mut Option<Child>) {
     match build::run(false, project) {
         Ok(exe) => {
+            // The copy is made before anything is killed, so that a
+            // copy that cannot be made leaves the window on screen for
+            // the same reason a build that fails does.
+            let exe = match launchable(project, &exe) {
+                Ok(copy) => copy,
+                Err(said) => {
+                    eprintln!("rustx: {said}");
+                    if running.is_some() {
+                        eprintln!("rustx: the window on screen is the last page that compiled.");
+                    }
+                    return;
+                }
+            };
             if let Some(child) = running.as_mut() {
                 let _ = child.kill();
                 let _ = child.wait();

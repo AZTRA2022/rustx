@@ -60,6 +60,8 @@ rendu ». Les trois étaient justes, et les numéros 14 à 17 en viennent.
 | 23 | important | `rustx-lsp` | une prop avait l'icône d'un attribut, et une icône npm n'avait aucune prop | corrigé |
 | 24 | important | `rustx-lsp` | l'ordre de la liste était construit puis jeté | corrigé |
 | 25 | bloquant | `rustx-dom`, `rustx-compiler` | lire une valeur de la page depuis une future était refusé | corrigé |
+| 26 | important | `rustx-cli` | `rustx dev` refusait sa propre reconstruction à chaque sauvegarde | corrigé |
+| 27 | bloquant | `rustx-cli` | `rustx dev` se nourrissait lui-même : une sauvegarde, des reconstructions sans fin | corrigé |
 
 ---
 
@@ -628,6 +630,83 @@ Et un refus reste, avec de meilleurs mots : une `let mut` interne à un
 composant appartient à l'instance qui dessine, et l'instance est ce qui
 s'en va quand le composant part. Le refus dit maintenant où déclarer la
 valeur au lieu de dire seulement non.
+
+### 26. `rustx dev` refusait sa propre reconstruction à chaque sauvegarde
+
+Signalé par l'utilisateur : une erreur d'accès (`os error 5`) s'affichait
+à chaque rafraîchissement, au moment de remplacer l'ancien `.exe`.
+
+**Ce que c'était.** `restart()` tue l'ancien processus **après** la
+reconstruction, et c'est voulu : un `.rsx` cassé doit laisser la fenêtre
+à l'écran, montrant la dernière page qui a compilé. Mais sur Windows un
+`.exe` en cours d'exécution est tenu par le système. Donc pendant tout
+le temps où cargo réécrit `target/debug/<bin>.exe` — et où
+`resources::stamp` le réouvre pour y poser le logo — le fichier est
+occupé par le processus que nous avons choisi de ne pas encore tuer.
+C'est notre propre règle qui provoquait le refus, à chaque sauvegarde,
+pour tout le monde sur cette plateforme.
+
+**Correction.** Le processus tient une **copie** : après un build
+réussi, le binaire est copié dans `target/rustx-dev/<pid>-<tour>/` et
+c'est la copie qui est lancée. Le fichier que cargo écrit n'est alors
+jamais tenu par personne, et la règle « on ne tue qu'une fois le nouveau
+binaire là » est gardée intacte. Chaque tour a son propre dossier, parce
+que la copie du tour précédent tourne encore quand celle-ci est faite ;
+le ménage des anciennes est une courtoisie, pas le travail — une copie
+qu'un processus pas tout à fait mort tient encore ne doit pas changer un
+build réussi en échec.
+
+Le tour est dans le nom du **dossier** et pas dans celui du fichier, et
+c'est une correction de la correction : la première version appelait la
+copie `labo-rustx-9372-1.exe`, et un vrai run l'a montrée sous ce nom
+dans la liste des processus. La comptabilité de la boucle n'a pas à
+fuir dans le monde du développeur, qui doit retrouver son application
+sous le nom qu'il lui a donné.
+
+Cinq lois le tiennent : ce qui est lancé n'est pas ce que cargo a écrit,
+la copie garde le nom de l'application, chaque tour a la sienne, un
+reste qui ne veut pas s'en aller n'est pas une erreur, et — celle qui
+compte — une reconstruction peut écrire le fichier de cargo pendant que
+l'application tourne.
+
+### 27. `rustx dev` se nourrissait lui-même
+
+Trouvé en vérifiant la correction précédente dans un vrai `rustx dev` :
+un seul fichier touché, et vingt-une reconstructions à la suite.
+
+**Ce que c'était.** La surveillance regarde `app/`, `src/` et
+`assets/`, et `js` est une extension surveillée. Or le bundle
+JavaScript est réécrit dans `assets/rustx-bundle.js` par **chaque**
+build. Le build écrit le fichier, le regard suivant le voit, lance le
+build suivant, sans fin — une application en train d'être éditée se
+recompilait toute seule toutes les six secondes.
+
+Le code avait déjà fermé cette porte à un endroit : `worth_walking`
+exclut `target` avec, mot pour mot, « il change à chaque build que cette
+boucle lance, et le surveiller voudrait dire un build qui déclenche le
+suivant ». Le raisonnement était juste et n'avait été appliqué qu'à un
+seul des deux fichiers concernés. `rustx new` écrit pourtant déjà
+`/assets/rustx-bundle.js` dans le `.gitignore` du projet : l'artefact
+était déclaré partout sauf là où ça comptait.
+
+**Correction.** Ce que le build produit est nommé, et la surveillance
+l'ignore : `Watched::new` prend la liste des fichiers générés, et
+`rustx dev` la remplit avec `rustx_compiler::bundle::SERVED` — la
+constante du bundleur lui-même, pour qu'un renommage ne puisse pas
+rouvrir la porte en silence. La règle porte sur ce fichier et pas sur
+l'extension : un `.js` qu'un développeur écrit reste une raison de
+reconstruire, et la loi le vérifie dans les deux sens.
+
+**Ce que ça dit du harnais.** Le premier run « réussi » de la
+correction 26 ne tenait qu'à ce bug : l'application se fermait
+immédiatement dans ce contexte, et seule la boucle du bundle gardait la
+boucle en vie assez longtemps pour qu'on voie quoi que ce soit. Les deux
+runs suivants n'observaient rien du tout et ne le disaient pas. La
+preuve qui compte est devenue une loi déterministe —
+`a_rebuild_can_write_the_file_cargo_wrote_while_the_application_runs` —
+qui lance une vraie copie, vérifie d'abord que le verrou qu'elle teste
+existe, puis écrit dans le fichier de cargo. Sans la correction, elle
+échoue en nommant le verrou.
 
 ## Ce que la chasse n'a pas corrigé, et pourquoi
 

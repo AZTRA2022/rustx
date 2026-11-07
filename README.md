@@ -1007,6 +1007,12 @@ Ne la traversent pas :
 Une valeur dont le *type* a changé entre deux compilations est jetée, pas
 réinjectée de force.
 
+Ce qui tourne pendant un `rustx dev` est une **copie** du binaire, dans
+`target/rustx-dev/` : un `.exe` en cours d'exécution est tenu par
+Windows, et le build suivant doit pouvoir réécrire celui que cargo a
+produit — sinon chaque sauvegarde finit en accès refusé. La copie garde
+le nom de l'application, et le dossier disparaît avec `target/`.
+
 ## L'éditeur
 
 L'extension VS Code est dans `editors/vscode` :
