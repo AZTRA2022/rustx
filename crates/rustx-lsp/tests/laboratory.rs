@@ -195,6 +195,34 @@ fn every_prop_a_component_takes_is_offered_inside_its_tag() {
 }
 
 #[test]
+fn the_editor_refuses_nothing_the_compiler_accepts() {
+    // The editor and the compiler are the same code, so a page that
+    // builds must underline nothing -- and when they drift apart, it is
+    // the editor that is wrong, because the build is what ships. This
+    // drifted once already: the installed server carried an older
+    // compiler and kept underlining a read a future is now allowed.
+    let Some(laboratory) = laboratory() else {
+        eprintln!("note: ../labo-rustx is not beside the repository; this proves nothing today");
+        return;
+    };
+    let path = laboratory.join("app/page.rsx");
+    let source = std::fs::read_to_string(&path).expect("the laboratory has a page");
+
+    // A page somebody is typing in is not a page with a defect.
+    if rustx_compiler::transpile::transpile(&source).is_err() {
+        eprintln!("note: the laboratory's page does not compile right now; nothing to compare");
+        return;
+    }
+
+    let found = rustx_lsp::diagnostics::of(&source);
+    let said: Vec<&str> = found.iter().map(|one| one.message.as_str()).collect();
+    assert!(
+        found.is_empty(),
+        "the compiler accepts this page and the editor underlines it: {said:#?}"
+    );
+}
+
+#[test]
 fn what_a_shadcn_button_takes_arrives_above_the_attributes_every_tag_has() {
     // The whole way through, on the files a developer really has:
     // `<Button ` offers `variant` before `accessKey`, and says so in the
