@@ -524,3 +524,39 @@ fn a_page_is_offered_what_the_application_around_it_installed() {
 
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn two_kinds_offered_in_the_same_list_never_share_an_icon() {
+    // `Kind` exists so the editor can draw a different icon for each,
+    // which is most of what makes a long list readable. Two kinds that
+    // never appear together may share a number -- a tag name and a prop
+    // do not meet -- but two that appear side by side may not, or the
+    // distinction exists only in our own source.
+    let lists = [
+        // Offered after a `<`.
+        ("a tag name", vec![suggest::Kind::Tag, suggest::Kind::Component]),
+        // Offered inside a tag.
+        (
+            "inside a tag",
+            vec![
+                suggest::Kind::Property,
+                suggest::Kind::Attribute,
+                suggest::Kind::Event,
+            ],
+        ),
+    ];
+
+    for (list, kinds) in lists {
+        for (at, one) in kinds.iter().enumerate() {
+            for two in &kinds[at + 1..] {
+                assert_ne!(
+                    one.number(),
+                    two.number(),
+                    "{list}: {one:?} and {two:?} both arrive as {}, so the editor \
+                     draws them the same",
+                    one.number()
+                );
+            }
+        }
+    }
+}

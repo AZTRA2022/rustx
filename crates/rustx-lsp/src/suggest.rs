@@ -24,15 +24,23 @@ pub enum Kind {
 
 impl Kind {
     /// The number LSP gives this kind.
+    ///
+    /// Two kinds offered in the same list must not share one, or the
+    /// distinction exists only here: a prop the component itself takes
+    /// drew the same icon as `accesskey` for as long as both said `10`.
+    /// A tag name and a prop may share one — they never meet.
     pub fn number(self) -> u32 {
         match self {
-            // Field, Class, Property, Event, Property: the numbers from
-            // the specification's `CompletionItemKind`.
+            // The numbers from the specification's `CompletionItemKind`.
+            // Field, Class, Property, Event, Field.
             Self::Tag => 5,
             Self::Component => 7,
             Self::Attribute => 10,
             Self::Event => 23,
-            Self::Property => 10,
+            // A prop is a field of this component, and not a property
+            // every tag has: that is the whole reason it is offered
+            // first.
+            Self::Property => 5,
         }
     }
 }

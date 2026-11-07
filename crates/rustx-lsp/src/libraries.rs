@@ -391,9 +391,95 @@ pub fn props_in(source: &str, tag: &str) -> Vec<Prop> {
     let Some(named) = props_type_of(source, tag) else {
         return Vec::new();
     };
-    object_named(source, &named)
-        .map(fields_in)
-        .unwrap_or_default()
+    fields_of_named(source, &named, &mut Vec::new())
+}
+
+/// The fields of the type called `name`, following an alias to them.
+///
+/// A declaration does not always name an object. An icon says
+/// `declare const AArrowDown: LucideIcon`, and `LucideIcon` is
+/// `ForwardRefExoticComponent<Omit<LucideProps, 'ref'> & …>` — the props
+/// are one hop further on, and a reader that stops at the alias offers
+/// nothing for seven thousand icons.
+///
+/// So an alias is read for the names it mentions, and each name that
+/// turns out to be an object contributes its own fields. What it
+/// mentions and cannot find — `Omit`, `ForwardRefExoticComponent`, a
+/// type from another package — contributes nothing, which is why this
+/// can look without knowing what it will find.
+fn fields_of_named(source: &str, name: &str, seen: &mut Vec<String>) -> Vec<Prop> {
+    // A type can mention itself, and a package can be large: a bound on
+    // both is what keeps a keystroke a keystroke.
+    if seen.len() >= 8 || seen.iter().any(|been| been == name) {
+        return Vec::new();
+    }
+    seen.push(name.to_string());
+
+    if let Some(body) = object_named(source, name) {
+        return fields_in(body);
+    }
+
+    // Its own fields and not what it extends: `interface LucideProps
+    // extends SVGAttributes` would otherwise drag in every attribute an
+    // SVG takes, which the editor already offers from its own list.
+    let Some(written) = alias_of(source, name) else {
+        return Vec::new();
+    };
+    let mut found: Vec<Prop> = Vec::new();
+    for mentioned in names_in(written) {
+        for prop in fields_of_named(source, &mentioned, seen) {
+            if !found.iter().any(|had| had.name == prop.name) {
+                found.push(prop);
+            }
+        }
+    }
+    found
+}
+
+/// The right-hand side of `type NAME = …;`, when it is not an object.
+fn alias_of<'a>(source: &'a str, name: &str) -> Option<&'a str> {
+    let form = format!("type {name}");
+    let mut from = 0;
+    while let Some(at) = source[from..].find(&form) {
+        let at = from + at;
+        from = at + form.len();
+        if !on_a_boundary(source, at, form.len()) {
+            continue;
+        }
+        let rest = &source[from..];
+        let Some(assigned) = rest.find('=') else {
+            continue;
+        };
+        // `type A<T> = …` puts the parameters before the `=`; a `{`
+        // before it would mean this is an object, which the caller has
+        // already tried.
+        if rest[..assigned].contains(['{', ';']) {
+            continue;
+        }
+        let written = &rest[assigned + 1..];
+        let end = written.find(';').unwrap_or(written.len());
+        return Some(&written[..end]);
+    }
+    None
+}
+
+/// Every name in `text` that could be a type of its own.
+fn names_in(text: &str) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    let mut word = String::new();
+    for letter in text.chars().chain(std::iter::once(' ')) {
+        if letter.is_ascii_alphanumeric() || letter == '_' || letter == '$' {
+            word.push(letter);
+            continue;
+        }
+        let whole = std::mem::take(&mut word);
+        if whole.starts_with(|letter: char| letter.is_ascii_uppercase())
+            && !found.contains(&whole)
+        {
+            found.push(whole);
+        }
+    }
+    found
 }
 
 /// The `{ … }` of `interface NAME` or `type NAME =`.
@@ -477,21 +563,33 @@ fn destructured_parameter_of(source: &str, tag: &str) -> Option<Vec<Prop>> {
 
 /// The name of the type a declaration says the props are.
 fn props_type_of(source: &str, tag: &str) -> Option<String> {
-    for form in [
-        format!("function {tag}("),
-        format!("const {tag}:"),
-        format!("let {tag}:"),
-    ] {
+    // Two shapes, and they do not put the name in the same place.
+    //
+    // `function Table(props: Settings)` and `const Button: React.FC<P>`
+    // introduce it with punctuation that is still ahead; `declare const
+    // AArrowDown: LucideIcon` has already spent its colon on the form
+    // itself, and the name is the very next word. Looking for another
+    // colon there walks past the answer and into the next declaration,
+    // which is how every icon of a library came back with no props.
+    let forms = [
+        (format!("function {tag}("), true),
+        (format!("const {tag}:"), false),
+        (format!("let {tag}:"), false),
+    ];
+    for (form, punctuated) in forms {
         let Some(at) = source.find(&form) else {
             continue;
         };
         let rest = &source[at + form.len()..];
-        // `(props: Settings)` and `React.FC<ButtonProps>` both put the
-        // name after the punctuation that introduces it.
-        let Some(after) = rest.find([':', '<']) else {
-            continue;
+        let written = if punctuated {
+            match rest.find([':', '<']) {
+                Some(after) => rest[after + 1..].trim_start(),
+                None => continue,
+            }
+        } else {
+            rest.trim_start()
         };
-        let name = name_at(rest[after + 1..].trim_start());
+        let name = name_at(written);
         if is_a_name(name) && name.starts_with(|letter: char| letter.is_ascii_uppercase()) {
             return Some(name.to_string());
         }
