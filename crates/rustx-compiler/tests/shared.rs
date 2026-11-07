@@ -165,3 +165,64 @@ fn a_shared_value_a_component_only_touches_inside_a_task_still_reaches_it() {
         "got {rust}"
     );
 }
+
+#[test]
+fn a_local_of_a_plain_function_of_the_page_is_not_shared_state() {
+    // A page is allowed to have functions that are not components:
+    // cutting a path into segments, formatting a number. Their locals
+    // are theirs. "Written at the top level" was read as "not inside a
+    // *component*", so a `let mut` inside such a function was taken for
+    // a value of the page -- its declaration was blanked where it was
+    // written and bound again at the top of every component, and the
+    // function came out with its uses naming nothing at all.
+    let source = "fn Page() -> Element {\n    \
+            let deux = couper(\"a/b\");\n    \
+            return <p>{deux.0}</p>;\n\
+        }\n\n\
+        fn couper(chemin: &str) -> (String, String) {\n    \
+            let mut morceaux = chemin.split('/');\n    \
+            let un = morceaux.next().unwrap_or_default().to_string();\n    \
+            let deux = morceaux.next().unwrap_or_default().to_string();\n    \
+            (un, deux)\n\
+        }\n";
+
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("let mut morceaux = chemin.split('/')"),
+        "the function's own local was taken away: {rust}"
+    );
+    assert!(
+        !rust.contains("shared(\"morceaux\""),
+        "a local of a plain function became a value of the page: {rust}"
+    );
+    assert!(
+        syn::parse_file(&rust).is_ok(),
+        "what came out does not parse: {rust}"
+    );
+}
+
+#[test]
+fn a_local_of_a_method_in_the_page_is_not_shared_state_either() {
+    // The same rule, for the other place a page puts plain Rust.
+    let source = "struct Compte { combien: usize }\n\n\
+        impl Compte {\n    \
+            fn dire(&self) -> String {\n        \
+                let mut texte = String::new();\n        \
+                texte.push_str(\"x\");\n        \
+                texte\n    \
+            }\n\
+        }\n\n\
+        fn Page() -> Element {\n    \
+            return <p>{Compte { combien: 1 }.dire()}</p>;\n\
+        }\n";
+
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("let mut texte = String::new()"),
+        "the method's own local was taken away: {rust}"
+    );
+    assert!(
+        !rust.contains("shared(\"texte\""),
+        "a local of a method became a value of the page: {rust}"
+    );
+}

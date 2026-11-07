@@ -153,7 +153,31 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
         let handlers = handler_closures(source, &returns_jsx);
         let parameters = parameter_names(source, body.start);
 
-        let locals = locals_of(source, body);
+        let in_code = code_spans(source, body, &returns_jsx);
+        // The three calls are rewritten whole, arguments included, so a
+        // use of a value inside one belongs to that rewrite. Editing it
+        // twice would leave the call half replaced.
+        let calls = calls_of(source, body, &in_code, &handlers)?;
+        let inside_a_call = |span: &Span| calls.iter().any(|call| contains(call.span, *span));
+
+        // A `let mut` written inside a handler, a block or a `keep` /
+        // `effect` / `task` belongs to that closure and not to the
+        // component. It is the memory of a loop, a counter, a buffer:
+        // nobody else sees it, it survives nothing, and it has no
+        // reason to be a cell. Promoting it made state out of a loop
+        // counter and then refused it to the very block that had
+        // written it -- a refusal that is right for a cell and absurd
+        // for a local, and whose only way round was to declare the
+        // thing at the top of the page.
+        let locals: Vec<Local> = locals_of(source, body)
+            .into_iter()
+            .filter(|local| {
+                !handlers
+                    .iter()
+                    .any(|handler| contains(*handler, local.declaration))
+                    && !inside_a_call(&local.declaration)
+            })
+            .collect();
         // Shadowing is idiomatic Rust, and matching occurrences by name
         // cannot tell two `n`s apart: both would claim the same spans
         // and the edits would overwrite each other. Refusing is the
@@ -171,13 +195,6 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             )
             .resolve(source));
         }
-
-        let in_code = code_spans(source, body, &returns_jsx);
-        // The three calls are rewritten whole, arguments included, so a
-        // use of a value inside one belongs to that rewrite. Editing it
-        // twice would leave the call half replaced.
-        let calls = calls_of(source, body, &in_code, &handlers)?;
-        let inside_a_call = |span: &Span| calls.iter().any(|call| contains(call.span, *span));
 
         // `task(async move { … })`. What decides is the first word of
         // the argument, exactly as it decides which spawn is emitted.
@@ -304,7 +321,11 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             // never asked to reach it, and the name was left bare, in a
             // scope that had nothing of that name in it.
             let in_a_call = every_use.iter().any(inside_a_call);
-            if reads.is_empty() && mutations.is_empty() && !in_a_call {
+            // And a value that is only ever captured inline by a format
+            // string is used too — the use is written in prose, which is
+            // exactly why nothing above found it.
+            let captured = !format_captures(source, &declaration.name, body).is_empty();
+            if reads.is_empty() && mutations.is_empty() && !in_a_call && !captured {
                 continue;
             }
             promoted.push(Promoted {
@@ -833,6 +854,42 @@ fn async_before(source: &str, body_start: usize) -> Option<usize> {
         .then(|| before.len() - "async".len())
 }
 
+/// The body of every `fn` in the file, component or not.
+///
+/// Outermost only: a `fn` written inside another is inside the first
+/// one's body, and a span that contains it contains it.
+fn function_bodies(source: &str) -> Vec<Span> {
+    let bytes = source.as_bytes();
+    let mut found: Vec<Span> = Vec::new();
+    let mut index = 0;
+
+    while let Some(at) = find_word(source, "fn", index) {
+        index = at + 2;
+        // A `fn` inside a body already found is that body's business.
+        if found.iter().any(|body| body.start < at && at < body.end) {
+            continue;
+        }
+        let Some((_, after_name)) = word_after(source, index) else {
+            continue;
+        };
+        let Some(open) = next_byte(bytes, after_name, b'(') else {
+            continue;
+        };
+        let Some(close) = matching(bytes, open, b'(', b')') else {
+            continue;
+        };
+        let Some(brace) = next_byte(bytes, close, b'{') else {
+            continue;
+        };
+        let Ok(end) = skip_braces(source, brace) else {
+            continue;
+        };
+        found.push(Span { start: brace, end });
+        index = end;
+    }
+    found
+}
+
 fn components_of(source: &str) -> Vec<(String, Span)> {
     let bytes = source.as_bytes();
     let mut found = Vec::new();
@@ -1056,6 +1113,189 @@ fn occurrences(source: &str, name: &str, spans: &[Span]) -> Vec<Span> {
 ///
 /// A range ends in dots too, and `0..combien` *is* a read: two dots are
 /// a range and one is an access, which is the whole of the rule.
+/// The macros whose string is a format string.
+///
+/// Named rather than guessed: a macro that is not one of these may hold
+/// a string with braces in it that means something else entirely, and
+/// appending an argument to it would break a line that worked.
+const FORMATTING: [&str; 11] = [
+    "format",
+    "format_args",
+    "print",
+    "println",
+    "eprint",
+    "eprintln",
+    "write",
+    "writeln",
+    "panic",
+    "assert",
+    "debug_assert",
+];
+
+/// One call of a formatting macro, and where its arguments are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FormatCall {
+    /// `format!(…)`, the whole of it.
+    pub span: Span,
+    /// What is between the delimiters, ends exclusive — so appending an
+    /// argument is an insertion at `arguments.end`.
+    pub arguments: Span,
+}
+
+/// Every formatting macro in here whose string captures `name` inline.
+///
+/// Rust 2021 reads `{nom}` from the environment, and the environment
+/// holds a cell. The capture is inside a string literal, so a rewrite
+/// that reads names in code and not in prose never saw it: `rustc` said
+/// `Shared<u64> doesn't implement Display` about the most ordinary line
+/// in Rust.
+///
+/// This is analysis and not rewriting, because a value that is captured
+/// and nothing else is still a value the component uses — and a
+/// component credited with no use at all is never given a handle.
+pub fn format_captures(source: &str, name: &str, within: Span) -> Vec<FormatCall> {
+    let bytes = source.as_bytes();
+    let mut found = Vec::new();
+    let mut index = within.start;
+
+    while index < within.end && index < bytes.len() {
+        if bytes[index] != b'!' {
+            index += 1;
+            continue;
+        }
+        let Some(called) = word_ending_at(source, index) else {
+            index += 1;
+            continue;
+        };
+        if !FORMATTING.contains(&called.as_str()) {
+            index += 1;
+            continue;
+        }
+        let open = skip_spaces(bytes, index + 1);
+        let closing = match bytes.get(open) {
+            Some(b'(') => b')',
+            Some(b'[') => b']',
+            Some(b'{') => b'}',
+            _ => {
+                index += 1;
+                continue;
+            }
+        };
+        let Some(close) = delimiter_matching(source, open, bytes[open], closing) else {
+            index += 1;
+            continue;
+        };
+
+        let arguments = Span {
+            start: open + 1,
+            end: close,
+        };
+        if captures_inline(source, name, arguments) {
+            found.push(FormatCall {
+                span: Span {
+                    start: index - called.len(),
+                    end: close + 1,
+                },
+                arguments,
+            });
+        }
+        index = close + 1;
+    }
+    found
+}
+
+/// The delimiter that closes the one at `open`, with the strings in
+/// between left out of the count: `format!("a )")` holds a bracket that
+/// closes nothing.
+fn delimiter_matching(source: &str, open: usize, opener: u8, closer: u8) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut depth = 0_i32;
+    let mut index = open;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' => {
+                index = crate::scan::skip_string(source, index).ok()?;
+                continue;
+            }
+            b'\'' => {
+                index = crate::scan::skip_char_or_lifetime(bytes, index);
+                continue;
+            }
+            byte if byte == opener => depth += 1,
+            byte if byte == closer => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
+/// Does a string literal in here capture `name` inline?
+fn captures_inline(source: &str, name: &str, arguments: Span) -> bool {
+    let bytes = source.as_bytes();
+    let mut index = arguments.start;
+    while index < arguments.end && index < bytes.len() {
+        if bytes[index] != b'"' {
+            index += 1;
+            continue;
+        }
+        let Ok(after) = crate::scan::skip_string(source, index) else {
+            break;
+        };
+        let inside = Span {
+            start: index + 1,
+            end: after.saturating_sub(1).max(index + 1),
+        };
+        if literal_captures(&source[inside.start..inside.end], name) {
+            return true;
+        }
+        index = after;
+    }
+    false
+}
+
+/// `"… {nom} …"` or `"… {nom:>5} …"`, and never `"{{nom}}"`.
+fn literal_captures(literal: &str, name: &str) -> bool {
+    let bytes = literal.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] != b'{' {
+            index += 1;
+            continue;
+        }
+        // `{{` is a brace the string shows, not a capture.
+        if bytes.get(index + 1) == Some(&b'{') {
+            index += 2;
+            continue;
+        }
+        let mut end = index + 1;
+        while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
+            end += 1;
+        }
+        let closed = matches!(bytes.get(end), Some(b'}') | Some(b':'));
+        if closed && &literal[index + 1..end] == name {
+            return true;
+        }
+        index = end.max(index + 1);
+    }
+    false
+}
+
+/// The identifier that ends right before `at`.
+fn word_ending_at(source: &str, at: usize) -> Option<String> {
+    let bytes = source.as_bytes();
+    let mut start = at;
+    while start > 0 && is_word_byte(bytes[start - 1]) {
+        start -= 1;
+    }
+    (start < at).then(|| source[start..at].to_string())
+}
+
 /// Every place this name is used as a name of its own.
 ///
 /// `occurrences` finds the word; this drops the ones that belong to
@@ -1581,10 +1821,15 @@ pub struct SharedDeclaration {
 /// values, the way two modules declaring the same `static` do. Sharing
 /// across files is not this; it is what a parameter or a route is for.
 pub fn shared_of(source: &str) -> Vec<SharedDeclaration> {
-    let mut bodies: Vec<Span> = components_of(source)
-        .into_iter()
-        .map(|(_, body)| body)
-        .collect();
+    // Every function's body, and not only every component's. A page is
+    // allowed to hold plain Rust beside its components -- a function
+    // that cuts a path into segments, a method on a type of its own --
+    // and those locals are theirs. Reading "at the top level" as "not
+    // inside a component" made a `let mut` in such a function a value
+    // of the page: its declaration was blanked where it stood, bound
+    // again at the top of every component, and the function came out
+    // naming something that was no longer there.
+    let mut bodies: Vec<Span> = function_bodies(source);
 
     // And everything inside a tag. A page that shows code to its reader
     // writes `let mut` in its own interface: that is text, like any

@@ -816,3 +816,155 @@ fn a_name_after_a_range_is_still_a_read() {
         "a read at the end of a range was dropped: {rust}"
     );
 }
+
+#[test]
+fn a_local_of_the_async_block_belongs_to_the_future() {
+    // The memory of a loop: what it saw last time round. Nobody else
+    // sees it, it survives nothing, and it has no reason to be state.
+    // It was promoted to a cell of the component all the same, and then
+    // refused to the block by the rule that protects cells -- a refusal
+    // that is right for a cell and absurd for a local. The way round
+    // was to declare it at the top of the page, which makes shared
+    // state out of a loop counter.
+    let source = "let mut terme = String::new();\n\n\
+        fn Page() -> Element {\n    \
+            async move {\n        \
+                let mut dernier_vu = String::new();\n        \
+                loop {\n            \
+                    tokio::time::sleep(std::time::Duration::from_millis(1)).await;\n            \
+                    if terme != dernier_vu {\n                \
+                        dernier_vu = terme.clone();\n            \
+                    }\n        \
+                }\n    \
+            };\n\n    \
+            return <p>{terme}</p>;\n\
+        }\n";
+
+    let rust = transpile(source).expect("a local of the block is not state").rust;
+    assert!(
+        rust.contains("let mut dernier_vu = String::new()"),
+        "the block's own local was promoted: {rust}"
+    );
+    assert!(
+        !rust.contains("shared(\"dernier_vu\"") && !rust.contains("dernier_vu.set"),
+        "the block's own local became state: {rust}"
+    );
+    // And the page's value, which the block really does read, still is.
+    assert!(
+        rust.contains("terme.get()"),
+        "the page's value stopped being read where it is: {rust}"
+    );
+}
+
+#[test]
+fn a_local_of_a_handler_belongs_to_the_handler() {
+    let source = "fn Page() -> Element {\n    \
+        let mut total = 0;\n    \
+        return <button onClick={move |_| {\n        \
+            let mut pas = 0;\n        \
+            while pas < 3 { pas += 1; total += pas; }\n    \
+        }}>{total}</button>;\n}\n";
+
+    let rust = transpile(source).expect("transpilable").rust;
+    assert!(
+        rust.contains("let mut pas = 0"),
+        "the handler's own local was promoted: {rust}"
+    );
+    assert!(
+        rust.contains("total.update") || rust.contains("total . update"),
+        "the component's own state stopped being written: {rust}"
+    );
+}
+
+#[test]
+fn an_inline_capture_of_a_format_string_reads_the_value() {
+    // The most ordinary line in Rust since 2021, and the framework
+    // required the style from before it: an inline capture lives inside
+    // a literal, the rewrite reads names in code and not in prose, so
+    // the capture took the handle and `rustc` said
+    // `Shared<u64> doesn't implement Display`.
+    let source = "fn Page() -> Element {\n    \
+        let mut clics = 0;\n    \
+        let dit = format!(\"clics: {clics}\");\n    \
+        return <button onClick={move |_| clics += 1}>{dit}</button>;\n}\n";
+
+    let rust = transpile(source).expect("transpilable").rust;
+    assert!(
+        rust.contains("clics = clics.get()"),
+        "the capture was left reading the handle: {rust}"
+    );
+    assert!(
+        syn::parse_file(&rust).is_ok(),
+        "what came out does not parse: {rust}"
+    );
+}
+
+#[test]
+fn an_inline_capture_in_an_async_block_reads_the_page() {
+    // Where it matters most: the loop that writes a file.
+    let source = "let mut clics = 0;\nlet mut ecrits = 0;\n\n\
+        fn Page() -> Element {\n    \
+            async move {\n        \
+                let texte = format!(\"clics: {clics}\");\n        \
+                if tokio::fs::write(\"x\", texte).await.is_ok() { ecrits += 1; }\n    \
+            };\n\n    \
+            return <p>{ecrits}</p>;\n\
+        }\n";
+
+    let rust = transpile(source).expect("transpilable").rust;
+    assert!(
+        rust.contains("clics = clics.get()"),
+        "the capture never reached the page value: {rust}"
+    );
+    assert!(
+        rust.contains("reach_until"),
+        "the block was not given a handle that reads: {rust}"
+    );
+}
+
+#[test]
+fn a_capture_of_something_else_is_left_alone() {
+    // Only the names that became state. A capture of a plain local is
+    // already right, and a second argument for it would be a mistake.
+    let source = "fn Page() -> Element {\n    \
+        let mut clics = 0;\n    \
+        let nom = \"labo\";\n    \
+        let dit = format!(\"{nom}: {clics}\");\n    \
+        return <button onClick={move |_| clics += 1}>{dit}</button>;\n}\n";
+
+    let rust = transpile(source).expect("transpilable").rust;
+    assert!(!rust.contains("nom = nom.get()"), "a plain local was touched: {rust}");
+    assert!(rust.contains("clics = clics.get()"), "the state was not read: {rust}");
+}
+
+#[test]
+fn an_escaped_brace_is_not_a_capture() {
+    let source = "fn Page() -> Element {\n    \
+        let mut clics = 0;\n    \
+        let dit = format!(\"{{clics}} vaut {clics}\");\n    \
+        return <button onClick={move |_| clics += 1}>{dit}</button>;\n}\n";
+
+    let rust = transpile(source).expect("transpilable").rust;
+    // One capture, so one argument — the escaped pair is text.
+    assert_eq!(
+        rust.matches("clics = clics.get()").count(),
+        1,
+        "an escaped brace was counted as a capture: {rust}"
+    );
+}
+
+#[test]
+fn a_macro_that_is_not_a_format_is_left_alone() {
+    // `vec!` has no format string, and a brace in a string it holds
+    // means whatever the developer meant by it.
+    let source = "fn Page() -> Element {\n    \
+        let mut clics = 0;\n    \
+        let noms = vec![\"{clics}\"];\n    \
+        return <button onClick={move |_| clics += 1}>{noms.len()}</button>;\n}\n";
+
+    let rust = transpile(source).expect("transpilable").rust;
+    assert!(
+        !rust.contains("clics = clics.get()"),
+        "an argument was appended to a macro that takes none: {rust}"
+    );
+}

@@ -139,6 +139,29 @@ fn edits_for(source: &str, component: &Component) -> Vec<Edit> {
         }
     }
 
+    // The inline captures of a format string, which are reads the
+    // rewrite cannot see: they live inside a literal.
+    for promoted in &component.promoted {
+        for edit in capture_edits(source, &promoted.name, component.body) {
+            // A handler and a `keep` / `effect` / `task` are each
+            // rewritten whole, so a capture inside one is that
+            // rewrite's business. Pushing it here as well put two
+            // edits over the same bytes, and the second replaced a
+            // range whose end had moved -- the block came out with the
+            // tail of a line still in it.
+            let elsewhere = handlers_of(component)
+                .iter()
+                .any(|handler| contains(*handler, edit.span))
+                || component
+                    .calls
+                    .iter()
+                    .any(|call| contains(call.span, edit.span));
+            if !elsewhere {
+                edits.push(edit);
+            }
+        }
+    }
+
     // Reads outside every handler — the ones the screen shows.
     for promoted in &component.promoted {
         for read in &promoted.reads {
@@ -304,9 +327,14 @@ fn future_task(
     for promoted in &component.promoted {
         let (reads, mutations) =
             crate::promote::uses_in(source, &promoted.name, call.arguments, true);
+        // The inline captures of a format string count as reads here
+        // too: a loop that writes a file writes `format!("clics:
+        // {clics}")`, and that is the line this whole mechanism exists
+        // for.
+        let captures = capture_edits(source, &promoted.name, call.arguments);
         // A value the block never names needs no handle, and a handle
         // per page value would be a line of preamble for nothing.
-        if reads.is_empty() && mutations.is_empty() {
+        if reads.is_empty() && mutations.is_empty() && captures.is_empty() {
             continue;
         }
         let name = promoted.name.as_str();
@@ -314,7 +342,7 @@ fn future_task(
         // handle that can do both is asked for only when the block
         // actually reads, so a block that only writes keeps the handle
         // it has always had — and the stricter bound it does not need.
-        let reaching = !reads.is_empty();
+        let reaching = !reads.is_empty() || !captures.is_empty();
         let read_edits: Vec<Edit> = reads
             .iter()
             .map(|read| Edit {
@@ -350,6 +378,7 @@ fn future_task(
             ));
         }
         edits.extend(read_edits);
+        edits.extend(captures);
     }
 
     let arguments = apply_relative(text, call.arguments.start, edits);
@@ -558,6 +587,20 @@ fn rewrite_handler(source: &str, component: &Component, handler: Span) -> Option
         }
     }
     inner_edits.append(&mut reads);
+
+    // And the captures of a format string written inside the handler,
+    // which are reads too — just ones written in prose.
+    for promoted in &component.promoted {
+        let theirs = capture_edits(source, &promoted.name, handler);
+        if theirs.is_empty() {
+            continue;
+        }
+        if !captured.contains(&promoted.name.as_str()) {
+            captured.push(promoted.name.as_str());
+        }
+        inner_edits.extend(theirs);
+    }
+
     if captured.is_empty() {
         return None;
     }
@@ -716,6 +759,44 @@ fn expression_after(source: &str, from: usize, handler: Span) -> Span {
         start: from,
         end: index,
     }
+}
+
+/// What `format!("clics: {clics}")` needs for `clics` to be the value
+/// and not the handle.
+///
+/// Rust 2021 reads an inline capture from the environment, and the
+/// environment holds a cell: the capture is inside a string literal, so
+/// the rewrite — which reads names in code and not in prose — never saw
+/// it, and `rustc` said `Shared<u64> doesn't implement Display` about a
+/// line that is the most ordinary line in Rust.
+///
+/// The repair is a **named argument**: `format!("… {clics} …", clics =
+/// clics.get())`. A named argument goes at the end of the list, which is
+/// exactly where there is room for it — no positional argument moves,
+/// nothing is reordered, and the capture now names the argument instead
+/// of the environment.
+fn capture_edits(source: &str, name: &str, within: Span) -> Vec<Edit> {
+    crate::promote::format_captures(source, name, within)
+        .into_iter()
+        .map(|call| {
+            // Before the closing delimiter, and after a comma only if
+            // there is not one already: `format!("{x}",)` is written by
+            // formatters and must not become `format!("{x}",,…)`.
+            let last = source[call.arguments.start..call.arguments.end]
+                .trim_end()
+                .chars()
+                .last()
+                .unwrap_or(',');
+            let separator = if last == ',' { "" } else { ", " };
+            Edit {
+                span: Span {
+                    start: call.arguments.end,
+                    end: call.arguments.end,
+                },
+                text: format!("{separator}{name} = {name}.get()"),
+            }
+        })
+        .collect()
 }
 
 fn operator_end(bytes: &[u8], from: usize) -> usize {
