@@ -701,3 +701,118 @@ fn a_component_s_own_cell_read_in_an_async_block_is_still_refused() {
         "got {error:?}"
     );
 }
+
+#[test]
+fn an_assignment_in_a_match_arm_stops_at_the_arm_and_not_at_the_next_one() {
+    // What a developer writes the first time they answer a `Result` in a
+    // handler. The end of the written value is the comma: an assignment
+    // that read past it swallowed the arms that followed and emitted
+    // `dit.set(String::new(), _ => dit = …)` -- which is not Rust, and
+    // which the developer was told about as « this Rust does not parse »
+    // on a line they had written correctly.
+    let source = "fn Page() -> Element {\n    \
+        let mut dit = String::new();\n    \
+        return <button onClick={move |_| {\n        \
+            match dit.len() {\n            \
+                0 => dit = String::new(),\n            \
+                _ => dit = String::from(\"autre\"),\n        \
+            };\n    \
+        }}>x</button>;\n}\n";
+
+    let rust = transpile(source).expect("a match in a handler is ordinary Rust").rust;
+    assert!(
+        rust.contains("set"),
+        "neither arm was rewritten into a write: {rust}"
+    );
+    // The arms keep their arrows, so what is asserted is the thing that
+    // actually broke: what comes out is Rust.
+    assert!(
+        syn::parse_file(&rust).is_ok(),
+        "what came out does not parse: {rust}"
+    );
+}
+
+#[test]
+fn an_assignment_in_an_argument_list_stops_at_the_comma() {
+    // The same rule, where it also matters: a comma that separates
+    // arguments is not part of the value being written.
+    let source = "fn Page() -> Element {\n    \
+        let mut dit = String::new();\n    \
+        return <button onClick={move |_| { \
+            std::mem::drop((dit = String::new(), 1)); \
+        }}>x</button>;\n}\n";
+
+    let rust = transpile(source).expect("transpilable").rust;
+    assert!(rust.contains("set"), "the write was not rewritten: {rust}");
+}
+
+#[test]
+fn a_name_in_a_comment_inside_an_async_block_is_left_alone() {
+    // Everywhere else in the compiler, a name is looked for in the code
+    // and not in the prose: `push_code` drops strings and comments
+    // first. An `async` block was the one region looked at raw, so a
+    // comment that mentioned the value came out rewritten -- the
+    // developer's sentence about `compteur` became a sentence about
+    // `compteur.get()`.
+    let source = "let mut compteur = 0;\n\n\
+        fn Page() -> Element {\n    \
+            async move {\n        \
+                // Ce que `compteur` vaut est lu plus bas.\n        \
+                let dit = \"compteur\";\n        \
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;\n        \
+                compteur += 1;\n        \
+                drop(dit);\n    \
+            };\n\n    \
+            return <p>{compteur}</p>;\n}\n";
+
+    let rust = transpile(source).expect("transpilable").rust;
+    assert!(
+        rust.contains("Ce que `compteur` vaut"),
+        "the comment was rewritten: {rust}"
+    );
+    assert!(
+        rust.contains("\"compteur\""),
+        "the string literal was rewritten: {rust}"
+    );
+}
+
+#[test]
+fn a_method_of_that_name_on_something_else_is_not_a_read_of_the_state() {
+    // `dit` is a value of the page, and `Echec::dit()` is a method
+    // somebody else wrote. Reading the second as the first emitted
+    // `dit.set(pourquoi.dit.get()())`, and then applied the same edit
+    // twice over itself.
+    let source = "let mut dit = String::new();\n\n\
+        fn Page() -> Element {\n    \
+            return <button onClick={move |_| { dit = autre().dit(); }}>x</button>;\n}\n\n\
+        struct Autre;\n\
+        impl Autre { fn dit(&self) -> String { String::new() } }\n\
+        fn autre() -> Autre { Autre }\n";
+
+    let rust = transpile(source).expect("transpilable").rust;
+    assert!(
+        rust.contains("dit.set") || rust.contains("dit . set"),
+        "the write was not rewritten: {rust}"
+    );
+    assert!(
+        !rust.contains("dit.get()()") && !rust.contains("dit . get () ()"),
+        "a method name was read as the state: {rust}"
+    );
+}
+
+#[test]
+fn a_name_after_a_range_is_still_a_read() {
+    // The rule above looks at the byte before the name, and a range
+    // ends in a dot too: `0..combien` reads `combien`, and refusing it
+    // would be a cure worse than the disease.
+    let source = "fn Page() -> Element {\n    \
+        let mut combien = 3;\n    \
+        let total: usize = (0..combien).sum();\n    \
+        return <button onClick={move |_| combien += 1}>{total}</button>;\n}\n";
+
+    let rust = transpile(source).expect("transpilable").rust;
+    assert!(
+        rust.contains("0 .. combien . get ()") || rust.contains("0..combien.get()"),
+        "a read at the end of a range was dropped: {rust}"
+    );
+}

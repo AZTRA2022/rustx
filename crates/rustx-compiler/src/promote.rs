@@ -249,12 +249,22 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
 
             // Everywhere the name appears without writing to it — the
             // rewrite turns each into a read of the cell.
+            // The code after the declaration -- which is a *part* of a
+            // span and not a choice between spans. The body's code up to
+            // the JSX is one span that begins before the declaration, so
+            // dropping it whole dropped every read written between the
+            // `let mut` and the `return`: `let double = n * 2;` came out
+            // naming the cell itself, and rustc complained about a line
+            // the developer had written correctly.
             let after_declaration: Vec<Span> = in_code
                 .iter()
-                .filter(|span| span.start >= local.declaration.end)
-                .copied()
+                .filter(|span| span.end > local.declaration.end)
+                .map(|span| Span {
+                    start: span.start.max(local.declaration.end),
+                    end: span.end,
+                })
                 .collect();
-            let reads = occurrences(source, &local.name, &after_declaration)
+            let reads = names_used(source, &local.name, &after_declaration)
                 .into_iter()
                 .filter(|span| !mutations.iter().any(|mutation| mutation.span == *span))
                 .filter(|span| !inside_a_call(span))
@@ -280,7 +290,7 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
                 continue;
             }
             let mutations: Vec<Mutation> = writes_from(&declaration.name);
-            let every_use = occurrences(source, &declaration.name, &in_code);
+            let every_use = names_used(source, &declaration.name, &in_code);
             let reads: Vec<Span> = every_use
                 .iter()
                 .copied()
@@ -1036,6 +1046,45 @@ fn occurrences(source: &str, name: &str, spans: &[Span]) -> Vec<Span> {
     found
 }
 
+/// Is this name a field or a method of something else?
+///
+/// `autre.dit()` names a method somebody else wrote, and `Echec::dit` a
+/// path into their type. Neither is the page's `dit`, and reading them
+/// as one emitted `dit.set(pourquoi.dit.get()())` — an edit that then
+/// landed on top of itself, because the read sat inside the span of the
+/// write.
+///
+/// A range ends in dots too, and `0..combien` *is* a read: two dots are
+/// a range and one is an access, which is the whole of the rule.
+/// Every place this name is used as a name of its own.
+///
+/// `occurrences` finds the word; this drops the ones that belong to
+/// somebody else. It is the reads that need it and not every scan:
+/// `.await` is a word that is always preceded by a dot, so a filter
+/// inside `occurrences` would have made every awaited let invisible.
+fn names_used(source: &str, name: &str, spans: &[Span]) -> Vec<Span> {
+    occurrences(source, name, spans)
+        .into_iter()
+        .filter(|span| !reaches_into_something_else(source.as_bytes(), span.start))
+        .collect()
+}
+
+/// The byte before, and not the last byte that was not a space: a
+/// comment ends in a full stop, and `// … pendant qu'on dessine.`
+/// followed by `effect((), …)` on the next line made the call look like
+/// somebody's field. `a . b` is legal Rust that nobody writes; a
+/// sentence that ends in a full stop is written every day.
+fn reaches_into_something_else(bytes: &[u8], at: usize) -> bool {
+    if at == 0 {
+        return false;
+    }
+    match bytes[at - 1] {
+        b'.' => !(at >= 2 && bytes[at - 2] == b'.'),
+        b':' => at >= 2 && bytes[at - 2] == b':',
+        _ => false,
+    }
+}
+
 /// The parts of a component's body that are Rust, as opposed to the
 /// text and tag syntax of its JSX.
 ///
@@ -1598,8 +1647,17 @@ pub fn uses_in(
     region: Span,
     tail_discarded: bool,
 ) -> (Vec<Span>, Vec<Mutation>) {
-    let mutations = mutations_in(source, name, region, &[region], tail_discarded);
-    let reads = occurrences(source, name, &[region])
+    // The code of the region, which is not the region: everywhere else
+    // the compiler looks for a name through `push_code`, so that a
+    // string literal and a comment are prose rather than code. An
+    // `async` block was the one place looked at raw, and a developer's
+    // sentence about `compteur` came out rewritten into one about
+    // `compteur.get()`.
+    let mut code = Vec::new();
+    push_code(source, region, &mut code);
+
+    let mutations = mutations_in(source, name, region, &code, tail_discarded);
+    let reads = names_used(source, name, &code)
         .into_iter()
         .filter(|span| !mutations.iter().any(|mutation| mutation.span == *span))
         .collect();

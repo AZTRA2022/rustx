@@ -699,6 +699,15 @@ fn expression_after(source: &str, from: usize, handler: Span) -> Span {
             b')' | b']' | b'}' if depth == 0 => break,
             b')' | b']' | b'}' => depth -= 1,
             b';' if depth == 0 => break,
+            // A comma out here separates things rather than belonging to
+            // one: the arms of a `match`, the arguments of a call. A
+            // comma *inside* the value — `vec![1, 2]`, `(a, b)`,
+            // `Foo { a: 1, b: 2 }` — is behind a bracket and so at a
+            // depth of its own. Reading past this one turned
+            // `0 => dit = String::new(), _ => …` into
+            // `dit.set(String::new(), _ => …)`, and the developer was
+            // told their correct line did not parse.
+            b',' if depth == 0 => break,
             _ => {}
         }
         index += 1;
