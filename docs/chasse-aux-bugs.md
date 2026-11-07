@@ -56,6 +56,8 @@ rendu ». Les trois étaient justes, et les numéros 14 à 17 en viennent.
 | 19 | important | extension VS Code | taper `>` ne fermait pas la balise | corrigé |
 | 20 | mineur | `rustx-compiler` | trois refus arrivaient avec des rafales d'espaces | corrigé |
 | 21 | important | `rustx-dom` | la boîte aux lettres d'un thread parti grossissait sans fin | corrigé |
+| 22 | bloquant | labo, tests | une page tronquée a survécu à un rapport vert | corrigé |
+| 23 | important | `rustx-lsp` | une prop avait l'icône d'un attribut, et une icône npm n'avait aucune prop | corrigé |
 
 ---
 
@@ -504,6 +506,68 @@ elle tourne quand le thread s'en va, quelle que soit la raison, y
 compris celle qu'on n'a pas prévue. Avec, un `Remote::is_open()` --
 parce que le test avait besoin de la question, et qu'une future qui
 s'apprête à calculer cher a autant besoin de la poser.
+
+### 22. Une page tronquée a survécu à un rapport vert
+
+C'est le pire de la liste, parce qu'il ne porte pas sur le framework
+mais sur ce qui dit si le framework va bien. La page du labo avait
+perdu la fin d'une ligne — `keep(Arc::new(Mutex::new(String::new())));`
+sans ses trois parenthèses fermantes — et j'avais annoncé le labo vert.
+Les deux étaient vrais au moment où je les ai dits, et la conclusion
+était fausse : les onze assertions avaient tourné sur une version
+précédente du fichier, et personne n'avait reconstruit celle qui était
+sur le disque.
+
+La cause immédiate est un script Python qui éditait du Rust et a mangé
+une fin de ligne. La cause réelle est qu'**aucun test ne lisait les
+pages des applications**. Il n'y avait rien à casser, donc rien ne
+cassait.
+
+**Correction.** `crates/rustx-compiler/tests/pages.rs` : cinq lois sur
+chaque `.rsx` du dépôt, et ceux du labo quand le dépôt voisin est là —
+la page est acceptée, ce qu'elle émet tient comme du Rust, le compte de
+lignes est conservé, rien n'est avalé. Avec un test qui **dit** quand le
+labo n'est pas là, parce qu'un filet qui se tait quand il ne couvre rien
+est le défaut qu'on répare. Et une sixième loi qui juge les cinq autres :
+la même page avec la fin d'une ligne coupée ne doit pas passer.
+
+### 23. Une prop avait l'icône d'un attribut, et une icône npm n'avait aucune prop
+
+Rapporté en lisant le labo : « je ne vois pas les icônes dans le hint
+indiquant une prop propre au composant, ainsi que certaines entrées de
+composants ». Deux défauts, et le second était caché par le premier.
+
+Le premier tient en deux lignes :
+
+```rust
+Self::Attribute => 10,
+Self::Property  => 10,
+```
+
+`Kind` existe pour que l'éditeur dessine une icône différente par
+sorte — sa propre documentation le dit — et `variant` arrivait avec
+celle d'`accesskey`. La loi qui l'interdit est écrite **par liste** : un
+nom de balise et une prop peuvent partager un numéro, ils ne se
+rencontrent jamais ; trois sortes offertes dans une même balise, non.
+
+Le second : `<AArrowDown ` n'offrait aucune prop, et `size` est la seule
+qu'on écrive sur une icône. La déclaration ne nomme pas d'objet —
+`declare const AArrowDown: LucideIcon` — et deux choses allaient de
+travers. Le lecteur cherchait un **second** deux-points après la forme
+`const X:`, le dépassait, et lisait le nom de la déclaration suivante.
+Et même corrigé, il s'arrêtait sur l'alias : `type LucideIcon =
+ForwardRefExoticComponent<Omit<LucideProps, 'ref'> & …>`. Un alias est
+désormais suivi jusqu'aux objets qu'il mentionne — ce qu'il nomme et
+qu'on ne trouve pas ne coûte rien, ce qui permet de chercher sans savoir
+ce qu'on va trouver. Sept mille icônes sont passées de zéro prop à
+celles qu'elles prennent.
+
+Ce que ça a révélé sur la façon de tester : les tests de l'éditeur
+construisaient tous leur propre fixture, donc ils prouvaient la règle
+pour laquelle ils avaient été écrits et rien sur les fichiers qu'un
+développeur a vraiment. `tests/laboratory.rs` prend le vrai labo comme
+sujet et relit ses `.tsx` **sans passer par le serveur** — un test qui
+demanderait au serveur ce qu'il doit attendre le comparerait à lui-même.
 
 ## Ce que la chasse n'a pas corrigé, et pourquoi
 
