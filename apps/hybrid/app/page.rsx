@@ -94,7 +94,7 @@ fn Page() -> Element {
                         shadcn, Radix, recharts, Tailwind : installés avec npm, écrits comme
                         des balises.
                     </TabsContent>
-                    
+
                 </Tabs>
 
                 <div  className="mt-6 grid gap-6 md:grid-cols-3">

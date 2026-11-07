@@ -21,7 +21,7 @@ let mut chosen = "one".to_string();
 /// learns what the user chose inside a tree it does not own.
 fn Page() -> Element {
     let mut x = 0;
-    
+
     return <div id="zoo">
         <h1 id="title">Zoo</h1>
         <h1>the value of x:{x}</h1>

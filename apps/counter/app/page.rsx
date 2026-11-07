@@ -472,35 +472,35 @@ fn Page() -> Element {
                         gap: "12px",
                     }}>
                         <span style={{border: "1px solid rgba(255,255,255,0.1)",
-        backgroundColor: "rgba(255,255,255,0.03)",
-        borderRadius: "12px",
-        padding: "12px 20px",
-        fontWeight: "600",
-        color: "#e4e4e7",}}>Tiptap</span>
+                            backgroundColor: "rgba(255,255,255,0.03)",
+                            borderRadius: "12px",
+                            padding: "12px 20px",
+                            fontWeight: "600",
+                            color: "#e4e4e7",}}>Tiptap</span>
                         <span style={{border: "1px solid rgba(255,255,255,0.1)",
-        backgroundColor: "rgba(255,255,255,0.03)",
-        borderRadius: "12px",
-        padding: "12px 20px",
-        fontWeight: "600",
-        color: "#e4e4e7",}}>Xiflow</span>
+                            backgroundColor: "rgba(255,255,255,0.03)",
+                            borderRadius: "12px",
+                            padding: "12px 20px",
+                            fontWeight: "600",
+                            color: "#e4e4e7",}}>Xiflow</span>
                         <span style={{border: "1px solid rgba(255,255,255,0.1)",
-        backgroundColor: "rgba(255,255,255,0.03)",
-        borderRadius: "12px",
-        padding: "12px 20px",
-        fontWeight: "600",
-        color: "#e4e4e7",}}>Convex</span>
+                            backgroundColor: "rgba(255,255,255,0.03)",
+                            borderRadius: "12px",
+                            padding: "12px 20px",
+                            fontWeight: "600",
+                            color: "#e4e4e7",}}>Convex</span>
                         <span style={{border: "1px solid rgba(255,255,255,0.1)",
-        backgroundColor: "rgba(255,255,255,0.03)",
-        borderRadius: "12px",
-        padding: "12px 20px",
-        fontWeight: "600",
-        color: "#e4e4e7",}}>Supabase</span>
+                            backgroundColor: "rgba(255,255,255,0.03)",
+                            borderRadius: "12px",
+                            padding: "12px 20px",
+                            fontWeight: "600",
+                            color: "#e4e4e7",}}>Supabase</span>
                         <span style={{border: "1px solid rgba(255,255,255,0.1)",
-        backgroundColor: "rgba(255,255,255,0.03)",
-        borderRadius: "12px",
-        padding: "12px 20px",
-        fontWeight: "600",
-        color: "#e4e4e7",}}>npm</span>
+                            backgroundColor: "rgba(255,255,255,0.03)",
+                            borderRadius: "12px",
+                            padding: "12px 20px",
+                            fontWeight: "600",
+                            color: "#e4e4e7",}}>npm</span>
                     </div>
                     <p style={{ margin: "24px 0 0", fontSize: "12px", color: "#52525b" }}>
                         Integration availability depends on each library's runtime requirements.

@@ -16,7 +16,95 @@ import {
   TransportKind,
 } from "vscode-languageclient/node";
 
+// Plain JavaScript on purpose: these two are the only parts of the
+// extension with a rule worth arguing about, and plain modules can be
+// tested with `node --test` without a build or a running editor.
+import { reindent } from "./indent.mjs";
+import { closingFor } from "./tags.mjs";
+
 let client: LanguageClient | undefined;
+
+/** Only a `.rsx`, and only one the editor is showing. */
+const RSX = { scheme: "file", language: "rsx" } as const;
+
+/**
+ * Close a tag when its `>` is typed.
+ *
+ * VS Code pairs *characters*, and a closing tag is a *name*: there is
+ * nothing to declare for this in a `language-configuration.json`, so
+ * the rule is ours. The hard part is not the JSX, it is the Rust around
+ * it — a `.rsx` ending in `Vec<u32>` answered with `</u32>` would be
+ * worse than nothing — and that rule lives in `tags.mjs`, with its
+ * tests.
+ */
+function closeTags(): vscode.Disposable {
+  return vscode.workspace.onDidChangeTextDocument((event) => {
+    if (event.document.languageId !== "rsx") {
+      return;
+    }
+    // One change, and that change a `>`: anything else is a paste, an
+    // undo, or a formatter, and none of them wants a tag closed.
+    if (event.contentChanges.length !== 1) {
+      return;
+    }
+    const change = event.contentChanges[0];
+    if (change.text !== ">") {
+      return;
+    }
+    const wanted = vscode.workspace
+      .getConfiguration("rustx")
+      .get<boolean>("closeTags", true);
+    if (!wanted) {
+      return;
+    }
+    const editor = vscode.window.activeTextEditor;
+    if (editor === undefined || editor.document !== event.document) {
+      return;
+    }
+
+    const after = change.range.start.translate(0, change.text.length);
+    const upToHere = event.document.getText(
+      new vscode.Range(new vscode.Position(0, 0), after),
+    );
+    const closing = closingFor(upToHere);
+    if (closing === undefined) {
+      return;
+    }
+    // `$0` leaves the caret between the two tags, which is where the
+    // next thing typed belongs.
+    void editor.insertSnippet(
+      new vscode.SnippetString(`$0${closing}`),
+      after,
+      { undoStopBefore: false, undoStopAfter: true },
+    );
+  });
+}
+
+/**
+ * What Format Document does to a `.rsx`.
+ *
+ * Reindenting and nothing else — see `indent.mjs` for why a `.rsx` can
+ * be neither rustfmt's nor Prettier's.
+ */
+function formatting(): vscode.Disposable {
+  return vscode.languages.registerDocumentFormattingEditProvider(RSX, {
+    provideDocumentFormattingEdits(document, options) {
+      const text = document.getText();
+      const formatted = reindent(text, {
+        tabSize: options.tabSize,
+        insertSpaces: options.insertSpaces,
+      });
+      if (formatted === text) {
+        return [];
+      }
+      const whole = new vscode.Range(
+        document.positionAt(0),
+        document.positionAt(text.length),
+      );
+      return [vscode.TextEdit.replace(whole, formatted)];
+    },
+  });
+}
 
 /** Where the server is, as this workspace says. */
 function server(): string {
@@ -69,7 +157,15 @@ function analyzerOfTheEditor(): string | undefined {
   return existsSync(binary.fsPath) ? binary.fsPath : undefined;
 }
 
-export function activate(context: vscode.ExtensionContext): void {
+/**
+ * Start the server, or say why it did not start.
+ *
+ * Separate from `activate` because restarting it is a command: a server
+ * that has got out of step with the compiler beside it — an older build
+ * still underlining what the compiler now accepts — is fixed by this
+ * and not by reloading the window.
+ */
+function start(): void {
   const command = server();
   const options: ServerOptions = {
     run: {
@@ -105,11 +201,26 @@ export function activate(context: vscode.ExtensionContext): void {
     );
   });
 
-  context.subscriptions.push({
-    dispose: () => {
-      void client?.stop();
+}
+
+export function activate(context: vscode.ExtensionContext): void {
+  start();
+
+  context.subscriptions.push(
+    closeTags(),
+    formatting(),
+    vscode.commands.registerCommand("rustx.restartServer", async () => {
+      await client?.stop();
+      client = undefined;
+      start();
+      void vscode.window.setStatusBarMessage("rustx: server restarted", 2000);
+    }),
+    {
+      dispose: () => {
+        void client?.stop();
+      },
     },
-  });
+  );
 }
 
 export function deactivate(): Thenable<void> | undefined {
