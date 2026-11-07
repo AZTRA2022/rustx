@@ -15,3 +15,9 @@ categories = ["development-tools", "gui"]
 [dependencies]
 proc-macro2 = "1.0.86"
 quote = "1.0.37"
+
+[dev-dependencies]
+# Pour relire ce que l'emission produit. `rustc` ne peut pas voir une
+# page du depot -- elle nomme ce que son application definit -- mais la
+# forme des jetons, si, et c'est la moitie qu'un transpileur rate.
+syn = { version = "2", features = ["full", "parsing"] }
