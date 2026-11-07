@@ -110,9 +110,18 @@ pub struct Promoted {
     pub declaration: Span,
     /// `0` — what the cell starts at.
     pub initializer: Span,
+    /// The type the declaration named, if it named one. `Vec::new()`
+    /// says nothing about what is in the vector; `: Vec<String>` does.
+    pub annotation: Option<Span>,
     /// Every occurrence that only looks.
     pub reads: Vec<Span>,
     pub mutations: Vec<Mutation>,
+    /// The `format!` calls that read the value by writing its name
+    /// inside the string. A read nothing else counts: the name is in
+    /// prose, so no occurrence of it is found in the code, and a value
+    /// a future writes and the screen only captures was left with no
+    /// handle to read from.
+    pub captures: Vec<Span>,
 }
 
 /// One place a promoted local is written.
@@ -291,8 +300,14 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
                 shared: false,
                 declaration: local.declaration,
                 initializer: local.initializer,
+                annotation: local.annotation,
                 reads,
                 mutations,
+                captures: format_captures(source, &local.name, body)
+                    .into_iter()
+                    .map(|call| call.span)
+                    .filter(|span| span.start >= local.declaration.end)
+                    .collect(),
             });
         }
 
@@ -324,7 +339,11 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             // And a value that is only ever captured inline by a format
             // string is used too — the use is written in prose, which is
             // exactly why nothing above found it.
-            let captured = !format_captures(source, &declaration.name, body).is_empty();
+            let captures: Vec<Span> = format_captures(source, &declaration.name, body)
+                .into_iter()
+                .map(|call| call.span)
+                .collect();
+            let captured = !captures.is_empty();
             if reads.is_empty() && mutations.is_empty() && !in_a_call && !captured {
                 continue;
             }
@@ -339,8 +358,10 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
                     end: body.start + 1,
                 },
                 initializer: declaration.initializer,
+                annotation: declaration.annotation,
                 reads,
                 mutations,
+                captures,
             });
         }
 
@@ -821,6 +842,15 @@ struct Local {
     name: String,
     declaration: Span,
     initializer: Span,
+    /// The `Vec<String>` of `let mut visites: Vec<String> = Vec::new();`
+    ///
+    /// Kept because the initializer alone does not always say what the
+    /// value is: `Vec::new()`, `None` and `Default::default()` are the
+    /// three most ordinary ways to start a value in Rust, and all three
+    /// take their type from the annotation. Dropping it emitted
+    /// `shared("visites", || Vec::new())` and rustc said it could not
+    /// infer `T` — about a declaration that was perfectly explicit.
+    annotation: Option<Span>,
 }
 
 /// `fn NAME(…) -> Element {`, and the span of its body.
@@ -1010,9 +1040,18 @@ fn locals_of(source: &str, body: Span) -> Vec<Local> {
         };
         // `let mut n: u8 = 0;` — step over an annotation if there is one.
         let mut cursor = skip_spaces(bytes, name.1);
+        let mut annotation = None;
         if bytes.get(cursor) == Some(&b':') {
+            let from = skip_spaces(bytes, cursor + 1);
             while cursor < body.end && bytes[cursor] != b'=' {
                 cursor += 1;
+            }
+            let until = source[from..cursor.min(source.len())].trim_end().len() + from;
+            if until > from {
+                annotation = Some(Span {
+                    start: from,
+                    end: until,
+                });
             }
         }
         if bytes.get(cursor) != Some(&b'=') {
@@ -1033,6 +1072,7 @@ fn locals_of(source: &str, body: Span) -> Vec<Local> {
                 start: initializer_start,
                 end: semicolon,
             },
+            annotation,
         });
         index = semicolon;
     }
@@ -1813,6 +1853,8 @@ pub struct SharedDeclaration {
     pub declaration: Span,
     /// `0` — what it starts at, the first time anything asks.
     pub initializer: Span,
+    /// The type the declaration named, if it named one.
+    pub annotation: Option<Span>,
 }
 
 /// Every `let mut` written outside a component.
@@ -1853,6 +1895,7 @@ pub fn shared_of(source: &str) -> Vec<SharedDeclaration> {
         name: local.name,
         declaration: local.declaration,
         initializer: local.initializer,
+        annotation: local.annotation,
     })
     .collect()
 }

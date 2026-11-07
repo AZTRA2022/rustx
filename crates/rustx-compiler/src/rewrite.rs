@@ -89,7 +89,7 @@ fn edits_for(source: &str, component: &Component) -> Vec<Edit> {
 
     for promoted in &component.promoted {
         let (line, column) = line_and_column(source, promoted.declaration.start);
-        let initializer = &source[promoted.initializer.start..promoted.initializer.end];
+        let initializer = opening(source, promoted);
         // A value the page declared is found by the type that names it;
         // a value this component declared is found by the place it was
         // written. Everything after this line is the same rewrite.
@@ -97,30 +97,41 @@ fn edits_for(source: &str, component: &Component) -> Vec<Edit> {
             // Nothing outside a `keep`, an `effect` or a `task` uses it,
             // and what is inside one reaches it by name. A binding here
             // would be a binding nobody reads.
-            if promoted.reads.is_empty() && promoted.mutations.is_empty() {
+            if promoted.reads.is_empty()
+                && promoted.mutations.is_empty()
+                && promoted.captures.is_empty()
+            {
                 continue;
             }
             // The same, for a value only a future writes: the future
             // builds its own handle before the block, so a binding out
             // here is one `rustc` would warn about in a generated file.
+            // A capture written on the screen is a read out here, even
+            // though it is written in prose: without this the binding
+            // was skipped and the screen read a name nothing had bound.
+            let inside_a_future = |span: Span| {
+                component
+                    .remote_regions
+                    .iter()
+                    .any(|region| contains(*region, span))
+            };
             let only_in_a_future = promoted.reads.is_empty()
-                && promoted.mutations.iter().all(|mutation| {
-                    component
-                        .remote_regions
-                        .iter()
-                        .any(|region| contains(*region, mutation.span))
-                });
+                && promoted.captures.iter().copied().all(inside_a_future)
+                && promoted
+                    .mutations
+                    .iter()
+                    .all(|mutation| inside_a_future(mutation.span));
             if only_in_a_future {
                 continue;
             }
             format!(
-                "let {name} = rustx_dom::store::shared(\"{name}\", || {initializer});",
+                "let {name} = rustx_dom::store::shared(\"{name}\", {initializer});",
                 name = promoted.name,
             )
         } else {
             format!(
                 "let {name} = rustx_dom::state::cell(rustx_dom::state::Slot {{ \
-                 file: file!(), line: {line}u32, column: {column}u32 }}, || {initializer});",
+                 file: file!(), line: {line}u32, column: {column}u32 }}, {initializer});",
                 name = promoted.name,
             )
         };
@@ -359,9 +370,9 @@ fn future_task(
         // component is; a value this component declared is already bound
         // above, as a cell.
         if promoted.shared {
-            let initializer = &source[promoted.initializer.start..promoted.initializer.end];
+            let initializer = opening(source, promoted);
             preamble.push_str(&format!(
-                "let {name} = rustx_dom::store::shared(\"{name}\", || {initializer})\
+                "let {name} = rustx_dom::store::shared(\"{name}\", {initializer})\
                  .{handle}(&__cancel); "
             ));
         } else {
@@ -449,8 +460,8 @@ fn arguments_of(call: &str) -> Option<(&str, Vec<&str>, &str)> {
 /// A method write whose arguments are evaluated before the closure.
 ///
 /// `rows.push(r.clone())` becomes
-/// `{ let __a0 = r.clone(); rows.update(move |__v| __v.push(__a0)) }`
-/// rather than `rows.update(move |__v| __v.push(r.clone()))`. Both are
+/// `{ let __a0 = r.clone(); rows.update(move |__v| { __v.push(__a0); }) }`
+/// rather than `rows.update(move |__v| { __v.push(r.clone()); })`. Both are
 /// `Send + 'static`, and only the first leaves `r` usable on the line
 /// after: a `move` closure takes ownership of everything the expression
 /// mentions, and the error it produced named a generated file for code
@@ -470,7 +481,7 @@ fn moved_method(name: &str, call: &str) -> Option<String> {
         passed.push(format!("__a{at}"));
     }
     Some(format!(
-        "{{ {bound}{name}.update(move |__v| __v{before}({}){after}) }}",
+        "{{ {bound}{name}.update(move |__v| {{ __v{before}({}){after}; }}) }}",
         passed.join(", ")
     ))
 }
@@ -702,11 +713,11 @@ fn rewrite_mutation_for(
                 text: {
                     let patched = read_patched(source, call, reads);
                     match owning {
-                        Owning::Borrowed => format!("{name}.update(|__v| __v{patched})"),
+                        Owning::Borrowed => format!("{name}.update(|__v| {{ __v{patched}; }})"),
                         Owning::Moved => moved_method(name, &patched).unwrap_or_else(|| {
                             // Not a call this can take apart — then the
                             // blunt form, which is what it was before.
-                            format!("{name}.update(move |__v| __v{patched})")
+                            format!("{name}.update(move |__v| {{ __v{patched}; }})")
                         }),
                     }
                 },
@@ -874,6 +885,34 @@ fn read_patched(source: &str, span: Span, reads: &[Edit]) -> String {
         .to_string()
 }
 
+/// The closure that gives a value its first value.
+///
+/// `|| INIT`, and `|| -> TYPE { INIT }` when the developer wrote a type
+/// on the declaration. The type has to travel: `Vec::new()`, `None` and
+/// `Default::default()` all take theirs from the annotation, and
+/// without it the store's `T` has nothing to be inferred from —
+/// `let mut visites: Vec<String> = Vec::new();` came out as
+/// `shared("visites", || Vec::new())`, and rustc answered "cannot infer
+/// type of the type parameter `T`" against a generated line.
+///
+/// An annotation spread over several lines is left alone: this text is
+/// inserted somewhere the declaration is not, and a newline inserted
+/// there would move every line below it away from the position map.
+fn opening(source: &str, promoted: &crate::promote::Promoted) -> String {
+    let initializer = &source[promoted.initializer.start..promoted.initializer.end];
+    match promoted.annotation {
+        Some(span) => {
+            let declared = &source[span.start..span.end];
+            if declared.contains('\n') {
+                format!("|| {initializer}")
+            } else {
+                format!("|| -> {declared} {{ {initializer} }}")
+            }
+        }
+        None => format!("|| {initializer}"),
+    }
+}
+
 /// The arguments of a `keep`, `effect` or `task`, with every use of a
 /// shared value rewritten to reach it by name.
 ///
@@ -886,9 +925,9 @@ fn patched_arguments(source: &str, component: &Component, call: &crate::promote:
     let mut edits = Vec::new();
 
     for promoted in component.promoted.iter().filter(|promoted| promoted.shared) {
-        let initializer = &source[promoted.initializer.start..promoted.initializer.end];
+        let initializer = opening(source, promoted);
         let accessor = format!(
-            "rustx_dom::store::shared(\"{name}\", || {initializer})",
+            "rustx_dom::store::shared(\"{name}\", {initializer})",
             name = promoted.name
         );
         let (reads, mutations) =

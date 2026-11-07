@@ -226,3 +226,60 @@ fn a_local_of_a_method_in_the_page_is_not_shared_state_either() {
         "a local of a method became a value of the page: {rust}"
     );
 }
+
+#[test]
+fn the_declared_type_of_a_page_value_reaches_the_store() {
+    // `let mut visites: Vec<String> = Vec::new();` became
+    // `shared("visites", || Vec::new())`, where the type had nowhere to
+    // come from: rustc answered `cannot infer type of the type
+    // parameter T`, pointing at a line in a generated file the
+    // developer had never written.
+    let source = "let mut visites: Vec<String> = Vec::new();\n\n\
+         fn Page() -> Element {\n    \
+         return <p>{visites.len()}</p>;\n}\n";
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("|| -> Vec < String > { Vec :: new() }")
+            || rust.contains("|| -> Vec<String> { Vec::new() }"),
+        "the declared type should reach the closure: {rust}"
+    );
+}
+
+#[test]
+fn the_declared_type_of_a_component_value_reaches_its_cell() {
+    let source = "fn Page() -> Element {\n    \
+         let mut choisis: Vec<u32> = Vec::new();\n    \
+         return <div><p>{choisis.len()}</p>\
+         <button onClick={move |_| choisis.push(1)}>add</button></div>;\n}\n";
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("|| -> Vec < u32 > { Vec :: new() }")
+            || rust.contains("|| -> Vec<u32> { Vec::new() }"),
+        "the declared type should reach the cell: {rust}"
+    );
+}
+
+#[test]
+fn a_page_value_only_a_future_writes_and_the_screen_captures_is_still_bound() {
+    // The binding was skipped because nothing *outside* the future read
+    // it -- and the one read was written in prose, inside a format
+    // string, where the test for "is it used here" had never looked.
+    // What reached rustc was
+    // `format!("{secondes}", secondes = secondes.get())` in a body
+    // where `secondes` was never bound.
+    let source = "let mut secondes = 0_u32;\n\n\
+         fn Page() -> Element {\n    \
+         async move {\n        \
+         loop {\n            \
+         secondes += 1;\n            \
+         let instant = format!(\"{secondes}s\");\n            \
+         let _ = instant;\n        \
+         }\n    \
+         };\n\n    \
+         return <p>{format!(\"{secondes}\")}</p>;\n}\n";
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("let secondes = rustx_dom::store::shared(\"secondes\""),
+        "the capture needs a handle to read: {rust}"
+    );
+}

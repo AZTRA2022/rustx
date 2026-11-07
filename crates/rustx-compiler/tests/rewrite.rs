@@ -968,3 +968,19 @@ fn a_macro_that_is_not_a_format_is_left_alone() {
         "an argument was appended to a macro that takes none: {rust}"
     );
 }
+
+#[test]
+fn a_method_that_gives_something_back_still_leaves_the_closure_at_nothing() {
+    // `battements.remove(0)` became `update(move |__v| __v.remove(__a0))`,
+    // and `remove` gives back the element it removed: rustc answered
+    // "expected `()`, found `Battement`" against a generated line, for
+    // a method the developer is entitled to call.
+    let source = "fn Page() -> Element {\n    \
+         let mut battements: Vec<u32> = Vec::new();\n    \
+         return <button onClick={move |_| battements.remove(0)}>x</button>;\n}\n";
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("{ __v . remove (0) ; }") || rust.contains("{ __v.remove(0); }"),
+        "the closure's body should be a statement: {rust}"
+    );
+}

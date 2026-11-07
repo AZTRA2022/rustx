@@ -571,12 +571,16 @@ fn foreign_child(child: &Node, context: &Context<'_>) -> Result<TokenStream, Com
         }
         Node::Tag(tag) => Err(unknown_tag(tag)),
         // `{content}` inside a library's component. React renders a
-        // string, a number or a list of them as children, so the value
-        // crosses the way a prop does.
+        // string, a number or a list of them as children, so a value
+        // crosses the way a prop does — and a component of the page
+        // crosses as the tree it is, described the way a native tag
+        // below the boundary is already described. Which of the two it
+        // is is decided by the type the developer wrote, not by a guess
+        // here: `into_foreign_child` takes either.
         Node::Expression { code, offset } => {
             let inner = rust(code, *offset)?;
             Ok(quote! {
-                rustx_dom::ForeignChild::Value(rustx_dom::value::ToValue::to_value(&(#inner)))
+                rustx_dom::into_foreign_child(#inner)
             })
         }
     }
