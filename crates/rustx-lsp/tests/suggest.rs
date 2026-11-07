@@ -526,6 +526,51 @@ fn a_page_is_offered_what_the_application_around_it_installed() {
 }
 
 #[test]
+fn a_prop_of_the_component_is_sorted_above_an_attribute_every_tag_has() {
+    // The order `attributes` builds is thrown away unless it is said on
+    // the wire: an editor sorts by `sortText`, and by the label when
+    // there is none. `variant` was therefore filed under V, behind
+    // `accesskey`, `action` and everything else alphabetical.
+    let offered = |label: &str, kind: suggest::Kind| suggest::Item {
+        label: label.to_string(),
+        kind,
+        detail: String::from("said somewhere"),
+        insert: None,
+    };
+    let items = vec![
+        offered("accesskey", suggest::Kind::Attribute),
+        offered("variant", suggest::Kind::Property),
+        offered("onClick", suggest::Kind::Event),
+    ];
+    let sent = suggest::json(&items);
+
+    let sort_of = |label: &str| {
+        let at = sent
+            .find(&format!("\"label\":\"{label}\""))
+            .unwrap_or_else(|| panic!("{label} is not in {sent}"));
+        let from = sent[at..]
+            .find("\"sortText\":\"")
+            .map(|found| at + found + "\"sortText\":\"".len())
+            .unwrap_or_else(|| panic!("{label} carries no sortText: {sent}"));
+        let end = sent[from..].find('"').expect("a closed string") + from;
+        sent[from..end].to_string()
+    };
+
+    assert!(
+        sort_of("variant") < sort_of("accesskey"),
+        "variant sorts at {:?} and accesskey at {:?}",
+        sort_of("variant"),
+        sort_of("accesskey")
+    );
+    assert!(
+        sort_of("variant") < sort_of("onClick"),
+        "variant sorts at {:?} and onClick at {:?}",
+        sort_of("variant"),
+        sort_of("onClick")
+    );
+}
+
+#[test]
 fn two_kinds_offered_in_the_same_list_never_share_an_icon() {
     // `Kind` exists so the editor can draw a different icon for each,
     // which is most of what makes a long list readable. Two kinds that

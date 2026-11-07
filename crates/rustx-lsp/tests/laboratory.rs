@@ -195,6 +195,38 @@ fn every_prop_a_component_takes_is_offered_inside_its_tag() {
 }
 
 #[test]
+fn what_a_shadcn_button_takes_arrives_above_the_attributes_every_tag_has() {
+    // The whole way through, on the files a developer really has:
+    // `<Button ` offers `variant` before `accessKey`, and says so in the
+    // JSON rather than only in the order we happened to build.
+    let Some(laboratory) = laboratory() else {
+        eprintln!("note: ../labo-rustx is not beside the repository; this proves nothing today");
+        return;
+    };
+    let (page, _) = page_of(&laboratory);
+    let sent = suggest::json(&suggest::attributes("Button", "", &page, &[]));
+
+    let sorts_at = |label: &str| {
+        let at = sent
+            .find(&format!("\"label\":\"{label}\""))
+            .unwrap_or_else(|| panic!("{label} is not offered for <Button"));
+        let from = sent[at..]
+            .find("\"sortText\":\"")
+            .map(|found| at + found + "\"sortText\":\"".len())
+            .unwrap_or_else(|| panic!("{label} carries no sortText"));
+        let end = sent[from..].find('"').expect("a closed string") + from;
+        sent[from..end].to_string()
+    };
+
+    assert!(
+        sorts_at("variant") < sorts_at("accessKey"),
+        "variant sorts at {:?}, accessKey at {:?}",
+        sorts_at("variant"),
+        sorts_at("accessKey")
+    );
+}
+
+#[test]
 fn an_icon_off_npm_offers_the_props_its_declaration_leads_to() {
     // `<AArrowDown size={18} />` is on the laboratory's page, and
     // `size` is the only prop anybody ever writes on an icon. The

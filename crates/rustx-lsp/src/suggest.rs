@@ -43,6 +43,24 @@ impl Kind {
             Self::Property => 5,
         }
     }
+
+    /// Where this kind belongs in the list the editor draws.
+    ///
+    /// An editor sorts by `sortText`, and by the label when there is
+    /// none — so an order built here and not said on the wire is an
+    /// order thrown away. `variant` was filed under V, behind
+    /// `accesskey` and `action`, which is the opposite of what somebody
+    /// opening a `<Button` is looking for.
+    ///
+    /// Only what a component itself takes is moved. Everything else
+    /// keeps the alphabetical order an editor would have given it,
+    /// because that is the order a list is scanned in.
+    pub fn rank(self) -> u8 {
+        match self {
+            Self::Property => 0,
+            Self::Tag | Self::Component | Self::Attribute | Self::Event => 1,
+        }
+    }
 }
 
 /// One thing offered.
@@ -346,11 +364,15 @@ pub fn json(items: &[Item]) -> String {
         if at > 0 {
             out.push(',');
         }
+        // The rank, then the label: the groups are ordered by us, and
+        // within a group the editor's own alphabetical order is kept.
         out.push_str(&format!(
-            "{{\"label\":\"{}\",\"kind\":{},\"detail\":\"{}\"",
+            "{{\"label\":\"{}\",\"kind\":{},\"detail\":\"{}\",\"sortText\":\"{}{}\"",
             crate::json::escape(&item.label),
             item.kind.number(),
-            crate::json::escape(&item.detail)
+            crate::json::escape(&item.detail),
+            item.kind.rank(),
+            crate::json::escape(&item.label)
         ));
         if let Some(insert) = &item.insert {
             out.push_str(&format!(
