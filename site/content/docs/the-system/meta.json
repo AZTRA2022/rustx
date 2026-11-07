@@ -1,0 +1,17 @@
+{
+  "title": "The system",
+  "pages": [
+    "index",
+    "the-clipboard",
+    "file-dialogs",
+    "app-data",
+    "notifications-and-the-tray",
+    "global-shortcuts",
+    "dropped-files",
+    "a-single-instance",
+    "start-with-the-session",
+    "devices",
+    "platforms",
+    "security"
+  ]
+}

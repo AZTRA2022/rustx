@@ -68,6 +68,10 @@ rendu ». Les trois étaient justes, et les numéros 14 à 17 en viennent.
 | 31 | bloquant | `rustx-compiler` | une écriture dont la partie droite lit une autre valeur de page était éditée deux fois | corrigé |
 | 32 | bloquant | `rustx-compiler` | une fonction ordinaire à côté d'une page n'atteignait pas ses valeurs | corrigé |
 | 33 | important | `rustx-lsp` | aucune réponse sur une ligne que la réécriture avait rebâtie | corrigé |
+| 34 | bloquant | `rustx-macro` | un refus de page entraînait un `error[E0752]` sur `src/main.rs` | corrigé |
+| 35 | bloquant | `rustx-compiler` | une expression de balise qui tient des instructions n'était pas émise en bloc | corrigé |
+| 36 | bloquant | `rustx-compiler` | un nom qu'un `let` lie était réécrit comme une lecture | corrigé |
+| 37 | important | `rustx-engine` | `value` posé en attribut seul : un champ que la page vide restait plein | corrigé |
 
 ---
 
@@ -817,3 +821,91 @@ caractères que la réécriture avait ajoutés.
   plus de place pour la mémoire virtuelle. Ce n'est pas un défaut du
   framework, mais c'est la deuxième chose à regarder quand une
   construction tombe sans raison.
+
+### 34 à 37. Ce que la deuxième nuit a trouvé en se servant du framework
+
+Les quatre viennent de la même source : avoir écrit, dans le labo, le
+code qu'un développeur écrit.
+
+**34. Un refus de page entraînait un second message.**
+`#[rustx::main]` réémettait la signature telle qu'elle était écrite,
+`async` compris, quand une page était refusée. Le développeur recevait
+donc sa vraie erreur **et** `error[E0752]: main function is not allowed
+to be async`, qui désigne `src/main.rs` et ne parle de rien qu'il ait
+fait. L'`async` est maintenant retiré avant que quoi que ce soit puisse
+mal tourner, et les deux chemins de refus émettent la même fonction que
+le chemin heureux.
+
+**35. Une expression de balise qui tient des instructions.**
+`{ let (ou, rang) = router::history(); format!("{}/{}", rang + 1,
+ou.len()) }` est du Rust ordinaire. Les accolades de la balise étaient
+prises pour celles du bloc, donc ce qui sortait était
+`into_element(let … ; …)` — une suite d'instructions là où un argument
+est attendu, que rien ne peut analyser. L'expression est maintenant
+émise dans un bloc, ce qui ne change rien à une expression simple.
+Trouvée par la loi du dépôt « toute page émet du Rust qui tient »,
+qui est devenue rouge à la seconde où le labo s'est servi de la pile de
+navigation.
+
+**36. Un nom qu'un `let` lie était réécrit comme une lecture.** Dans
+cette même ligne, la page avait une valeur nommée `visites` : le motif
+`let (visites, rang) = …` est une **déclaration**, et il sortait en
+`let (visites.get(), rang) = …`. La règle est maintenant écrite : un
+nom entre un `let` et le `=` qui le suit n'est pas une lecture.
+
+**37. `value` posé en attribut seul.** Dès qu'un `<input>` écrit en
+balises a pu lire ce qu'on tape, le labo a mis un bouton « vider » à
+côté — et le champ ne se vidait pas. `value` n'est pas un attribut une
+fois que quelqu'un a tapé dedans : l'attribut dit ce que le champ
+*valait au départ*, la propriété dit ce qu'il *vaut*. Les deux sont
+posés maintenant, pour `value`, `checked` et `selected`, et seulement
+sur les éléments qui en ont une.
+
+---
+
+## Ce que le rapport du labo a montré (`labo-rustx/BUG.md`)
+
+Quatre lignes écrites devant la fenêtre ouverte, et trois d'entre elles
+étaient des bugs du framework.
+
+**38. Un commentaire du `.rsx` était affiché à l'écran.** « // Les trois
+boutons que le cadre du système dessinait. » se lisait en toutes lettres
+dans la barre de l'application. Entre deux balises, tout ce qui n'était
+pas une balise ni des accolades était du texte, commentaires compris :
+le `.rsx` est du Rust, et un commentaire y est un commentaire. Les
+trois formes sont maintenant lues et jetées — `//` en début de ligne,
+`/* … */` où qu'il soit, et `{/* … */}` qui est la forme de JSX — entre
+les enfants comme entre les attributs. Un `//` au milieu d'une phrase
+reste la phrase : `voir https://exemple.fr` n'est pas un commentaire,
+et c'est une loi.
+
+**39. Une bande blanche en haut d'une fenêtre sans cadre.** Mesurée :
+**sept pixels**. Enlever `WS_CAPTION` enlève la barre de titre et ne
+dit rien de la zone non cliente, dont Windows garde une bande en haut
+qu'il peint lui-même. On la reprend en répondant à `WM_NCCALCSIZE` :
+le traitement d'origine calcule les bords — ce sont eux qu'on attrape
+pour retailler — et le haut revient au contenu. La loi la mesure sur
+une vraie fenêtre, et elle tombe à `left: 7, right: 0` quand on retire
+le correctif.
+
+**40. Le bouton « agrandir » n'agissait qu'une fois.** Il appelait
+`maximize()`, et dire « agrandis-toi » à une fenêtre déjà agrandie ne
+fait rien. Une barre de titre n'a pas deux boutons : elle en a un, et
+il bascule. `toggle_maximize()` et `toggle_fullscreen()` interrogent le
+système avant d'agir, dans le processus qui tient la poignée. Deux
+choses étaient à réparer dessous : le plein écran ne se disait pas —
+Windows ne le tient pas comme un état, c'est une taille qu'on a posée,
+donc la place d'avant est maintenant retenue et rendue — et
+`WS_MINIMIZEBOX | WS_MAXIMIZEBOX` étaient retirés avec la barre, ce qui
+faisait refuser l'agrandissement par le système lui-même.
+
+**41. « Pas de thème, pas de police. »** Celui-là n'était pas dans le
+framework, et il était pire : rien ne se plaignait. La feuille du labo
+déclarait `--background`, `--foreground`, `--radius`, et aucune de ces
+variables n'était un jeton de thème Tailwind — `bg-background` était un
+mot dans un attribut. Il manquait `@theme inline`, `@custom-variant
+dark` et le `@layer base` qui pose le fond, la couleur et la police. Le
+README le dit maintenant à l'endroit où l'on choisit Tailwind, et trois
+lois du labo le mesurent dans la fenêtre : la couleur du fond, celle du
+texte, et la police effective.
+

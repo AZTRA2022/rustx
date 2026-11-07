@@ -164,31 +164,50 @@ pub fn spawn_future_until(
 /// window on the runtime's own threads, and the frame that drains its
 /// write draws the component again -- this time with the value.
 ///
-/// `held` is the cell the answer lands in, and `slot` is where the asking
-/// is remembered, so the future is started once and not once per frame.
-/// The compiler writes two different places for them because one slot
-/// holds one type.
+/// `held` is where the answer lands, `slot` is where the asking is
+/// remembered -- so the future is started once and not once per frame --
+/// and `screen` is the address the render is of, which is what makes the
+/// question be asked again when the address changes and not otherwise.
+/// The compiler writes two different places for the first two because
+/// one slot holds one type.
 pub fn awaited<T, F>(
-    held: rustx_dom::state::State<Option<T>>,
+    held: rustx_dom::state::Slot,
     slot: rustx_dom::state::Slot,
+    screen: &str,
     work: impl FnOnce() -> F,
 ) -> Option<T>
 where
     T: Clone + Send + 'static,
     F: Future<Output = T> + Send + 'static,
 {
-    // Kept, so this runs on the first render of this component and not
-    // again; held, so the task is abandoned when the component goes.
-    let _asked = rustx_dom::state::keep_at(slot, || {
-        let cancel = rustx_dom::state::Cancel::new();
-        let answer = held.remote_until(&cancel);
-        let work = work();
-        spawn_future_until(cancel, async move {
-            let got = work.await;
-            answer.update(move |held| *held = Some(got));
-        })
-    });
-    held.get()
+    // Both places are keyed by the screen this render is of, which is
+    // the whole answer to a question that cost a `with_key` written by
+    // hand: `/depots/rust-lang/rust` and `/depots/tokio-rs/tokio` are
+    // the same route, so the same component at the same place, so the
+    // same cell -- and a question asked once per cell is a question
+    // asked once for both repositories. The second screen showed the
+    // first one's answer, and the only way to know was to have seen it.
+    //
+    // Keyed here rather than by the router, so that the component
+    // itself is **not** re-keyed: it keeps its cells, an effect
+    // watching the parameter still closes before it opens, and only
+    // the asking and the answer start again.
+    rustx_dom::state::with_key(format!("await\u{1f}{screen}"), || {
+        let held = rustx_dom::state::cell(held, || None::<T>);
+        // Kept, so this runs on the first render of this component and
+        // not again; held, so the task is abandoned when the component
+        // goes.
+        let _asked = rustx_dom::state::keep_at(slot, || {
+            let cancel = rustx_dom::state::Cancel::new();
+            let answer = held.remote_until(&cancel);
+            let work = work();
+            spawn_future_until(cancel, async move {
+                let got = work.await;
+                answer.update(move |held| *held = Some(got));
+            })
+        });
+        held.get()
+    })
 }
 
 fn spawn_future_for(

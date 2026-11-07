@@ -2,7 +2,7 @@
   "name": "rustx",
   "displayName": "rustx",
   "description": "What an editor needs to know about a .rsx: its colours, its pairs, and where the mistakes are.",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "license": "MIT",
   "icon": "icons/rustx-logo.png",
   "engines": {

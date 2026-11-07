@@ -150,6 +150,26 @@ pub fn fullscreen() {
     ));
 }
 
+/// Agrandir, ou lui rendre sa taille si elle l'est deja.
+///
+/// Ce qu'un bouton de barre a soi appelle : une barre de titre n'a pas
+/// un bouton pour agrandir et un autre pour revenir, elle en a un, et
+/// il bascule. L'ordre part sans savoir dans quel sens il va -- c'est
+/// le processus de la fenetre qui interroge le systeme, parce que c'est
+/// lui qui tient la poignee.
+pub fn toggle_maximize() {
+    command(rustx_os::window::Order::Switch(
+        rustx_os::window::Switchable::Maximized,
+    ));
+}
+
+/// Prendre tout l'ecran, ou en revenir si on y est deja.
+pub fn toggle_fullscreen() {
+    command(rustx_os::window::Order::Switch(
+        rustx_os::window::Switchable::Fullscreen,
+    ));
+}
+
 /// La garder devant les autres, ou lui rendre son rang.
 pub fn on_top(above: bool) {
     command(rustx_os::window::Order::OnTop(above));

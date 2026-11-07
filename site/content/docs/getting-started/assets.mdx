@@ -1,0 +1,114 @@
+---
+title: "Assets"
+description: "Where images, fonts and icons go, how their paths resolve, and what the framework does not do for them."
+---
+
+Next.js has `public/`, `next/image` and `next/font`. rustx has a folder called
+`assets/` and nothing more: no optimizer, no resizing, no CDN. Files are read from disk
+by the page, as they are.
+
+## What `assets/` holds
+
+| | |
+|---|---|
+| `index.html` | the document the pages are mounted in. Optional |
+| `icon.ico` | the window and executable icon, found without being declared |
+| `tailwind.css` | your style sheet, if you use Tailwind |
+| `rustx-bundle.js` | **written by the build** from `package.json`. Do not edit or commit it |
+| anything else | yours: images, fonts, data |
+
+`rustx new` writes `assets/` with a short note and nothing else. The
+`.gitignore` it writes excludes `/assets/rustx-bundle.js`.
+
+## How a path resolves
+
+The page is loaded from a `file://` URL: the real `assets/index.html` on disk.
+A relative URL in the page is resolved against that folder by Chromium, like in
+any local HTML file.
+
+```rust
+return <img src="logo.png" alt="" width="48" height="48" />;
+```
+
+That reads `assets/logo.png`.
+
+<Callout type="warn" title="Write an index.html to use relative paths">
+An application with **no** `assets/index.html` is given a generated document,
+written in the system's temporary folder. A relative path then resolves
+against that folder, and your `assets/logo.png` is not in it. As soon as the
+application loads a file of its own, add the document:
+</Callout>
+
+```html
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>My app</title>
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>
+```
+
+`app` is the id the screens are mounted in. Another id is set with
+`Config::host`. The framework adds the Tailwind style sheet and the
+bundle to this document itself, so it needs no `<link>` or `<script>`.
+
+No application in the repository loads an image through `src` yet, so try your
+own path before you build on it.
+
+## Fonts
+
+A desktop application should use the system's font. It is already installed
+and it is the one people recognize. The Tailwind page sets
+`--font-sans` to the system stack in `@theme inline`. See
+[Tailwind](/docs/javascript-libraries/tailwind).
+
+To ship a font, put it in `assets/fonts/` and declare it in the style sheet:
+
+```css
+@font-face {
+  font-family: "Inter";
+  src: url("fonts/Inter.woff2") format("woff2");
+}
+```
+
+The style sheet is put in the document as a `<style>` element, so `url(…)` is
+relative to the document, not to the CSS file. With the `assets/index.html`
+above, that is `assets/fonts/Inter.woff2`. A font needs no network, because it
+is read from disk.
+
+## Images
+
+Chromium decodes PNG, JPEG, WebP, AVIF and SVG. The framework does not touch
+them, so:
+
+- save an image at the size it is shown, or at twice that for a high-density
+  screen. A 4000-pixel photo shown at 200 pixels is decoded in full;
+- prefer WebP or AVIF for photographs, SVG for icons and drawings;
+- there is no lazy-loading helper. `loading="lazy"` is an attribute of the tag
+  like any other.
+
+For an image that comes from the user, such as a chosen or dropped file, the
+`PathBuf` from [file dialogs](/docs/the-system/file-dialogs) or
+[dropped files](/docs/the-system/dropped-files) is a path on disk. Read it in
+Rust, and turn it into what the page shows. Do not point `src` at a path you
+did not check.
+
+## Icons
+
+For icons inside the page, an `<svg>` written in the `.rsx`, an `.svg` file, or
+an icon library such as `lucide-react`, which is a JavaScript library like the
+others. See [JavaScript libraries](/docs/javascript-libraries).
+
+The window's logo is a different thing: an `.ico`, named with
+`Config::icon("assets/icon.ico")`. See
+[the logo and identity](/docs/the-window/the-logo-and-identity).
+
+## When you ship
+
+The executable does not carry `assets/`. It looks for the files in the project
+folder it was built in. See [packaging](/docs/tooling/packaging) before you
+copy a build to another machine.

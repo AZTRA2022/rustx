@@ -173,3 +173,113 @@ fn a_handle_that_is_not_a_window_is_refused_in_words() {
         "le refus doit dire qu'il n'y a pas de fenêtre : {said}"
     );
 }
+
+// ─────────────── Ce que le rapport de bug du labo a montré ───────────────
+//
+// Deux choses se voyaient à l'écran et dans aucun test : une bande
+// blanche en haut d'une fenêtre sans cadre, et un bouton « agrandir »
+// qui n'agissait qu'une fois. Les deux lois suivantes les tiennent sur
+// une vraie fenêtre.
+
+/// Le rectangle de la fenêtre et celui de son contenu, en coordonnées
+/// d'écran — la différence en haut est la bande que le système garde.
+fn strip_above(window: HWND) -> i32 {
+    use windows::Win32::Foundation::{POINT, RECT};
+    use windows::Win32::Graphics::Gdi::ClientToScreen;
+    use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, GetWindowRect};
+
+    let mut outside = RECT::default();
+    // SAFETY: lectures seules sur une poignée vivante.
+    unsafe { GetWindowRect(window, &mut outside) }.expect("the window's rectangle");
+    let mut inside = RECT::default();
+    // SAFETY: idem.
+    unsafe { GetClientRect(window, &mut inside) }.expect("the client rectangle");
+    let mut origin = POINT {
+        x: inside.left,
+        y: inside.top,
+    };
+    // SAFETY: écrit dans un `POINT` de cette pile.
+    unsafe { ClientToScreen(window, &mut origin) }
+        .ok()
+        .expect("the client origin on screen");
+    origin.y - outside.top
+}
+
+#[test]
+fn a_frameless_window_keeps_no_strip_at_the_top() {
+    // Ce qu'on voyait : une bande blanche au-dessus de la barre que la
+    // page dessine. Elle n'était pas dans la page — c'est la zone non
+    // cliente que Windows garde quand on enlève `WS_CAPTION` sans lui
+    // dire que le contenu doit aller jusqu'en haut.
+    let own = Own::new("rustx-window-strip");
+
+    window::dress(own.pane(), Dressing::None).expect("the frame comes off");
+    assert_eq!(
+        strip_above(own.0),
+        0,
+        "une fenêtre sans cadre dont le contenu ne commence pas au bord \
+         montre une bande que personne n'a dessinée"
+    );
+
+    // Et le cadre remis, la barre de titre reprend sa place : la bande
+    // revient, parce que cette fois c'est la barre du système.
+    window::dress(own.pane(), Dressing::System).expect("and goes back on");
+    assert!(
+        strip_above(own.0) > 0,
+        "avec le cadre du système, le contenu commence sous la barre de titre"
+    );
+}
+
+#[test]
+fn a_window_that_filled_the_screen_gets_its_own_place_back() {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
+
+    let own = Own::new("rustx-window-fullscreen");
+    let mut before = RECT::default();
+    // SAFETY: lecture seule sur une poignée vivante.
+    unsafe { GetWindowRect(own.0, &mut before) }.expect("the window's rectangle");
+
+    window::spread(own.pane(), Spread::Fullscreen).expect("the whole screen");
+    assert_eq!(
+        window::spread_of(own.pane()),
+        Ok(Spread::Fullscreen),
+        "une fenêtre qui occupe l'écran doit le dire"
+    );
+
+    window::spread(own.pane(), Spread::Normal).expect("its own place again");
+    let mut after = RECT::default();
+    // SAFETY: idem.
+    unsafe { GetWindowRect(own.0, &mut after) }.expect("the window's rectangle");
+    assert_eq!(
+        (after.left, after.top, after.right, after.bottom),
+        (before.left, before.top, before.right, before.bottom),
+        "sortir du plein écran rend la place qu'on avait, et pas une autre"
+    );
+    assert_eq!(window::spread_of(own.pane()), Ok(Spread::Normal));
+}
+
+#[test]
+fn a_switch_is_an_order_that_knows_where_the_window_is() {
+    use rustx_os::window::Switchable;
+
+    // Le bouton « agrandir » d'une barre à soi n'agrandit pas : il
+    // bascule. Avec un ordre qui ne sait qu'agrandir, le deuxième clic
+    // ne faisait rien, et c'est ce que le labo a vu.
+    let own = Own::new("rustx-window-switch");
+
+    window::switch(own.pane(), Switchable::Maximized).expect("big");
+    assert_eq!(window::spread_of(own.pane()), Ok(Spread::Maximized));
+
+    window::switch(own.pane(), Switchable::Maximized).expect("and itself again");
+    assert_eq!(
+        window::spread_of(own.pane()),
+        Ok(Spread::Normal),
+        "le deuxième appui doit rendre la fenêtre à sa taille"
+    );
+
+    window::switch(own.pane(), Switchable::Fullscreen).expect("the screen");
+    assert_eq!(window::spread_of(own.pane()), Ok(Spread::Fullscreen));
+    window::switch(own.pane(), Switchable::Fullscreen).expect("and back");
+    assert_eq!(window::spread_of(own.pane()), Ok(Spread::Normal));
+}

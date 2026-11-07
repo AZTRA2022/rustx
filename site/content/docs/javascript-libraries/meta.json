@@ -1,0 +1,13 @@
+{
+  "title": "JavaScript libraries",
+  "pages": [
+    "index",
+    "shadcn",
+    "tailwind",
+    "your-own-components",
+    "props-that-cross",
+    "a-rustx-component-in-react",
+    "rust-bridge",
+    "compatibility"
+  ]
+}

@@ -984,3 +984,83 @@ fn a_method_that_gives_something_back_still_leaves_the_closure_at_nothing() {
         "the closure's body should be a statement: {rust}"
     );
 }
+
+// ---------------------------------------------------------------------
+// A write that something harmless sits in front of.
+//
+// `items.push(x)` is a write when it is a statement of its own, and a
+// read when it feeds something else — so what decides is what comes
+// before it. The test walked back over spaces and nothing else, so a
+// comment line above the write made it a read: the emitted Rust was
+// `items.get().push(x)`, which pushes into a copy and throws it away.
+// Nothing failed to compile, nothing was logged, and the screen simply
+// never changed. It is the worst failure a rewrite can have, and the
+// laboratory's chart found it.
+// ---------------------------------------------------------------------
+
+const SHARED: &str = "let mut rows: Vec<String> = Vec::new();\nlet mut seconds = 0_u32;\n\n";
+
+/// A page whose `async` block holds `body`.
+fn in_an_async_block(body: &str) -> String {
+    format!(
+        "{SHARED}fn Page() -> Element {{\n    async move {{\n{body}\n    }};\n    return <p>{{rows.len()}}</p>;\n}}\n"
+    )
+}
+
+fn pushes_into_the_state(rust: &str) -> bool {
+    rust.contains("rows.update") && !rust.contains("rows.get().push")
+}
+
+#[test]
+fn a_line_comment_before_a_write_does_not_turn_it_into_a_read() {
+    let rust = rewrite_one(&in_an_async_block(
+        "        // what the next line does\n        rows.push(String::new());",
+    ));
+    assert!(pushes_into_the_state(&rust), "got {rust}");
+}
+
+#[test]
+fn a_block_comment_before_a_write_does_not_turn_it_into_a_read() {
+    let rust = rewrite_one(&in_an_async_block(
+        "        /* what the next line does */\n        rows.push(String::new());",
+    ));
+    assert!(pushes_into_the_state(&rust), "got {rust}");
+}
+
+#[test]
+fn a_comment_on_the_same_line_as_the_statement_before_hides_nothing() {
+    let rust = rewrite_one(&in_an_async_block(
+        "        seconds += 1;   // one more\n        rows.push(String::new());",
+    ));
+    assert!(pushes_into_the_state(&rust), "got {rust}");
+}
+
+#[test]
+fn a_block_that_closed_on_the_line_before_is_the_end_of_a_statement() {
+    let rust = rewrite_one(&in_an_async_block(
+        "        if seconds > 2 {\n            seconds = 0;\n        }\n        rows.push(String::new());",
+    ));
+    assert!(pushes_into_the_state(&rust), "got {rust}");
+}
+
+#[test]
+fn two_slashes_inside_a_string_are_not_a_comment() {
+    let rust = rewrite_one(&in_an_async_block(
+        "        let url = \"https://example.com\";\n        rows.push(url);",
+    ));
+    assert!(pushes_into_the_state(&rust), "got {rust}");
+}
+
+#[test]
+fn a_comment_before_a_read_leaves_it_a_read() {
+    // The other direction, which is what the statement test is for:
+    // `rows.len()` feeding something else must not become an update,
+    // comment or no comment.
+    let rust = rewrite_one(&in_an_async_block(
+        "        // how many are there\n        let how_many = rows.len();\n        seconds = how_many as u32;",
+    ));
+    assert!(
+        !rust.contains("rows.update"),
+        "a read became a write: {rust}"
+    );
+}

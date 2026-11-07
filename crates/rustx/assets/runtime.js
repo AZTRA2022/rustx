@@ -338,7 +338,25 @@
     // Synchronously: rustx handed the node over during a render, and the
     // page shows that render at the end of it. React's own batching
     // would put the first paint one frame later.
-    now(() => root.render(tree));
+    //
+    // And guarded: a component that throws while it renders throws
+    // through this call, and without the guard it took the whole frame
+    // with it -- the card around it never appeared, nothing said why,
+    // and what the console held was a minified React error with no name
+    // in it. A boundary that fails is one empty container, and a
+    // sentence that says which component and what it said.
+    try {
+      now(() => root.render(tree));
+    } catch (thrown) {
+      const named = typeof component === "string" ? component : (component?.displayName ?? component?.name ?? "that component");
+      console.error(
+        `rustx: \`${named}\` threw while React was drawing it, so this boundary is ` +
+          `empty: ${thrown && thrown.message ? thrown.message : thrown}. ` +
+          `A name two libraries export is the usual cause -- the warning above says ` +
+          `which one was taken and how to ask for the other.`
+      );
+      return false;
+    }
     return true;
   };
 

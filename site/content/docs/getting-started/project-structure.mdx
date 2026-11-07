@@ -1,0 +1,108 @@
+---
+title: "Project structure"
+description: "Where pages, Rust, React components, and assets go — and what the framework generates."
+---
+
+A rustx project is an ordinary cargo project, with two extra folders that the
+framework reads: `app/` for the screens, `assets/` for what the
+page loads.
+
+```text
+my-app/
+  Cargo.toml          rustx = { package = "rustx-app", version = "0.2" }
+  src/
+    main.rs           the window, in four lines
+    api.rs            the application's Rust: network, files, computation
+  app/
+    layout.rsx        a frame around everything below it
+    page.rsx          the `/` route
+    settings/
+      page.rsx        the `/settings` route
+    repos/
+      layout.rsx      a frame around `/repos` and what is below it
+      loading.rsx     what is shown while the page has nothing yet
+      error.rsx       what is shown if the page fails
+      [owner]/
+        page.rsx      the `/repos/<something>` route
+  assets/
+    index.html        optional: without it, the framework writes it
+    icon.ico          the window's logo
+    tailwind.css      the style sheet, if the project uses Tailwind
+  components/         the project's React components, if it has any
+    ui/               what `npx shadcn add` drops in
+  package.json        the npm libraries, if the project has any
+  .gitignore          /target
+```
+
+`rustx new my-app` writes five files: `Cargo.toml`, `src/main.rs`,
+`app/page.rsx`, `assets/`, and `.gitignore`. Everything else is added
+when it is needed.
+
+## The whole `main.rs`
+
+```rust
+use rustx::{App, Config};
+
+#[rustx::main]
+fn main() -> Result<(), rustx::Error> {
+    let app = App::new(Config::new("My app").size(900, 640))?;
+
+    app.run()
+}
+```
+
+`#[rustx::main]` does the rest: it compiles the `.rsx` files in `app/` into Rust,
+writes the route table, builds the JavaScript package and the
+style sheet if there is a `package.json`, finds or writes `assets/index.html`,
+and shuts down the Chromium subprocesses before they touch
+anything.
+
+There is **no `build.rs`**, and nothing to configure.
+
+## What the framework generates
+
+Two folders appear in `target/`, and you do not need to read either to work:
+
+| | |
+|---|---|
+| `target/rustx-pages/` | the `.rsx` files translated to `.rs`, with their position map |
+| `target/rustx-dev/` | the copy of the binary that `rustx dev` runs |
+| `.rustx/` | the JavaScript entry point, the esbuild package, the Tailwind sheet |
+
+`.rustx/` sits next to the application and not in `target/`, because
+that is where esbuild and Tailwind know how to resolve `node_modules`. Both
+are output, not sources: the project's `.gitignore` ignores them.
+
+## The package name
+
+The package is called `rustx-app` on crates.io, because `rustx` is
+taken there by another project. The **library**, however, is called `rustx`:
+all the code is written as `rustx::`.
+
+```toml
+[dependencies]
+rustx = { package = "rustx-app", version = "0.2" }
+```
+
+## The application's Rust
+
+What is not a screen goes in `src/`, as in any
+project: an HTTP client, a decoder, a computation. A page calls it through
+`crate::`.
+
+```rust
+// app/repos/page.rsx
+let mut found: Vec<Repo> = Vec::new();
+
+fn Page() -> Element {
+    async move {
+        found = crate::api::search("tokio").await.unwrap_or_default();
+    };
+
+    return <p>{found.len()} repositories</p>;
+}
+```
+
+The framework provides no HTTP client, no ORM, no decoder: these are
+the application's choices, and `.await` works with whatever the ecosystem
+writes.

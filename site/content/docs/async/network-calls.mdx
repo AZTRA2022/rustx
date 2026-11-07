@@ -1,0 +1,200 @@
+---
+title: "Network calls"
+description: "An HTTP client, a deserializer, an error that is drawn, and the three-state screen."
+---
+
+Nothing here comes from the framework, and nothing has to: an HTTP client
+and a deserializer are the application's choices. `.await` works on them like any other
+future, and that is the whole contract.
+
+```toml
+# Cargo.toml
+[dependencies]
+rustx = { package = "rustx-app", version = "0.2" }
+
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+    "gzip",
+] }
+serde = { version = "1", features = ["derive"] }
+```
+
+## The client is built once
+
+A `reqwest::Client` holds its connection pool: building one per
+request would be a TLS handshake on every keystroke.
+
+```rust
+// src/api.rs
+use std::sync::OnceLock;
+use serde::Deserialize;
+
+fn client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .user_agent("my-app/1.0")
+            .build()
+            .expect("a client with no TLS backend cannot be built")
+    })
+}
+```
+
+## An error that is drawn
+
+No `Box<dyn Error>`. Each of these cases is drawn differently, and a page that has to
+choose what to show needs to tell them apart:
+
+```rust
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Failure {
+    /// No network, dead DNS, refused TLS.
+    Network(String),
+    /// The server cut us off: rate limit.
+    RateLimit,
+    NotFound,
+    /// A body that is not the expected shape.
+    Shape(String),
+}
+
+impl Failure {
+    pub fn says(&self) -> String {
+        match self {
+            Failure::Network(why) => format!("network: {why}"),
+            Failure::RateLimit => "rate limited — wait a minute".to_string(),
+            Failure::NotFound => "not found".to_string(),
+            Failure::Shape(why) => format!("unreadable answer: {why}"),
+        }
+    }
+}
+```
+
+## A struct, not a `Value` passed around
+
+`serde` ignores the rest, and an API response has a hundred fields. That is
+exactly why you want a struct:
+
+```rust
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Repo {
+    pub full_name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub language: Option<String>,
+    pub stargazers_count: u64,
+    pub forks_count: u64,
+    pub open_issues_count: u64,
+}
+
+pub async fn repo(owner: String, name: String) -> Result<Repo, Failure> {
+    let url = format!("https://api.github.com/repos/{owner}/{name}");
+
+    let answer = client()
+        .get(&url)
+        .send()
+        .await
+        .map_err(|why| Failure::Network(why.to_string()))?;
+
+    match answer.status().as_u16() {
+        200 => {}
+        403 | 429 => return Err(Failure::RateLimit),
+        404 => return Err(Failure::NotFound),
+        other => return Err(Failure::Network(format!("HTTP {other}"))),
+    }
+
+    answer
+        .json::<Repo>()
+        .await
+        .map_err(|why| Failure::Shape(why.to_string()))
+}
+```
+
+## The three-state screen
+
+A request has three screens: it has not come back, it has failed, it has succeeded. A
+`Result` wrapped in an `Option` carries all three, and the component draws them
+without knowing anything about the network.
+
+```rust
+// app/repos/[owner]/[name]/page.rsx
+fn Page(owner: String, name: String) -> Element {
+    let answer = api::repo(owner.clone(), name.clone()).await;
+
+    return <article className="p-6">
+        {match answer {
+            Ok(repo) => <>
+                <h1 className="text-xl font-semibold">{repo.full_name}</h1>
+                <p className="text-muted-foreground">
+                    {repo.description.unwrap_or_else(|| "no description".into())}
+                </p>
+                <p>{repo.stargazers_count} stars · {repo.forks_count} forks</p>
+            </>,
+            Err(failure) => <p className="text-destructive">{failure.says()}</p>,
+        }}
+    </article>;
+}
+```
+
+The `.clone()` of the parameters is not ceremony: the future leaves for the runtime,
+and a borrow from the thread that draws does not follow it. See
+[awaiting a value](/docs/async/awaiting-a-value).
+
+## A search that follows typing
+
+The request is sent from an `async` block that watches the field, not from the
+keystroke handler: a keystroke is not a request, and the user types five a second.
+
+```rust
+let mut query = String::new();
+let mut found = Vec::<api::Repo>::new();
+let mut failure = None::<api::Failure>;
+
+fn Search() -> Element {
+    async move {
+        let mut last = String::new();
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            if query == last || query.len() < 3 {
+                continue;
+            }
+            last = query.clone();
+            match api::search(last.clone()).await {
+                Ok(repos) => { found = repos; failure = None; }
+                Err(why) => failure = Some(why),
+            }
+        }
+    };
+
+    return <div>
+        <input value={query.clone()} onInput={move |event| query = event.value} />
+        {match &failure {
+            Some(why) => <p className="text-destructive">{why.says()}</p>,
+            None => <p>{found.len()} results</p>,
+        }}
+    </div>;
+}
+```
+
+Two hundred and fifty milliseconds of sleep and a comparison with the last value: that is all of the
+*debounce*, and it has no hidden setting. The loop reads `query` where it is, so it sees
+the letter that has just been typed.
+
+## A token, a key, a secret
+
+What must not be read from the binary is read at startup, and `main` can wait for it:
+
+```rust
+#[rustx::main]
+async fn main() -> Result<(), rustx::Error> {
+    let token = tokio::fs::read_to_string("token.txt")
+        .await
+        .unwrap_or_default();
+
+    let app = App::new(Config::new("My app").size(1000, 700))?;
+    app.run()
+}
+```
+
+See [`async fn main`](/docs/async/async-fn-main).

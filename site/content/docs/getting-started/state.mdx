@@ -1,0 +1,74 @@
+---
+title: "State"
+description: "A `let mut`, and where it sits sets its scope. Plus `keep`, `effect` and `task`."
+---
+
+A `let mut`, and **where it sits sets its scope**. There is nothing else to
+learn.
+
+```rust
+let mut points = 0;              // at the top of the file: shared
+
+fn Page() -> Element {
+    let mut open = false;        // inside a component: private
+
+    return <div>
+        <p>{points} points</p>
+        <button onClick={move |_| points += 1}>one more</button>
+        <button onClick={move |_| open = !open}>{open}</button>
+    </div>;
+}
+
+fn Elsewhere() -> Element {
+    // The same `points`, the same value: two components that read a
+    // shared state read the same object, without anything passing
+    // from one to the other.
+    return <small>{points}</small>;
+}
+```
+
+- **at the top of the file**: shared by the application. It has a name,
+  so it survives a `rustx dev`;
+- **inside a component**: one cell per place in the tree. Two
+  `{Card(…)}` each have their own, and leaving the screen frees them.
+
+Reading is just reading. Writing marks the screen for the next frame:
+ten thousand writes in the same frame draw **once**. The rate is set by
+the render loop, not by the developer's `for` loop — there is no *debounce* to
+tune and no throttling to learn.
+
+A state is not written **during** a render: a component that computes
+its screen does not change it at the same time. The write goes in a
+handler (`onClick={…}`), in an `effect`, or in a `task`, and the compiler
+says so with these three words when one forgets.
+
+## `keep`, `effect`, `task`
+
+Three names, inside a component, and nothing else to remember:
+
+```rust
+fn Panel() -> Element {
+    // Built once, not on every render.
+    let client = keep(Client::connect());
+
+    // Replayed when the watched value changes. `()`: only once.
+    effect(filter.clone(), move || reload(&filter));
+
+    // A thread that stops when this component leaves the tree.
+    task(move |alive| {
+        while alive.get() {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            let _ = alive.post(|| ticks += 1);
+        }
+    });
+
+    return <p>{ticks}</p>;
+}
+```
+
+`keep(EXPR)` keeps a value. `effect(WATCHED, WORK)` redoes the
+work when the watched value changes. `task(WORK)` starts a
+thread whose token is a cell of the component: leaving the screen
+stops it, without a single cleanup written by hand.
+
+Each has its own page: [keep, effect, task](/docs/getting-started/keep-effect-task).

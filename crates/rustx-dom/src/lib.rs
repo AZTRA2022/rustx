@@ -16,6 +16,6 @@ pub mod value;
 
 pub use element::{
     AttributeValue, Callback, Element, Event, ForeignChild, ForeignNode, Handler, IntoElement,
-    IntoForeignChild, Key, TagElement, into_element, into_foreign_child,
+    IntoForeignChild, Key, TagElement, into_element, into_foreign_child, taking_an_event,
 };
 pub use value::Value;

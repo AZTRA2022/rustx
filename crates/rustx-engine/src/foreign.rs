@@ -158,7 +158,7 @@ fn describe_node(node: &ForeignNode) -> Option<V8Value> {
     let mut component = crate::value::into_v8(Value::String(node.component.clone()))?;
     set("component", &mut component);
 
-    let props = crate::value::object_of(&node.props)?;
+    let props = crate::value::object_of(&as_react_reads_them(&node.props))?;
     for (name, callback) in &node.callbacks {
         let mut function = function_for(name, callback)?;
         props.set_value_bykey(
@@ -173,6 +173,23 @@ fn describe_node(node: &ForeignNode) -> Option<V8Value> {
     let mut children = describe(&node.children)?;
     set("children", &mut children);
     Some(object)
+}
+
+/// The props of a node, with `style` as React reads it.
+///
+/// A plain tag written inside a library's component crosses as a node,
+/// and its `style` was written as the DOM writes one — a string. React
+/// throws on that, and the exception empties the boundary around it.
+fn as_react_reads_them(props: &[(String, Value)]) -> Vec<(String, Value)> {
+    props
+        .iter()
+        .map(|(name, value)| match (name.as_str(), value) {
+            ("style", Value::String(text)) => {
+                (name.clone(), rustx_dom::value::style_object(text))
+            }
+            _ => (name.clone(), value.clone()),
+        })
+        .collect()
 }
 
 /// A component of the page, written inside a component of a library.
@@ -227,6 +244,11 @@ fn describe_element(element: &rustx_dom::Element) -> Option<V8Value> {
                         other => other.to_string(),
                     };
                     let value = match value {
+                        // `style` is a string in the DOM and a mapping
+                        // in React, and React throws on the string.
+                        AttributeValue::Text(text) if name == "style" => {
+                            rustx_dom::value::style_object(text)
+                        }
                         AttributeValue::Text(text) => Value::String(text.clone()),
                         AttributeValue::Flag(flag) => Value::Bool(*flag),
                     };
@@ -375,10 +397,17 @@ wrap_v8_handler! {
     impl V8Handler {
         /// The library called the prop.
         ///
-        /// Whatever it passed arrives as values; what cannot cross — an
-        /// event object, a DOM node, another function — arrives as null,
-        /// because a callback that refused the call would be a library
-        /// that stops working halfway through.
+        /// Whatever it passed arrives as values; what cannot cross — a
+        /// DOM node, another function — arrives as null, because a
+        /// callback that refused the call would be a library that stops
+        /// working halfway through.
+        ///
+        /// Un evenement est l'exception : il ne traverse pas comme
+        /// objet — il tient des noeuds — mais ses champs, si. Sans cela
+        /// une balise ordinaire ecrite dans un sous-arbre React recevait
+        /// `null` dans son `onInput`, alors que la meme balise montee
+        /// par le moteur recevait son evenement : le `.rsx` etait le
+        /// meme, et ce qui changeait etait un ancetre.
         fn execute(
             &self,
             _name: Option<&CefString>,
@@ -391,10 +420,13 @@ wrap_v8_handler! {
                 .unwrap_or(&[])
                 .iter()
                 .map(|argument| {
-                    argument
-                        .as_ref()
-                        .and_then(crate::value::read_or_null)
-                        .unwrap_or(rustx_dom::Value::Null)
+                    let Some(argument) = argument.as_ref() else {
+                        return rustx_dom::Value::Null;
+                    };
+                    if crate::mount::is_an_event(argument) {
+                        return crate::mount::read_event(argument).as_value();
+                    }
+                    crate::value::read_or_null(argument).unwrap_or(rustx_dom::Value::Null)
                 })
                 .collect();
 
@@ -430,7 +462,7 @@ fn function_for_handler(name: &str, handler: &rustx_dom::Handler) -> Option<V8Va
     };
     let handler = handler.clone();
     let callback = Callback::new(move |_| {
-        handler.call(rustx_dom::Event { kind: kind.clone() });
+        handler.call(rustx_dom::Event::of(kind.clone()));
     });
     function_for(name, &callback)
 }

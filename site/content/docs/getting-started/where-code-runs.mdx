@@ -1,0 +1,105 @@
+---
+title: "Where your code runs"
+description: "Which process runs what, and why there is no server, no client and no hydration."
+---
+
+Next.js splits an application into server code and client code, and a good
+part of learning it is knowing which side a line is on. rustx has no such split.
+There is no server, no `use client`, no server rendering and no hydration.
+Everything you write runs on the machine of the person using the window, in
+one place. This page says where.
+
+## One executable, several processes
+
+The browser engine, CEF, is multi-process. It starts the executable again for
+each helper it needs, and `App::new` decides what that copy is for:
+
+| | |
+|---|---|
+| the **browser** process | the one the user started. It owns the windows and the system handles |
+| the **renderer** process | holds Blink and V8, **and your Rust code** |
+| the others | GPU and utility processes. The framework runs no code of yours in them |
+
+The `rustx_engine::bootstrap()` that `App::new` calls answers the engine's
+relaunch. In a helper process it runs to completion and exits, before the
+window code is reached.
+
+<Callout type="warn" title="main runs in every process">
+The helper processes run your `main` too, up to the call to `App::new`, where
+they exit. Whatever you put before `App::new` runs once per process, and
+a window starts several. Keep that part empty.
+</Callout>
+
+## Your pages are in the renderer
+
+The pages of `app/` are compiled into the executable as ordinary Rust. They run
+inside the renderer process, on the thread that draws, next to V8. That is the
+choice the rest follows from:
+
+- an `onClick` is a function call on the same thread. Nothing is serialized and
+  no message is sent;
+- the state, the cells of the components, the router and the handlers all live
+  in this one process;
+- a component returns an `Element` tree. The framework compares it with the
+  previous one and writes the difference into the DOM of the page. Nothing is
+  rendered on a server and nothing is rebuilt from HTML.
+
+The browser process holds what only it can hold: the window handle. A page
+that wants to move, close or open a window sends a message across, and
+does not wait for an answer. See [commanding the window](/docs/the-window/commanding-the-window).
+
+## Threads
+
+| | |
+|---|---|
+| the **render thread** | draws, runs handlers, owns all state. State is neither `Send` nor `Sync` |
+| a thread from `task(…)` | yours. It never writes state: it posts a job, and the next frame applies it |
+| the `rustx-async` workers | the tokio runtime behind `task(async { … })`. Started on the first call, never before |
+
+A component is asked for the screen as it is now, so it cannot wait. A loop
+that does not end freezes the window, and after five seconds the engine prints
+which component has been drawing since. Work that waits goes in a task. See
+[keep, effect, task](/docs/getting-started/keep-effect-task) and [async](/docs/async).
+
+## Where the JavaScript libraries are
+
+React, shadcn and the other libraries run in the same page, in the same V8
+context. A component of a library is a node that React draws inside the tree
+rustx draws. What passes between the two is a V8 value: `null`, a boolean, a
+number, a string, a list or an object of these. A function crosses only as a
+callback that a library calls.
+
+Code in your own `.rsx` pages is never compiled to JavaScript. See
+[JavaScript libraries](/docs/javascript-libraries) and
+[props that cross](/docs/javascript-libraries/props-that-cross).
+
+## What crosses between processes
+
+Almost nothing. Two things travel from the browser process to the page and back:
+
+- what only the window knows: the real path of a dropped file, for example;
+- what only the window can do: open a second window, or obey a window command.
+
+Each of these is a notification. None has a reply. `RUSTX_TRACE=1` prints both
+ends. See [debugging](/docs/tooling/debugging).
+
+Two windows have two renderer processes, so two separate states. The
+`let mut` at the top of a page is not shared between them. See
+[several windows](/docs/the-window/several-windows).
+
+## The system modules
+
+The clipboard, the dialogs, the tray and the shortcuts are ordinary function
+calls made from your page code. A dialog runs its own message loop while it is
+open, so the window stays drawn and the call still reads like a function. See
+[the system](/docs/the-system).
+
+## If you come from Next.js
+
+| | |
+|---|---|
+| Server Components | no equivalent. Nothing runs before the window |
+| `use client` | every component already runs on the client |
+| a Route Handler or Server Action | a Rust function called directly from the page, or a native registered for JavaScript. See [the Rust bridge](/docs/javascript-libraries/rust-bridge) |
+| hydration | none. The framework builds the DOM from the tree |
+| fetching in a component | a task, which writes state when the response arrives. See [network calls](/docs/async/network-calls) |

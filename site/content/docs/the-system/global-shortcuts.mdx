@@ -1,0 +1,106 @@
+---
+title: "Global shortcuts"
+description: "A combination that works when the window does not have focus."
+---
+
+```rust
+use rustx::shortcut;
+
+let capture = shortcut::Shortcut::listen("Ctrl+Shift+R")?;
+
+if capture.pressed() > 0 {
+    start();
+}
+```
+
+They work when the window does **not** have focus: that is the whole point.
+A web page cannot hear a keyboard that is not meant for it.
+
+## What is read
+
+`pressed()` returns **how many times** the combination was pressed since the
+last read, and resets the counter to zero. A page that draws sixty times a second
+misses nothing, and has no callback to install:
+
+```rust
+let mut shots = 0;
+
+fn Capture() -> Element {
+    let hotkey = keep(shortcut::Shortcut::listen("Ctrl+Shift+R"));
+
+    if let Ok(hotkey) = hotkey.as_ref() {
+        let times = hotkey.pressed();
+        if times > 0 {
+            shots += times as usize;
+        }
+    }
+
+    return <p>{shots} captures</p>;
+}
+```
+
+`hotkey.keys()` returns the combination as it was written, to display it
+in a settings screen.
+
+## What can be written
+
+The modifiers: `Ctrl`, `Alt`, `Shift`, `Win`, in any order, separated by `+`.
+
+The keys: letters and digits, `F1`–`F24`, `Space`, `Tab`,
+`Enter`, `Esc`, `Backspace`, `Delete`, `Insert`, `Home`, `End`,
+`PageUp`, `PageDown`, and the arrow keys `Left`, `Right`, `Up`, `Down`.
+
+```rust
+shortcut::Shortcut::listen("Alt+Space")?;
+shortcut::Shortcut::listen("Ctrl+Alt+Shift+F9")?;
+shortcut::Shortcut::listen("Win+Up")?;
+```
+
+What is not recognized is refused **by naming what was written**:
+
+```text
+rustx: « Ctrl+Suppr » n'est pas une combinaison — « Suppr » n'est pas
+une touche connue
+```
+
+## A combination already taken
+
+The system gives it out only once. If another application holds
+`Ctrl+Shift+R`, `listen` refuses, and this is a case to draw rather than ignore:
+
+```rust
+fn Settings() -> Element {
+    let hotkey = keep(shortcut::Shortcut::listen("Ctrl+Shift+R"));
+
+    return match hotkey.as_ref() {
+        Ok(hotkey) => <p>{hotkey.keys().to_string()} is listening</p>,
+        Err(why) => <p className="text-destructive">
+            {why.to_string()} — choose another one
+        </p>,
+    };
+}
+```
+
+This is also what happens to a `rustx dev` restarted too quickly: the previous
+process held the combination, and it gives it back as it dies.
+
+## The token releases it
+
+A `Shortcut` released gives the combination back to the system. A
+`Ctrl+Shift+R` that no application handles is a defect that the user can only
+fix by restarting their session, and that is why this is an object with a lifetime and not a `register`.
+
+In a settings screen where the user chooses their combination, it is `effect` that redoes the listening, and the earlier `keep` that is released:
+
+```rust
+let mut keys = "Ctrl+Shift+R".to_string();
+let mut held = None::<shortcut::Shortcut>;
+
+fn Settings() -> Element {
+    effect(keys.clone(), move || {
+        held = shortcut::Shortcut::listen(&keys).ok();   // the old one is released here
+    });
+
+    return <input value={keys.clone()} onInput={move |event| keys = event.value} />;
+}
+```

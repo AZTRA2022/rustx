@@ -1,0 +1,84 @@
+---
+title: "Your own React components"
+description: "The way out for anything a hook does that a `.rsx` page cannot."
+---
+
+`components/` as a whole, not only `components/ui/`. A component of your
+own — the one that calls a hook, which a `.rsx` page cannot do — goes there, and its `export default` is a tag under the name
+of its file.
+
+```tsx
+// components/Editor.tsx
+import { useEditor, EditorContent } from "@tiptap/react"
+import StarterKit from "@tiptap/starter-kit"
+
+export default function Editor({ content }: { content?: string }) {
+  const editor = useEditor({ extensions: [StarterKit], content })
+  return <EditorContent editor={editor} />
+}
+```
+
+```rust
+return <Editor content="<p>Write here.</p>" />;
+```
+
+This is the way out for everything a hook does that a page cannot: TipTap, a map, a code editor, a video player, a library that wants a `ref` or a *render prop*. The page keeps the state
+and the props; the hook stays in TypeScript, where it belongs.
+
+## Handing control back to the page
+
+A component that must **answer** takes a callback. What it calls
+is a Rust function, and its arguments arrive as they are:
+
+```tsx
+// components/Editor.tsx
+export default function Editor({
+  content,
+  onChanged,
+}: {
+  content?: string
+  onChanged?: (html: string) => void
+}) {
+  const editor = useEditor({
+    extensions: [StarterKit],
+    content,
+    onUpdate: ({ editor }) => onChanged?.(editor.getHTML()),
+  })
+  return <EditorContent editor={editor} />
+}
+```
+
+```rust
+let mut html = String::new();
+
+fn Page() -> Element {
+    return <Editor content={html.clone()}
+                   onChanged={move |text: String| html = text} />;
+}
+```
+
+A callback with several arguments receives all of them. The closure
+declares them in order, and the type written is the one that is expected.
+
+## DOM events inside
+
+A **lowercase** tag written inside a React subtree stays a rustx tag, and its `onClick` or `onInput` receives a rustx `Event` — not React's object:
+
+```rust
+return <Card>
+    <CardContent>
+        <input value={name.clone()} onInput={move |event| name = event.value} />
+    </CardContent>
+</Card>;
+```
+
+A prop invented by the library — `onValueChange`, `onOpenChange`
+— is not a DOM event, and receives what the library gives it: a `Value`, which is read with its accessors.
+
+## What esbuild builds
+
+`components/**`, `lib/**` and `hooks/**` are in the package, in
+TypeScript or JavaScript, with or without JSX. There is no configuration to write beyond the `tsconfig.json` that says what `@/`
+means; the rest is read from `package.json`.
+
+A build error is written to the terminal console with the file and the line, as esbuild reports them, and the window does not open on a half-working package.

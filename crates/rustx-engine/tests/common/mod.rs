@@ -96,6 +96,12 @@ fn run(name: &str, ending: Ending) -> Completion {
     let _alone = alone();
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_hello"))
+        // Chromium 156 se dés-élève : lancé en administrateur, il se
+        // relance sans les droits et quitte avant que le moteur ait la
+        // main. Une suite se lance depuis le terminal qu'on a sous la
+        // main, administrateur ou pas, donc le commutateur est toujours
+        // là — il ne change rien quand les droits sont ordinaires.
+        .arg("--do-not-de-elevate")
         .arg(format!("--scenario={name}"))
         .arg(format!("--report={}", report_file.display()))
         .stdout(Stdio::piped())

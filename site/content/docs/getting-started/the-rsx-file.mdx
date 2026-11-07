@@ -1,0 +1,169 @@
+---
+title: "The .rsx file"
+description: "Rust, with markup in the `return` statements: text, attributes, components, lists."
+---
+
+A `.rsx` file is Rust, with markup in the `return` statements. A component
+is a function that returns an `Element`:
+
+```rust
+fn Page() -> Element {
+    return <main>
+        <h1>Hello.</h1>
+    </main>;
+}
+```
+
+## Text and expressions
+
+Between two tags, text is text; between braces, it is Rust, and the value is
+displayed:
+
+```rust
+fn Page() -> Element {
+    let name = "world";
+    let times = 3;
+
+    return <p>Hello {name}, {times} times, {times * 2} in all.</p>;
+}
+```
+
+Anything that can become an `Element` or text can go there:
+numbers, strings, booleans, `Option`, `Vec<Element>`.
+
+A `.rsx` file is Rust, and a comment is written there as it is in Rust —
+including **inside** the tags:
+
+```rust
+return <div>
+    // What follows is the title bar, and this will not be shown.
+    <header
+        // A comment between two attributes is a comment too.
+        className="flex gap-2"
+    >
+        {/* And the JSX form, for whoever comes from there. */}
+        <b>ok</b>
+    </header>
+    /* On several lines, as well. */
+</div>;
+```
+
+A `//` is a comment when it **starts** a line: `see
+https://example.com` stays a sentence, address included. What surrounds a
+comment stays text, and what is inside it never reaches the screen.
+
+## Attributes
+
+Tags take **the props of HTML and JSX**, and the compiler refuses what does not exist, proposing the closest name:
+
+```rust
+return <button
+    id="go"
+    className="primary large"
+    disabled={busy}
+    aria-label="Start the render"
+    data-kind="action"
+    onClick={move |_| start()}
+>Start</button>;
+```
+
+- `className` and not `class`, `onClick` and not `onclick`: the JSX spelling;
+- `aria-*` and `data-*` are accepted as they are, with their dashes;
+- a boolean attribute takes an expression (`disabled={true}`);
+- a handler takes a closure: `onClick={move |_| …}`,
+  `onInput={move |event| …}`.
+
+What the event carries — a short, fixed list, because a DOM node does not cross the boundary:
+
+| | |
+|---|---|
+| `event.kind` | `click`, `input`, `keydown`: the DOM name |
+| `event.value` | `target.value`: what is in the field, as text |
+| `event.number()` | the same, as a number, when it is one |
+| `event.id` | `target.id`, so that one handler can serve several elements |
+| `event.key` | `a`, `Enter`, `Escape`, `ArrowUp` |
+| `event.checked` | for a checkbox |
+| `event.shift` `event.control` `event.alt` `event.meta` | the modifiers |
+
+```rust
+let mut term = String::new();
+
+fn Search() -> Element {
+    return <div>
+        <input value={term.clone()} onInput={move |event| term = event.value} />
+        <input onKeyDown={move |event| if event.key == "Enter" { start(&term) }} />
+    </div>;
+}
+```
+
+`style` is written as an object, as in JSX, with keys in
+`camelCase`:
+
+```rust
+return <div style={{
+    display: "grid",
+    placeItems: "center",
+    height: "100vh",
+    backgroundColor: "#0b0b10",
+}}>…</div>;
+```
+
+## Components and their props
+
+A component is called **like a Rust function**, inside braces. There is no tag for
+the project's components: their props are their arguments, with Rust types.
+
+```rust
+fn Page() -> Element {
+    return <main>
+        {Card("Rust".to_string(), 3)}
+        {Card("React".to_string(), 1)}
+    </main>;
+}
+
+fn Card(title: String, times: u32) -> Element {
+    return <article className="card">
+        <h2>{title}</h2>
+        <p>{times} times</p>
+    </article>;
+}
+```
+
+A **capitalized** tag is reserved for the components of JavaScript libraries — see [below](/docs/javascript-libraries).
+
+## Lists and conditions
+
+Ordinary Rust: `map` and `collect` for a list, `if` or `match`
+for a choice.
+
+```rust
+fn List(names: Vec<String>) -> Element {
+    let items: Vec<Element> = names
+        .iter()
+        .map(|name| Element::tag("li").child(Element::Text(name.clone())).build())
+        .collect();
+
+    return <ul>{items}</ul>;
+}
+```
+
+And more often, one component per row:
+
+```rust
+let rows: Vec<Element> = devices.iter().map(|each| Row(each.clone())).collect();
+
+return <ul>{rows}</ul>;
+```
+
+A condition in the tree:
+
+```rust
+return <div>
+    {if busy { Waiting() } else { Result(value) }}
+</div>;
+```
+
+> A loop that never ends, written **before** the `return`, blocks the
+> frame: rendering is synchronous, and a page that does not return its
+> `Element` draws nothing. Work that takes time goes in a
+> [`task`](/docs/async).

@@ -1,0 +1,66 @@
+---
+title: "Routes"
+description: "The `app/` folder at a glance: screens, segments, layouts, navigation."
+---
+
+Routes are the `app/` folder, and there is no table to write:
+
+```text
+app/page.rsx                      →  /
+app/settings/page.rsx             →  /settings
+app/devices/[id]/page.rsx         →  /devices/<something>
+app/files/[...path]/page.rsx      →  /files/<everything else>
+app/help/[[...path]]/page.rsx     →  /help, and /help/<everything else>
+app/(shop)/cart/page.rsx          →  /cart  (the group is not in the URL)
+app/layout.rsx                    →  a frame around what is below it
+app/repos/loading.rsx             →  what is shown while the page has nothing yet
+app/repos/error.rsx               →  what is shown if the page fails
+```
+
+A segment in square brackets arrives **as an argument of the component**, in the
+order it is written:
+
+```rust
+// app/devices/[id]/page.rsx
+fn Page(id: String) -> Element {
+    return <h1>{id}</h1>;
+}
+```
+
+## Navigating
+
+```rust
+use rustx::router;
+
+router::navigate("/settings");
+router::replace("/thanks");        // in place of the current screen
+router::back();
+router::forward();
+
+let here = router::current();      // with the query string
+let term = router::query("q");
+```
+
+## A layout
+
+```rust
+// app/repos/[owner]/layout.rsx
+fn Layout(children: Element, owner: String) -> Element {
+    return <section><h1>{owner}</h1>{children}</section>;
+}
+```
+
+It can only ask for the segments of **its own** folder, and a layout
+that still wraps the new screen keeps its cells.
+
+## And the start
+
+```rust
+Config::new("My app")
+    .start("/settings")            // `/` by default
+    .not_found(NotFound)           // otherwise: "This page does not exist."
+```
+
+Everything else — the precedence between two routes that describe the same
+path, the history stack, the query string, and `loading.rsx` and
+`error.rsx` per segment — has its own section: **[the router](/docs/the-router)**.

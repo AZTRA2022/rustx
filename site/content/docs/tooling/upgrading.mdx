@@ -1,0 +1,80 @@
+---
+title: "Upgrading"
+description: "What a version number promises before 1.0, how to move a project to a newer release, and where the history is."
+---
+
+## What a version says
+
+The workspace is at `0.2.0`, in `[workspace.package]` of the repository's
+`Cargo.toml`, in one place for all eight packages. A `0.x` version says that
+the API may still move. `1.0.0` will say that it will not. What remains to be
+written (macOS, Linux, media, parts of async) will still touch signatures before
+then.
+
+Cargo treats a change of the **minor** number before 1.0 as a breaking change.
+A dependency written `0.1` accepts `0.1.x` and does not select `0.2.0`.
+
+## Moving a project
+
+Three things move: the command-line tool, the library your project depends
+on, and the editor tools.
+
+**The library.** Change the version in the project's `Cargo.toml`:
+
+```toml
+rustx = { package = "rustx-app", version = "0.2" }
+```
+
+Then build. `rustx new` writes this line; if the number in your project is
+older than the release you want, this is the only place to change it.
+
+**The command line.**
+
+```sh
+cargo install rustx-cli --force
+```
+
+The pages are compiled by `#[rustx::main]`, from the library your project
+depends on. The command line starts cargo and stamps the executable, and does not
+compile pages. The two can differ in version without the build failing, but keep
+them together so `rustx --help` describes what you run.
+
+**The editor.** Install the language server again, and the extension if there is
+a newer one. See [the editor](/docs/tooling/the-editor).
+
+```sh
+cargo install rustx-lsp --force
+```
+
+Restart the language server from the command palette afterwards. A running
+server holds its own file, and an old one underlines errors the compiler does not
+report.
+
+## When you build the first time
+
+- Close every window of the application, and any `rustx dev` that is still
+  running. They hold `libcef.dll`, and the build says which file is held.
+- The engine is a dependency, `cef`, pinned by `rustx-engine` to a Chromium
+  release. A new release of rustx may ask for a new engine, and the first build
+  after it fetches that. Expect a long first build.
+- Rust 1.88 or later is required.
+
+## The changelog
+
+There is none. No file lists what changed in each release. These are the sources:
+
+- the git history of the repository. Commit messages say what changed, and many
+  are written in French;
+- `docs/chasse-aux-bugs.md` and `docs/manques-du-framework.md`, the two logs of
+  what was broken and what is missing, and [what's left](/docs/whats-left), their
+  summary;
+- the rustdoc of the crate you use, for signatures.
+
+If an upgrade breaks your build, the compiler errors usually name the function
+that moved. When they do not, an issue is welcome. See
+[contributing](/docs/tooling/contributing).
+
+## Deprecation and support
+
+No deprecation policy and no support window are written down. Pin the version
+you ship with, and move when you choose to.

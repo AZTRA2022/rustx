@@ -63,6 +63,24 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
     let manifest = PathBuf::from(manifest);
     let app = manifest.join("app");
 
+    // `main` cannot be `async` in Rust, so the `async` comes off the
+    // signature here -- before anything can go wrong, and not after.
+    // A page the compiler refuses used to re-emit the signature exactly
+    // as it was written, so the developer got their own error *and*
+    // `error[E0752]: main function is not allowed to be async`, which
+    // is about nothing they did and points at `src/main.rs`.
+    let (signature, waits) = without_async(signature);
+    // What a refused build emits: the function, with its body still on
+    // the runtime if it had one, so the only error is the real one.
+    let still_a_main = |body: TokenStream2| {
+        let body = if waits {
+            quote! { rustx::block_on(async move { #body }) }
+        } else {
+            body
+        };
+        quote! { #signature { #body } }
+    };
+
     let (pages, prelude) = if app.is_dir() {
         let out = generated_directory(&manifest);
         if let Err(complaint) = compile(&app, &out, routed) {
@@ -70,10 +88,10 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
             // page is one error; without this, the developer also gets
             // "`main` function not found", which is about nothing they
             // did and sends them looking in the wrong file.
-            let body = body.stream();
+            let emitted = still_a_main(body.stream());
             return quote! {
                 compile_error!(#complaint);
-                #signature { #body }
+                #emitted
             }
             .into();
         }
@@ -131,7 +149,12 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
             quote! {
                 #[doc(hidden)]
                 mod __rustx_pages {
-                    #![allow(non_snake_case, clippy::needless_return, clippy::useless_vec, clippy::type_complexity, clippy::redundant_closure)]
+                    // `unused_braces`: a `{ … }` in markup is an
+                    // expression the developer wrote, and it is emitted
+                    // as it was read. Forty warnings about braces
+                    // nobody can remove are forty warnings in front of
+                    // the one that matters.
+                    #![allow(non_snake_case, unused_braces, clippy::needless_return, clippy::useless_vec, clippy::type_complexity, clippy::redundant_closure)]
                     pub(crate) use super::*;
                     #(#opened)*
                     pub(crate) use rustx::Element;
@@ -174,10 +197,10 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
     // compiled and never otherwise.
     let javascript = match rustx_compiler::bundle::build(&manifest) {
         Err(complaint) => {
-            let body = body.stream();
+            let emitted = still_a_main(body.stream());
             return quote! {
                 compile_error!(#complaint);
-                #signature { #body }
+                #emitted
             }
             .into();
         }
@@ -201,12 +224,10 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
 
     let body = body.stream();
 
-    // `#[rustx::main] async fn main` — async as a developer writes it
-    // anywhere else. `main` itself cannot be async, so the `async` is
-    // taken off the signature and the body is run on the framework's own
-    // runtime instead. A sub-process of Chromium runs this same `main`,
-    // so the runtime it builds is the one its futures would have used.
-    let (signature, waits) = without_async(signature);
+    // The body on the framework's own runtime, since the `async` came
+    // off the signature above. A sub-process of Chromium runs this same
+    // `main`, so the runtime it builds is the one its futures would
+    // have used.
     let body = if waits {
         quote! { rustx::block_on(async move { #body }) }
     } else {

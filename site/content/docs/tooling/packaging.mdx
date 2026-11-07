@@ -1,0 +1,143 @@
+---
+title: "Packaging"
+description: "What `rustx build --release` produces, what has to sit beside it, and what is not written yet."
+---
+
+```sh
+rustx build --release
+```
+
+This runs `cargo build --release`, then stamps the `.exe` cargo made. The
+result is `target/release/<name>.exe`. `rustx build` looks for it in the
+`target/` of the project, then in the `target/` of any workspace above it. A
+`target-dir` set in `.cargo/config.toml` is read only to check that no running
+window holds `libcef.dll`. The stamp step looks in `target/`, so a project that
+moves its build folder gets cargo's binary, and `rustx build` reports that it
+cannot find it.
+
+Windows is the only platform this page can describe. See
+[platforms](/docs/the-system/platforms).
+
+## What the stamp carries
+
+`rustx build` reads each value where you already wrote it. There is no second
+file to keep in step.
+
+| | |
+|---|---|
+| name | the literal in `Config::new("…")`, found by searching `src/`; the crate name if there is none |
+| version | `version` in `Cargo.toml`, including `version.workspace = true` |
+| description | `description` in `Cargo.toml` |
+| publisher | the first entry of `authors` |
+| icon | the literal in `.icon("…")`, or `assets/icon.ico` if it exists |
+
+The icon is checked before the file is opened for writing, so a `.png`
+renamed to `.ico` is refused instead of leaving half a stamp. A declared icon
+that is not on disk is said once, and the binary keeps the system icon.
+
+`cargo build --release` produces a binary that runs the same way. It only
+looks anonymous in a file manager.
+
+## What has to sit beside the binary
+
+The `cef` crate's build script copies the browser engine next to the
+executable. In a debug build on the development machine, the folder held:
+
+| | |
+|---|---|
+| `libcef.dll` | the engine, 281 MB in that build |
+| `chrome_elf.dll` | |
+| `d3dcompiler_47.dll`, `dxcompiler.dll` | shader compilers |
+| `vk_swiftshader.dll`, `vk_swiftshader_icd.json`, `vulkan-1.dll` | the software renderer, used when there is no GPU driver |
+| `icudtl.dat` | Unicode data |
+| `v8_context_snapshot.bin` | |
+| `resources.pak`, `chrome_100_percent.pak`, `chrome_200_percent.pak` | the engine's resources |
+| `locales/` | one `.pak` per language, 51 MB in that build |
+
+These names are what was seen in one build, not a list the framework
+declares. Look at your own `target/release/` and ship what you find there.
+
+The executable starts itself again as the engine's helper processes, so the
+same `.exe` must sit next to these files. Moving the `.exe` alone does not work.
+
+## What is inside the binary
+
+| | |
+|---|---|
+| the pages | compiled from `app/` into the executable |
+| the React runtime | the `runtime.js` of the `rustx` crate |
+| the Tailwind style sheet | included with `include_str!` when Tailwind is installed |
+
+## What is not inside it
+
+`#[rustx::main]` records the path of the project, as cargo saw it when it
+compiled. At run time the framework looks there for:
+
+| | |
+|---|---|
+| `assets/index.html` | if the file exists, it is the document |
+| `assets/rustx-bundle.js` | the JavaScript libraries, loaded by a `<script>` beside the document |
+| the window icon | the `.ico` named in `Config::icon`, read from disk |
+
+Three consequences follow from the code. Nothing here has been tested on a
+second machine.
+
+- An application with no `assets/index.html` gets a generated document in the
+  system's temporary folder. It does not depend on the project path.
+- An application that writes its own `index.html` reads it from the project
+  folder. The same is true of the bundle built from `package.json`. Both stay
+  on the machine that built the application.
+- The window icon is read from the same folder. If it is missing, the window
+  shows the system icon and the framework says so once. The icon stamped into
+  the `.exe` by `rustx build` is inside the file and travels with it.
+
+<Callout type="warn" title="Check before you ship">
+Copy the release folder to a machine, or a folder, where the project does not
+exist, and start it. If the window comes up blank or empty, the document or the
+bundle was read from a path that is no longer there. Report it: the log of
+gaps is the place, see [what's left](/docs/whats-left).
+</Callout>
+
+## What the application writes on the user's machine
+
+At the first start, the engine makes a folder named after the window title:
+
+```text
+%LOCALAPPDATA%\rustx\<title, lowercased, dashes between words>\
+```
+
+It holds the browser profile and `engine.log`. The name comes from the title
+because Chromium allows one process per profile folder, and two applications
+that shared one would hand their windows to whichever started first. Do not
+store your own files there. See [app data](/docs/the-system/app-data).
+
+## Two things that stop a start
+
+Run as administrator, Chromium 156 relaunches itself without the rights and
+exits. The application sees `cef::initialize returned 0`. The engine adds a
+sentence that names the cause. Start the application as an ordinary user, or
+pass `--do-not-de-elevate` on its command line.
+
+A machine with no usable 3D driver gives a blank window and a log full of
+`Failed to create shared context`. Setting `RUSTX_SOFTWARE=1` in the
+environment makes the engine composite on the processor. See
+[troubleshooting](/docs/tooling/troubleshooting).
+
+## What is not written
+
+There is no installer, no code signing and no updater. The framework neither
+produces nor checks any of them, and nothing in the crates calls them. You get
+a folder of files and an `.exe` with a name, a version and an icon. See
+[what's left](/docs/whats-left).
+
+## A release checklist
+
+1. `Cargo.toml` has the version and the `authors` you want users to see.
+2. `Config::new("…")` holds the final title. The profile folder is named from
+   it, so changing it later moves the user's data.
+3. `assets/icon.ico` exists, and is a real `.ico`.
+4. `rustx build --release` finishes without a message about the logo.
+5. No `rustx dev` or earlier window is still running: it holds `libcef.dll`,
+   and the build says which file is held.
+6. The release folder runs from a place where the project does not exist.
+7. It runs as an ordinary user.

@@ -1,0 +1,127 @@
+---
+title: "API at a glance"
+description: "The public functions a page and a main.rs call, with their signatures, grouped by module."
+---
+
+Each signature below was read from the source. They are not exhaustive: this is
+what an application meets. For the rest, `cargo doc --open` in the repository
+builds the rustdoc of the eight crates. See [the packages](/docs/tooling/the-packages).
+
+An application imports one crate, `rustx`, and these modules are on it.
+
+## Start
+
+| | |
+|---|---|
+| `App::new(config: Config) -> Result<App, rustx::Error>` | checks the configuration. In a helper process it exits instead of returning |
+| `App::run(self) -> Result<(), rustx::Error>` | opens the window and runs until it closes |
+| `Config::new(title: impl Into<String>) -> Config` | 1024 by 768. The other methods are in [configuration](/docs/tooling/configuration) |
+| `#[rustx::main]`, `#[rustx::main(pages)]` | the attribute on `main` |
+
+`rustx::Error` has four variants and is `#[non_exhaustive]`:
+
+| | |
+|---|---|
+| `IndexNotFound(PathBuf)` | the document does not exist on disk |
+| `RemoteContentForbidden` | the document is a remote URL |
+| `EngineInit(String)` | CEF failed to start |
+| `NoPage` | a window was asked for from somewhere with no page |
+
+## `router`
+
+| | |
+|---|---|
+| `navigate(path: impl Into<String>)` | go to the path on the next frame |
+| `replace(path: impl Into<String>)` | in place of the current screen |
+| `back() -> bool`, `forward() -> bool` | `false` if there was nowhere to go |
+| `can_go_back() -> bool`, `can_go_forward() -> bool` | |
+| `history() -> (Vec<String>, usize)` | the stack and the position in it |
+| `current() -> String` | the path with its query string |
+| `route() -> String` | the path without the query string |
+| `query(name: &str) -> String` | the value, or `""` |
+| `has_query(name: &str) -> bool` | whether the key is there, even with no value |
+| `with_query(name: &str, value: Option<&str>) -> String` | the current path with the key set, or removed with `None` |
+
+See [navigating](/docs/the-router/navigating) and
+[the query string](/docs/the-router/the-query-string).
+
+## `window`
+
+All of these act on the window the calling page is in.
+
+| | |
+|---|---|
+| `minimize()`, `maximize()`, `restore()`, `fullscreen()` | |
+| `toggle_maximize()`, `toggle_fullscreen()` | |
+| `on_top(above: bool)` | keep the window above the others |
+| `frameless()`, `framed()` | remove or restore the system frame |
+| `drag()` | start moving the window. Call it on a press |
+| `shut()` | close this window |
+| `open(what: What) -> Result<Window, rustx::Error>` | open another window, from a page |
+| `What::new(name)` with `.titled(t)`, `.size(w, h)`, `.at(route)`, `.frameless()` | what to open |
+| `Window::name() -> &str`, `Window::close()` | the handle `open` returns. Dropping it does not close the window |
+| `about() -> About` | `name`, `version`, `description`, `publisher` |
+
+See [the window](/docs/the-window).
+
+## `task` and the frame
+
+| | |
+|---|---|
+| `task::spawn(work: impl FnOnce(Alive) + Send + 'static) -> Task` | a thread. Dropping the `Task` cancels it |
+| `task::spawn_future(future) -> Task` | the same for a future, on the async runtime |
+| `Alive::get() -> bool` | is this work still wanted |
+| `Alive::post(job) -> Result<(), PostError>` | run a closure on the render thread at the next frame |
+| `Task::is_running() -> bool` | |
+| `task::panics() -> u32`, `task::last_panic() -> Option<String>` | for diagnostics |
+| `poster() -> Poster`, `Poster::post(job)` | the same door, from anywhere |
+| `on_frame(callback: impl FnMut() + 'static)` | run on every frame, on the render thread |
+
+`PostError` is `WindowClosed` or `Cancelled`. See
+[keep, effect, task](/docs/getting-started/keep-effect-task) and
+[cancellation](/docs/async/cancellation).
+
+## The bridge
+
+| | |
+|---|---|
+| `register_native(name: &str, f: impl Fn(&[Value]) -> Result<Value, NativeError> + 'static)` | a Rust function on the page's JavaScript global |
+| `NativeError::new(message)` | thrown into JavaScript |
+| `foreign::register_component(name, component)` | let React mount a component |
+| `on_context_created(hook)` | work when the page's context appears |
+
+See [the Rust bridge](/docs/javascript-libraries/rust-bridge).
+
+## System modules
+
+Every one has `supported() -> bool`. Errors are `OsError`, except `dialog`, which
+has `DialogError` with `Cancelled` as a normal case.
+
+| | |
+|---|---|
+| `clipboard` | `text()`, `set_text(&str)`, `image()`, `set_image(&Image)`, `custom(format)`, `set_custom(format, &[u8])`. See [the clipboard](/docs/the-system/the-clipboard) |
+| `dialog` | `open(Ask)`, `save(Ask)`, `folder(Ask)`. See [file dialogs](/docs/the-system/file-dialogs) |
+| `notify` | `show(notify::What)`. See [notifications and the tray](/docs/the-system/notifications-and-the-tray) |
+| `tray` | `Icon::new(&Path, &str)`, `.menu(&[Item])`, `.clicked()`, `.notify(&What)` |
+| `shortcut` | `Shortcut::listen("Ctrl+Shift+R")`, `.pressed()`. See [global shortcuts](/docs/the-system/global-shortcuts) |
+| `instance` | `Only::one(name)`, `hand_over(name, &[String])`, `handed_over()`. See [a single instance](/docs/the-system/a-single-instance) |
+| `autostart` | `set(on, name)`, `is_on(name)`. See [start with the session](/docs/the-system/start-with-the-session) |
+| `devices` | `devices()`, `devices_of(kind)`, `device(id)`, `explain()`. See [devices](/docs/the-system/devices) |
+| `dropped` | `on_files(hook)`, `files()`. See [dropped files](/docs/the-system/dropped-files) |
+
+A platform that has not written a module returns an error that names the file to
+write. See [platforms](/docs/the-system/platforms).
+
+## Values and elements
+
+| | |
+|---|---|
+| `Value` | `Null`, `Bool`, `Number(f64)`, `String`, `List`, `Record`. Accessors `as_str`, `as_f64`, `as_bool`, `as_list`, `as_record`, `get`, `at` |
+| `ToValue`, `#[derive(ToValue)]`, `record([…])` | build a `Value`. See [props that cross](/docs/javascript-libraries/props-that-cross) |
+| `Element`, `Event`, `Handler` | what a component returns, what a handler receives. See [attributes and events](/docs/getting-started/attributes-and-events) |
+
+## Re-exports for your own `async` code
+
+`rustx::time` is `tokio::time`, and `rustx::tokio` is tokio itself, so a page
+and `main` use the same runtime that `task(async { … })` runs on. See
+[async](/docs/async).

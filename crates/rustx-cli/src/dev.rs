@@ -167,12 +167,48 @@ pub fn launchable(project: &Path, exe: &Path) -> Result<PathBuf, String> {
 /// Which turn of the loop this is, so two copies never share a name.
 static TURN: AtomicU64 = AtomicU64::new(0);
 
+/// Wait for a killed process to let go of the runtime files.
+///
+/// `kill` and `wait` return before Windows has unmapped the libraries
+/// the process had loaded — a moment, no more, and a build started
+/// inside it fails on an access error that has no cause left to find.
+/// Bounded, because waiting for ever for something that is not coming
+/// would be worse than the error.
+fn wait_until_free(project: &Path) {
+    for _ in 0..40 {
+        if build::held(project, false).is_none() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// Build, and put the new window where the old one was.
 ///
 /// The order matters: the previous process is killed only once the new
 /// binary exists. A failed build leaves what is on screen on screen,
 /// showing the last page that compiled.
 fn restart(project: &Path, carried: &Path, running: &mut Option<Child>) {
+    // The one case where the window on screen has to go first: CEF's
+    // build replaces `libcef.dll` beside the binary, and the window
+    // that is open has it loaded. The build would fail on an access
+    // error for as long as that window lives, so a loop that keeps it
+    // is a loop that never builds again. Said out loud, because the
+    // rule it bends — a failed build leaves the last page that
+    // compiled on screen — is one a developer counts on.
+    if let Some(file) = build::held(project, false)
+        && let Some(child) = running.as_mut()
+    {
+        println!(
+            "rustx: the window has to close first — it holds {}.",
+            file.display()
+        );
+        let _ = child.kill();
+        let _ = child.wait();
+        *running = None;
+        wait_until_free(project);
+    }
+
     match build::run(false, project) {
         Ok(exe) => {
             // The copy is made before anything is killed, so that a

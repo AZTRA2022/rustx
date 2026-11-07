@@ -85,8 +85,34 @@ impl Callback {
 
     /// The first argument, which is what a library almost always passes.
     pub fn first(arguments: &[crate::Value]) -> crate::Value {
-        arguments.first().cloned().unwrap_or(crate::Value::Null)
+        Self::nth(arguments, 0)
     }
+
+    /// The argument at `at`, or `Null` when the library passed fewer.
+    ///
+    /// Null rather than a panic, for the same reason the whole boundary
+    /// is forgiving: a library that calls a prop with one argument
+    /// where its own documentation says two is a library that keeps
+    /// working here, with the second reading as nothing.
+    pub fn nth(arguments: &[crate::Value], at: usize) -> crate::Value {
+        arguments.get(at).cloned().unwrap_or(crate::Value::Null)
+    }
+}
+
+/// Dire a une closure que son parametre est un [`Event`].
+///
+/// Pourquoi une fonction qui rend ce qu'on lui donne : une closure
+/// ecrite `move |event| …` dans un `let` est verifiee avant d'etre
+/// appelee, donc Rust ne connait pas encore le type de `event` quand il
+/// lit `event.value` — `type annotations needed`, sur un fichier que
+/// personne n'a ecrit. Le passer par cette fonction donne l'attente qui
+/// manquait : la borne dit `Fn(Event)`, et la closure l'apprend de la.
+///
+/// `Fn` et non `FnMut`, parce que c'est ce qu'un [`Callback`] prend :
+/// un gestionnaire qui ecrit l'etat le fait a travers une cellule, et
+/// une cellule s'ecrit sans `&mut`.
+pub fn taking_an_event<F: Fn(Event)>(handler: F) -> F {
+    handler
 }
 
 impl std::fmt::Debug for Callback {
@@ -239,9 +265,120 @@ pub enum AttributeValue {
 }
 
 /// What an event handler is given.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// A fixed set of fields rather than the DOM event itself, for the
+/// reason the whole boundary exists: a DOM node cannot cross into Rust,
+/// and what a page actually asks of an event is a short list. It was
+/// `kind` alone, which meant `onInput` could not read what had been
+/// typed — the one thing an `onInput` is for — and a page had to keep a
+/// hidden input and a native function to get it.
+///
+/// Everything is read off the event where it exists and left empty
+/// where it does not: a click has no `key`, a keypress has no
+/// `checked`. Empty rather than an `Option` for each, because a page
+/// that asks for the text of a field it knows is a field wants the
+/// text, not a choice to unwrap.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Event {
+    /// `click`, `input`, `keydown` — the DOM's own name.
     pub kind: String,
+    /// `event.target.value`: what is in the field the event came from,
+    /// as text. A number input gives the digits as they were typed.
+    pub value: String,
+    /// `event.target.id`, so one handler can serve several elements.
+    pub id: String,
+    /// `event.key` for a key event: `a`, `Enter`, `Escape`, `ArrowUp`.
+    pub key: String,
+    /// `event.target.checked`, for a checkbox or a radio.
+    pub checked: bool,
+    /// Which modifiers were held down.
+    pub shift: bool,
+    pub control: bool,
+    pub alt: bool,
+    /// `Meta`: the Windows key, or `Cmd` on a Mac.
+    pub meta: bool,
+}
+
+impl Event {
+    /// An event of this kind and nothing else — what a test writes, and
+    /// what a handler called by hand is given.
+    pub fn of(kind: impl Into<String>) -> Self {
+        Self {
+            kind: kind.into(),
+            ..Default::default()
+        }
+    }
+
+    /// L'evenement, ecrit comme une valeur qui traverse.
+    ///
+    /// Pourquoi : une balise ordinaire ecrite dans un sous-arbre React
+    /// n'est pas montee par le moteur, c'est React qui la fait, et son
+    /// `onInput` revient par le chemin des props -- ou ne passent que
+    /// des [`crate::Value`]. L'objet d'evenement du DOM, lui, tient des
+    /// noeuds et ne traverse pas : ce sont donc ces champs-la, et pas
+    /// l'objet, qui font le voyage.
+    pub fn as_value(&self) -> crate::Value {
+        use crate::Value;
+        Value::Record(vec![
+            ("kind".to_string(), Value::String(self.kind.clone())),
+            ("value".to_string(), Value::String(self.value.clone())),
+            ("id".to_string(), Value::String(self.id.clone())),
+            ("key".to_string(), Value::String(self.key.clone())),
+            ("checked".to_string(), Value::Bool(self.checked)),
+            ("shift".to_string(), Value::Bool(self.shift)),
+            ("control".to_string(), Value::Bool(self.control)),
+            ("alt".to_string(), Value::Bool(self.alt)),
+            ("meta".to_string(), Value::Bool(self.meta)),
+        ])
+    }
+
+    /// Et le relire de l'autre cote.
+    ///
+    /// Ce qui n'est pas un evenement du tout n'est pas refuse : une
+    /// bibliothèque qui appelle `onChange("tokio")` est une
+    /// bibliothèque ordinaire, et refuser serait l'arreter au milieu.
+    /// Le texte recu devient `value`, qui est ce qu'une closure allait
+    /// en faire.
+    pub fn from_value(value: &crate::Value) -> Self {
+        use crate::Value;
+        let text = |key: &str| value.get(key).and_then(|held| held.as_str()).unwrap_or("").to_string();
+        let flag = |key: &str| value.get(key).and_then(|held| held.as_bool()).unwrap_or(false);
+        match value {
+            Value::Record(_) => Self {
+                kind: text("kind"),
+                value: text("value"),
+                id: text("id"),
+                key: text("key"),
+                checked: flag("checked"),
+                shift: flag("shift"),
+                control: flag("control"),
+                alt: flag("alt"),
+                meta: flag("meta"),
+            },
+            Value::String(said) => Self {
+                value: said.clone(),
+                ..Default::default()
+            },
+            Value::Number(number) => Self {
+                value: format!("{number}"),
+                ..Default::default()
+            },
+            Value::Bool(whether) => Self {
+                checked: *whether,
+                value: whether.to_string(),
+                ..Default::default()
+            },
+            _ => Self::default(),
+        }
+    }
+
+    /// What was typed, as a number, when it is one.
+    ///
+    /// `""` is `None` and so is `"abc"`: a field being emptied is the
+    /// common case, and it must not read as zero.
+    pub fn number(&self) -> Option<f64> {
+        self.value.trim().parse().ok()
+    }
 }
 
 /// A handler written by the application, as a plain Rust closure.

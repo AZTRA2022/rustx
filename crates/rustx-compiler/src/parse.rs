@@ -45,6 +45,20 @@ impl Cursor<'_> {
         }
     }
 
+    /// Les espaces, et les commentaires qui sont entre eux.
+    ///
+    /// Dans une balise il n'y a pas de prose : tout ce qui n'est pas un
+    /// attribut est un commentaire, et un `//` y est un `//` de Rust.
+    fn skip_space_and_comments(&mut self) {
+        loop {
+            self.skip_whitespace();
+            match comment_at(self.bytes(), self.index, self.end) {
+                Some(after) => self.index = after,
+                None => return,
+            }
+        }
+    }
+
     fn error(&self, offset: usize, message: impl Into<String>) -> CompileError {
         CompileError::at(self.source, offset, message)
     }
@@ -108,7 +122,13 @@ impl Cursor<'_> {
                 Some(b'{') => {
                     let offset = self.index;
                     let code = self.braced_rust(None)?;
-                    children.push(Node::Expression { code, offset });
+                    // `{/* … */}` est la forme de JSX, et des accolades
+                    // qui ne tiennent qu'un commentaire ne tiennent
+                    // aucune expression : il n'y a rien a dessiner, et
+                    // `into_element({ /* … */ })` ne compilerait pas.
+                    if !is_only_comments(&code) {
+                        children.push(Node::Expression { code, offset });
+                    }
                 }
                 Some(_) => {
                     if let Some(text) = self.text() {
@@ -123,8 +143,19 @@ impl Cursor<'_> {
 
     /// Text up to the next tag or `{`. A `<` that does not open a tag —
     /// "10 < 20" — is text like any other character.
+    ///
+    /// Un commentaire n'en fait pas partie. Il commence une ligne —
+    /// `// …` au milieu d'une phrase est la phrase, et une adresse en
+    /// contient un — ou il est entre `/*` et `*/`, ou qu'il soit. Ce
+    /// qui l'entoure reste du texte, et ce qui est dedans n'arrive
+    /// jamais a l'ecran : c'est la ce que le labo a vu, une ligne de
+    /// commentaire ecrite en toutes lettres dans sa barre.
     fn text(&mut self) -> Option<String> {
-        let start = self.index;
+        let mut kept = String::new();
+        let mut from = self.index;
+        // Vrai tant que cette ligne-ci n'a montre que des espaces :
+        // c'est la seule condition pour qu'un `//` soit un commentaire.
+        let mut starting = true;
         while self.index < self.end {
             let byte = self.bytes()[self.index];
             if byte == b'{' {
@@ -136,15 +167,36 @@ impl Cursor<'_> {
             {
                 break;
             }
+            let a_line_comment = starting
+                && byte == b'/'
+                && self.bytes().get(self.index + 1) == Some(&b'/');
+            let a_block_comment = byte == b'/' && self.bytes().get(self.index + 1) == Some(&b'*');
+            if a_line_comment || a_block_comment {
+                if let Some(after) = comment_at(self.bytes(), self.index, self.end) {
+                    kept.push_str(&self.source[from..self.index]);
+                    self.index = after;
+                    from = self.index;
+                    // Un commentaire de ligne s'arrete avant le saut de
+                    // ligne : la ligne suivante recommence.
+                    starting = !a_block_comment;
+                    continue;
+                }
+            }
+            if byte == b'\n' {
+                starting = true;
+            } else if !byte.is_ascii_whitespace() {
+                starting = false;
+            }
             self.index += 1;
         }
-        collapse(&self.source[start..self.index])
+        kept.push_str(&self.source[from..self.index]);
+        collapse(&kept)
     }
 
     fn attributes(&mut self) -> Result<Vec<Attribute>, CompileError> {
         let mut attributes = Vec::new();
         loop {
-            self.skip_whitespace();
+            self.skip_space_and_comments();
             match self.peek() {
                 Some(b'>') | Some(b'/') | None => return Ok(attributes),
                 _ => {}
@@ -280,6 +332,55 @@ impl Cursor<'_> {
 /// So: lines are trimmed and joined with one space, and a run of
 /// whitespace at either edge becomes a single space when it stayed on
 /// one line and nothing when it crossed a newline.
+/// Un pas apres le commentaire qui commence ici, s'il en commence un.
+///
+/// `//` va jusqu'au saut de ligne, qu'il laisse : c'est la fin de la
+/// ligne et non du commentaire. `/*` va jusqu'a `*/`, et jusqu'au bout
+/// de la region s'il n'est jamais referme — un commentaire ouvert est
+/// une erreur que le compilateur Rust dira mieux que nous.
+fn comment_at(bytes: &[u8], at: usize, end: usize) -> Option<usize> {
+    if at + 1 >= end || bytes[at] != b'/' {
+        return None;
+    }
+    match bytes[at + 1] {
+        b'/' => {
+            let mut index = at + 2;
+            while index < end && bytes[index] != b'\n' {
+                index += 1;
+            }
+            Some(index)
+        }
+        b'*' => {
+            let mut index = at + 2;
+            while index + 1 < end {
+                if bytes[index] == b'*' && bytes[index + 1] == b'/' {
+                    return Some(index + 2);
+                }
+                index += 1;
+            }
+            Some(end)
+        }
+        _ => None,
+    }
+}
+
+/// Ce code n'est-il que des commentaires et des espaces ?
+fn is_only_comments(code: &str) -> bool {
+    let bytes = code.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index].is_ascii_whitespace() {
+            index += 1;
+            continue;
+        }
+        match comment_at(bytes, index, bytes.len()) {
+            Some(after) if after > index => index = after,
+            _ => return false,
+        }
+    }
+    true
+}
+
 fn collapse(text: &str) -> Option<String> {
     if text.trim().is_empty() {
         return None;

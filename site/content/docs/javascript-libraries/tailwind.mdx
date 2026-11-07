@@ -1,0 +1,118 @@
+---
+title: "Tailwind"
+description: "Version 3 or 4, the files where classes are looked for, and the `@theme inline` bridge."
+---
+
+Tailwind works, in version 3 as in 4, and the framework reads which one
+`node_modules` contains: `--content` and `@tailwind utilities` for 3,
+`@source` and `@import "tailwindcss"` for 4. The style sheet is
+placed in the page without anyone writing it anywhere.
+
+```sh
+npm install tailwindcss @tailwindcss/cli
+```
+
+In 4, the command line lives in a package of its own: you need **both**, as
+Tailwind's page says. With the library alone, the build refuses by naming the missing command — it used to be silent, and the window opened with all its `className`s and not a single rule.
+
+<Callout title="The only exception">
+This is the only line of the framework that names a library and a
+version, because a program that the build *runs* has a command line, and a
+command line has a version.
+</Callout>
+
+## Where classes are looked for
+
+| | |
+|---|---|
+| `app/**/*.rsx` | the pages |
+| `src/**/*.rs` | the Rust — a class name can live in a `const` |
+| `components/**` | the project's React components, where shadcn keeps its own |
+| `lib/**` | what they import |
+
+## Tokens are not enough
+
+A style sheet that declares `--background` and `--foreground` does
+**not** give `bg-background` or `text-foreground`: a CSS variable
+is not a Tailwind utility. Without the bridge, the classes are words in attributes, the window is white, and nothing complains.
+
+This bridge is `@theme inline`, in `assets/tailwind.css`:
+
+```css
+@import "tailwindcss";
+@custom-variant dark (&:is(.dark *));   /* if the theme is a class */
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --border: oklch(0.922 0 0);
+  --radius: 0.625rem;
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --radius-lg: var(--radius);
+
+  /* A desktop application's font is the system's: it is already installed,
+     and it is the one people recognize. */
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", ui-sans-serif, system-ui;
+  --font-mono: "Cascadia Code", ui-monospace, monospace;
+}
+
+@layer base {
+  html, body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+  }
+
+  /* The root that the framework mounts: it is this one that scrolls,
+     and not the window. */
+  #app { height: 100vh; overflow: auto; }
+}
+```
+
+`npx shadcn@latest init` writes this block into a Next project; a style sheet
+copied by hand forgets it, and that is what shows first.
+
+## Dark mode
+
+A desktop application has two ways to choose it, and both work:
+
+```css
+/* the system's */
+@media (prefers-color-scheme: dark) { :root { --background: oklch(0.145 0 0); } }
+```
+
+```rust
+/* the user's choice: a class on the root */
+let mut dark = false;
+
+fn Shell(children: Element) -> Element {
+    return <div className={if dark { "dark" } else { "" }}>
+        <button onClick={move |_| dark = !dark}>theme</button>
+        {children}
+    </div>;
+}
+```
+
+With `@custom-variant dark (&:is(.dark *))`, `dark:bg-background` follows
+the class. Without this line, Tailwind 4 follows only the media query.
+
+## Without Tailwind
+
+Nothing forces you to use it. `assets/index.html` can carry its own
+style sheet, and a `.rsx` file writes `style={…}` like anywhere else:
+
+```rust
+return <div style="display:flex; gap:8px">…</div>;
+```

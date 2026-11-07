@@ -66,6 +66,43 @@ pub enum Spread {
     Fullscreen,
 }
 
+/// Ce qui se bascule : une fenêtre y est, ou elle revient d'où elle
+/// venait.
+///
+/// Une barre de titre à soi n'a pas un bouton « agrandir » et un bouton
+/// « rendre sa taille » : elle en a un, et il bascule. Dire
+/// « agrandis-toi » à une fenêtre déjà agrandie ne fait rien — c'est
+/// exactement ce qu'un deuxième clic faisait — donc l'ordre qu'un tel
+/// bouton donne est celui-ci, et c'est le système qu'on interroge pour
+/// savoir dans quel sens il va.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Switchable {
+    /// Toute la place que le bureau laisse, ou sa taille à elle.
+    Maximized,
+    /// Tout l'écran, ou sa taille à elle.
+    Fullscreen,
+}
+
+impl Switchable {
+    /// Ce que la fenêtre occupe quand la bascule est dans ce sens-là.
+    pub fn spread(self) -> Spread {
+        match self {
+            Self::Maximized => Spread::Maximized,
+            Self::Fullscreen => Spread::Fullscreen,
+        }
+    }
+}
+
+/// Basculer : y aller, ou en revenir si on y est déjà.
+pub fn switch(pane: Pane, what: Switchable) -> Result<(), OsError> {
+    let wanted = what.spread();
+    if spread_of(pane)? == wanted {
+        spread(pane, Spread::Normal)
+    } else {
+        spread(pane, wanted)
+    }
+}
+
 /// Si cette plateforme commande ses fenêtres depuis ce code.
 pub fn supported() -> bool {
     crate::platform::window::AVAILABLE
@@ -123,6 +160,8 @@ pub fn pointer() -> Result<(i32, i32), OsError> {
 pub enum Order {
     Dress(Dressing),
     Spread(Spread),
+    /// Y aller, ou en revenir : ce qu'un seul bouton de barre fait.
+    Switch(Switchable),
     OnTop(bool),
     Drag,
     Close,
@@ -138,6 +177,8 @@ impl Order {
             "maximize" => Self::Spread(Spread::Maximized),
             "restore" => Self::Spread(Spread::Normal),
             "fullscreen" => Self::Spread(Spread::Fullscreen),
+            "maximize-or-restore" => Self::Switch(Switchable::Maximized),
+            "fullscreen-or-restore" => Self::Switch(Switchable::Fullscreen),
             "on-top" => Self::OnTop(true),
             "not-on-top" => Self::OnTop(false),
             "drag" => Self::Drag,
@@ -155,6 +196,8 @@ impl Order {
             Self::Spread(Spread::Maximized) => "maximize",
             Self::Spread(Spread::Normal) => "restore",
             Self::Spread(Spread::Fullscreen) => "fullscreen",
+            Self::Switch(Switchable::Maximized) => "maximize-or-restore",
+            Self::Switch(Switchable::Fullscreen) => "fullscreen-or-restore",
             Self::OnTop(true) => "on-top",
             Self::OnTop(false) => "not-on-top",
             Self::Drag => "drag",
@@ -167,6 +210,7 @@ impl Order {
         match *self {
             Self::Dress(dressing) => dress(pane, dressing),
             Self::Spread(how) => spread(pane, how),
+            Self::Switch(what) => switch(pane, what),
             Self::OnTop(above) => on_top(pane, above),
             Self::Drag => drag(pane),
             Self::Close => close(pane),
@@ -190,6 +234,8 @@ mod tests {
             Order::Spread(Spread::Maximized),
             Order::Spread(Spread::Normal),
             Order::Spread(Spread::Fullscreen),
+            Order::Switch(Switchable::Maximized),
+            Order::Switch(Switchable::Fullscreen),
             Order::OnTop(true),
             Order::OnTop(false),
             Order::Drag,

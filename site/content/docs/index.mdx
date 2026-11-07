@@ -1,0 +1,80 @@
+---
+title: "Introduction"
+description: "Native software, written in Rust, drawn by a browser engine."
+---
+
+Components are written in `.rsx` files — the syntax of JSX,
+the language of Rust — and a `let mut` there is a state, with no annotation, no
+macro, no `store::`. npm libraries (React, Recharts, Tailwind,
+shadcn) are used from the `.rsx` itself. The `main.rs` of a project
+is four lines, because the ceremony is the framework's job.
+
+Rust and React live in **the same process**: an `onClick` is a
+function call, not a serialized message, and props cross the boundary
+as V8 values.
+
+<Callout title="Status">
+Windows is written and measured. macOS and Linux compile and refuse by
+naming the file they are missing. The version is `0.2.0`: the API may
+still change.
+</Callout>
+
+## Where to start
+
+- [Installation](/docs/getting-started/installation) — install `rustx-cli`, write a
+  project, open a window;
+- [The `.rsx` file](/docs/getting-started/the-rsx-file) — Rust, with markup in the
+  `return` statements;
+- [State](/docs/getting-started/state) — a `let mut`, and where it sits sets its
+  scope;
+- [Routes](/docs/getting-started/routes) — the `app/` folder, in the
+  manner of Next.
+
+Then, by topic:
+
+- [The router](/docs/the-router) — folders, parameters, layouts, loading and errors, the query string;
+- [The window](/docs/the-window) — the logo, frameless, commands,
+  several windows, closing;
+- [Async](/docs/async) — an `async` block, network
+  calls, threads, cancellation;
+- [JavaScript libraries](/docs/javascript-libraries) — React,
+  shadcn, Tailwind, props that cross;
+- [The system](/docs/the-system) — the clipboard, dialogs, the
+  system tray, shortcuts, dropped files;
+- [Tooling](/docs/tooling) — the commands, the editor, troubleshooting,
+  contributing.
+
+## What it looks like
+
+```rust title="app/counter/page.rsx"
+let mut order = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+
+fn Page() -> Element {
+    return <div>
+        <div id="first">{Counter()}</div>
+        <div id="second">{Counter()}</div>
+
+        <ul id="rows">
+            {order.iter().map(|key| <li key={key.clone()}>{Counter()}</li>).collect::<Vec<_>>()}
+        </ul>
+
+        <button id="rotate" onClick={move |_| order.rotate_right(1)}>rotate</button>
+    </div>;
+}
+
+/// One `let mut n = 0;`, as many counters as there are places it is
+/// written — and as many as there are keys in a list.
+fn Counter() -> Element {
+    let mut n = 0;
+    return <button onClick={move |_| n += 1}>{n}</button>;
+}
+```
+
+This file is `apps/counter/app/counter/page.rsx`, as it is. There is no
+`useState`, no provider, no reducer: `let mut n = 0;` written
+once gives as many counters as there are places it is called, and
+the rows of the list each keep their own through a rotation.
+
+## License
+
+MIT or Apache-2.0, at your option.

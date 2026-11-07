@@ -1,0 +1,68 @@
+---
+title: "Platforms"
+description: "What is written, what refuses by saying so, and where the rest will be written."
+---
+
+`rustx-os` is one folder per system inside — `windows/`,
+`linux/`, `other/` — and a capability is **one file per system**,
+with the same function names.
+
+```text
+crates/rustx-os/src/
+  clipboard.rs          the facade, and the documentation
+  windows/clipboard.rs  what is written
+  linux/clipboard.rs    what refuses by naming the file
+  other/clipboard.rs    macOS and the rest
+```
+
+## The state
+
+| | |
+|---|---|
+| **Windows** | written and measured, on real windows and real devices |
+| **Linux** | compiles; each call refuses by naming the platform and the file to write |
+| **macOS** | likewise |
+
+The tests compile **all three** on any machine: a target that does not compile is a broken target, whether or not it is run.
+
+## A refusal that says where to write
+
+```text
+rustx: « tray » n'est pas écrit pour linux — le fichier à écrire est
+crates/rustx-os/src/linux/tray.rs
+```
+
+Rather than doing nothing silently, or panicking. An application that wants to know
+**before** asks:
+
+```rust
+if !tray::supported() {
+    // do not draw the button rather than show an error
+}
+```
+
+`supported()` is the answer of the platform itself — each
+`<os>/<capability>.rs` declares it — and not a list of system names
+kept up to date in the facade.
+
+## The window
+
+Everything that [the window](/docs/the-window) commands — frameless, the toggles, full screen, moving — is Windows today.
+This is the part most tied to the system in the whole framework: a window frame, a `WM_NCCALCSIZE` and Aero Snap have no portable equivalent.
+
+## What needs an eye
+
+Some things cannot be checked by a test: is an icon really there, does a dialog open in the right place. They have an example to run:
+
+```sh
+cargo run -p rustx-os --example choose_a_file
+cargo run -p rustx-os --example tray_icon
+cargo run -p rustx-os --example a_global_shortcut
+cargo run -p rustx-os --example what_is_plugged_in
+```
+
+## Writing a platform
+
+The work is bounded, and that is intended: one file, the same function names, an `AVAILABLE` constant. Nothing about the engine or the compiler needs to be understood to write one.
+
+See [contributing](/docs/tooling/contributing).

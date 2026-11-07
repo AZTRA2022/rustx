@@ -1,0 +1,97 @@
+---
+title: "Components"
+description: "A function that returns an Element, and props that are its arguments with Rust types."
+---
+
+A component is a function that returns an `Element`. It is called **like a
+Rust function**, inside braces: its props are its arguments, with Rust types.
+
+```rust
+fn Page() -> Element {
+    return <main>
+        {Card("Rust".to_string(), 3)}
+        {Card("React".to_string(), 1)}
+    </main>;
+}
+
+fn Card(title: String, count: u32) -> Element {
+    return <article className="card">
+        <h2>{title}</h2>
+        <p>{count} times</p>
+    </article>;
+}
+```
+
+There is **no tag** for the project's components. A capitalized tag is
+reserved for the components of JavaScript libraries —
+`<Card>` from shadcn, `<LineChart>` from recharts.
+
+<Callout type="warn" title="The most common mistake">
+Writing `<Card />` for a component in the same file gives "the page asked for
+`Card`, and nothing has it": the name is neither a function in the page
+nor an export of an installed library. The correct form is `{Card(…)}`.
+</Callout>
+
+## Props with Rust types
+
+Anything Rust can pass: a `String`, a number, a struct, an `Option`, a `Vec`, a closure.
+
+```rust
+#[derive(Clone)]
+struct Device {
+    name: String,
+    busy: bool,
+}
+
+fn Row(device: Device, on_pick: impl Fn(String) + 'static) -> Element {
+    let name = device.name.clone();
+
+    return <li>
+        <button onClick={move |_| on_pick(name.clone())}>{device.name}</button>
+        {if device.busy { " — busy" } else { "" }}
+    </li>;
+}
+```
+
+There is no `PropTypes` and no schema to declare: the signature **is** the
+contract, and a call that gets it wrong is a compile error at the line of the
+call.
+
+## Children
+
+A component that wraps something takes an `Element` as an argument,
+like a layout:
+
+```rust
+fn Panel(title: String, children: Element) -> Element {
+    return <section className="panel">
+        <h3>{title}</h3>
+        {children}
+    </section>;
+}
+
+fn Page() -> Element {
+    return <main>
+        {Panel("Readings".to_string(), Gauge(42))}
+    </main>;
+}
+```
+
+## A component's state
+
+A `let mut` written **inside** a component is one cell per place in the
+tree: two `{Card(…)}` each have their own, and leaving the screen frees them. See [state](/docs/getting-started/state).
+
+```rust
+fn Counter() -> Element {
+    let mut count = 0;
+
+    return <button onClick={move |_| count += 1}>{count}</button>;
+}
+```
+
+## A component is never `async`
+
+`async fn Page()` is refused outright. A component is asked for the screen as it
+is **right now**: if it could wait, the frame would wait with it. Work that waits is
+written in an `async` block or in a component `.await` — see [async](/docs/async).

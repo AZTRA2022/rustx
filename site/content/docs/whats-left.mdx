@@ -1,0 +1,49 @@
+---
+title: "What's left"
+description: "What we know is imperfect, kept up to date while writing real applications."
+---
+
+The repository keeps two logs: `docs/manques-du-framework.md` — what is missing and what is broken, written while building a real application on top of it — and `docs/chasse-aux-bugs.md` — what a project written **from the outside** broke, and what repaired it. This page gives their state.
+
+The method is the same in both: `rustx new` in a neighboring folder, the libraries installed by the commands given in their own getting-started pages, no workaround, no version chosen to get the build through. The project points at the repository's sources, so each fix is verified within seconds.
+
+## The state of the logs
+
+The **41** entries of the bug hunt are closed. Of the **34**
+entries of the log of gaps, **two** remain, and both are sentences that the compiler states rather than silences.
+
+## What is still open
+
+- **An `async fn` written beside a page cannot reach a value of the page.** The compiler refuses this explicitly, and says where to declare the value. A page reads its values in an `async` block written *inside* the component, and an ordinary `async fn` takes what it needs as arguments. This is a limit, not a surprise.
+- **A component `.await` that borrows a local** does not compile: the future leaves for the runtime, and a borrow from the thread that draws does not follow it. This is ordinary Rust, and the way out is to take the arguments by value — but the message comes from `rustc` and points at a column of a generated file that the developer has never opened. Documented, not refused.
+
+## What is not written
+
+These are not defects: they are things that no application has yet demanded hard enough to decide their shape.
+
+- **macOS and Linux.** Both **compile**: each module of
+  `rustx-os` refuses by naming the platform *and the file to write*, rather than doing nothing silently. The tests compile all three targets on any machine. Windows is written and measured.
+- **Dragging a whole title bar.** An event does not yet say **what** was pressed, so the handle of `window::drag()` sits on an empty space and not on the entire `<header>`, which would swallow the clicks on its own buttons.
+- **Dragging a file *out of* the application** to the explorer.
+  The other direction works and gives the real paths; this one requires an object that the window's process must hold for the whole gesture.
+- **Closing to the system tray.** The icon does not keep the application alive: the message loop stops with the last window. The "minimize to the tray" behavior requires keeping a hidden window, and that is not written.
+- **Recording and capture** beyond what Chromium already gives — `MediaRecorder`, `getDisplayMedia`.
+- **A theme written by the framework.** `rustx new` could write the complete style sheet, which would make the framework the author of a theme. This is a choice to make, not an oversight; in the meantime, the minimal block is [documented](/docs/javascript-libraries/tailwind) where Tailwind is installed.
+
+## What the logs have closed
+
+For those who want to know what the two nights of bug hunting changed.
+
+**The router** was measured against Next's, and what it lacked was written: the *query string*, the catch-all `[...path]`, the route groups `(section)`, `forward` and `replace`, the parameters of a `Layout`, `loading.rsx` and `error.rsx` per segment, and a readable history stack.
+
+**The JavaScript boundary**: an `Element` can be a child of a library component, `Event` carries the value, the key, the target and the modifiers — including on a tag written inside a React subtree — `Value` has its accessors, and a callback receives all of its arguments.
+
+**The compiler**: a dozen rewrites that emitted wrong Rust, each with the test that had found it. And the comments of the markup, which were shown on screen: the three forms — `//` at the start of a line, `/* … */`, and `{/* … */}` — are read and discarded, between the children as between the attributes; `see https://example.com` stays a sentence, and that is a law.
+
+**The window**: `toggle_maximize()` and `toggle_fullscreen()`, because a title bar does not have two buttons but one that toggles; the place from before full screen retained and restored; and the **seven pixels** that Windows painted above a frameless window, taken back by `WM_NCCALCSIZE` without losing the resize edges.
+
+**What a style sheet must carry.** This one was not in the framework, and it was worse: nothing complained. `--background` declared without `@theme inline` makes `bg-background` a word in an attribute, and the window opens white. This is said where Tailwind is chosen, and three laws measure it in the window: the background color, the text color, and the effective font.
+
+## Reporting something
+
+The two logs are in the repository, and a new entry is welcome there — with what was written, what was expected, and what happened. See [contributing](/docs/tooling/contributing).

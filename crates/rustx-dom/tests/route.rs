@@ -16,6 +16,7 @@ fn table(patterns: &[&'static str]) -> Vec<Route> {
             render: nothing,
             layouts: &[],
             loading: None,
+            failed: None,
         })
         .collect()
 }

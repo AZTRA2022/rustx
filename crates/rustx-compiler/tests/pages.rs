@@ -232,3 +232,37 @@ fn no_page_emits_nothing() {
         );
     }
 }
+
+#[test]
+fn an_expression_that_holds_statements_is_emitted_as_a_block() {
+    // `{ let (visites, rang) = …; format!(…) }` dans une balise : les
+    // accolades de la balise étaient prises pour celles de
+    // l'expression, donc ce qui sortait était une suite d'instructions
+    // là où un argument était attendu — `into_element(let … ; …)`, que
+    // rien ne peut analyser.
+    let source = "fn Page() -> Element {\n    \
+                  return <p>{ let combien = 2; format!(\"{combien}\") }</p>;\n}\n";
+    let built = rustx_compiler::transpile::transpile(source).expect("transpilable");
+    holds_as_rust(&built.rust).unwrap_or_else(|broken| {
+        panic!("emitted:\n{}\n\n{broken}", built.rust);
+    });
+}
+
+#[test]
+fn a_name_a_let_binds_is_not_a_read_of_the_page_value_of_that_name() {
+    // La page déclare `rang`, et une expression de balise lie un `rang`
+    // à elle. Le nom à gauche d'un `let` est une déclaration, pas une
+    // lecture : réécrit, il donnait `let (rang.get(), total) = …`.
+    let source = "let mut rang = 0_usize;\n\n\
+                  fn Page() -> Element {\n    \
+                  return <p>{ let (rang, total) = (1, 2); format!(\"{rang}/{total}\") }</p>;\n}\n";
+    let built = rustx_compiler::transpile::transpile(source).expect("transpilable");
+    assert!(
+        !built.rust.contains("rang . get () , total"),
+        "le motif du `let` a été réécrit :\n{}",
+        built.rust
+    );
+    holds_as_rust(&built.rust).unwrap_or_else(|broken| {
+        panic!("emitted:\n{}\n\n{broken}", built.rust);
+    });
+}

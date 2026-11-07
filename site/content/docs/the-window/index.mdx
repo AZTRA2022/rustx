@@ -1,0 +1,99 @@
+---
+title: "The window"
+description: "What Config holds: the title, size, logo, document, and opening screen."
+---
+
+`Config` holds what a window is. Everything is optional except the title.
+
+| | |
+|---|---|
+| `Config::new(title)` | the title, and the application's name |
+| `.size(width, height)` | in pixels |
+| `.icon("assets/icon.ico")` | the title bar and the taskbar |
+| `.version("1.4.0")` | read by the page, and by `rustx build` |
+| `.description("…")` | one line |
+| `.publisher("…")` | who publishes it |
+| `.index("assets/index.html")` | a document of its own, otherwise the framework writes one |
+| `.host("app")` | the element where the screens are mounted |
+| `.start("/")` | the opening screen |
+| `.not_found(Component)` | the screen for a route that nobody declared |
+| `.mount("id", Component)` | a component that React will be able to mount |
+| `.on_context_created(…)` | work at the start of the page |
+| `.frameless()` | without the system frame: the page draws everything |
+
+```rust
+use rustx::{App, Config};
+
+#[rustx::main]
+fn main() -> Result<(), rustx::Error> {
+    let app = App::new(
+        Config::new("My app")
+            .size(1100, 760)
+            .icon("assets/icon.ico")
+            .version(env!("CARGO_PKG_VERSION"))
+            .description("What this does, in one line.")
+            .publisher("My company")
+            .start("/"),
+    )?;
+
+    app.run()
+}
+```
+
+## Pages to read
+
+| | |
+|---|---|
+| [The logo and identity](/docs/the-window/the-logo-and-identity) | the icon, the version, what the page can read |
+| [Frameless](/docs/the-window/frameless) | removing the system bar, and drawing it yourself |
+| [Commanding the window](/docs/the-window/commanding-the-window) | minimize, maximize, full screen, move |
+| [Several windows](/docs/the-window/several-windows) | opening a second one, and closing it |
+| [Closing](/docs/the-window/closing) | what stops the application, and what does not |
+
+## The document
+
+Without `assets/index.html`, the framework writes one: an `<html>`, a
+`<div id="app">`, and the style sheet that Tailwind produced. With a
+file of your own, that file is loaded instead — what you need to add a
+`<meta>` tag, a `<script>` for a scenario, or an element that React
+will mount.
+
+```html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>My app</title>
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>
+```
+
+`host("app")` says where the screens are mounted; `app` is the default.
+
+## What the page can read
+
+```rust
+let about = rustx::window::about();
+
+return <footer>{about.name} {about.version} — {about.publisher}</footer>;
+```
+
+A page that shows its version therefore does not have to be edited when the version
+changes: it comes from `Config`, which takes it from `env!("CARGO_PKG_VERSION")`.
+
+## Work at startup
+
+`on_context_created` is called when the page has its JavaScript context,
+before the first render. It is the place to register a native function, or to read
+what another instance handed over.
+
+```rust
+Config::new("My app").on_context_created(|| {
+    for argument in rustx::instance::handed_over() {
+        open(&argument);
+    }
+})
+```

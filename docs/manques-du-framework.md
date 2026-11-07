@@ -27,27 +27,27 @@ framework promettait de tuer).
 | 7 | cassé | `rustx-compiler` | un `let mut` d'une fonction utilitaire d'une page est promu | **corrigé** |
 | 8 | cassé | `rustx-compiler` | un `async fn` à côté de la page ne peut pas toucher l'état | **refus explicite** (voir 29) |
 | 9 | manque | `rustx-dom` | un `Element` ne peut pas être enfant d'un composant React | **corrigé** |
-| 10 | manque | `rustx-dom` | `Event` ne porte que `kind` : le texte tapé, et ce sur quoi on a cliqué, sont hors d'atteinte | ouvert |
-| 11 | manque | `rustx-dom` | `Value` n'a aucun accesseur (`as_str`, `as_f64`, `get`) | ouvert |
-| 12 | manque | `rustx-dom` | un callback ne reçoit que le **premier** argument | ouvert |
-| 13 | manque | routeur | pas de *query string* : `/depots?q=rust` ne correspond à rien | ouvert |
-| 14 | manque | routeur | pas de segment attrape-tout `[...chemin]` | ouvert |
-| 15 | manque | routeur | pas de groupes de routes `(section)` | ouvert |
-| 16 | manque | routeur | pas de `forward`, pas de `replace` | ouvert |
-| 17 | manque | routeur | un `Layout` ne reçoit pas les paramètres de la route | ouvert |
-| 18 | manque | routeur | pas d'écran de chargement ni de frontière d'erreur par segment | ouvert |
-| 19 | manque | routeur | la pile de navigation n'est pas lisible | ouvert |
-| 20 | coûte | `rustx-compiler` | un `.await` de composant n'est posé qu'une fois : `with_key` obligatoire | ouvert |
-| 21 | coûte | `rustx-compiler` | un refus de page entraîne un second message sur `async main` | ouvert |
-| 22 | coûte | `rustx-lsp` | la complétion exige le chemin écrit en entier | ouvert |
-| 23 | coûte | documentation | le README dit encore qu'une lecture dans un bloc est refusée | ouvert |
+| 10 | manque | `rustx-dom` | `Event` ne porte que `kind` : le texte tapé est hors d'atteinte | **corrigé** |
+| 11 | manque | `rustx-dom` | `Value` n'a aucun accesseur (`as_str`, `as_f64`, `get`) | **corrigé** |
+| 12 | manque | `rustx-compiler` | un callback ne reçoit que le **premier** argument | **corrigé** |
+| 13 | manque | routeur | pas de *query string* : `/depots?q=rust` ne correspond à rien | **corrigé** |
+| 14 | manque | routeur | pas de segment attrape-tout `[...chemin]` | **corrigé** |
+| 15 | manque | routeur | pas de groupes de routes `(section)` | **corrigé** |
+| 16 | manque | routeur | pas de `forward`, pas de `replace` | **corrigé** |
+| 17 | manque | routeur | un `Layout` ne reçoit pas les paramètres de la route | **corrigé** |
+| 18 | manque | routeur | pas d'écran de chargement ni de frontière d'erreur par segment | **corrigé** |
+| 19 | manque | routeur | la pile de navigation n'est pas lisible | **corrigé** |
+| 20 | coûte | `rustx-engine` | un `.await` de composant n'est posé qu'une fois : `with_key` obligatoire | **corrigé** |
+| 21 | coûte | `rustx-macro` | un refus de page entraîne un second message sur `async main` | **corrigé** |
+| 22 | coûte | `rustx-lsp` | la complétion exige le chemin écrit en entier | **corrigé** |
+| 23 | coûte | documentation | le README dit encore qu'une lecture dans un bloc est refusée | **corrigé** |
 | 24 | cassé | `rustx-compiler` | l'annotation de type d'une valeur de page était perdue | **corrigé** |
 | 25 | cassé | `rustx-compiler` | une mutation par méthode qui rend une valeur ne compilait pas | **corrigé** |
 | 26 | cassé | `rustx-compiler` | une valeur qu'un futur écrit et que l'écran ne capture qu'en ligne n'était pas liée | **corrigé** |
 | 27 | cassé | `rustx-compiler` | une écriture dont la partie droite lit une autre valeur de page était éditée deux fois | **corrigé** |
 | 28 | cassé | `rustx-compiler` | une fonction ordinaire à côté d'une page n'atteignait pas ses valeurs | **corrigé** |
 | 29 | manque | `rustx-compiler` | une `async fn` ne peut pas atteindre une valeur de page (refus explicite) | ouvert |
-| 30 | coûte | `rustx-compiler` | un `.await` de composant qui emprunte un local est refusé par rustc dans un fichier généré | ouvert |
+| 30 | coûte | `rustx-compiler` | un `.await` de composant qui emprunte un local est refusé par rustc dans un fichier généré | documenté, pas refusé |
 
 ## Ce qui est cassé
 
@@ -384,3 +384,102 @@ appuis sur ses propres boutons, et `Event` ne dit pas sur quoi on a
 appuyé — donc le déplacement commence et le clic du bouton est avalé.
 La poignée doit être posée sur un espace vide, ce que fait
 `app/layout.rsx` du labo. Ce qui le lèvera : `Event` porte sa cible.
+
+---
+
+## Ce que la deuxième nuit a fermé
+
+### 10 à 12. Ce que la frontière JavaScript ne faisait pas traverser
+
+- **`Event` ne portait que `kind`.** Un `onInput` ne pouvait donc pas
+  lire ce qui venait d'être tapé — la seule chose pour laquelle un
+  `onInput` existe — et le labo tenait un composant React de trois
+  lignes de TypeScript pour faire traverser la chaîne. L'événement porte
+  maintenant `value`, `number()`, `id`, `key`, `checked` et les quatre
+  modificateurs, lus sur l'événement du DOM là où ils existent. Le
+  composant de contournement a disparu du labo.
+- **`Value` n'avait aucun accesseur.** Lire ce qu'une bibliothèque passe
+  à un callback demandait un `match` sur cinq variantes à chaque fois.
+  Il y a maintenant `as_str`, `as_f64`, `as_bool`, `as_list`,
+  `as_record`, `get`, `at`, `text`, `number` et `truth` — dont `truth`,
+  qui dit oui comme JavaScript dit oui.
+- **Un callback ne recevait que le premier argument.** Le compilateur
+  appelle maintenant la closure avec autant d'arguments qu'elle en
+  déclare, comptés dans le texte : une bibliothèque qui appelle
+  `onChange(valeur, index)` — les listes virtuelles, les tableaux, les
+  sélecteurs de plage le font toutes — marche, et `onClose={move || …}`
+  aussi.
+
+### 13 à 19. Le routeur
+
+Les sept manques sont fermés : query string lue et écrite (`params.query`,
+`router::query`, `router::with_query`, avec le décodage d'un navigateur),
+attrape-tout `[...chemin]` et son optionnel `[[...chemin]]` avec l'ordre
+de précision de Next.js, groupes de routes `(section)`, `replace` et
+`forward` sur un historique qui est une liste et un doigt dessus,
+`can_go_back` / `can_go_forward` / `history()`, les paramètres du dossier
+reçus par le layout, et `loading.rsx` / `error.rsx` par segment.
+
+Ce qui reste hors d'atteinte, et qui n'est pas un manque mais une autre
+nature : pas de rendu serveur, pas de `generateStaticParams`, pas de
+préchargement d'une route avant le clic — il n'y a pas de serveur, et
+une page n'est pas un document à aller chercher.
+
+### 20. Un `.await` de composant n'était posé qu'une fois
+
+Il l'est maintenant une fois **par adresse**. `awaited` pose ses deux
+emplacements sous une clé qui est l'adresse de l'écran, donc passer de
+`/depots/rust-lang/rust` à `/depots/tokio-rs/tokio` repose la question
+et oublie la réponse d'avant, sans que la page ait à écrire un
+`with_key` autour de chaque appel. Et la clé est posée **là** et non par
+le routeur, pour que le composant ne soit pas reclé : il garde ses
+cellules, et un `effect` qui surveille le paramètre ferme toujours avant
+d'ouvrir.
+
+### 21. Un refus de page entraînait un second message
+
+`#[rustx::main]` réémettait la signature exactement comme elle était
+écrite quand une page était refusée, donc le développeur recevait sa
+vraie erreur **et** `error[E0752]: main function is not allowed to be
+async`, qui désigne `src/main.rs` et ne parle de rien qu'il ait fait.
+L'`async` est maintenant retiré avant que quoi que ce soit puisse mal
+tourner.
+
+### 30. L'emprunt dans un `.await`
+
+Pas refusé, et c'est un choix. `api::depot(&nom, &proprietaire).await`
+dans un composant ne compile pas parce que la future part sur le runtime
+— du Rust ordinaire. Mais le code engendré évalue l'expression **avant**
+de l'attendre, donc une fonction qui rend une future `'static` à partir
+d'une référence marche aujourd'hui : refuser toute référence casserait
+le seul cas qui passe. C'est donc écrit dans le README, avec la sortie
+(prendre les arguments en propre), et le message reste celui de `rustc`.
+
+---
+
+## 31. Un commentaire dans le markup — **corrigé**
+
+Il était affiché. Les trois formes de Rust et de JSX sont lues et
+jetées, dans les enfants comme entre les attributs ; un `//` au milieu
+d'une phrase reste la phrase. Voir la chasse aux bugs, #38.
+
+## 32. La bascule d'une fenêtre à soi — **corrigé**
+
+`window::toggle_maximize()` et `window::toggle_fullscreen()`. Le
+système est interrogé là où la poignée est tenue, et la place d'avant le
+plein écran est retenue pour être rendue. Voir #40.
+
+## 33. Le haut d'une fenêtre sans cadre — **corrigé**
+
+Sept pixels que Windows gardait et peignait. Repris par
+`WM_NCCALCSIZE`, les bords de redimensionnement conservés. Voir #39.
+
+## 34. Ce qu'une feuille de style doit porter — **documenté**
+
+Le framework exécute Tailwind ; il n'écrit pas le thème de
+l'application, et une feuille sans `@theme inline` donne une fenêtre
+blanche sans que rien ne le dise. Le README porte maintenant le bloc
+minimal, à l'endroit où l'on installe Tailwind. Ce qui reste ouvert :
+`rustx new` pourrait écrire cette feuille, ce qui ferait du framework
+l'auteur d'un thème — un choix à faire, pas un oubli.
+

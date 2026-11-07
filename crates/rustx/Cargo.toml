@@ -13,12 +13,12 @@ keywords = ["gui", "desktop", "react", "native", "rsx"]
 categories = ["gui", "web-programming"]
 
 [dependencies]
-rustx-dom = { path = "../rustx-dom", version = "0.1.0" }
-rustx-engine = { path = "../rustx-engine", version = "0.1.0" }
-rustx-macros = { package = "rustx-macro", path = "../rustx-macros", version = "0.1.0" }
+rustx-dom = { path = "../rustx-dom", version = "0.2.0" }
+rustx-engine = { path = "../rustx-engine", version = "0.2.0" }
+rustx-macros = { package = "rustx-macro", path = "../rustx-macros", version = "0.2.0" }
 # Ce que le web ne sait pas faire : le presse-papiers, les dialogues, les
 # appareils. Un répertoire par système, à l'intérieur.
-rustx-os = { path = "../rustx-os", version = "0.1.0" }
+rustx-os = { path = "../rustx-os", version = "0.2.0" }
 # Reexporte, pas utilise : une page ecrit `rustx::time::sleep` et ne
 # nomme jamais tokio dans son `Cargo.toml`. C'est le meme runtime que
 # celui de `rustx-engine`, par la meme version du workspace.
@@ -34,7 +34,7 @@ tokio = { version = "1.47", features = ["full"] }
 # Pour lire les exemples du README et les compiler. Un exemple faux dans
 # la documentation est un bug, et le seul moyen de le savoir est de
 # passer le compilateur dessus.
-rustx-compiler = { path = "../rustx-compiler", version = "0.1.0" }
+rustx-compiler = { path = "../rustx-compiler", version = "0.2.0" }
 # Et pour lire ce qu'il en sort. Le transpileur peut emettre du Rust
 # qui ne tient pas -- une accolade de trop, un `else` sans place -- et
 # `rustc` ne peut pas le dire ici, parce que les exemples nomment des

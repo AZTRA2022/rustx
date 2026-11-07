@@ -81,18 +81,37 @@ fn why(path: &Path, error: &std::io::Error) -> String {
 }
 
 fn manifest(name: &str) -> String {
+    let wanted = wanted_version();
     format!(
         "[package]\n\
          name = \"{name}\"\n\
          version = \"0.1.0\"\n\
          edition = \"2024\"\n\n\
          [dependencies]\n\
-         # Le paquet s'appelle `rustx-app` sur crates.io, parce que\n\
-         # `rustx` y est pris. La bibliothèque s'appelle `rustx`, donc\n\
-         # le code et la documentation écrivent `rustx::` comme si de\n\
-         # rien n'était.\n\
-         rustx = {{ package = \"rustx-app\", version = \"0.1\" }}\n"
+         # The package is called `rustx-app` on crates.io, because\n\
+         # `rustx` is taken there. The library is called `rustx`, so the\n\
+         # code and the documentation write `rustx::` as if nothing had\n\
+         # happened.\n\
+         rustx = {{ package = \"rustx-app\", version = \"{wanted}\" }}\n"
     )
+}
+
+/// What a new project asks for: this command line's own minor.
+///
+/// Read from the version of this crate rather than written out, because
+/// a written-out one goes stale in silence. `version = "0.1"` outlived
+/// 0.2.0, and under cargo's rule for 0.x a `0.1` requirement does not
+/// accept 0.2.0 — so `rustx new` kept making projects pinned to the
+/// framework of the version before, and what they got was a refusal
+/// that had been fixed months earlier.
+fn wanted_version() -> String {
+    let full = env!("CARGO_PKG_VERSION");
+    let mut parts = full.split('.');
+    match (parts.next(), parts.next()) {
+        (Some("0"), Some(minor)) => format!("0.{minor}"),
+        (Some(major), _) => major.to_string(),
+        _ => full.to_string(),
+    }
 }
 
 /// The `main.rs` of the design document, and not one line more.

@@ -89,6 +89,12 @@ pub struct Route {
     /// the answer lands. That is correct and it is also a blank screen:
     /// this is what goes there instead.
     pub loading: Option<fn() -> Element>,
+    /// The screen shown when drawing the page fell over — the
+    /// `error.rsx` nearest to it, if any.
+    ///
+    /// It takes what went wrong, because a frontier that says "something
+    /// happened" is a frontier nobody can act on.
+    pub failed: Option<fn(String) -> Element>,
 }
 
 /// The route `path` names, and what its dynamic segments captured.

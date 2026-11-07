@@ -114,14 +114,14 @@ dependencies = [
 
 [[package]]
 name = "capture"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rustx-app",
 ]
 
 [[package]]
 name = "catalogue"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rustx-app",
 ]
@@ -265,7 +265,7 @@ dependencies = [
 
 [[package]]
 name = "counter"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rustx-app",
 ]
@@ -457,7 +457,7 @@ checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
 name = "hybrid"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rustx-app",
 ]
@@ -696,7 +696,7 @@ dependencies = [
 
 [[package]]
 name = "monitor"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rustx-app",
 ]
@@ -916,7 +916,7 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
 name = "rustx-app"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rustx-compiler",
  "rustx-dom",
@@ -929,7 +929,7 @@ dependencies = [
 
 [[package]]
 name = "rustx-cli"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rustx-compiler",
  "rustx-dom",
@@ -937,7 +937,7 @@ dependencies = [
 
 [[package]]
 name = "rustx-compiler"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -946,11 +946,11 @@ dependencies = [
 
 [[package]]
 name = "rustx-dom"
-version = "0.1.1"
+version = "0.2.0"
 
 [[package]]
 name = "rustx-engine"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "cef",
  "rustx-dom",
@@ -960,7 +960,7 @@ dependencies = [
 
 [[package]]
 name = "rustx-lsp"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rustx-compiler",
  "syn 2.0.119",
@@ -968,7 +968,7 @@ dependencies = [
 
 [[package]]
 name = "rustx-macro"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -977,7 +977,7 @@ dependencies = [
 
 [[package]]
 name = "rustx-os"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "windows",
 ]
@@ -1704,7 +1704,7 @@ checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 
 [[package]]
 name = "zoo"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rustx-app",
 ]

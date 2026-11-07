@@ -1447,7 +1447,57 @@ fn names_used(source: &str, name: &str, spans: &[Span]) -> Vec<Span> {
     occurrences(source, name, spans)
         .into_iter()
         .filter(|span| !reaches_into_something_else(source.as_bytes(), span.start))
+        .filter(|span| !bound_by_a_let(source, span.start))
         .collect()
+}
+
+/// Is this occurrence a name a `let` is **binding**, rather than a
+/// name being read?
+///
+/// `let (rang, total) = …` declares a `rang`; it does not read the page
+/// value of that name. Rewritten as a read it gave
+/// `let (rang.get(), total) = …`, which nothing can analyse — found by
+/// a layout that reads the navigation stack into two names.
+///
+/// Decided by looking backwards for the `let` that would own it: a
+/// pattern runs from `let` to the `=` that follows, and nothing else
+/// may be between the two. A `;`, a brace or an `=` first means this
+/// occurrence is somewhere else entirely.
+fn bound_by_a_let(source: &str, at: usize) -> bool {
+    let bytes = source.as_bytes();
+    let mut index = at;
+    while index > 0 {
+        index -= 1;
+        match bytes[index] {
+            // The end of whatever came before: no `let` owns this.
+            b';' | b'{' | b'}' => return false,
+            // `=` before a `let` means we are on the value's side.
+            // `==`, `!=`, `<=`, `>=` are comparisons and not that, and
+            // `=>` is a match arm.
+            b'=' => {
+                let doubled = index > 0
+                    && matches!(bytes[index - 1], b'=' | b'!' | b'<' | b'>')
+                    || bytes.get(index + 1) == Some(&b'=')
+                    || bytes.get(index + 1) == Some(&b'>');
+                if !doubled {
+                    return false;
+                }
+            }
+            b't' => {
+                // `let`, as a word and not the tail of `violet`.
+                if index >= 2 && &source[index - 2..=index] == "let" {
+                    let before = index.checked_sub(3).map(|at| bytes[at]);
+                    let word = before
+                        .is_some_and(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
+                    if !word {
+                        return true;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 /// The byte before, and not the last byte that was not a space: a
@@ -1644,12 +1694,11 @@ fn shift_assign(bytes: &[u8], at: usize) -> bool {
 /// screen never reordered. In the argument of a `keep` or a `task` it
 /// does not: there the last expression is the value being computed.
 fn is_statement(bytes: &[u8], span: Span, handler: Span, tail_discarded: bool) -> bool {
-    let mut before = span.start;
-    while before > handler.start && bytes[before - 1].is_ascii_whitespace() {
-        before -= 1;
-    }
+    let before = back_over_space_and_comments(bytes, span.start, handler.start);
     let opens = before == handler.start
-        || matches!(bytes.get(before - 1), Some(b'{') | Some(b';'))
+        // `}`: the statement before was a block — an `if`, a `for`, a
+        // `match` — and a block needs no semicolon to have ended.
+        || matches!(bytes.get(before - 1), Some(b'{') | Some(b';') | Some(b'}'))
         || opens_a_closure_body(bytes, handler, before);
     if !opens {
         return false;
@@ -1671,6 +1720,71 @@ fn is_statement(bytes: &[u8], span: Span, handler: Span, tail_discarded: bool) -
         index += 1;
     }
     tail_discarded
+}
+
+/// Back from `at` over whitespace and comments, down to `floor`.
+///
+/// What is in front of a method call is what says whether the call is a
+/// statement — a write — or an expression feeding something else — a
+/// read. Walking back over spaces alone made a **comment** the thing in
+/// front: `rows.push(row)` under a line explaining it was read as a
+/// read, emitted as `rows.get().push(row)`, and pushed into a copy that
+/// was thrown away. Nothing failed to compile and the screen never
+/// changed.
+///
+/// A comment is not a token. This steps over the three forms a comment
+/// takes, as many times as they are stacked.
+fn back_over_space_and_comments(bytes: &[u8], at: usize, floor: usize) -> usize {
+    let mut at = at;
+    loop {
+        while at > floor && bytes[at - 1].is_ascii_whitespace() {
+            at -= 1;
+        }
+        // `/* … */`, however many lines it spans.
+        if at >= floor + 2 && &bytes[at - 2..at] == b"*/" {
+            let mut index = at - 2;
+            while index > floor + 1 {
+                if &bytes[index - 2..index] == b"/*" {
+                    at = index - 2;
+                    break;
+                }
+                index -= 1;
+            }
+            if index <= floor + 1 {
+                return floor;
+            }
+            continue;
+        }
+        // `// …` to the end of its line, wherever on the line it began.
+        match line_comment_before(bytes, at, floor) {
+            Some(begins) => at = begins,
+            None => return at,
+        }
+    }
+}
+
+/// Where the line comment that ends at `at` began, if there is one.
+///
+/// Only a `//` that is not inside a string: `let url = "https://…";` is
+/// a statement and not a comment, and reading it as one would hide the
+/// write on the line after it — the very thing this exists to stop.
+fn line_comment_before(bytes: &[u8], at: usize, floor: usize) -> Option<usize> {
+    let mut start = at;
+    while start > floor && bytes[start - 1] != b'\n' {
+        start -= 1;
+    }
+    let mut index = start;
+    let mut in_string = false;
+    while index + 1 < at {
+        match bytes[index] {
+            b'\\' if in_string => index += 1,
+            b'"' => in_string = !in_string,
+            b'/' if !in_string && bytes[index + 1] == b'/' => return Some(index),
+            _ => {}
+        }
+        index += 1;
+    }
+    None
 }
 
 /// Is `at` the first thing in the body of the closure the handler is?

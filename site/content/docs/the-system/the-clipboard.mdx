@@ -1,0 +1,107 @@
+---
+title: "The clipboard"
+description: "Text, image, and a format that a project invents for its own objects."
+---
+
+A page can read the clipboard only after a `Ctrl+V`, and nothing
+else — this is a decision of the web, not a technical limit. Copying a
+selection when a button is pressed, pasting on a shortcut, or
+moving a project's objects between two of its own windows is
+work for this layer.
+
+```rust
+use rustx::clipboard;
+
+clipboard::set_text("copied from Rust")?;
+let pasted = clipboard::text()?;              // Result<String, OsError>
+```
+
+`text()` returns an empty string when the clipboard holds no text: there is nothing to tell apart between "empty" and "an image", for whoever asks for text.
+
+## From a button
+
+```rust
+let mut said = String::new();
+
+fn Copy(what: String) -> Element {
+    return <button onClick={move |_| {
+        said = match clipboard::set_text(what.clone()) {
+            Ok(()) => "copied".to_string(),
+            Err(why) => why.to_string(),
+        };
+    }}>{if said.is_empty() { "copy" } else { said.clone() }}</button>;
+}
+```
+
+## An image
+
+Four bytes per pixel, blue first, rows from top to bottom —
+this is how the clipboard and the screen keep one.
+
+```rust
+pub struct Image {
+    pub width: u32,
+    pub height: u32,
+    pub bgra: Vec<u8>,
+}
+
+let shot = clipboard::image()?;
+println!("{}×{}", shot.width, shot.height);
+
+clipboard::set_image(&shot)?;
+```
+
+## A format of its own
+
+For the objects of a project, between two of its windows or between two of its launches:
+
+```rust
+let bytes = serde_json::to_vec(&selection)?;
+clipboard::set_custom("my-app/nodes", &bytes)?;
+
+if let Ok(bytes) = clipboard::custom("my-app/nodes") {
+    let selection: Selection = serde_json::from_slice(&bytes)?;
+}
+```
+
+The name is registered with the system on first use. Another application that does not know it sees nothing, which is the point: an internal copy and paste does not pollute the clipboards of other programs.
+
+## One at a time, and briefly
+
+The clipboard is **one** object for the whole machine, opened by one program at a time. Every function here opens it, does one thing, and closes it again: holding it open while a developer writes would freeze the copy and paste of every other program.
+
+And because someone else may be holding it at the moment it is asked for — a password manager, an editor, the shell — opening it is **retried for 200 ms** before refusing.
+
+```rust
+clipboard::PATIENCE   // 200 ms
+clipboard::BETWEEN    // 10 ms between two attempts
+```
+
+A refusal after that is final: the other program does not let go, and retrying within the second will change nothing.
+
+## Pasting on a shortcut
+
+This is what combining the two gives, and it is the example that justifies the layer:
+
+```rust
+let mut lines = Vec::<String>::new();
+
+fn Paste() -> Element {
+    // The token lives in a cell: it listens as long as this screen is there.
+    let hotkey = keep(shortcut::Shortcut::listen("Ctrl+Shift+V"));
+
+    if let Ok(hotkey) = hotkey.as_ref() {
+        if hotkey.pressed() > 0 {
+            if let Ok(text) = clipboard::text() {
+                lines.push(text);
+            }
+        }
+    }
+
+    return <ul>{lines.len()} pasted</ul>;
+}
+```
+
+`pressed()` is read during the render and returns **how many times** since the
+last read, which is what a screen drawn sixty times a second can query without missing anything. See
+[global shortcuts](/docs/the-system/global-shortcuts).

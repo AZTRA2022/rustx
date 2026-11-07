@@ -123,6 +123,28 @@ fn Page() -> Element {
 Tout ce qui sait devenir un `Element` ou du texte peut aller là :
 nombres, chaînes, booléens, `Option`, `Vec<Element>`.
 
+Un `.rsx` est du Rust, et un commentaire s'y écrit comme en Rust —
+y compris **dans** les balises :
+
+```rust
+return <div>
+    // Ce qui suit est la barre de titre, et ceci ne sera pas affiché.
+    <header
+        // Un commentaire entre deux attributs est un commentaire aussi.
+        className="flex gap-2"
+    >
+        {/* Et la forme de JSX, pour qui vient de là. */}
+        <b>ok</b>
+    </header>
+    /* Sur plusieurs lignes, également. */
+</div>;
+```
+
+Un `//` est un commentaire quand il **commence** une ligne : `voir
+https://exemple.fr` reste une phrase, adresse comprise. Ce qui entoure
+un commentaire reste du texte, et ce qui est dedans n'arrive jamais à
+l'écran.
+
 ### Les attributs
 
 Les balises prennent **les props de HTML et de JSX**, et le compilateur
@@ -145,6 +167,30 @@ return <button
 - un attribut booléen prend une expression (`disabled={true}`) ;
 - un gestionnaire prend une fermeture : `onClick={move |_| …}`,
   `onInput={move |event| …}`.
+
+Ce que l'événement porte — une liste courte et fixe, parce qu'un nœud du
+DOM ne traverse pas :
+
+| | |
+|---|---|
+| `event.kind` | `click`, `input`, `keydown` : le nom du DOM |
+| `event.value` | `target.value` : ce qui est dans le champ, en texte |
+| `event.number()` | le même, en nombre, quand c'en est un |
+| `event.id` | `target.id`, pour qu'un gestionnaire serve plusieurs éléments |
+| `event.key` | `a`, `Enter`, `Escape`, `ArrowUp` |
+| `event.checked` | pour une case à cocher |
+| `event.shift` `event.control` `event.alt` `event.meta` | les modificateurs |
+
+```rust
+let mut terme = String::new();
+
+fn Chercher() -> Element {
+    return <div>
+        <input value={terme.clone()} onInput={move |event| terme = event.value} />
+        <input onKeyDown={move |event| if event.key == "Enter" { lancer(&terme) }} />
+    </div>;
+}
+```
 
 Le `style` s'écrit en objet, comme en JSX, avec les clés en
 `camelCase` :
@@ -295,25 +341,98 @@ l'arrête, sans un seul nettoyage écrit à la main.
 Les routes sont le dossier `app/` :
 
 ```text
-app/page.rsx                 →  /
-app/reglages/page.rsx        →  /reglages
-app/device/[id]/page.rsx     →  /device/<quelque chose>
-app/layout.rsx               →  un cadre autour de ce qui est en dessous
+app/page.rsx                      →  /
+app/reglages/page.rsx             →  /reglages
+app/device/[id]/page.rsx          →  /device/<quelque chose>
+app/fichiers/[...chemin]/page.rsx →  /fichiers/<tout le reste>
+app/aide/[[...chemin]]/page.rsx   →  /aide, et /aide/<tout le reste>
+app/(boutique)/panier/page.rsx    →  /panier  (le groupe n'est pas dans l'URL)
+app/layout.rsx                    →  un cadre autour de ce qui est en dessous
+app/depots/loading.rsx            →  ce qu'on montre tant que la page n'a rien
+app/depots/error.rsx              →  ce qu'on montre si la page tombe
 ```
+
+Un segment entre crochets arrive en argument du composant, dans l'ordre
+où il est écrit. Quand plusieurs routes décrivent le même chemin, le
+plus précis gagne : un segment statique bat un segment nommé, qui bat un
+attrape-tout.
 
 ```rust
 // aller ailleurs
 rustx::router::navigate("/reglages");
 
-// revenir
-rustx::router::back();        // false s'il n'y a pas d'avant
+// y aller *à la place* de l'écran courant : revenir ne ramènera pas ici
+rustx::router::replace("/merci");
+
+// revenir, et repartir en avant
+rustx::router::back();            // false s'il n'y a pas d'avant
+rustx::router::forward();         // false si on n'est pas revenu
+
+// ce qu'un bouton demande avant de se dessiner gris
+rustx::router::can_go_back();
+rustx::router::can_go_forward();
 
 // où on est
-let ici = rustx::router::current();
+let ici = rustx::router::current();        // avec la query string
+let route = rustx::router::route();        // le chemin seul
+let (visites, rang) = rustx::router::history();
+
+// ce que la query string dit
+let terme = rustx::router::query("q");     // "" si personne ne l'a écrit
+rustx::router::has_query("brut");          // `?brut` ne dit rien et est là
+// l'URL d'à côté, sans encoder quoi que ce soit à la main
+rustx::router::navigate(rustx::router::with_query("tri", Some("étoiles")));
 ```
+
+L'historique est une liste et un doigt dessus : revenir déplace le
+doigt et garde ce qui est devant, aller ailleurs efface ce futur-là.
+C'est la règle d'un navigateur.
+
+Une page peut aussi lire ses paramètres sans les déclarer, et un
+**layout** prend ceux de son propre dossier :
+
+```rust
+// app/depots/[proprietaire]/layout.rsx
+fn Layout(children: Element, proprietaire: String) -> Element {
+    return <section><h1>{proprietaire}</h1>{children}</section>;
+}
+```
+
+Il ne peut demander que les segments de son dossier à lui : les écrans
+en dessous peuvent en avoir plus, et il est le cadre de tous. Un layout
+qui demande autre chose est refusé en disant pourquoi.
 
 Un layout qui entoure encore le nouvel écran garde ses cellules ; l'écran
 qu'on quitte est libéré, et les fils qu'il tenait s'arrêtent.
+
+### Attendre, et tomber
+
+Une page qui attend un `.await` ne dessine rien jusqu'à la réponse — ce
+qui est juste, et est aussi un écran blanc. Le `loading.rsx` le plus
+proche va là, **dans les mêmes layouts** : la barre du haut reste, et
+seul le milieu dit « un instant ».
+
+```rust
+// app/depots/loading.rsx
+fn Loading() -> Element {
+    return <p className="animate-pulse">un instant…</p>;
+}
+```
+
+Et si la page tombe — un `unwrap` sur rien, un index hors liste — le
+`error.rsx` le plus proche prend sa place, avec ce que la panique a dit,
+au lieu que la fenêtre s'en aille :
+
+```rust
+// app/depots/error.rsx
+fn Error(pourquoi: String) -> Element {
+    return <p>ça n'a pas marché : {pourquoi}</p>;
+}
+```
+
+Sans `error.rsx` au-dessus d'elle, une page qui tombe se comporte comme
+avant : rien n'est attrapé, parce qu'attraper partout transformerait un
+bogue en écran que personne n'a demandé.
 
 `Config` dit par où ça commence et ce qu'on montre pour une route que
 personne n'a déclarée :
@@ -506,6 +625,39 @@ nomme une bibliothèque ni une version », parce qu'un programme que la
 construction *exécute* a une ligne de commande, et qu'une ligne de
 commande a une version.
 
+#### Un thème : les jetons ne suffisent pas
+
+Une feuille de style qui déclare `--background` et `--foreground` ne
+donne **pas** `bg-background` ni `text-foreground` : une variable CSS
+n'est pas une utilitaire Tailwind. Sans le pont, les classes sont des
+mots dans des attributs, la fenêtre est blanche, et rien ne se plaint.
+Ce pont est `@theme inline`, dans `assets/tailwind.css` :
+
+```css
+@import "tailwindcss";
+@custom-variant dark (&:is(.dark *));   /* si le thème est une classe */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --radius-lg: var(--radius);
+  /* La police d'une application de bureau est celle du système :
+     elle est déjà installée, et c'est celle qu'on reconnaît. */
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", ui-sans-serif, system-ui;
+}
+
+@layer base {
+  html, body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+  }
+}
+```
+
+`npx shadcn@latest init` écrit ce bloc ; une feuille copiée à la main
+l'oublie, et c'est ce qui se voit en premier.
+
 ### Dans l'autre sens : un composant rustx dans du React
 
 ```rust
@@ -555,6 +707,8 @@ donne :
 | `window::maximize()` | agrandir à toute la place du bureau |
 | `window::restore()` | revenir à sa taille |
 | `window::fullscreen()` | tout l'écran, celui où la fenêtre se trouve |
+| `window::toggle_maximize()` | agrandir, ou rendre sa taille si elle l'est déjà |
+| `window::toggle_fullscreen()` | prendre tout l'écran, ou en revenir |
 | `window::on_top(true)` | la garder devant les autres |
 | `window::frameless()` / `window::framed()` | enlever ou remettre le cadre, en cours de route |
 | `window::shut()` | la fermer |
@@ -575,6 +729,22 @@ Une barre de titre à soi, en entier :
 La poignée est posée sur un espace vide et non sur toute la barre :
 un événement rustx ne dit pas encore sur quoi on a appuyé, donc une
 barre entière traînable avalerait les clics de ses propres boutons.
+
+Le bouton « agrandir » d'une barre à soi **bascule** : c'est
+`toggle_maximize()` et non `maximize()`. Dire « agrandis-toi » à une
+fenêtre déjà agrandie ne fait rien, et un bouton qui n'agit qu'une fois
+est ce qu'on obtient avec l'autre. La bascule interroge le système
+avant d'agir, dans le processus qui tient la poignée — la page n'a rien
+à retenir. `toggle_fullscreen()` de même, et sortir du plein écran rend
+à la fenêtre **la place qu'elle avait**, parce que le plein écran est
+une taille qu'on a posée et que personne d'autre ne s'en souvient.
+
+Et ce que la fenêtre sans cadre rend aussi : **le haut**. Enlever la
+barre de titre laisse une bande de quelques pixels que le système peint
+lui-même, et qui se voit comme un trait clair au-dessus de ce que la
+page a dessiné. `frameless()` la reprend, de sorte que le contenu
+commence au bord ; les bords de gauche, de droite et du bas restent ceux
+du système, car ce sont eux qu'on attrape pour retailler.
 
 Une deuxième fenêtre se demande sans cadre de la même façon :
 `What::new("outil").frameless()`.
@@ -782,6 +952,14 @@ posée qu'une fois, le type écrit est gardé, et le reste de la page est
 dessiné pendant ce temps — l'attente appartient au composant qui l'a
 écrite.
 
+Ce que la question **emprunte** doit lui survivre. `api::depot(&nom,
+&proprietaire).await` dans un composant ne compile pas : la future part
+sur le runtime, et un emprunt d'un local du fil qui dessine ne la suit
+pas. C'est du Rust ordinaire, pas une règle du framework, et la sortie
+est de prendre les arguments en propre — `depot(nom.clone(),
+proprietaire.clone())`. Le message, lui, vient de `rustc` et désigne une
+colonne d'un fichier engendré : c'est le défaut connu de ce coin-là.
+
 Ce qui suit le `.await` part avec la future, parce que la réponse
 n'existe que là-bas : `.unwrap_or_default()`, `.ok()`, un autre `.await`
 y sont à leur place. Un `.await` enterré dans un argument —
@@ -812,24 +990,40 @@ Les conséquences se lisent, et ce sont les mêmes que pour un fil :
   un `let mut` écrit depuis un gestionnaire. La règle de promotion ne
   change pas.
 
-**Une lecture dans le bloc est refusée**, et c'est dit en toutes lettres :
-la valeur vit sur le thread qui dessine, et le bloc tourne à côté. Ce
-qu'il faut lire se lit **avant** le bloc, et la copie y entre :
+**Une valeur de la page se lit dans le bloc, là où elle est.** Pas de
+copie prise au premier tour : une boucle qui surveille un filtre voit
+celui que l'utilisateur vient de taper, et un bouton « pause » agit
+vraiment sur la boucle.
 
 ```rust
 let mut resultats = Vec::<String>::new();
 let mut filtre = String::new();
 
 fn Recharger() -> Element {
-    let maintenant = filtre.clone();
-
     async move {
-        resultats = chercher(&maintenant).await;
+        let mut dernier = String::new();
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            if filtre == dernier {
+                continue;
+            }
+            dernier = filtre.clone();
+            resultats = chercher(&dernier).await;
+        }
     };
 
     return <p>{resultats.len()} trouvés</p>;
 }
 ```
+
+Deux choses restent refusées, et le refus dit où déclarer la valeur :
+
+- **une cellule de composant** — un `let mut` écrit *dans* le composant —
+  appartient à l'instance qui dessine, et le bloc tourne à côté. Ce
+  qu'il faut lire se lit avant le bloc, et la copie y entre ;
+- **une lecture après un `.await`** dans un `let … .await` de composant :
+  ce qui suit le `.await` part avec la future, où il n'y a pas de cellule
+  à lire.
 
 #### Quitter l'écran arrête le travail
 

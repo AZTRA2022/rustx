@@ -174,3 +174,36 @@ fn a_new_project_names_one_dependency_and_one_only() {
     assert_eq!(dependencies.len(), 1, "got {dependencies:?}");
     assert!(dependencies[0].starts_with("rustx ="), "got {dependencies:?}");
 }
+
+/// What a new project asks of the framework must be a version that
+/// exists.
+///
+/// `rustx = { package = "rustx-app", version = "0.1" }` was written out
+/// by hand, and it outlived 0.2.0. Under cargo's rule for 0.x a `0.1`
+/// requirement does not accept 0.2.0, so every project made by
+/// `rustx new` silently got the framework of the version before —
+/// including its refusals, fixed months earlier. The requirement is
+/// read from this crate's own version now, and this law is what keeps
+/// the two from drifting again.
+#[test]
+fn a_new_project_asks_for_the_version_this_command_line_belongs_to() {
+    let into = somewhere();
+    new::write("my-app", &into).expect("a project");
+
+    let manifest = fs::read_to_string(into.join("my-app").join("Cargo.toml"))
+        .or_else(|_| fs::read_to_string(into.join("Cargo.toml")))
+        .expect("the manifest it wrote");
+
+    let mine = env!("CARGO_PKG_VERSION");
+    let mut parts = mine.split('.');
+    let wanted = match (parts.next(), parts.next()) {
+        (Some("0"), Some(minor)) => format!("0.{minor}"),
+        (Some(major), _) => major.to_string(),
+        _ => mine.to_string(),
+    };
+
+    assert!(
+        manifest.contains(&format!("version = \"{wanted}\"")),
+        "a project made by rustx {mine} asks for something else:\n{manifest}"
+    );
+}

@@ -88,6 +88,13 @@ pub fn read(project: &Path) -> Result<Project, String> {
 pub fn run(release: bool, project: &Path) -> Result<PathBuf, String> {
     let read = read(project)?;
 
+    // A build that cannot win, said before it is started: cargo's own
+    // message for this is an access error inside a build script, and it
+    // names neither the file nor the window that is holding it.
+    if let Some(file) = held(project, release) {
+        return Err(says_it_is_held(&file));
+    }
+
     let mut cargo = Command::new("cargo");
     cargo.arg("build").current_dir(project);
     if release {
@@ -135,6 +142,97 @@ pub fn run(release: bool, project: &Path) -> Result<PathBuf, String> {
 /// project that is a member of one. Looked for rather than worked out,
 /// because which of the two it is depends on a manifest further up than
 /// this reads.
+/// Where this project builds.
+///
+/// `target/` beside the manifest, unless the project said otherwise:
+/// `[build] target-dir` in `.cargo/config.toml` is how two projects
+/// share one build directory, and a project that shares one must be
+/// looked at where it really builds.
+pub fn target_directory(project: &Path) -> PathBuf {
+    for name in [".cargo/config.toml", ".cargo/config"] {
+        let Ok(text) = std::fs::read_to_string(project.join(name)) else {
+            continue;
+        };
+        if let Some(named) = configured(&text) {
+            let named = PathBuf::from(named.replace('\\', "/"));
+            return if named.is_absolute() {
+                named
+            } else {
+                project.join(named)
+            };
+        }
+    }
+    project.join("target")
+}
+
+/// `target-dir = "…"` under `[build]`, the value, unquoted.
+fn configured(text: &str) -> Option<String> {
+    let mut inside = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            inside = trimmed == "[build]";
+            continue;
+        }
+        if !inside {
+            continue;
+        }
+        let Some((named, value)) = trimmed.split_once('=') else {
+            continue;
+        };
+        if named.trim() != "target-dir" {
+            continue;
+        }
+        return Some(value.trim().trim_matches('"').to_string());
+    }
+    None
+}
+
+/// The runtime file a program still running holds, if there is one.
+///
+/// CEF's build script puts `libcef.dll` and its neighbours next to the
+/// binary by deleting what is there and copying again. A window still
+/// open from an earlier run has that library loaded, so Windows refuses
+/// the delete, and cargo reports `Access is denied. (os error 5)` from
+/// a build script — which names neither the file nor the window.
+///
+/// Asked **before** cargo is started, because the answer is a sentence
+/// and not a failure: there is nothing to try.
+pub fn held(project: &Path, release: bool) -> Option<PathBuf> {
+    let profile = if release { "release" } else { "debug" };
+    let out = target_directory(project).join(profile);
+    // The library is the one that matters: it is the big one, it is
+    // always loaded, and the others go the same way when it does.
+    for name in ["libcef.dll", "chrome_elf.dll", "libEGL.dll"] {
+        let candidate = out.join(name);
+        if !candidate.is_file() {
+            continue;
+        }
+        if std::fs::OpenOptions::new()
+            .write(true)
+            .open(&candidate)
+            .is_err()
+        {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// What to say about a file a running program holds.
+pub fn says_it_is_held(file: &Path) -> String {
+    format!(
+        "{} is held by a program that is still running — a window from an \
+         earlier run of this application, or a `rustx dev` that was never \
+         closed. CEF's build replaces that file on every build, and Windows \
+         refuses while it is loaded, so the next build would fail on \
+         `Access is denied. (os error 5)` in a build script. Close the \
+         window. If there is none on screen, the process is still there: \
+         `taskkill /im <the application>.exe /f`.",
+        file.display()
+    )
+}
+
 fn produced(binary: &str, release: bool, project: &Path) -> Option<PathBuf> {
     let file = format!("{binary}{}", std::env::consts::EXE_SUFFIX);
     let profile = if release { "release" } else { "debug" };

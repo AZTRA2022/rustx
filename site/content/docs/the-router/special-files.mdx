@@ -1,0 +1,75 @@
+---
+title: "Special files"
+description: "Every file name and folder syntax the router reads, in one table, and the Next.js conventions it does not."
+---
+
+The other pages of this section explain each rule. This one is the lookup.
+
+## Files
+
+A file is special by its **name**, in any folder under `app/`. Each one declares
+a component of a fixed name.
+
+| file | component | takes | does |
+|---|---|---|---|
+| `page.rsx` | `Page` | the dynamic segments of its path, in order | the screen of the route |
+| `layout.rsx` | `Layout` | `children: Element`, then the dynamic segments of **its own** folder | a frame around the route and everything below |
+| `loading.rsx` | `Loading` | nothing | shown while the page has drawn nothing yet |
+| `error.rsx` | `Error` | `why: String` | shown if the page panics |
+
+Any other `.rsx` is an ordinary file of components. A page reaches it through
+`crate::`.
+
+A `layout.rsx` that does not take `children` first, or that asks for a segment
+its folder does not have, is a compile error that names the file.
+
+For `loading.rsx` and `error.rsx`, the **nearest** one above a page wins. A layout
+nests: outermost first, so the layout of `app/` wraps the one of `app/repos/`.
+
+## Folders
+
+| folder | in the URL | takes |
+|---|---|---|
+| `settings` | `/settings` | nothing |
+| `[id]` | one segment | `id: String` |
+| `[...path]` | everything left, at least one segment | `path: String`, with slashes |
+| `[[...path]]` | everything left, or nothing | `path: String`, empty for the bare path |
+| `(shop)` | nothing. A group | nothing |
+
+A static segment beats a named one, which beats a catch-all. A parameter arrives
+decoded. See [parameters](/docs/the-router/parameters) and
+[routes from folders](/docs/the-router/routes-from-folders).
+
+## Outside the folders
+
+| | |
+|---|---|
+| `Config::start(path)` | the route the window opens on. `/` by default |
+| `Config::not_found(Component)` | the screen for a path nobody declared. There is no `not-found.rsx`. See [the not-found screen](/docs/the-router/the-not-found-screen) |
+| `Config::host(id)` | the element the screens are mounted in. `app` by default |
+
+## Next.js conventions rustx does not have
+
+| Next.js | here |
+|---|---|
+| `route.js`, `middleware`, `proxy` | none. There are no requests. See [the Rust bridge](/docs/javascript-libraries/rust-bridge) |
+| `template.js` | none. A layout keeps its state across navigation |
+| `default.js` | none |
+| `not-found.js`, `forbidden.js`, `unauthorized.js` | `Config::not_found` for the first. No equivalent for the others |
+| `global-error.js` | none. An `app/error.rsx` covers every page below it |
+| `loading.js`, `error.js` | `loading.rsx` and `error.rsx` |
+| parallel routes, `@slot` | not supported. The folder is read as a plain segment named `@slot` |
+| intercepting routes, `(.)x` | not supported, likewise |
+| private folders, `_folder` | no special rule. A `page.rsx` inside one is a route |
+| `src/` | not applicable. The pages are in `app/` at the project root |
+| `generateStaticParams`, `metadata` | not applicable. The window's title does not change per route. See [the window](/docs/the-window) |
+
+The right column says "none" or "not supported" only where the router has no code
+for the name. Nothing warns you if you create such a folder: it becomes a path
+segment.
+
+## From `main.rs`
+
+`#[rustx::main]` reads the folder once, when the crate is compiled, and writes
+the route table. A new file is picked up by the next build, which `rustx dev` does
+when you save. See [the commands](/docs/tooling/the-commands).

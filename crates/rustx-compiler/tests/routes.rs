@@ -447,3 +447,50 @@ fn a_page_with_no_loading_file_above_it_has_none() {
     let generated = table(&[("page.rsx", PAGE)]);
     assert!(generated.contains("loading: None"), "{generated}");
 }
+
+// ──────────────────── La frontière d'erreur d'un segment ────────────────────
+
+const ERREUR: &str =
+    "fn Error(pourquoi: String) -> Element {\n    return <p>{pourquoi}</p>;\n}\n";
+
+#[test]
+fn an_error_file_becomes_the_screen_shown_when_a_page_falls_over() {
+    let generated = table(&[("depots/error.rsx", ERREUR), ("depots/page.rsx", PAGE)]);
+    assert!(
+        generated.contains("failed: Some(error_0)"),
+        "la route doit porter sa frontière d'erreur : {generated}"
+    );
+}
+
+#[test]
+fn the_nearest_error_file_is_the_one_a_page_gets() {
+    let generated = table(&[
+        ("error.rsx", ERREUR),
+        ("depots/error.rsx", ERREUR),
+        ("depots/page.rsx", PAGE),
+    ]);
+    assert!(
+        generated.contains("failed: Some(error_1)"),
+        "le plus proche doit gagner : {generated}"
+    );
+}
+
+#[test]
+fn a_page_with_no_error_file_above_it_has_none() {
+    let generated = table(&[("page.rsx", PAGE)]);
+    assert!(generated.contains("failed: None"), "{generated}");
+}
+
+#[test]
+fn an_error_screen_that_does_not_take_the_reason_is_refused() {
+    let error = table_for(Path::new(&tree(&[
+        ("error.rsx", "fn Error() -> Element {\n    return <p>raté</p>;\n}\n"),
+        ("page.rsx", PAGE),
+    ])))
+    .expect_err("this cannot be generated");
+    assert!(
+        error.message.contains("pourquoi") || error.message.contains("reason"),
+        "le refus doit dire ce qui manque : {}",
+        error.message
+    );
+}

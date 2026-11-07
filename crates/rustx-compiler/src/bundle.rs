@@ -615,7 +615,7 @@ pub fn build(app: &Path) -> Result<Built, String> {
         std::fs::create_dir_all(assets)
             .map_err(|error| format!("rustx could not write {}: {error}", assets.display()))?;
     }
-    std::fs::copy(&bundle, &beside)
+    crate::build::copy_if_changed(&bundle, &beside)
         .map_err(|error| format!("rustx could not write {}: {error}", beside.display()))?;
 
     Ok(Built {
@@ -676,8 +676,14 @@ fn styles(app: &Path) -> Result<Option<PathBuf>, String> {
     };
 
     let stylesheet = out.join("tailwind.css");
+    // Tailwind writes where it is told, and it writes every time. The
+    // sheet is `include_str!`d by the attribute, so a new date on it is
+    // a crate cargo believes out of date — and a project that rebuilds
+    // for ever. So Tailwind writes beside it, and the sheet itself is
+    // touched only when the bytes differ.
+    let fresh = out.join("tailwind.next.css");
     let finished = std::process::Command::new(&tailwind)
-        .args(arguments_for(dialect, &input, &stylesheet))
+        .args(arguments_for(dialect, &input, &fresh))
         .current_dir(app)
         .output()
         .map_err(|error| format!("rustx could not run {}: {error}", tailwind.display()))?;
@@ -688,6 +694,8 @@ fn styles(app: &Path) -> Result<Option<PathBuf>, String> {
             String::from_utf8_lossy(&finished.stderr).trim()
         ));
     }
+    crate::build::copy_if_changed(&fresh, &stylesheet)
+        .map_err(|error| format!("rustx could not write {}: {error}", stylesheet.display()))?;
     Ok(Some(stylesheet))
 }
 

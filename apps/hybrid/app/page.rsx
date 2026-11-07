@@ -9,6 +9,12 @@
 // file.
 
 let mut points = 0;
+// Ce que l'on tape dans un champ ordinaire ecrit a l'interieur d'une
+// carte shadcn : la balise est montee par React, et son evenement
+// revient par le chemin des props. Il doit etre le meme evenement que
+// sur une balise que le moteur monte -- c'est ce que cette page prouve
+// en compilant.
+let mut titre = String::new();
 
 
 fn Page() -> Element {
@@ -54,6 +60,19 @@ fn Page() -> Element {
                                 ajouter un point
                             </Button>
                             <span className="text-sm text-zinc-500">{points} déjà posés</span>
+                        </div>
+
+                        <div className="mt-4 flex items-center gap-3">
+                            // Une balise du DOM dans un sous-arbre React, avec son
+                            // evenement : `event.value` est ce qu'on a tape.
+                            <input
+                                id="titre"
+                                className="h-9 rounded-md border border-zinc-800 bg-transparent px-3 text-sm"
+                                placeholder="un titre"
+                                value={titre.clone()}
+                                onInput={move |event| titre = event.value}
+                            />
+                            <span id="titre-lu" className="text-sm text-zinc-500">{titre.clone()}</span>
                         </div>
                     </CardContent>
                 </Card>

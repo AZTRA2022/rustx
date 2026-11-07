@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+Released with rustx 0.2.0. The extension itself is unchanged; the
+version follows the framework so that a reader can tell which server
+it was built against.
+
 ## 0.1.3
 
 - **Format Document** on a `.rsx`. It reindents and nothing else: no

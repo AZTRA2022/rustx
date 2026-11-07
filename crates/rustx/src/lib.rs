@@ -62,6 +62,15 @@ pub use rustx_dom::{
 pub use rustx_os::{autostart, clipboard, devices, dialog, instance, notify, shortcut, tray};
 pub use rustx_os::OsError;
 
+/// La couche qui parle au systeme, en entier.
+///
+/// Les modules ci-dessus sont la pour qu'une page ecrive
+/// `rustx::clipboard::text()` sans rien importer. `rustx::os` est pour
+/// le reste : `os::window`, qui tient la poignee de la fenetre et ne
+/// peut pas s'appeler `rustx::window` — ce nom est celui que la **page**
+/// commande, et deux choses ne peuvent pas porter le meme nom.
+pub use rustx_os as os;
+
 pub use rustx_engine::{
     Document, DomError, NativeError, Node, PostError, Poster, foreign, mount, mount_at_id,
     dropped, on_context_created, on_frame, poster, register_native, render, router, task, window,

@@ -115,7 +115,8 @@ impl App {
         );
         if initialized != 1 {
             return Err(EngineError::EngineInit(format!(
-                "cef::initialize returned {initialized}"
+                "cef::initialize returned {initialized}.{}",
+                elevation_note()
             )));
         }
 
@@ -123,6 +124,82 @@ impl App {
         cef::shutdown();
         Ok(())
     }
+}
+
+/// Ce qu'il faut dire quand l'application tourne en administrateur.
+///
+/// Chromium 156 **se dés-élève** : lancé avec les droits
+/// d'administrateur, il se relance sans eux et quitte — et cette sortie
+/// arrive avant que quoi que ce soit du nôtre tourne, avant même le
+/// journal. Tout ce que l'application voyait était
+/// « `cef::initialize returned 0` », avec en dessous un
+/// `ContentMainInitialize failed with exit code 38` que personne ne peut
+/// rattacher à une cause. Une demi-journée de débogage sur une fenêtre
+/// qui marchait très bien la veille, dans un terminal ordinaire.
+///
+/// On ne peut pas y remédier à la place de l'utilisateur : le
+/// commutateur se lit sur la vraie ligne de commande du processus, que
+/// Chromium prend du système et non de nous. Ce qu'on peut faire, c'est
+/// le dire.
+fn elevation_note() -> String {
+    if !elevated() {
+        return String::new();
+    }
+    " Cette application tourne avec les droits d'administrateur, et Chromium 156      refuse : il se dés-élève lui-même et quitte (« ContentMainInitialize failed with      exit code 38 »), avant que le moteur ait la main. Lancez-la sans ces droits, ou      passez-lui `--do-not-de-elevate` sur sa ligne de commande."
+        .to_string()
+}
+
+/// Ce processus a-t-il les droits d'administrateur ?
+///
+/// Lu du jeton du processus, qui est la seule reponse vraie : le nom de
+/// l'utilisateur ne dit rien, et un administrateur qui lance une
+/// application normalement n'est pas eleve pour autant.
+#[cfg(windows)]
+fn elevated() -> bool {
+    use std::ffi::c_void;
+
+    const TOKEN_QUERY: u32 = 0x0008;
+    const TOKEN_ELEVATION: u32 = 20;
+
+    unsafe extern "system" {
+        fn GetCurrentProcess() -> *mut c_void;
+        fn OpenProcessToken(process: *mut c_void, access: u32, token: *mut *mut c_void) -> i32;
+        fn GetTokenInformation(
+            token: *mut c_void,
+            class: u32,
+            information: *mut c_void,
+            length: u32,
+            returned: *mut u32,
+        ) -> i32;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+    }
+
+    let mut token: *mut c_void = std::ptr::null_mut();
+    // SAFETY: le jeton de ce processus-ci, demande en lecture seule.
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+        return false;
+    }
+    let mut elevation: u32 = 0;
+    let mut returned: u32 = 0;
+    // SAFETY: un jeton valide, et un `u32` de cette pile de la taille
+    // que `TOKEN_ELEVATION` demande.
+    let read = unsafe {
+        GetTokenInformation(
+            token,
+            TOKEN_ELEVATION,
+            (&mut elevation as *mut u32).cast(),
+            std::mem::size_of::<u32>() as u32,
+            &mut returned,
+        )
+    };
+    // SAFETY: le jeton qu'on vient d'ouvrir, ferme une seule fois.
+    unsafe { CloseHandle(token) };
+    read != 0 && elevation != 0
+}
+
+#[cfg(not(windows))]
+fn elevated() -> bool {
+    false
 }
 
 /// A filesystem-safe lowercase form of an application name.

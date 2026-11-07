@@ -169,6 +169,26 @@ impl Node {
         Ok(())
     }
 
+    /// This element's tag, as the DOM spells it: `INPUT`, `DIV`.
+    pub fn tag_name(&self) -> Result<String, DomError> {
+        match self.get_property("tagName")? {
+            Some(Value::String(tag)) => Ok(tag),
+            // A text node has none, which is an answer and not a
+            // failure.
+            _ => Ok(String::new()),
+        }
+    }
+
+    /// Set a property that holds text — `value` on a field.
+    pub fn set_text_property(&self, name: &str, text: &str) -> Result<(), DomError> {
+        self.set_property(name, Value::String(text.to_string()))
+    }
+
+    /// Set a property that holds yes or no — `checked` on a box.
+    pub fn set_flag_property(&self, name: &str, whether: bool) -> Result<(), DomError> {
+        self.set_property(name, Value::Bool(whether))
+    }
+
     pub fn append_child(&self, child: &Node) -> Result<(), DomError> {
         child.check()?;
         self.call_with_nodes("appendChild", &[child])?;

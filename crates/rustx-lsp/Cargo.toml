@@ -13,7 +13,7 @@ keywords = ["lsp", "editor", "rsx", "completion", "rustx"]
 categories = ["development-tools", "text-editors"]
 
 [dependencies]
-rustx-compiler = { path = "../rustx-compiler", version = "0.1.0" }
+rustx-compiler = { path = "../rustx-compiler", version = "0.2.0" }
 
 [dev-dependencies]
 # To prove that what is handed to rust-analyzer is a file a parser accepts.

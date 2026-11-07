@@ -1,0 +1,92 @@
+---
+title: "Frameless"
+description: "Removing the system bar, and giving the page back what the frame did."
+---
+
+Many applications do not have the window that the system draws.
+`Config::frameless()` removes the title bar and the three buttons.
+
+```rust
+let app = App::new(
+    Config::new("My app")
+        .size(1100, 760)
+        .frameless(),
+)?;
+```
+
+What **stays**: the edges you grab to resize, the drop shadow, and Aero Snap.
+What **goes**: the title bar, its buttons, and the place where you grabbed the window to move it.
+
+## A title bar of your own, in full
+
+```rust
+// app/layout.rsx — the only place that never goes away
+fn Layout(children: Element) -> Element {
+    return <div className="min-h-screen bg-background text-foreground">
+        <header className="flex items-center gap-2 border-b px-3 py-2">
+            <span className="font-semibold">My app</span>
+
+            // The handle: press it and the system moves the window.
+            <span className="h-6 flex-1" onMouseDown={|_| { rustx::window::drag(); }} />
+
+            <button onClick={|_| { rustx::window::minimize(); }}>–</button>
+            <button onClick={|_| { rustx::window::toggle_maximize(); }}>□</button>
+            <button onClick={|_| { rustx::window::shut(); }}>×</button>
+        </header>
+
+        <main>{children}</main>
+    </div>;
+}
+```
+
+Three things to know, and they are all learned in the same way — by
+doing it.
+
+## The handle is not the whole bar
+
+It sits on an empty space, not on the entire `<header>`: a rustx event does not
+yet say **what** was pressed, so a whole draggable bar would swallow the clicks on
+its own buttons.
+
+## The "maximize" button toggles
+
+It is `toggle_maximize()` and not `maximize()`. Asking a window that is already
+maximized to "maximize" does nothing, and a button that acts only once is
+what you get with the other. The toggle asks the system before acting, in the
+process that holds the handle — the page has nothing to remember.
+
+## The top goes back to the page
+
+Removing the title bar leaves a strip of a few pixels — seven, on
+Windows — that the system paints itself, and that shows as a light line
+above what the page has drawn. `frameless()` takes it back, so that the
+content starts at the edge; the left, right, and bottom edges remain the system's,
+because those are the ones you grab to resize.
+
+## Without buttons, the window can no longer be closed
+
+A frameless window whose bar has no "×" button is a window the user can no
+longer close: `Alt+F4` remains, but nobody should need it. This is the only
+hard rule in this chapter.
+
+## Along the way
+
+The frame can also be removed and put back while the application
+runs:
+
+```rust
+<button onClick={|_| { rustx::window::frameless(); }}>hide the frame</button>
+<button onClick={|_| { rustx::window::framed(); }}>give it back</button>
+```
+
+## A second frameless window
+
+```rust
+rustx::window::What::new("tool").titled("Tool").frameless()
+```
+
+See [several windows](/docs/the-window/several-windows).
+
+<Callout title="Platforms">
+All of this is Windows today. On other platforms, each call refuses by naming the platform and the thing requested, rather than doing nothing silently.
+</Callout>

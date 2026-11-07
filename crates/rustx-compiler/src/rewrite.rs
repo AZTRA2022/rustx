@@ -242,7 +242,7 @@ fn awaited_edits(source: &str, waited: &crate::promote::Awaited) -> Vec<Edit> {
         .trim_end_matches(';');
     let opening = format!(
         "let Some({bound}){annotation} = rustx_engine::task::awaited( \
-         rustx_dom::state::cell({held}, || None), {asked}, \
+         {held}, {asked}, &rustx_engine::router::current(), \
          || {{ let __work = "
     );
     let closing = format!(

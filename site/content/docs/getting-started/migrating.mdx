@@ -1,0 +1,111 @@
+---
+title: "Coming from Electron, Tauri or the web"
+description: "What each concept you know is called in rustx, and what has no equivalent yet."
+---
+
+The tables below map a name you know to the thing that does the same job here.
+Where nothing does the job, the cell says so. A missing row is not an invitation
+to guess: look in [what's left](/docs/whats-left).
+
+## The shape of the application
+
+| | Electron | Tauri | rustx |
+|---|---|---|---|
+| the language of the app | JavaScript, in two processes | Rust backend, JavaScript frontend | Rust, with markup in `.rsx` files |
+| the UI | any web framework | any web framework | `.rsx` pages. React libraries on the side |
+| the engine | Chromium, bundled | the system's web view | Chromium (CEF), bundled |
+| platforms | Windows, macOS, Linux | Windows, macOS, Linux | Windows is written. The others compile and refuse by naming the missing file |
+| the backend process | the main process (Node) | the Rust core | none. Your Rust runs in the page's process |
+
+The last row is the one that changes how you design. There is no backend to
+call. See [where your code runs](/docs/getting-started/where-code-runs).
+
+## Talking to the backend
+
+| you wrote | the rustx equivalent |
+|---|---|
+| `ipcRenderer.invoke("x")` and `ipcMain.handle` | a Rust function called from the page. No message is sent |
+| `invoke("cmd")` and `#[tauri::command]` | the same, or a native registered for JavaScript. See [the Rust bridge](/docs/javascript-libraries/rust-bridge) |
+| `emit` and `listen` | none. State written in Rust redraws the page |
+| `preload.js`, `contextBridge` | `Config::on_context_created` |
+| async commands | `task(async { … })`. See [async](/docs/async) |
+
+A native is synchronous. It returns before the next line runs, and it takes and
+returns plain values (null, boolean, number, string, list, object).
+
+## The window and the system
+
+| | Electron | Tauri | rustx |
+|---|---|---|---|
+| a window | `new BrowserWindow` | `WebviewWindow` | `Config`, and `window::open` for more. See [several windows](/docs/the-window/several-windows) |
+| no frame | `frame: false` | `decorations: false` | `Config::frameless()`, then `window::drag()` and the commands. See [frameless](/docs/the-window/frameless) |
+| window commands | `win.minimize()` | `window.minimize()` | `window::minimize()`, `maximize()`, `shut()` and others. See [commanding the window](/docs/the-window/commanding-the-window) |
+| file dialogs | `dialog.showOpenDialog` | the dialog plugin | [`dialog::open`, `save`, `folder`](/docs/the-system/file-dialogs) |
+| clipboard | `clipboard` | the clipboard plugin | [`clipboard`](/docs/the-system/the-clipboard) |
+| tray | `Tray` | the tray icon | [`tray::Icon`](/docs/the-system/notifications-and-the-tray) |
+| notifications | `Notification` | the notification plugin | [`notify`](/docs/the-system/notifications-and-the-tray) |
+| global shortcuts | `globalShortcut` | the shortcut plugin | [`shortcut`](/docs/the-system/global-shortcuts) |
+| single instance | `requestSingleInstanceLock` | the single-instance plugin | [`instance`](/docs/the-system/a-single-instance) |
+| launch at login | `setLoginItemSettings` | the autostart plugin | [`autostart`](/docs/the-system/start-with-the-session) |
+| dropped file paths | `webUtils.getPathForFile` | the drag-drop event | [`dropped`](/docs/the-system/dropped-files) |
+| camera, microphone, screens | `getUserMedia`, `desktopCapturer` | the web view's | [`devices`](/docs/the-system/devices), then `getUserMedia` as on the web |
+| the app's data folder | `app.getPath("userData")` | the path API | none. See [app data](/docs/the-system/app-data) |
+| application menu, context menu | `Menu` | the menu API | not written |
+| auto-update | `autoUpdater` | the updater plugin | not written |
+| installer, signing | electron-builder and others | `tauri build` | not written. See [packaging](/docs/tooling/packaging) |
+| deep links, file associations | `setAsDefaultProtocolClient` | the deep-link plugin | not written |
+| secure storage | `safeStorage` | the stronghold plugin or a keyring | not written |
+
+"Not written" means that nothing in the framework's crates does it. You can still
+call the platform from your own Rust with a crate of your choice.
+
+## Configuration and security
+
+| | Electron | Tauri | rustx |
+|---|---|---|---|
+| where it is set | the main process code | `tauri.conf.json` | `Config` in `main.rs`, and `Cargo.toml`. See [configuration](/docs/tooling/configuration) |
+| `nodeIntegration`, `contextIsolation` | settings | not applicable | not applicable. The page runs your Rust directly |
+| permissions and capabilities | none | capability files | none. Pages may call every registered native |
+| remote content | allowed | allowed, with a policy | **refused**. Only local files load. See [security](/docs/the-system/security) |
+
+## Coming from a React app
+
+| React or Next.js | rustx |
+|---|---|
+| `useState` | a `let mut`. At the top of a file it is shared, inside a component it is private to that instance. See [state](/docs/getting-started/state) |
+| `useEffect(fn, [dep])` | `effect(dep, work)` |
+| `useRef`, `useMemo` | `keep(expr)`, a value built once for the life of the component |
+| a prop | an argument of the function |
+| `children` | an `Element` argument. Layouts take `children: Element` first |
+| context | a top-of-file `let mut` that two components read |
+| `className`, `onClick`, `style={{ … }}` | the same, in `.rsx` |
+| `<Link>`, `useRouter` | `router::navigate`, `back`, `replace`, `current`. See [navigating](/docs/the-router/navigating) |
+| the `app/` router, `[id]`, `(group)`, `loading`, `error` | the same names. See [special files](/docs/the-router/special-files) |
+| `fetch` in an effect | a Rust HTTP client in an `async` block. See [network calls](/docs/async/network-calls) |
+| `localStorage` | a file. See [app data](/docs/the-system/app-data) |
+| Tailwind, shadcn/ui, Recharts | the same libraries, as capitalized tags. See [JavaScript libraries](/docs/javascript-libraries) |
+| Server Components, `use client`, Server Actions | none. There is no server |
+| `next/image`, `next/font`, `next/link` | none. See [assets](/docs/getting-started/assets) |
+
+## Porting a React app
+
+1. Run `rustx new` and move your React components into `components/`, as they
+   are. A component of your own is found under the name of its file when it
+   has an `export default`, or under its export name.
+2. Copy your `package.json` dependencies, run `npm install`, and copy your style
+   sheet to `assets/tailwind.css`. Add the `@theme inline` block if you use
+   shadcn. See [Tailwind](/docs/javascript-libraries/tailwind).
+3. Replace `next/*` imports. Nothing provides them.
+4. Turn each route into a folder under `app/`. The first screen can stay a thin
+   `.rsx` page that draws your React page's component.
+5. Move data fetching and anything that touches the machine into Rust, and give
+   the components what they need as props, or as natives.
+6. Move state out of React as you go. There is no need to do it all at once: the
+   two trees share one frame loop.
+
+A rustx component is not a React component. React draws inside rustx, and
+rustx can draw inside a node React owns. See
+[a rustx component in React](/docs/javascript-libraries/a-rustx-component-in-react).
+
+Nothing here has been done to a large existing application. Expect to hit things
+that are not documented, and report them.

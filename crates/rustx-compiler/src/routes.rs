@@ -23,6 +23,8 @@ struct Page {
     /// Index into the loading list: the `loading.rsx` nearest above
     /// this page, if there is one.
     loading: Option<usize>,
+    /// And the `error.rsx` nearest above it.
+    failed: Option<usize>,
     /// `/device/[id]`, as the matcher will see it.
     pattern: String,
     /// The generated `.rs` to include, relative to the table.
@@ -121,6 +123,32 @@ pub fn table_for(from: &Path) -> Result<String, CompileError> {
     // layouts are in, so that reading the generated file, `loading_0`
     // is the outermost one and the numbers mean something.
     loadings.sort_by_key(|path| (path.components().count(), path.clone()));
+    // And the error boundaries, the same way.
+    let mut failures: Vec<PathBuf> = sources
+        .iter()
+        .filter(|path| file_name(path) == "error.rsx")
+        .cloned()
+        .collect();
+    failures.sort_by_key(|path| (path.components().count(), path.clone()));
+    for failure in &failures {
+        let parameters = declares(failure, "Error")?;
+        if parameters.len() != 1 {
+            return Err(flag(
+                failure,
+                format!(
+                    "`fn Error` takes one argument -- the reason, as a `String` -- and it takes \
+                     {}. A frontier that says \"something happened\" is a frontier nobody can \
+                     act on: name it `pourquoi`, or whatever you like, and show it.",
+                    if parameters.is_empty() {
+                        "nothing".to_string()
+                    } else {
+                        parameters.join(", ")
+                    }
+                ),
+            ));
+        }
+    }
+
     for loading in &loadings {
         let parameters = declares(loading, "Loading")?;
         if !parameters.is_empty() {
@@ -193,8 +221,24 @@ pub fn table_for(from: &Path) -> Result<String, CompileError> {
             .max_by_key(|(_, loading)| loading.components().count())
             .map(|(at, _)| at);
 
+        let failed = failures
+            .iter()
+            .enumerate()
+            .filter(|(_, failure)| {
+                let folder = failure
+                    .strip_prefix(from)
+                    .unwrap_or(failure)
+                    .parent()
+                    .unwrap_or(Path::new(""))
+                    .to_path_buf();
+                directory.starts_with(&folder)
+            })
+            .max_by_key(|(_, failure)| failure.components().count())
+            .map(|(at, _)| at);
+
         pages.push(Page {
             loading,
+            failed,
             pattern,
             include: include_path(relative),
             parameters,
@@ -215,6 +259,7 @@ pub fn table_for(from: &Path) -> Result<String, CompileError> {
         &layouts,
         &layout_parameters,
         &loadings,
+        &failures,
         &layout_shown,
         from,
     ))
@@ -257,6 +302,7 @@ fn render(
     layouts: &[PathBuf],
     layout_parameters: &[Vec<String>],
     loadings: &[PathBuf],
+    failures: &[PathBuf],
     layout_shown: &[Vec<(String, String)>],
     from: &Path,
 ) -> String {
@@ -310,6 +356,20 @@ fn render(
         ));
     }
 
+    // The error boundaries, likewise. Each takes the reason, which is
+    // what the panic said.
+    for (at, failure) in failures.iter().enumerate() {
+        let relative = failure.strip_prefix(from).unwrap_or(failure);
+        out.push_str(&format!(
+            "mod error_{at}_file {{\n    use super::*;\n    include!(\"{}\");\n\n\
+             \x20   pub(super) fn screen(pourquoi: String) -> rustx_dom::Element {{\n\
+             \x20       Error(pourquoi)\n    }}\n}}\n\n\
+             fn error_{at}(pourquoi: String) -> rustx_dom::Element {{\n\
+             \x20   error_{at}_file::screen(pourquoi)\n}}\n\n",
+            include_path(relative),
+        ));
+    }
+
     for (at, page) in pages.iter().enumerate() {
         let arguments: Vec<String> = page
             .parameters
@@ -355,11 +415,16 @@ fn render(
             Some(which) => format!("Some(loading_{which})"),
             None => "None".to_string(),
         };
+        let fallen = match page.failed {
+            Some(which) => format!("Some(error_{which})"),
+            None => "None".to_string(),
+        };
         out.push_str(&format!(
             "        rustx_dom::route::Route {{\n            pattern: \"{}\",\n\
              \x20           render: page_{at}::screen,\n\
              \x20           layouts: &[{}],\n\
-             \x20           loading: {waiting},\n        }},\n",
+             \x20           loading: {waiting},\n\
+             \x20           failed: {fallen},\n        }},\n",
             page.pattern,
             enclosing.join(", ")
         ));

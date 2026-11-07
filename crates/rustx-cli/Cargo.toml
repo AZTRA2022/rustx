@@ -21,7 +21,7 @@ name = "rustx_cli"
 path = "src/lib.rs"
 
 [dependencies]
-rustx-compiler = { path = "../rustx-compiler", version = "0.1.0" }
+rustx-compiler = { path = "../rustx-compiler", version = "0.2.0" }
 
 [dev-dependencies]
-rustx-dom = { path = "../rustx-dom", version = "0.1.0" }
+rustx-dom = { path = "../rustx-dom", version = "0.2.0" }
