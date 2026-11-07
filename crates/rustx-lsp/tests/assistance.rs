@@ -333,3 +333,77 @@ fn a_completion_rust_was_not_ready_for_is_asked_again() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A page whose text is given, written where the server can find it.
+fn a_page_of(text: &str) -> (std::path::PathBuf, String) {
+    let root = std::env::temp_dir().join(format!(
+        "rustx-assistance-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_nanos())
+            .unwrap_or(0)
+    ));
+    std::fs::create_dir_all(root.join("app")).expect("an app directory");
+    std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"asked\"\n").expect("a manifest");
+    let page = root.join("app").join("page.rsx");
+    std::fs::write(&page, text).expect("a page");
+    let uri = rustx_lsp::shadow::uri_of(&page);
+    (root, uri)
+}
+
+fn opened_with(uri: &str, text: &str) -> String {
+    format!(
+        "{{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{{\
+         \"textDocument\":{{\"uri\":\"{uri}\",\"languageId\":\"rsx\",\"version\":1,\
+         \"text\":\"{}\"}}}}}}",
+        json::escape(text)
+    )
+}
+
+#[test]
+fn a_question_on_a_line_the_rewrite_rebuilt_is_still_answered() {
+    // The line reads a value, so the rewrite rebuilt it and the
+    // position map calls it opaque -- and a question with no position
+    // was answered with `[]`. That is every line that reads a value,
+    // every handler, every `async` block: precisely the lines where
+    // somebody reaches for a crate's name, which is what made it look
+    // as though the whole path had to be typed before anything was
+    // offered.
+    let page = "fn Page() -> Element {\n    \
+                let mut n = 0;\n    \
+                let double = n * 2 + rustx::carried::kept();\n    \
+                return <p onClick={move |_| n += 1}>{double}</p>;\n}\n";
+    let (root, uri) = a_page_of(page);
+    let third = page.lines().nth(2).expect("a third line");
+    // One past the `t` of `kept`, which is what somebody typing a path
+    // has in front of the cursor.
+    let character = third.find("kept").expect("the call") + "kept".len();
+    let said = conversation(
+        &[
+            opened_with(&uri, page).as_str(),
+            asked("textDocument/completion", &uri, 2, character, 9).as_str(),
+        ],
+        Some(canned(&[
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"items\":[{\"label\":\"kept\",\
+             \"textEdit\":{\"range\":{\"start\":{\"line\":2,\"character\":100},\
+             \"end\":{\"line\":2,\"character\":104}},\"newText\":\"kept\"}}]}}",
+        ])),
+    );
+    let answer = said
+        .iter()
+        .find(|body| body.contains("\"id\":9"))
+        .unwrap_or_else(|| panic!("the completion was not answered: {said:?}"));
+    assert!(
+        answer.contains("kept"),
+        "nothing came back on a rewritten line: {answer}"
+    );
+    // The generated line is six characters wider by here (`n` became
+    // `n.get()`), so what comes back has to be six characters narrower
+    // than what went out, or the editor would eat the path.
+    assert!(
+        answer.contains("\"line\":2,\"character\":94"),
+        "the range should come back onto the page: {answer}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -33,6 +33,9 @@ fn main() {
         width: 960,
         height: 640,
         index,
+        // Le cadre du système : cet exemple est une fenêtre ordinaire,
+        // et c'est `apps/` qui montre l'autre.
+        dressing: rustx_os::window::Dressing::System,
     })
     .expect("the bundled example page should be present");
 

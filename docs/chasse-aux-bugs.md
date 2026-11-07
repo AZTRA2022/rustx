@@ -62,6 +62,12 @@ rendu ». Les trois étaient justes, et les numéros 14 à 17 en viennent.
 | 25 | bloquant | `rustx-dom`, `rustx-compiler` | lire une valeur de la page depuis une future était refusé | corrigé |
 | 26 | important | `rustx-cli` | `rustx dev` refusait sa propre reconstruction à chaque sauvegarde | corrigé |
 | 27 | bloquant | `rustx-cli` | `rustx dev` se nourrissait lui-même : une sauvegarde, des reconstructions sans fin | corrigé |
+| 28 | bloquant | `rustx-compiler` | l'annotation de type d'une valeur de page était perdue | corrigé |
+| 29 | bloquant | `rustx-compiler` | une mutation par méthode qui rend une valeur ne compilait pas | corrigé |
+| 30 | bloquant | `rustx-compiler` | une valeur qu'un futur écrit et que l'écran capture en ligne n'était pas liée | corrigé |
+| 31 | bloquant | `rustx-compiler` | une écriture dont la partie droite lit une autre valeur de page était éditée deux fois | corrigé |
+| 32 | bloquant | `rustx-compiler` | une fonction ordinaire à côté d'une page n'atteignait pas ses valeurs | corrigé |
+| 33 | important | `rustx-lsp` | aucune réponse sur une ligne que la réécriture avait rebâtie | corrigé |
 
 ---
 
@@ -707,6 +713,74 @@ preuve qui compte est devenue une loi déterministe —
 qui lance une vraie copie, vérifie d'abord que le verrou qu'elle teste
 existe, puis écrit dans le fichier de cargo. Sans la correction, elle
 échoue en nommant le verrou.
+
+### 28 à 32. Cinq réécritures fausses, trouvées en construisant le labo
+
+Toutes de la même famille : le compilateur produisait du Rust qui ne
+compile pas, et le message désignait une colonne d'un fichier que le
+développeur n'a jamais ouvert. Chacune a sa loi, écrite avant le
+correctif et vérifiée rouge.
+
+**28. L'annotation de type était perdue.** `let mut visites:
+Vec<String> = Vec::new();` devenait `shared("visites", || Vec::new())`.
+Le type avait disparu, donc le `T` du magasin n'avait plus rien pour
+s'inférer : « cannot infer type of the type parameter `T` ». La même
+cause cassait `trouves.get().iter().map(|depot| …)` deux fichiers plus
+loin. La closure porte maintenant le type — `|| -> Vec<String> {
+Vec::new() }` — aux quatre endroits qui l'émettent. Une annotation
+écrite sur plusieurs lignes est laissée de côté : ce texte est inséré
+ailleurs que la déclaration, et une ligne de plus déplacerait la carte
+des positions.
+
+**29. Une mutation par méthode qui rend quelque chose.**
+`battements.remove(0)` devenait `update(move |__v| __v.remove(__a0))`,
+et `remove` rend l'élément retiré : « expected `()`, found
+`Battement` ». Le corps de la closure est désormais une instruction.
+
+**30. Une capture en ligne ne comptait pas comme une lecture.** Une
+valeur de page qu'un futur écrit et que l'écran ne lit qu'à travers
+`format!("{secondes}")` n'était pas liée dans le composant : la lecture
+est écrite en prose, donc aucune occurrence du nom n'existait dans le
+code, et le portillon d'émission concluait que rien ne la lisait.
+`Promoted` porte ses captures.
+
+**31. Deux éditions sur le même texte.** `vus = lancements;` dans un
+bloc `async` sortait en `vus.set(lancements).get()` : l'écriture était
+réécrite sans regarder la valeur de sa partie droite, et la lecture de
+celle-ci était appliquée **après** l'écriture au lieu d'être dedans. Le
+bloc rassemble maintenant toutes les lectures avant de réécrire une
+seule écriture, et jette celles qu'une écriture a avalées. Le même
+gestionnaire écrit une ligne plus bas était déjà juste, ce qui est
+exactement pourquoi personne ne l'avait vu.
+
+**32. Une fonction ordinaire n'atteignait pas l'état de la page.** `fn
+combien() -> usize { journal.len() }` recevait « cannot find value
+`journal` in this scope », avec la suggestion d'appeler le composant
+`Journal` du même nom. Une fonction sans balisage est désormais
+réécrite comme un composant sans balisage : la valeur est liée en haut
+du corps, les lectures deviennent des `get`, les écritures des `set`.
+Une `async fn`, elle, est **refusée** — une valeur de page vit sur le
+fil qui dessine et le runtime lance une `async fn` ailleurs ; la lier
+là-bas construirait une seconde valeur, vide, et la lirait à la place.
+Le refus nomme les deux sorties.
+
+### 33. L'éditeur ne répondait rien sur une ligne réécrite
+
+**Ce que c'était.** La carte des positions appelle « opaque » toute
+ligne que la réécriture a rebâtie, et une question sans position était
+répondue par `[]`. Or c'est le cas de **toute** ligne qui lit une
+valeur, de tout gestionnaire, de tout bloc `async` : précisément les
+lignes où un développeur tape le nom d'un crate. C'est ce qui donnait
+l'impression qu'il fallait écrire `nomducrate::` en entier avant que
+quoi que ce soit soit proposé.
+
+**Correction.** La majeure partie d'une ligne réécrite est encore le
+texte du développeur — la réécriture substitue les noms qui sont
+devenus de l'état et laisse le reste. La colonne est donc retrouvée en
+faisant correspondre le texte **devant le curseur**, suffixe le plus
+long d'abord, avec la ligne générée. Et ce qui revient est ramené de la
+même distance : sans cela, le `textEdit` d'une complétion mangerait les
+caractères que la réécriture avait ajoutés.
 
 ## Ce que la chasse n'a pas corrigé, et pourquoi
 

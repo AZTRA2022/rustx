@@ -81,6 +81,93 @@ pub fn icon() -> Option<PathBuf> {
 pub const OPEN: &str = "open-window";
 /// Et quand elle demande qu'on en ferme une.
 pub const CLOSE: &str = "close-window";
+/// Et quand elle commande la sienne : le cadre, la taille, le rang, le
+/// déplacement.
+pub const CONTROL: &str = "control-window";
+
+// ───────────────────────── Commander sa fenêtre ─────────────────────────
+//
+// Beaucoup de logiciels n'ont pas la fenêtre que le système dessine.
+// Enlever le cadre ne suffit pas : il faut rendre à la page ce que le
+// cadre faisait, et c'est ce que ces fonctions sont.
+//
+// Elles partent du processus de rendu, où la page est écrite, vers
+// celui de la fenêtre, qui est le seul à tenir la poignée du système.
+// La fenêtre visée est celle d'où le message arrive : une page ne
+// commande que la sienne, et n'a donc rien à nommer.
+
+/// Donner un ordre à la fenêtre où cette page est dessinée.
+pub fn command(order: rustx_os::window::Order) {
+    crate::bridge::ask(
+        CONTROL,
+        &[crate::value::Value::String(order.word().to_string())],
+    );
+}
+
+/// Enlever le cadre du système : la page dessine tout.
+///
+/// Ce qu'il faut savoir avant de le faire : plus de barre de titre,
+/// donc plus rien pour déplacer la fenêtre. C'est [`drag`] qui le
+/// rend, appelé depuis la barre que la page a dessinée.
+pub fn frameless() {
+    command(rustx_os::window::Order::Dress(
+        rustx_os::window::Dressing::None,
+    ));
+}
+
+/// Et le remettre.
+pub fn framed() {
+    command(rustx_os::window::Order::Dress(
+        rustx_os::window::Dressing::System,
+    ));
+}
+
+/// La réduire dans la barre des tâches.
+pub fn minimize() {
+    command(rustx_os::window::Order::Spread(
+        rustx_os::window::Spread::Minimized,
+    ));
+}
+
+/// L'agrandir à toute la place que le bureau laisse.
+pub fn maximize() {
+    command(rustx_os::window::Order::Spread(
+        rustx_os::window::Spread::Maximized,
+    ));
+}
+
+/// Lui rendre sa taille.
+pub fn restore() {
+    command(rustx_os::window::Order::Spread(
+        rustx_os::window::Spread::Normal,
+    ));
+}
+
+/// Tout l'écran, cadre compris.
+pub fn fullscreen() {
+    command(rustx_os::window::Order::Spread(
+        rustx_os::window::Spread::Fullscreen,
+    ));
+}
+
+/// La garder devant les autres, ou lui rendre son rang.
+pub fn on_top(above: bool) {
+    command(rustx_os::window::Order::OnTop(above));
+}
+
+/// Commencer un déplacement à la souris.
+///
+/// Appelé depuis `onMouseDown` de la barre de titre que la page a
+/// dessinée : le système prend la suite et déplace la fenêtre jusqu'au
+/// relâchement, exactement comme sur sa propre barre.
+pub fn drag() {
+    command(rustx_os::window::Order::Drag);
+}
+
+/// Fermer la fenêtre où cette page est dessinée.
+pub fn shut() {
+    command(rustx_os::window::Order::Close);
+}
 
 /// Ce qu'une fenêtre est, avant d'exister.
 ///
@@ -95,6 +182,8 @@ pub struct What {
     pub height: u32,
     /// La route sur laquelle elle s'ouvre.
     pub at: String,
+    /// Le cadre du système autour d'elle, ou pas.
+    pub dressing: rustx_os::window::Dressing,
 }
 
 impl What {
@@ -106,6 +195,7 @@ impl What {
             width: 900,
             height: 640,
             at: "/".to_string(),
+            dressing: rustx_os::window::Dressing::System,
         }
     }
 
@@ -123,6 +213,13 @@ impl What {
     /// La route de l'application sur laquelle cette fenêtre s'ouvre.
     pub fn at(mut self, route: impl Into<String>) -> Self {
         self.at = route.into();
+        self
+    }
+
+    /// Sans le cadre du système : la page dessine tout, et c'est à elle
+    /// de donner un endroit où attraper la fenêtre — `window::drag()`.
+    pub fn frameless(mut self) -> Self {
+        self.dressing = rustx_os::window::Dressing::None;
         self
     }
 }
@@ -167,6 +264,11 @@ pub fn open(what: What) -> Result<Window, crate::error::EngineError> {
             Value::Number(f64::from(what.width)),
             Value::Number(f64::from(what.height)),
             Value::String(route(&what.at)),
+            Value::String(
+                rustx_os::window::Order::Dress(what.dressing)
+                    .word()
+                    .to_string(),
+            ),
         ],
     );
     if !asked {
@@ -382,26 +484,36 @@ std::thread_local! {
     /// revenue. Une file, parce que les créations sont séquentielles sur
     /// ce thread : `on_after_created` arrive dans l'ordre où on a
     /// demandé.
-    static EXPECTED: std::cell::RefCell<std::collections::VecDeque<String>> =
-        const { std::cell::RefCell::new(std::collections::VecDeque::new()) };
+    static EXPECTED: std::cell::RefCell<
+        std::collections::VecDeque<(String, rustx_os::window::Dressing)>,
+    > = const { std::cell::RefCell::new(std::collections::VecDeque::new()) };
 }
 
-/// Le nom de la fenêtre qu'on est en train de créer.
-pub(crate) fn expecting(name: &str) {
-    EXPECTED.with(|names| names.borrow_mut().push_back(name.to_string()));
+/// Le nom de la fenêtre qu'on est en train de créer, et l'habit qu'elle
+/// portera dès qu'elle existera.
+pub(crate) fn expecting(name: &str, dressing: rustx_os::window::Dressing) {
+    EXPECTED.with(|names| names.borrow_mut().push_back((name.to_string(), dressing)));
 }
 
 /// Une fenêtre vient d'exister : elle prend le nom qui l'attendait.
 pub(crate) fn created(browser: &cef::Browser) {
     use cef::ImplBrowser;
 
-    let name = EXPECTED
+    let (name, dressing) = EXPECTED
         .with(|names| names.borrow_mut().pop_front())
-        .unwrap_or_else(|| "main".to_string());
+        .unwrap_or_else(|| ("main".to_string(), rustx_os::window::Dressing::System));
     OPEN_WINDOWS.with(|open| {
         open.borrow_mut()
             .push((name, browser.identifier(), browser.clone()))
     });
+    // L'habit tout de suite : une application sans cadre n'en a jamais,
+    // pas même le temps d'un éclair au démarrage.
+    if let Some(handle) = {
+        use cef::ImplBrowserHost;
+        browser.host().map(|host| host.window_handle())
+    } {
+        wear(handle.0.cast(), dressing);
+    }
 }
 
 /// Une fenêtre s'en va. `true` si c'était la dernière.
@@ -439,12 +551,12 @@ pub fn how_many_are_open() -> usize {
 ///
 /// Rend `true` quand c'était pour nous, ce que Chromium lit comme
 /// « traité ».
-pub(crate) fn asked(message: &cef::ProcessMessage) -> bool {
+pub(crate) fn asked(message: &cef::ProcessMessage, from: Option<&cef::Browser>) -> bool {
     use cef::{CefString, ImplProcessMessage};
 
     let wire = CefString::from(&message.name()).to_string();
     let what = wire.strip_prefix(crate::bridge::PREFIX).unwrap_or(&wire);
-    if what != OPEN && what != CLOSE {
+    if what != OPEN && what != CLOSE && what != CONTROL {
         return false;
     }
     let values = message
@@ -459,6 +571,11 @@ pub(crate) fn asked(message: &cef::ProcessMessage) -> bool {
         Some(crate::value::Value::Number(number)) if *number > 0.0 => *number as u32,
         _ => fallback,
     };
+
+    if what == CONTROL {
+        obey(&text(0), from);
+        return true;
+    }
 
     if what == CLOSE {
         close_named(&text(0));
@@ -499,6 +616,13 @@ pub(crate) fn asked(message: &cef::ProcessMessage) -> bool {
         width: number(2, 900),
         height: number(3, 640),
         url: format!("{document}#{at}"),
+        dressing: match rustx_os::window::Order::from_word(&text(5)) {
+            Some(rustx_os::window::Order::Dress(dressing)) => dressing,
+            // Rien, ou un mot qu'on ne connaît pas : le cadre du
+            // système, qui est ce qu'une fenêtre a quand personne n'a
+            // rien demandé.
+            _ => rustx_os::window::Dressing::System,
+        },
     });
     true
 }
@@ -520,6 +644,51 @@ fn close_named(name: &str) {
     if let Some(host) = browser.host() {
         // Sans forcer : la fenêtre a le droit de demander à son tour.
         host.close_browser(0);
+    }
+}
+
+/// Exécuter un ordre sur la fenêtre d'où il vient.
+///
+/// Rien n'est nommé : le message arrive d'un `Browser`, et ce
+/// `Browser` est une fenêtre. Une page ne commande donc que la sienne,
+/// ce qui est la seule chose qu'elle puisse vouloir dire par
+/// « réduis-toi ».
+fn obey(word: &str, from: Option<&cef::Browser>) {
+    use cef::{ImplBrowser, ImplBrowserHost};
+
+    let Some(order) = rustx_os::window::Order::from_word(word) else {
+        eprintln!("rustx: « {word} » n'est pas un ordre de fenêtre");
+        return;
+    };
+    let Some(handle) = from
+        .and_then(|browser| browser.host())
+        .map(|host| host.window_handle())
+    else {
+        eprintln!(
+            "rustx: « {word} » est arrivé sans fenêtre — la demande vient d'un processus \
+             qui n'en a pas"
+        );
+        return;
+    };
+    let pane = rustx_os::window::Pane::from_handle(handle.0.cast());
+    if let Err(refused) = order.given(pane) {
+        eprintln!("rustx: « {word} » a été refusé : {refused}");
+    }
+}
+
+/// Mettre la fenêtre dans l'habit qu'on lui a demandé en l'ouvrant.
+///
+/// Appelé à la création, parce que c'est Chromium qui fait la fenêtre
+/// et que la poignée est la première chose qu'il rend. Une application
+/// qui se veut sans cadre n'a ainsi jamais de cadre, pas même le temps
+/// d'un éclair au démarrage.
+pub(crate) fn wear(handle: *mut std::ffi::c_void, dressing: rustx_os::window::Dressing) {
+    if dressing == rustx_os::window::Dressing::System {
+        return;
+    }
+    let pane = rustx_os::window::Pane::from_handle(handle);
+    if let Err(refused) = rustx_os::window::dress(pane, dressing) {
+        eprintln!("rustx: la fenêtre n'a pas pu être déshabillée : {refused}");
     }
 }
 

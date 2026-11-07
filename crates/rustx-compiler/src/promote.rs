@@ -468,6 +468,88 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             awaited,
         });
     }
+
+    // And the helpers. A page value has a name, and the one thing a
+    // developer expects of a name is that it works where it is
+    // written: `fn combien() -> usize { journal.len() }` is ordinary
+    // Rust and was answered with "cannot find value `journal` in this
+    // scope", together with the suggestion to call the component
+    // `Journal` instead. A helper is rewritten exactly like a
+    // component with no markup -- the value is bound at the top of the
+    // body, the reads become `get`, the writes become `set`.
+    for (name, body) in helpers_of(source) {
+        let in_code = code_spans(source, body, &[]);
+        let locals = locals_of(source, body);
+        let parameters = parameter_names(source, body.start);
+        let mut promoted = Vec::new();
+        for declaration in shared_of(source) {
+            if locals.iter().any(|local| local.name == declaration.name)
+                || parameters.contains(&declaration.name)
+            {
+                continue;
+            }
+            let mutations = mutations_in(source, &declaration.name, body, &in_code, false);
+            let reads: Vec<Span> = names_used(source, &declaration.name, &in_code)
+                .into_iter()
+                .filter(|span| !mutations.iter().any(|mutation| mutation.span == *span))
+                .collect();
+            let captures: Vec<Span> = format_captures(source, &declaration.name, body)
+                .into_iter()
+                .map(|call| call.span)
+                .collect();
+            if reads.is_empty() && mutations.is_empty() && captures.is_empty() {
+                continue;
+            }
+            promoted.push(Promoted {
+                name: declaration.name,
+                shared: true,
+                declaration: Span {
+                    start: body.start + 1,
+                    end: body.start + 1,
+                },
+                initializer: declaration.initializer,
+                annotation: declaration.annotation,
+                reads,
+                mutations,
+                captures,
+            });
+        }
+        if promoted.is_empty() {
+            continue;
+        }
+        // Except when the runtime is the one who runs it. A page value
+        // lives on the thread that draws, and an `async fn` is handed
+        // to the runtime, which runs it wherever it likes: binding the
+        // value there would build a second, empty one on that thread
+        // and read it instead -- the right answer to a wrong question,
+        // silently. Refused where it is written, with both ways out
+        // named.
+        if let Some(at) = async_before(source, body.start) {
+            let held = &promoted[0].name;
+            return Err(CompileError::flagged(
+                at,
+                format!(
+                    "`{name}` is declared `async` and reaches `{held}`, a value of the \
+                     page. A page value lives on the thread that draws, and the runtime \
+                     runs an `async fn` elsewhere -- write this work inside the `async` \
+                     block of a component, where the page's values are reached for you, \
+                     or hand `{held}` in as a parameter."
+                ),
+            )
+            .resolve(source));
+        }
+        components.push(Component {
+            name,
+            body,
+            returns_jsx: Vec::new(),
+            handlers: Vec::new(),
+            remote_regions: Vec::new(),
+            promoted,
+            calls: Vec::new(),
+            unwritten: Vec::new(),
+            awaited: Vec::new(),
+        });
+    }
     Ok(components)
 }
 
@@ -921,6 +1003,27 @@ fn function_bodies(source: &str) -> Vec<Span> {
 }
 
 fn components_of(source: &str) -> Vec<(String, Span)> {
+    functions_of(source)
+        .into_iter()
+        .filter(|(_, _, element)| *element)
+        .map(|(name, body, _)| (name, body))
+        .collect()
+}
+
+/// Every `fn` the page writes that is not a component: a helper, a
+/// formatter, a worker. Outermost only, like the components.
+fn helpers_of(source: &str) -> Vec<(String, Span)> {
+    functions_of(source)
+        .into_iter()
+        .filter(|(_, _, element)| !*element)
+        .map(|(name, body, _)| (name, body))
+        .collect()
+}
+
+/// Every outermost `fn` of the file: its name, its body braces
+/// included, and whether it gives back an `Element` — which is the
+/// marker that makes it a component.
+fn functions_of(source: &str) -> Vec<(String, Span, bool)> {
     let bytes = source.as_bytes();
     let mut found = Vec::new();
     let mut index = 0;
@@ -943,13 +1046,11 @@ fn components_of(source: &str) -> Vec<(String, Span)> {
         };
         // The marker the document already uses: a component returns an
         // Element.
-        if !source[close_paren..brace].contains("Element") {
-            continue;
-        }
+        let element = source[close_paren..brace].contains("Element");
         let Ok(end) = skip_braces(source, brace) else {
             continue;
         };
-        found.push((name.0, Span { start: brace, end }));
+        found.push((name.0, Span { start: brace, end }, element));
         index = end;
     }
     found

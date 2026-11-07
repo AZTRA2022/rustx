@@ -58,9 +58,79 @@ thread_local! {
 struct Mounted {
     table: &'static [Route],
     not_found: fn() -> Element,
-    /// Paths visited, oldest first. The window's own history is the OS
-    /// layer's business; this is the application's.
-    history: Vec<String>,
+    /// Where the application has been, and where it is in that. The
+    /// window's own history is the OS layer's business; this is the
+    /// application's.
+    history: History,
+}
+
+/// Where the application has been, and where in it it stands.
+///
+/// A list and a finger on it, which is what a history is: going back
+/// moves the finger and keeps what is in front, so going forward is
+/// possible; going somewhere new drops what was in front, because that
+/// future did not happen. Exactly a browser's rule, and the reason
+/// `forward` could not exist while this was a stack that only pushed
+/// and popped.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct History {
+    paths: Vec<String>,
+    at: usize,
+}
+
+impl History {
+    fn from(path: &str) -> Self {
+        Self {
+            paths: vec![path.to_string()],
+            at: 0,
+        }
+    }
+
+    fn here(&self) -> &str {
+        self.paths.get(self.at).map(String::as_str).unwrap_or("/")
+    }
+
+    /// Somewhere new: what was in front of us never happened.
+    fn go(&mut self, path: &str) {
+        self.paths.truncate(self.at + 1);
+        self.paths.push(path.to_string());
+        self.at = self.paths.len() - 1;
+    }
+
+    /// Somewhere new *instead of* here: nothing is added, so going back
+    /// goes to what was before this screen and not to this screen.
+    fn instead(&mut self, path: &str) {
+        if self.paths.is_empty() {
+            self.paths.push(path.to_string());
+            self.at = 0;
+            return;
+        }
+        self.paths[self.at] = path.to_string();
+    }
+
+    fn can_go_back(&self) -> bool {
+        self.at > 0
+    }
+
+    fn can_go_forward(&self) -> bool {
+        self.at + 1 < self.paths.len()
+    }
+
+    fn back(&mut self) -> Option<&str> {
+        if !self.can_go_back() {
+            return None;
+        }
+        self.at -= 1;
+        Some(self.here())
+    }
+
+    fn forward(&mut self) -> Option<&str> {
+        if !self.can_go_forward() {
+            return None;
+        }
+        self.at += 1;
+        Some(self.here())
+    }
 }
 
 /// Put the application's screens under `host`, starting at `path`.
@@ -75,11 +145,11 @@ pub fn start(
 ) -> Result<(), DomError> {
     // Where the application has been is the starting path, and then
     // wherever it asked to go while it was waiting for us.
-    let mut history = vec![path.to_string()];
+    let mut history = History::from(path);
     if let Some(asked_for) = ASKED_FOR.with(|held| held.borrow_mut().take()) {
-        history.push(asked_for);
+        history.go(&asked_for);
     }
-    let here = history.last().cloned().unwrap_or_else(|| path.to_string());
+    let here = history.here().to_string();
     // So that `rustx dev` can open the next window on this screen.
     rustx_dom::carried::be_at(&here);
     store::<Current>().set(Current(here));
@@ -102,7 +172,7 @@ pub fn navigate(path: impl Into<String>) {
     let path = path.into();
     let mounted = ROUTER.with(|router| {
         if let Some(mounted) = router.borrow_mut().as_mut() {
-            mounted.history.push(path.clone());
+            mounted.history.go(&path);
             return true;
         }
         false
@@ -112,8 +182,29 @@ pub fn navigate(path: impl Into<String>) {
         ASKED_FOR.with(|held| *held.borrow_mut() = Some(path));
         return;
     }
-    rustx_dom::carried::be_at(&path);
-    store::<Current>().set(Current(path));
+    show(&path);
+}
+
+/// Go to `path` **instead of** this screen: it takes its place in the
+/// history rather than being added after it.
+///
+/// What a redirection is, and what a form that has just been sent
+/// wants: going back from the screen that follows must not come back to
+/// the form and send it again.
+pub fn replace(path: impl Into<String>) {
+    let path = path.into();
+    let mounted = ROUTER.with(|router| {
+        if let Some(mounted) = router.borrow_mut().as_mut() {
+            mounted.history.instead(&path);
+            return true;
+        }
+        false
+    });
+    if !mounted {
+        ASKED_FOR.with(|held| *held.borrow_mut() = Some(path));
+        return;
+    }
+    show(&path);
 }
 
 /// Go back to the screen before this one. `false` if there is none.
@@ -121,26 +212,115 @@ pub fn back() -> bool {
     let previous = ROUTER.with(|router| {
         let mut router = router.borrow_mut();
         let mounted = router.as_mut()?;
-        if mounted.history.len() < 2 {
-            return None;
-        }
-        mounted.history.pop();
-        mounted.history.last().cloned()
+        mounted.history.back().map(str::to_string)
     });
-
     match previous {
         Some(path) => {
-            rustx_dom::carried::be_at(&path);
-            store::<Current>().set(Current(path));
+            show(&path);
             true
         }
         None => false,
     }
 }
 
-/// The path the application is on.
+/// Go forward again, to a screen we came back from. `false` if there is
+/// none — which is the case as soon as one has gone somewhere new.
+pub fn forward() -> bool {
+    let next = ROUTER.with(|router| {
+        let mut router = router.borrow_mut();
+        let mounted = router.as_mut()?;
+        mounted.history.forward().map(str::to_string)
+    });
+    match next {
+        Some(path) => {
+            show(&path);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Whether there is anywhere to go back to.
+///
+/// What a "retour" button asks before it draws itself grey. Until this
+/// existed, the only way to know was to call `back` and read what it
+/// gave back — that is, to have already gone.
+pub fn can_go_back() -> bool {
+    ROUTER.with(|router| {
+        router
+            .borrow()
+            .as_ref()
+            .is_some_and(|mounted| mounted.history.can_go_back())
+    })
+}
+
+/// And whether there is anywhere to go forward to.
+pub fn can_go_forward() -> bool {
+    ROUTER.with(|router| {
+        router
+            .borrow()
+            .as_ref()
+            .is_some_and(|mounted| mounted.history.can_go_forward())
+    })
+}
+
+/// Where the application has been, oldest first, and where it stands in
+/// that list.
+pub fn history() -> (Vec<String>, usize) {
+    ROUTER.with(|router| {
+        router
+            .borrow()
+            .as_ref()
+            .map(|mounted| (mounted.history.paths.clone(), mounted.history.at))
+            .unwrap_or_default()
+    })
+}
+
+/// Put this path on the screen, and tell `rustx dev` where we are.
+fn show(path: &str) {
+    rustx_dom::carried::be_at(path);
+    store::<Current>().set(Current(path.to_string()));
+}
+
+/// The path the application is on, query string included.
 pub fn current() -> String {
     store::<Current>().get().0
+}
+
+/// The path alone, without what follows a `?`.
+pub fn route() -> String {
+    let here = current();
+    rustx_dom::route::split_query(&here).0.to_string()
+}
+
+/// What the query string of the current path says under `name`, or `""`.
+///
+/// `/depots?q=rust` gives `query("q") == "rust"`. A query key belongs to
+/// the request and not to the route, so no page declares it as a
+/// parameter: it is read here, by whoever wants it, layout included.
+pub fn query(name: &str) -> String {
+    let here = current();
+    let (_, query) = rustx_dom::route::split_query(&here);
+    rustx_dom::route::query_of(query, name)
+}
+
+/// Whether the current path's query string holds this key at all —
+/// `?brut` says nothing and is still there.
+pub fn has_query(name: &str) -> bool {
+    let here = current();
+    let (_, query) = rustx_dom::route::split_query(&here);
+    rustx_dom::route::has_query(query, name)
+}
+
+/// The same path with `name` set to `value` in its query string, or
+/// without it when `value` is `None`.
+///
+/// Written here because a page that wants "the same screen, sorted
+/// differently" would otherwise rebuild the URL by hand, and the one
+/// thing nobody should have to write by hand is percent-encoding.
+pub fn with_query(name: &str, value: Option<&str>) -> String {
+    let here = current();
+    rustx_dom::route::with_query(&here, name, value)
 }
 
 /// The one component the router mounts.
@@ -208,6 +388,30 @@ fn wrap(route: &Route, params: &Params) -> Element {
         )
     });
 
+    // A page that is waiting for a `.await` renders nothing — which is
+    // right, and is also a blank screen. The `loading.rsx` nearest to
+    // it goes there instead, inside the same layouts, so the bar above
+    // stays and only the middle says "un instant".
+    //
+    // Keyed apart from the page: they are two different components, and
+    // one must not inherit the other's cells.
+    let page = match (&page, route.loading) {
+        (Element::Empty, Some(loading)) => rustx_dom::state::with_key(
+            format!("loading:{}", route.pattern),
+            || {
+                component_at(
+                    Slot {
+                        file: file!(),
+                        line: line!(),
+                        column: column!(),
+                    },
+                    loading,
+                )
+            },
+        ),
+        _ => page,
+    };
+
     let mut drawn = page;
     for (depth, layout) in route.layouts.iter().enumerate().rev() {
         let inner = drawn;
@@ -219,9 +423,66 @@ fn wrap(route: &Route, params: &Params) -> Element {
                     line: line!(),
                     column: column!(),
                 },
-                || layout(inner),
+                || layout(inner, params),
             )
         });
     }
     drawn
+}
+
+#[cfg(test)]
+mod tests {
+    use super::History;
+
+    #[test]
+    fn going_back_leaves_somewhere_to_go_forward_to() {
+        let mut history = History::from("/");
+        history.go("/depots");
+        history.go("/depots/rust-lang/rust");
+        assert!(history.can_go_back());
+        assert!(!history.can_go_forward());
+
+        assert_eq!(history.back(), Some("/depots"));
+        assert!(history.can_go_forward());
+        assert_eq!(history.forward(), Some("/depots/rust-lang/rust"));
+        assert!(!history.can_go_forward());
+    }
+
+    #[test]
+    fn going_somewhere_new_drops_the_future_that_did_not_happen() {
+        let mut history = History::from("/");
+        history.go("/a");
+        history.go("/b");
+        history.back();
+        // On est sur `/a`, et `/b` est devant. Aller ailleurs efface
+        // `/b` : c'est la règle d'un navigateur, et sans elle « suivant »
+        // emmènerait sur un écran dont on vient de se détourner.
+        history.go("/c");
+        assert!(!history.can_go_forward());
+        assert_eq!(history.paths, vec!["/", "/a", "/c"]);
+        assert_eq!(history.here(), "/c");
+    }
+
+    #[test]
+    fn replacing_takes_the_place_of_this_screen() {
+        let mut history = History::from("/");
+        history.go("/formulaire");
+        history.instead("/merci");
+        // Revenir ne ramène pas au formulaire qu'on vient de quitter :
+        // c'est tout l'intérêt, un formulaire renvoyé deux fois est
+        // envoyé deux fois.
+        assert_eq!(history.here(), "/merci");
+        assert_eq!(history.back(), Some("/"));
+        assert_eq!(history.paths, vec!["/", "/merci"]);
+    }
+
+    #[test]
+    fn the_first_screen_has_nowhere_to_go() {
+        let mut history = History::from("/");
+        assert!(!history.can_go_back());
+        assert!(!history.can_go_forward());
+        assert_eq!(history.back(), None);
+        assert_eq!(history.forward(), None);
+        assert_eq!(history.here(), "/");
+    }
 }

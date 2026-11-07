@@ -48,6 +48,7 @@ pub mod notify;
 pub mod patience;
 pub mod shortcut;
 pub mod tray;
+pub mod window;
 
 // One directory per operating system, and one file per capability
 // inside it. Which one is compiled is the only place in this crate
@@ -86,8 +87,11 @@ mod tests {
         // What a developer on Linux reads today. The message names the
         // platform and the capability, because "unsupported" alone sends
         // the reader to the source.
-        let refused = super::linux_also_compiles::clipboard::text();
-        let said = refused.expect_err("Linux refuses for now").to_string();
+        // macOS, aujourd'hui : le dossier `other/`. Linux n'est plus
+        // ici — son presse-papiers passe par `wl-copy` / `xclip`, et sa
+        // constante dit `true`.
+        let refused = super::elsewhere_also_compiles::clipboard::text();
+        let said = refused.expect_err("macOS refuses for now").to_string();
         assert!(said.contains("the clipboard"), "got {said}");
         assert!(
             said.contains(std::env::consts::OS),
@@ -98,7 +102,7 @@ mod tests {
         #[allow(clippy::assertions_on_constants)]
         {
             assert!(
-                !super::linux_also_compiles::clipboard::AVAILABLE,
+                !super::elsewhere_also_compiles::clipboard::AVAILABLE,
                 "a platform that refuses must not say it is available"
             );
         }

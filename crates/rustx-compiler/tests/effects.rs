@@ -202,3 +202,30 @@ fn an_async_task_keeps_the_line_count_of_what_it_replaced() {
         "the rewrite changed how many lines the file has:\n{rust}"
     );
 }
+
+#[test]
+fn a_write_in_a_future_whose_value_is_another_page_value_reads_it_once() {
+    // `vus = lancements;` inside an `async` block came out as
+    // `vus.set(lancements).get()`: the write was rewritten without
+    // looking at the other value in its right-hand side, and that
+    // value's own read edit then landed after the write it belonged
+    // inside. rustc answered "no method named `get` found for unit
+    // type `()`" on a line the developer had written as an
+    // assignment. The handler on the next line was already right.
+    let source = "let mut vus = 0_u64;\n\
+         let mut lancements = 0_u64;\n\n\
+         fn Page() -> Element {\n    \
+         async move {\n        \
+         vus = lancements;\n    \
+         };\n\n    \
+         return <p>{vus}</p>;\n}\n";
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("vus.set(lancements.get())"),
+        "the right-hand side is a read like any other: {rust}"
+    );
+    assert!(
+        !rust.contains(").get()"),
+        "nothing should be appended to the write: {rust}"
+    );
+}

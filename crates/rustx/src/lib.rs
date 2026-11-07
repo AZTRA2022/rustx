@@ -177,6 +177,7 @@ pub struct Config {
     hooks: Vec<std::rc::Rc<dyn Fn()>>,
     icon: Option<PathBuf>,
     about: rustx_engine::window::About,
+    dressing: rustx_os::window::Dressing,
 }
 
 impl Config {
@@ -198,12 +199,26 @@ impl Config {
                 name: title,
                 ..Default::default()
             },
+            dressing: rustx_os::window::Dressing::System,
         }
     }
 
     pub fn size(mut self, width: u32, height: u32) -> Self {
         self.width = width;
         self.height = height;
+        self
+    }
+
+    /// Une fenêtre sans le cadre du système : pas de barre de titre,
+    /// pas de boutons, la page dessine tout.
+    ///
+    /// Ce qu'il faut alors rendre à l'utilisateur, et que le cadre
+    /// faisait : `window::drag()` sur l'appui de la barre qu'on a
+    /// dessinée, `window::minimize()`, `window::maximize()`,
+    /// `window::shut()` sur ses trois boutons. Sans `drag`, la fenêtre
+    /// ne se déplace plus.
+    pub fn frameless(mut self) -> Self {
+        self.dressing = rustx_os::window::Dressing::None;
         self
     }
 
@@ -404,6 +419,7 @@ impl App {
                 title: config.title,
                 width: config.width,
                 height: config.height,
+                dressing: config.dressing,
                 index,
             })?,
         })

@@ -21,6 +21,9 @@ pub struct AppConfig {
     pub height: u32,
     /// Local path of the document loaded at startup.
     pub index: PathBuf,
+    /// Le cadre du système autour de la fenêtre, ou pas : beaucoup de
+    /// logiciels dessinent le leur.
+    pub dressing: rustx_os::window::Dressing,
 }
 
 /// An application whose configuration has been validated.
@@ -101,6 +104,7 @@ impl App {
             width: self.config.width,
             height: self.config.height,
             url,
+            dressing: self.config.dressing,
         });
 
         let initialized = cef::initialize(

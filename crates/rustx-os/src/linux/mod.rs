@@ -13,3 +13,4 @@ pub mod instance;
 pub mod notify;
 pub mod shortcut;
 pub mod tray;
+pub mod window;

@@ -178,3 +178,41 @@ pub mod devices {
         Vec::new()
     }
 }
+
+pub mod window {
+    //! La fenêtre, partout ailleurs.
+    //!
+    //! macOS avant tout, où ce sera `NSWindow` : `styleMask` sans
+    //! `titled` pour enlever le cadre, `performWindowDragWithEvent:`
+    //! pour le déplacement, `toggleFullScreen:` pour l'écran entier —
+    //! trois appels, le jour où ce dossier existera.
+
+    use crate::error::OsError;
+    use crate::window::{Dressing, Pane, Spread};
+
+    pub const AVAILABLE: bool = false;
+
+    const WHAT: &str = "window control";
+
+    pub fn dress(_pane: Pane, _dressing: Dressing) -> Result<(), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn spread(_pane: Pane, _how: Spread) -> Result<(), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn spread_of(_pane: Pane) -> Result<Spread, OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn on_top(_pane: Pane, _above: bool) -> Result<(), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn drag(_pane: Pane) -> Result<(), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn close(_pane: Pane) -> Result<(), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn pointer() -> Result<(i32, i32), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+}

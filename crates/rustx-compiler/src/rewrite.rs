@@ -333,6 +333,14 @@ fn future_task(
 ) -> String {
     let text = &source[call.arguments.start..call.arguments.end];
     let mut preamble = String::new();
+    // Every read and every capture of every value, gathered before a
+    // single write is rewritten. A write's right-hand side may name
+    // another page value — `vus = lancements;` — and that read belongs
+    // to the write's own text: rewritten on its own, it was applied
+    // after the write instead of inside it, and what reached rustc was
+    // `vus.set(lancements).get()`.
+    let mut reads_and_captures: Vec<Edit> = Vec::new();
+    let mut writes: Vec<(&str, crate::promote::Mutation)> = Vec::new();
     let mut edits = Vec::new();
 
     for promoted in &component.promoted {
@@ -378,19 +386,33 @@ fn future_task(
         } else {
             preamble.push_str(&format!("let {name} = {name}.{handle}(&__cancel); "));
         }
-        for mutation in &mutations {
-            edits.push(rewrite_mutation_for(
-                source,
-                name,
-                mutation,
-                call.arguments,
-                &read_edits,
-                Owning::Moved,
-            ));
+        reads_and_captures.extend(read_edits);
+        reads_and_captures.extend(captures);
+        for mutation in mutations {
+            writes.push((name, mutation));
         }
-        edits.extend(read_edits);
-        edits.extend(captures);
     }
+
+    // The writes first, each with every read in hand; then the reads
+    // and captures the writes did not swallow.
+    let mut swallowed: Vec<Span> = Vec::new();
+    for (name, mutation) in &writes {
+        let edit = rewrite_mutation_for(
+            source,
+            name,
+            mutation,
+            call.arguments,
+            &reads_and_captures,
+            Owning::Moved,
+        );
+        swallowed.push(edit.span);
+        edits.push(edit);
+    }
+    edits.extend(
+        reads_and_captures
+            .into_iter()
+            .filter(|edit| !swallowed.iter().any(|write| contains(*write, edit.span))),
+    );
 
     let arguments = apply_relative(text, call.arguments.start, edits);
     let arguments = arguments.trim();

@@ -96,7 +96,7 @@ impl std::fmt::Debug for Callback {
 }
 
 /// What may be written inside a component React owns.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum ForeignChild {
     Node(ForeignNode),
     Text(String),
@@ -107,6 +107,115 @@ pub enum ForeignChild {
     /// renders a string, a number or a list of them as its children
     /// exactly as it renders an element.
     Value(crate::Value),
+    /// A component of the page, written inside a component of a library.
+    ///
+    /// `<Card>{Resume()}</Card>`: the thing between the braces is an
+    /// `Element`, which is neither a string nor a number nor a node of
+    /// React's. It used to be nothing at all — `the trait bound
+    /// rustx::Element: ToValue is not satisfied`, about the one line
+    /// that mixes the two halves of this framework, which is the whole
+    /// reason the framework exists.
+    ///
+    /// It is **described** rather than hosted: a tag becomes the same
+    /// `{ component, props, children }` that a native tag below a
+    /// boundary already becomes, so React builds it and reconciles it.
+    /// That is not a concession — everything below a boundary is
+    /// already React's, and a DOM node rustx thought it owned inside a
+    /// tree React reconciles is the one thing the boundary exists to
+    /// prevent.
+    Element(Box<Element>),
+}
+
+/// Two children are the same child when they show the same thing.
+///
+/// Handlers are left out, for the reason `ForeignNode` leaves its
+/// callbacks out: a closure is built afresh on every render, so
+/// comparing them would make every boundary differ from itself every
+/// frame and React would be handed a new tree for nothing.
+impl PartialEq for ForeignChild {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (ForeignChild::Node(ours), ForeignChild::Node(theirs)) => ours == theirs,
+            (ForeignChild::Text(ours), ForeignChild::Text(theirs)) => ours == theirs,
+            (ForeignChild::Value(ours), ForeignChild::Value(theirs)) => ours == theirs,
+            (ForeignChild::Element(ours), ForeignChild::Element(theirs)) => {
+                shows_the_same(ours, theirs)
+            }
+            _ => false,
+        }
+    }
+}
+
+/// Do these two trees show the same thing? Handlers aside, as above.
+fn shows_the_same(ours: &Element, theirs: &Element) -> bool {
+    match (ours, theirs) {
+        (Element::Text(ours), Element::Text(theirs)) => ours == theirs,
+        (Element::Empty, Element::Empty) => true,
+        (Element::Fragment(ours), Element::Fragment(theirs)) => {
+            ours.len() == theirs.len()
+                && ours
+                    .iter()
+                    .zip(theirs)
+                    .all(|(ours, theirs)| shows_the_same(ours, theirs))
+        }
+        (Element::Tag(ours), Element::Tag(theirs)) => {
+            ours.tag == theirs.tag
+                && ours.key == theirs.key
+                && ours.attributes == theirs.attributes
+                && ours.children.len() == theirs.children.len()
+                && ours
+                    .children
+                    .iter()
+                    .zip(&theirs.children)
+                    .all(|(ours, theirs)| shows_the_same(ours, theirs))
+        }
+        (
+            Element::Foreign { node: ours, id: here },
+            Element::Foreign {
+                node: theirs,
+                id: there,
+            },
+        ) => here == there && ours == theirs,
+        _ => false,
+    }
+}
+
+/// Anything that may be written between the tags of a library's
+/// component.
+///
+/// The same marker trick as [`IntoElement`], for the same reason: a
+/// blanket implementation over everything displayable would be judged
+/// to overlap the one for `Element`, since Rust will not reason from
+/// the absence of an implementation.
+pub trait IntoForeignChild<Marker> {
+    fn into_foreign_child(self) -> ForeignChild;
+}
+
+/// Markers, disjoint and never named outside this file.
+pub struct ChildIsElement;
+pub struct ChildIsValue;
+
+impl IntoForeignChild<ChildIsElement> for Element {
+    fn into_foreign_child(self) -> ForeignChild {
+        match self {
+            // A tree of nothing but text is text, which is what React
+            // takes a child to be in the first place.
+            Element::Text(text) => ForeignChild::Text(text),
+            other => ForeignChild::Element(Box::new(other)),
+        }
+    }
+}
+
+impl<T: crate::value::ToValue> IntoForeignChild<ChildIsValue> for T {
+    fn into_foreign_child(self) -> ForeignChild {
+        ForeignChild::Value(self.to_value())
+    }
+}
+
+/// Turn whatever was written between a library component's tags into a
+/// child of it.
+pub fn into_foreign_child<Marker, T: IntoForeignChild<Marker>>(value: T) -> ForeignChild {
+    value.into_foreign_child()
 }
 
 /// A tag, its attributes, its event handlers and its children, in the

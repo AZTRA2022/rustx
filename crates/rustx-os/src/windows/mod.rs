@@ -16,3 +16,4 @@ pub mod notify;
 pub mod shortcut;
 pub mod tray;
 pub mod media;
+pub mod window;

@@ -536,6 +536,53 @@ Config::new("Mon app").mount("panneau", Panneau)
 | `.not_found(Composant)` | l'écran d'une route que personne n'a déclarée |
 | `.mount("id", Composant)` | un composant que React pourra monter |
 | `.on_context_created(…)` | du travail au démarrage de la page |
+| `.frameless()` | sans le cadre du système : la page dessine tout |
+
+### Une fenêtre sans cadre, et ce qu'il faut alors rendre
+
+Beaucoup de logiciels n'ont pas la fenêtre que le système dessine.
+`Config::frameless()` enlève la barre de titre et les trois boutons —
+les bords qu'on attrape pour redimensionner restent, ainsi que l'ombre
+portée.
+
+Ce que le cadre faisait, la page doit le rendre, et `rustx::window` le
+donne :
+
+| | |
+|---|---|
+| `window::drag()` | commencer un déplacement à la souris |
+| `window::minimize()` | réduire dans la barre des tâches |
+| `window::maximize()` | agrandir à toute la place du bureau |
+| `window::restore()` | revenir à sa taille |
+| `window::fullscreen()` | tout l'écran, celui où la fenêtre se trouve |
+| `window::on_top(true)` | la garder devant les autres |
+| `window::frameless()` / `window::framed()` | enlever ou remettre le cadre, en cours de route |
+| `window::shut()` | la fermer |
+
+Une barre de titre à soi, en entier :
+
+```rust
+<header className="flex items-center gap-2 border-b px-3 py-2">
+    <span className="font-semibold">Mon logiciel</span>
+    // La poignée : appuyer dessus et le système déplace la fenêtre.
+    <span className="h-6 flex-1" onMouseDown={|_| { rustx::window::drag(); }} />
+    <button onClick={|_| { rustx::window::minimize(); }}>–</button>
+    <button onClick={|_| { rustx::window::maximize(); }}>□</button>
+    <button onClick={|_| { rustx::window::shut(); }}>×</button>
+</header>
+```
+
+La poignée est posée sur un espace vide et non sur toute la barre :
+un événement rustx ne dit pas encore sur quoi on a appuyé, donc une
+barre entière traînable avalerait les clics de ses propres boutons.
+
+Une deuxième fenêtre se demande sans cadre de la même façon :
+`What::new("outil").frameless()`.
+
+Tout ceci est Windows aujourd'hui. Sur les autres plateformes, chaque
+appel refuse en nommant la plateforme et la chose demandée, plutôt que
+de ne rien faire en silence — ce qui sera écrit est dit dans
+`crates/rustx-os/src/linux/window.rs` et dans `other/mod.rs`.
 
 Une page peut ouvrir une **deuxième fenêtre**, sur la route qu'elle
 choisit :

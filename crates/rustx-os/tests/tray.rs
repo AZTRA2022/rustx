@@ -114,5 +114,10 @@ fn an_icon_file_that_is_not_an_ico_is_refused_in_words() {
 #[test]
 fn a_platform_that_has_no_tray_says_so_before_being_asked() {
     assert_eq!(tray::supported(), cfg!(windows));
-    assert_eq!(notify::supported(), cfg!(windows));
+    // Les notifications sont aussi sous Linux, par `notify-send` —
+    // écrit, pas éprouvé, et dit comme tel dans `linux/notify.rs`.
+    assert_eq!(
+        notify::supported(),
+        cfg!(any(windows, target_os = "linux"))
+    );
 }

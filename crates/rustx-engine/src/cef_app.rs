@@ -27,6 +27,8 @@ pub struct WindowSpec {
     pub width: u32,
     pub height: u32,
     pub url: String,
+    /// Le cadre que le système dessinera autour d'elle, ou pas.
+    pub dressing: rustx_os::window::Dressing,
 }
 
 wrap_browser_process_handler! {
@@ -243,7 +245,7 @@ pub fn child_app() -> App {
 /// c'est pourquoi une page passe par le pont pour en demander une.
 pub(crate) fn open_window(spec: &WindowSpec) {
     // Le nom que `on_after_created` donnera à cette fenêtre.
-    crate::window::expecting(&spec.name);
+    crate::window::expecting(&spec.name, spec.dressing);
 
     let mut window_info =
         WindowInfo::default().set_as_popup(cef::sys::HWND(std::ptr::null_mut()), &spec.title);

@@ -22,12 +22,12 @@ framework promettait de tuer).
 | 2 | cassé | `rustx-compiler` | un nom dans un commentaire d'un bloc `async` est réécrit | corrigé |
 | 3 | cassé | `rustx-compiler` | `autre.dit()` pris pour une lecture de l'état `dit` | corrigé |
 | 4 | cassé | `rustx-compiler` | une cellule de composant lue dans le corps n'est pas réécrite | corrigé |
-| 5 | cassé | `rustx-compiler` | un `let mut` **dans** un bloc `async` est pris pour une cellule | ouvert |
-| 6 | cassé | `rustx-compiler` | une capture en ligne `format!("{x}")` n'est pas réécrite | ouvert |
-| 7 | cassé | `rustx-compiler` | un `let mut` d'une fonction utilitaire d'une page est promu | ouvert |
-| 8 | cassé | `rustx-compiler` | un `async fn` à côté de la page ne peut pas toucher l'état | ouvert |
-| 9 | manque | `rustx-dom` | un `Element` ne peut pas être enfant d'un composant React | ouvert |
-| 10 | manque | `rustx-dom` | `Event` ne porte que `kind` : le texte tapé est hors d'atteinte | ouvert |
+| 5 | cassé | `rustx-compiler` | un `let mut` **dans** un bloc `async` est pris pour une cellule | **corrigé** |
+| 6 | cassé | `rustx-compiler` | une capture en ligne `format!("{x}")` n'est pas réécrite | **corrigé** |
+| 7 | cassé | `rustx-compiler` | un `let mut` d'une fonction utilitaire d'une page est promu | **corrigé** |
+| 8 | cassé | `rustx-compiler` | un `async fn` à côté de la page ne peut pas toucher l'état | **refus explicite** (voir 29) |
+| 9 | manque | `rustx-dom` | un `Element` ne peut pas être enfant d'un composant React | **corrigé** |
+| 10 | manque | `rustx-dom` | `Event` ne porte que `kind` : le texte tapé, et ce sur quoi on a cliqué, sont hors d'atteinte | ouvert |
 | 11 | manque | `rustx-dom` | `Value` n'a aucun accesseur (`as_str`, `as_f64`, `get`) | ouvert |
 | 12 | manque | `rustx-dom` | un callback ne reçoit que le **premier** argument | ouvert |
 | 13 | manque | routeur | pas de *query string* : `/depots?q=rust` ne correspond à rien | ouvert |
@@ -41,6 +41,13 @@ framework promettait de tuer).
 | 21 | coûte | `rustx-compiler` | un refus de page entraîne un second message sur `async main` | ouvert |
 | 22 | coûte | `rustx-lsp` | la complétion exige le chemin écrit en entier | ouvert |
 | 23 | coûte | documentation | le README dit encore qu'une lecture dans un bloc est refusée | ouvert |
+| 24 | cassé | `rustx-compiler` | l'annotation de type d'une valeur de page était perdue | **corrigé** |
+| 25 | cassé | `rustx-compiler` | une mutation par méthode qui rend une valeur ne compilait pas | **corrigé** |
+| 26 | cassé | `rustx-compiler` | une valeur qu'un futur écrit et que l'écran ne capture qu'en ligne n'était pas liée | **corrigé** |
+| 27 | cassé | `rustx-compiler` | une écriture dont la partie droite lit une autre valeur de page était éditée deux fois | **corrigé** |
+| 28 | cassé | `rustx-compiler` | une fonction ordinaire à côté d'une page n'atteignait pas ses valeurs | **corrigé** |
+| 29 | manque | `rustx-compiler` | une `async fn` ne peut pas atteindre une valeur de page (refus explicite) | ouvert |
+| 30 | coûte | `rustx-compiler` | un `.await` de composant qui emprunte un local est refusé par rustc dans un fichier généré | ouvert |
 
 ## Ce qui est cassé
 
@@ -322,3 +329,58 @@ valeur lue est une valeur de page — c'est-à-dire précisément ce qui
 marche depuis que lire une valeur de page depuis une future a été
 implémenté. Deux sections du même fichier disent le contraire l'une de
 l'autre.
+
+### 24 à 28. Cinq réécritures fausses, corrigées
+
+Relevées en construisant le labo, chacune avec sa loi écrite avant le
+correctif.
+
+- **L'annotation de type était perdue.** `let mut visites: Vec<String> =
+  Vec::new();` devenait `shared("visites", || Vec::new())` : le `T` du
+  magasin n'avait plus rien pour s'inférer. La closure porte maintenant
+  le type.
+- **Une mutation par méthode qui rend une valeur.**
+  `battements.remove(0)` devenait `update(move |__v| __v.remove(__a0))`,
+  et `remove` rend l'élément retiré. Le corps de la closure est
+  désormais une instruction.
+- **Une valeur qu'un futur écrit et que l'écran ne lit qu'en capture en
+  ligne** n'était pas liée : la capture est écrite en prose, donc aucune
+  occurrence du nom n'existait dans le code.
+- **Une écriture dont la partie droite lit une autre valeur de page**
+  (`vus = lancements;` dans un bloc `async`) sortait en
+  `vus.set(lancements).get()` : la lecture appartenait au texte de
+  l'écriture et était appliquée après elle.
+- **Une fonction ordinaire à côté d'une page** n'atteignait pas ses
+  valeurs : `fn combien() -> usize { journal.len() }` recevait « cannot
+  find value `journal` in this scope », avec la suggestion d'appeler le
+  composant `Journal`. Elle est maintenant réécrite comme un composant
+  sans balisage.
+
+### 29. Une `async fn` ne peut pas atteindre une valeur de page
+
+Une valeur de page vit sur le fil qui dessine ; une `async fn` est
+lancée par le runtime, donc ailleurs. La lier là-bas construirait une
+seconde valeur, vide, et la lirait à la place — faux en silence. C'est
+désormais un refus explicite qui nomme les deux sorties : écrire le
+travail dans le bloc `async` du composant, ou passer la valeur en
+paramètre. Ce qui manque est la troisième sortie, celle qu'un
+développeur attend : que le compilateur passe lui-même les poignées à la
+fonction et corrige ses appels.
+
+### 30. Un `.await` de composant qui emprunte un local
+
+`let lu = api::depot(&proprietaire, &nom).await;` dans un composant est
+refusé — le futur part sur le runtime et ne peut pas emprunter un local
+du fil qui dessine. C'est du Rust ordinaire, mais le message désigne la
+colonne 259 d'un fichier généré que le développeur n'a jamais ouvert, et
+ne dit pas que prendre les arguments en propre suffit.
+
+### 10, encore : une barre de titre entière ne peut pas être traînée
+
+Depuis que la fenêtre se commande, ce manque a une deuxième
+conséquence. Une barre de titre à soi veut être traînable sur toute sa
+largeur ; mais un `onMouseDown` posé sur la barre reçoit aussi les
+appuis sur ses propres boutons, et `Event` ne dit pas sur quoi on a
+appuyé — donc le déplacement commence et le clic du bouton est avalé.
+La poignée doit être posée sur un espace vide, ce que fait
+`app/layout.rsx` du labo. Ce qui le lèvera : `Event` porte sa cible.

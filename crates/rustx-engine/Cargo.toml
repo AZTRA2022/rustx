@@ -22,6 +22,10 @@ categories = ["gui", "api-bindings"]
 # and Chromium falls back to software rendering after a visible blank window.
 cef = { version = "156.2.0", default-features = false, features = ["resources"] }
 rustx-dom = { path = "../rustx-dom", version = "0.1.0" }
+# La machine, pour une seule chose : commander la fenetre que Chromium a
+# faite. Le cadre, la taille, le rang, le deplacement -- du code de
+# plateforme, et ce crate est le seul endroit du depot qui en contient.
+rustx-os = { path = "../rustx-os", version = "0.1.0" }
 # Le reacteur qu'un `Future` attend. `rt-multi-thread` parce que les
 # threads de l'async ne sont jamais celui du rendu ; `time` et `net`
 # parce qu'un timer et une socket sont ce que les bibliotheques de

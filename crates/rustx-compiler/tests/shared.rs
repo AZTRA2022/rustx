@@ -283,3 +283,47 @@ fn a_page_value_only_a_future_writes_and_the_screen_captures_is_still_bound() {
         "the capture needs a handle to read: {rust}"
     );
 }
+
+#[test]
+fn a_plain_function_beside_a_page_reaches_its_values() {
+    // A helper is ordinary Rust, and a page value has a name: the one
+    // thing a developer expects of a name is that it works where it is
+    // written. It did not -- rustc answered "cannot find value
+    // `journal` in this scope", and helpfully suggested the component
+    // `Journal` of the same name.
+    let source = "let mut journal: Vec<String> = Vec::new();\n\n\
+         fn combien() -> usize {\n    \
+         journal.len()\n}\n\n\
+         fn Page() -> Element {\n    \
+         return <p>{combien()}</p>;\n}\n";
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("fn combien() -> usize {let journal = rustx_dom::store::shared(\"journal\""),
+        "the helper needs the value bound: {rust}"
+    );
+    assert!(
+        rust.contains("journal.get().len()"),
+        "and the read rewritten: {rust}"
+    );
+}
+
+#[test]
+fn an_async_function_that_reaches_a_page_value_is_refused() {
+    // It cannot work and must not look as though it does: a page value
+    // lives on the thread that draws, and an `async fn` is run by the
+    // runtime, somewhere else. What reached the developer instead was
+    // four errors in a generated file.
+    let source = "let mut annule = false;\n\n\
+         async fn ouvrier() {\n    \
+         if annule {\n        \
+         return;\n    \
+         }\n}\n\n\
+         fn Page() -> Element {\n    \
+         return <p>{annule}</p>;\n}\n";
+    let refusal = transpile(source).expect_err("this cannot be transpiled");
+    let said = format!("{refusal:?}");
+    assert!(
+        said.contains("annule") && said.contains("ouvrier"),
+        "the refusal should name the value and the function: {said}"
+    );
+}

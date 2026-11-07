@@ -203,3 +203,118 @@ fn place_of(source: &str, offset: usize) -> (usize, usize) {
 fn line_text(source: &str, line: usize) -> &str {
     source.lines().nth(line - 1).unwrap_or("")
 }
+
+/// The column of the generated line that answers to the one the editor
+/// sent, on a line the rewrite rebuilt.
+///
+/// Why this exists: the position map calls a rewritten line opaque, and
+/// a question with no position was answered with nothing. But *most* of
+/// a rewritten line is still the developer's own text — the rewrite
+/// substitutes the names that became state and leaves the rest — so the
+/// line where somebody is typing `rustx::clipboard::te` holds those
+/// twenty characters exactly as they were typed. There was therefore no
+/// completion anywhere in a handler, in an `async` block, or on any
+/// line that reads a value: precisely the lines where a developer
+/// reaches for a crate's name, which is what made it look as though the
+/// whole path had to be typed before anything was offered.
+///
+/// What is matched is the text **before** the cursor, longest suffix
+/// first: the beginning of the line may have been rebuilt (`let dit =`
+/// becomes `dit.set(`), while what is right in front of the cursor is
+/// what was just typed.
+pub fn aligned(page_line: &str, generated_line: &str, column: usize) -> Option<usize> {
+    let typed: String = page_line.chars().take(column.saturating_sub(1)).collect();
+    if typed.is_empty() {
+        return Some(1);
+    }
+    // Longest first, so the match is the most specific one available.
+    let characters: Vec<char> = typed.chars().collect();
+    for keep in (1..=characters.len()).rev() {
+        let suffix: String = characters[characters.len() - keep..].iter().collect();
+        // The last occurrence: a name that appears twice on a line is
+        // most likely the one nearer the cursor.
+        if let Some(at) = generated_line.rfind(&suffix) {
+            let before = generated_line[..at].chars().count();
+            return Some(before + keep + 1);
+        }
+    }
+    None
+}
+
+/// An answer about the generated file, moved back onto the page.
+///
+/// A question asked at a column the rewrite moved is answered with
+/// ranges at that column: a completion's `textEdit` says "replace from
+/// here", and "here" is a place in the generated line. Applied to the
+/// page unchanged, it would eat the characters before what was typed.
+/// Every position on that one line comes back by the same distance it
+/// went out.
+pub fn shifted(answer: &str, line: usize, by: isize) -> String {
+    if by == 0 {
+        return answer.to_string();
+    }
+    let needle = format!("\"line\":{line},\"character\":");
+    let mut out = String::with_capacity(answer.len());
+    let mut rest = answer;
+    while let Some(at) = rest.find(&needle) {
+        out.push_str(&rest[..at + needle.len()]);
+        rest = &rest[at + needle.len()..];
+        let digits = rest
+            .char_indices()
+            .take_while(|(_, letter)| letter.is_ascii_digit())
+            .count();
+        match rest[..digits].parse::<isize>() {
+            Ok(character) => {
+                out.push_str(&(character + by).max(0).to_string());
+                rest = &rest[digits..];
+            }
+            // Not a number where one was expected: left exactly as it
+            // came, because a wrong position is worse than none.
+            Err(_) => {}
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{aligned, shifted};
+
+    #[test]
+    fn a_position_on_the_asked_line_comes_back_by_the_distance_it_went_out() {
+        let answer = "{\"result\":{\"range\":{\"start\":{\"line\":4,\"character\":18},\
+                      \"end\":{\"line\":4,\"character\":20}}}}";
+        let back = shifted(answer, 4, -3);
+        assert!(back.contains("\"line\":4,\"character\":15"), "got {back}");
+        assert!(back.contains("\"line\":4,\"character\":17"), "got {back}");
+    }
+
+    #[test]
+    fn a_position_on_another_line_is_left_where_it_was() {
+        let answer = "{\"line\":9,\"character\":18}";
+        assert_eq!(shifted(answer, 4, -3), answer);
+    }
+
+    #[test]
+    fn the_column_is_found_by_the_text_in_front_of_the_cursor() {
+        // `let dit = rustx::clipboard::te` on the page, and the rewrite
+        // turned the start of the line into a write of the state.
+        let page = "        let dit = rustx::clipboard::te";
+        let generated = "        dit.set(rustx::clipboard::te";
+        // One past the last character typed.
+        let column = page.chars().count() + 1;
+        let found = aligned(page, generated, column).expect("a column");
+        assert_eq!(found, generated.chars().count() + 1);
+    }
+
+    #[test]
+    fn a_cursor_at_the_start_of_a_line_is_the_start_of_the_line() {
+        assert_eq!(aligned("  anything", "  whatever", 1), Some(1));
+    }
+
+    #[test]
+    fn a_line_with_nothing_in_common_has_no_column() {
+        assert_eq!(aligned("zzz", "rien", 4), None);
+    }
+}

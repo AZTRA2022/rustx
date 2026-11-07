@@ -303,3 +303,147 @@ fn a_value_a_layout_shares_is_in_the_table_like_a_pages_own() {
         "the table never asks the layout: {generated}"
     );
 }
+
+// ─────────────────────────── Groupes de routes ───────────────────────────
+
+#[test]
+fn a_folder_in_parentheses_is_not_a_segment() {
+    // Le groupe de Next.js : `app/(boutique)/panier/page.rsx` est
+    // `/panier`. Il existe pour qu'un layout puisse couvrir plusieurs
+    // écrans sans ajouter un segment à l'URL de chacun.
+    let generated = table(&[("(boutique)/panier/page.rsx", PAGE)]);
+    assert!(
+        generated.contains("pattern: \"/panier\""),
+        "le groupe ne doit pas être dans l'URL : {generated}"
+    );
+}
+
+#[test]
+fn a_group_still_carries_its_layout() {
+    let generated = table(&[
+        ("(boutique)/layout.rsx", LAYOUT),
+        ("(boutique)/panier/page.rsx", PAGE),
+    ]);
+    assert!(generated.contains("pattern: \"/panier\""), "{generated}");
+    assert!(
+        generated.contains("layouts: &[layout_0]"),
+        "le layout du groupe doit entourer la page : {generated}"
+    );
+}
+
+#[test]
+fn a_group_at_the_root_leaves_the_root_the_root() {
+    let generated = table(&[("(public)/page.rsx", PAGE)]);
+    assert!(generated.contains("pattern: \"/\""), "{generated}");
+}
+
+// ──────────────────────────── Attrape-tout ────────────────────────────
+
+const PAGE_WITH_CHEMIN: &str =
+    "fn Page(chemin: String) -> Element {\n    return <p>{chemin}</p>;\n}\n";
+
+#[test]
+fn a_catch_all_folder_is_a_catch_all_segment() {
+    let generated = table(&[("fichiers/[...chemin]/page.rsx", PAGE_WITH_CHEMIN)]);
+    assert!(
+        generated.contains("pattern: \"/fichiers/[...chemin]\""),
+        "{generated}"
+    );
+    assert!(
+        generated.contains("params.get(\"chemin\")"),
+        "la page doit recevoir ce que le segment a pris : {generated}"
+    );
+}
+
+#[test]
+fn an_optional_catch_all_folder_is_one_too() {
+    let generated = table(&[("fichiers/[[...chemin]]/page.rsx", PAGE_WITH_CHEMIN)]);
+    assert!(
+        generated.contains("pattern: \"/fichiers/[[...chemin]]\""),
+        "{generated}"
+    );
+}
+
+// ─────────────────── Un layout reçoit ses paramètres ───────────────────
+
+#[test]
+fn a_layout_can_take_the_parameters_of_its_own_folder() {
+    // Le layout de `[proprietaire]/[nom]` est le cadre d'un dépôt
+    // précis. Sans cela, il devait relire `router::current()` et
+    // redécouper le chemin à la main.
+    let layout = "fn Layout(children: Element, proprietaire: String) -> Element {\n    \
+                  return <main>{proprietaire}{children}</main>;\n}\n";
+    let generated = table(&[
+        ("depots/[proprietaire]/layout.rsx", layout),
+        ("depots/[proprietaire]/page.rsx", PAGE_WITH_PROPRIETAIRE),
+    ]);
+    assert!(
+        generated.contains("Layout(children, params.get(\"proprietaire\").to_string())"),
+        "le layout doit être appelé avec son paramètre : {generated}"
+    );
+}
+
+const PAGE_WITH_PROPRIETAIRE: &str =
+    "fn Page(proprietaire: String) -> Element {\n    return <p>{proprietaire}</p>;\n}\n";
+
+#[test]
+fn a_layout_asking_for_a_parameter_its_folder_has_not_got_is_refused() {
+    let layout = "fn Layout(children: Element, inconnu: String) -> Element {\n    \
+                  return <main>{inconnu}{children}</main>;\n}\n";
+    let error = table_for(Path::new(&tree(&[
+        ("depots/layout.rsx", layout),
+        ("depots/page.rsx", PAGE),
+    ])))
+    .expect_err("this cannot be generated");
+    assert!(
+        error.message.contains("inconnu"),
+        "le refus doit nommer le paramètre : {}",
+        error.message
+    );
+}
+
+#[test]
+fn a_layout_whose_first_parameter_is_not_children_is_still_refused() {
+    let layout = "fn Layout(quoi: Element) -> Element {\n    return <main>{quoi}</main>;\n}\n";
+    let error = table_for(Path::new(&tree(&[
+        ("layout.rsx", layout),
+        ("page.rsx", PAGE),
+    ])))
+    .expect_err("this cannot be generated");
+    assert!(error.message.contains("children"), "{}", error.message);
+}
+
+// ────────────────────── L'écran d'attente d'un segment ──────────────────────
+
+const LOADING: &str =
+    "fn Loading() -> Element {\n    return <p>un instant</p>;\n}\n";
+
+#[test]
+fn a_loading_file_becomes_the_screen_shown_while_a_page_has_nothing() {
+    let generated = table(&[("depots/loading.rsx", LOADING), ("depots/page.rsx", PAGE)]);
+    assert!(
+        generated.contains("loading: Some(loading_0)"),
+        "la route doit porter son écran d'attente : {generated}"
+    );
+}
+
+#[test]
+fn the_nearest_loading_file_is_the_one_a_page_gets() {
+    let generated = table(&[
+        ("loading.rsx", LOADING),
+        ("depots/loading.rsx", LOADING),
+        ("depots/[nom]/page.rsx", "fn Page(nom: String) -> Element {\n    return <p>{nom}</p>;\n}\n"),
+    ]);
+    // Deux fichiers d'attente, et c'est le plus proche de la page qui
+    // la couvre -- comme un layout, mais un seul, le plus bas.
+    assert!(
+        generated.contains("loading: Some(loading_1)"),
+        "le plus proche doit gagner : {generated}"
+    );
+}
+
+#[test]
+fn a_page_with_no_loading_file_above_it_has_none() {
+    let generated = table(&[("page.rsx", PAGE)]);
+    assert!(generated.contains("loading: None"), "{generated}");
+}
