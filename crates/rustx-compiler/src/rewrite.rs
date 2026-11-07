@@ -302,12 +302,31 @@ fn future_task(
     let mut edits = Vec::new();
 
     for promoted in &component.promoted {
-        let (_, mutations) =
+        let (reads, mutations) =
             crate::promote::uses_in(source, &promoted.name, call.arguments, true);
-        if mutations.is_empty() {
+        // A value the block never names needs no handle, and a handle
+        // per page value would be a line of preamble for nothing.
+        if reads.is_empty() && mutations.is_empty() {
             continue;
         }
         let name = promoted.name.as_str();
+        // A read goes to where the value is; a write still posts. The
+        // handle that can do both is asked for only when the block
+        // actually reads, so a block that only writes keeps the handle
+        // it has always had — and the stricter bound it does not need.
+        let reaching = !reads.is_empty();
+        let read_edits: Vec<Edit> = reads
+            .iter()
+            .map(|read| Edit {
+                span: *read,
+                text: format!("{name}.get()"),
+            })
+            .collect();
+        let handle = if reaching {
+            "reach_until"
+        } else {
+            "remote_until"
+        };
         // A value the page declared is found by its name, wherever the
         // component is; a value this component declared is already bound
         // above, as a cell.
@@ -315,10 +334,10 @@ fn future_task(
             let initializer = &source[promoted.initializer.start..promoted.initializer.end];
             preamble.push_str(&format!(
                 "let {name} = rustx_dom::store::shared(\"{name}\", || {initializer})\
-                 .remote_until(&__cancel); "
+                 .{handle}(&__cancel); "
             ));
         } else {
-            preamble.push_str(&format!("let {name} = {name}.remote_until(&__cancel); "));
+            preamble.push_str(&format!("let {name} = {name}.{handle}(&__cancel); "));
         }
         for mutation in &mutations {
             edits.push(rewrite_mutation_for(
@@ -326,10 +345,11 @@ fn future_task(
                 name,
                 mutation,
                 call.arguments,
-                &[],
+                &read_edits,
                 Owning::Moved,
             ));
         }
+        edits.extend(read_edits);
     }
 
     let arguments = apply_relative(text, call.arguments.start, edits);

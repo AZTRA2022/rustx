@@ -624,3 +624,80 @@ fn a_refusal_is_one_sentence_of_prose_and_not_a_wall_of_spaces() {
         );
     }
 }
+
+#[test]
+fn a_page_value_read_in_an_async_block_is_read_where_it_is() {
+    // This is what an `Arc<Mutex<String>>` beside the page used to be
+    // for: the block wants to know what the page says. The handle it
+    // gets reads as well as writes, and the read happens where the
+    // value is -- no copy is published, and no clone is added to a
+    // write.
+    let source = "let mut clicks = 0;
+
+fn Page() -> Element {
+    async move {
+        let texte = format!(\"clics: {}\", clicks);
+        envoyer(texte).await;
+    };
+    return <p onClick={move |_| clicks += 1}>{clicks}</p>;
+}";
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("reach_until(&__cancel)"),
+        "the block did not ask for a handle it can read: {rust}"
+    );
+    assert!(
+        rust.contains("clicks.get()"),
+        "the read was not rewritten: {rust}"
+    );
+    assert_eq!(
+        rust.matches('\n').count(),
+        source.matches('\n').count(),
+        "got {rust}"
+    );
+}
+
+#[test]
+fn a_block_that_only_writes_keeps_the_handle_it_had() {
+    // A write does not need to read, and a handle that reads asks more
+    // of the type than a write does. A block that only writes must not
+    // pay for a bound it has no use for.
+    let source = "let mut compte = 0;
+
+fn Page() -> Element {
+    async move {
+        compte += 1;
+    };
+    return <p>ok</p>;
+}";
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("remote_until(&__cancel)"),
+        "a writing block changed handle: {rust}"
+    );
+    assert!(
+        !rust.contains("reach_until"),
+        "a writing block asked to read: {rust}"
+    );
+}
+
+#[test]
+fn a_component_s_own_cell_read_in_an_async_block_is_still_refused() {
+    // A page value lives in one place both sides reach. A cell belongs
+    // to the instance that is drawing, and the instance is what goes
+    // when the component does -- so this one keeps its refusal, and the
+    // refusal says where the value belongs instead.
+    let source = "fn Page() -> Element {
+    let mut compte = 0;
+    async move {
+        let texte = format!(\"{}\", compte);
+        envoyer(texte).await;
+    };
+    return <p onClick={move |_| compte += 1}>{compte}</p>;
+}";
+    let error = rustx_compiler::transpile::transpile(source).expect_err("refused");
+    assert!(
+        error.message.contains("own cell") && error.message.contains("top of the page"),
+        "got {error:?}"
+    );
+}

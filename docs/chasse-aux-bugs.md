@@ -58,6 +58,8 @@ rendu ». Les trois étaient justes, et les numéros 14 à 17 en viennent.
 | 21 | important | `rustx-dom` | la boîte aux lettres d'un thread parti grossissait sans fin | corrigé |
 | 22 | bloquant | labo, tests | une page tronquée a survécu à un rapport vert | corrigé |
 | 23 | important | `rustx-lsp` | une prop avait l'icône d'un attribut, et une icône npm n'avait aucune prop | corrigé |
+| 24 | important | `rustx-lsp` | l'ordre de la liste était construit puis jeté | corrigé |
+| 25 | bloquant | `rustx-dom`, `rustx-compiler` | lire une valeur de la page depuis une future était refusé | corrigé |
 
 ---
 
@@ -568,6 +570,64 @@ pour laquelle ils avaient été écrits et rien sur les fichiers qu'un
 développeur a vraiment. `tests/laboratory.rs` prend le vrai labo comme
 sujet et relit ses `.tsx` **sans passer par le serveur** — un test qui
 demanderait au serveur ce qu'il doit attendre le comparerait à lui-même.
+
+### 24. L'ordre de la liste était construit puis jeté
+
+Rapporté juste après le n° 23 : « on place les props propres en haut de
+la liste ». Elles y étaient déjà — `attributes` les pousse en premier,
+et un commentaire explique pourquoi. Ce qui manquait, c'est de le
+**dire** : aucun `sortText` ne partait sur le fil, et un éditeur trie
+alors par le libellé. `variant` était donc classé sous V, derrière
+`accessKey` et `action`.
+
+**Correction.** Le rang, puis le libellé. Les groupes sont ordonnés par
+nous ; dans un groupe, l'ordre alphabétique de l'éditeur est gardé,
+parce que c'est l'ordre dans lequel une liste se parcourt. Seul ce que
+le composant prend lui-même est déplacé.
+
+La leçon est la même que celle du n° 23 : un ordre, une icône, un
+détail — tout ce qui ne traverse pas le protocole n'existe pas, même
+écrit avec soin dans notre source. Les deux tests le vérifient donc sur
+le JSON, pas sur le `Vec`.
+
+### 25. Lire une valeur de la page depuis une future était refusé
+
+Le refus était exact et c'est pour ça qu'il n'était pas une réponse :
+
+> `clicks` is read inside a `task(async ...)`. A value lives on the
+> thread that draws, and this block runs beside it.
+
+Un développeur qui voulait sauvegarder son compteur devait donc écrire
+lui-même ce que le framework refusait de faire : `keep`, un
+`Arc<Mutex<String>>`, un tampon, une seconde poignée, et cinq lignes
+dans le gestionnaire pour tenir le tampon à jour. Cinq concepts pour
+dire une chose — la tâche veut lire `clicks`. C'était l'inverse de
+l'argument du framework.
+
+**Correction, et pourquoi celle-là.** La première idée était un miroir :
+le thread du rendu publierait un clone à chaque écriture. Refusée à la
+lecture de la spec, et à raison — on ne doit pas être obligé de clonner
+une cellule lue depuis une future. Si la valeur est lue des deux côtés,
+il ne faut pas deux copies, il faut un seul endroit.
+
+Une valeur que la page déclare vit donc derrière un verrou plutôt que
+dans un `RefCell`, et dans un `Arc` plutôt qu'un `Rc`. Une lecture va où
+la valeur est ; **aucun clone n'est ajouté à aucune écriture**. Ce que ça
+coûte : un compteur atomique et un verrou non contendu, sur une poignée
+de valeurs par application lues quelques fois par frame. La cellule
+propre d'un composant n'est pas touchée et reste un `Rc<RefCell<T>>` —
+il y en a des milliers, et ce sont elles le chemin chaud.
+
+Lire et écrire restent asymétriques, et c'est voulu : l'écriture repart
+par la frame, qui marque la page, fait coûter un seul rendu à mille
+écritures, et refuse l'écriture d'un composant parti. Ce qui en découle
+est dit une fois dans le README : une future qui écrit puis relit voit
+l'ancienne valeur jusqu'à la frame qui applique.
+
+Et un refus reste, avec de meilleurs mots : une `let mut` interne à un
+composant appartient à l'instance qui dessine, et l'instance est ce qui
+s'en va quand le composant part. Le refus dit maintenant où déclarer la
+valeur au lieu de dire seulement non.
 
 ## Ce que la chasse n'a pas corrigé, et pourquoi
 

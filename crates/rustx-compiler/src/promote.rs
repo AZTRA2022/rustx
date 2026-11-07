@@ -375,17 +375,27 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             }
         }
 
-        for held in &promoted {
+        // A value the page declared is reached from a block as it is
+        // written: it lives in one place both the thread that draws and
+        // a future get to, so there is nothing to refuse and nothing to
+        // write by hand.
+        //
+        // A cell this component declared is another matter. It belongs
+        // to an instance, on the thread that draws, and an instance is
+        // what goes when the component does — so there is still no
+        // reading it from beside the window.
+        for held in promoted.iter().filter(|held| !held.shared) {
             for region in &remote_regions {
                 let (reads, _) = uses_in(source, &held.name, *region, true);
                 if let Some(read) = reads.first() {
                     return Err(CompileError::flagged(
                         read.start,
                         format!(
-                            "`{}` is read inside a `task(async ...)`. A value lives on the \
-                             thread that draws, and this block runs beside it, so there is \
-                             nothing there to read -- read it before the block and move the \
-                             copy in, or post the work back with a write.",
+                            "`{}` is this component's own cell, and it is read inside an \
+                             `async` block. A cell belongs to the instance that is drawing, \
+                             on the thread that draws -- read it before the block and move \
+                             the copy in, or declare it at the top of the page, which is \
+                             where a value a future reads belongs.",
                             held.name
                         ),
                     )

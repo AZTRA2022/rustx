@@ -132,7 +132,15 @@ fn the_laboratory_is_covered_or_said_to_be_missing() {
 
 #[test]
 fn every_page_of_the_repository_is_accepted() {
-    for page in every_page() {
+    // The repository's own pages only. The laboratory is a sibling
+    // checkout somebody is writing in: a half-typed `let` there is a
+    // keystroke, not a defect, and a net that cries wolf at one is a
+    // net that gets ignored. What the laboratory is still held to is
+    // the law below — when it does compile, it must not emit nonsense,
+    // which is the law that catches a truncated line.
+    let mut ours = Vec::new();
+    pages_under(&repository().join("apps"), &mut ours);
+    for page in ours {
         let source = std::fs::read_to_string(&page).expect("a page reads");
         if let Err(refused) = rustx_compiler::transpile::transpile(&source) {
             panic!("{} is refused: {}", named(&page), refused.message);

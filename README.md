@@ -616,6 +616,49 @@ Un bloc qui est une **valeur** est laissé tranquille : `let tenu = async
 appartient. `task(async { … })` marche toujours, et veut dire la même
 chose — la forme explicite, pour qui préfère la nommer.
 
+#### Lire une valeur de la page depuis le bloc
+
+Un bloc lit les valeurs que la page a déclarées, là où elles sont :
+
+```rust
+let mut clics = 0;
+let mut enregistrements = 0;
+
+fn Page() -> Element {
+    async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            let texte = format!("clics: {}", clics);
+            if tokio::fs::write("sauvegarde.txt", texte).await.is_ok() {
+                enregistrements += 1;
+            }
+        }
+    };
+
+    return <button onClick={move |_| clics += 1}>{clics}</button>;
+}
+```
+
+Il n'y a rien à déclarer à côté : ni `keep`, ni `Arc`, ni `Mutex`, ni
+tampon qu'un gestionnaire devrait penser à tenir à jour. Une valeur que
+le compilateur voit lue depuis une future vit dans un seul endroit que
+les deux côtés atteignent, donc la boucle voit le `clics` d'aujourd'hui
+et non une copie prise au premier tour.
+
+Lire et écrire ne sont pas symétriques, et c'est voulu. Une **lecture**
+est directe. Une **écriture** repart par la frame — c'est elle qui
+marque la page, qui fait coûter un seul rendu à mille écritures, et qui
+refuse l'écriture d'un composant déjà parti. Ce qui en découle, dit une
+fois : *une future qui écrit puis relit voit l'ancienne valeur jusqu'à
+la frame qui applique l'écriture.*
+
+Deux limites à connaître. La valeur doit être `Send + Sync` — c'est ce
+qu'être lue depuis un autre thread demande, et rustc le dit sur la ligne
+de la page. Et c'est une valeur **de la page**, déclarée au sommet du
+fichier : une `let mut` interne à un composant appartient à l'instance
+qui dessine, donc elle est refusée dans un bloc, et le refus dit où la
+déclarer.
+
 `.await` marche sur tout ce que l'écosystème écrit — `reqwest`, `sqlx`,
 un `Future` de `std`, un timer. Le runtime démarre à la **première**
 future du processus et jamais avant : une application qui n'écrit aucun

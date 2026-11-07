@@ -28,8 +28,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::rc::Rc;
+use std::sync::{Arc, RwLock};
 
-use crate::state::{InstanceId, current, forget_on_drop, mark_dirty};
+use crate::state::{Cancel, InstanceId, Remote, current, forget_on_drop, mark_dirty};
 
 /// Who is showing a store's value. Shared with the registry, so that an
 /// unmounted component can be dropped from the list without knowing
@@ -37,9 +38,43 @@ use crate::state::{InstanceId, current, forget_on_drop, mark_dirty};
 type Readers = Rc<RefCell<Vec<InstanceId>>>;
 
 /// The value, and who is showing it.
+///
+/// The value sits behind a lock rather than a `RefCell`, and in an `Arc`
+/// rather than an `Rc`, so that a future can read it where it is
+/// instead of being handed a copy somebody has to keep up to date. That
+/// is the whole of what `let mut clicks = 0;` at the top of a page used
+/// to need an `Arc<Mutex<…>>` beside it for.
+///
+/// What it costs: an atomic counter and an uncontended lock, on a
+/// handful of values per application read a few times per frame. What
+/// it does not cost is a clone on any write, which is the thing a page
+/// would have felt. A component's own cell is untouched and stays an
+/// `Rc<RefCell<T>>` — there are thousands of those, and they are the
+/// hot path.
 struct Held<T> {
-    value: RefCell<T>,
+    value: Arc<RwLock<T>>,
     readers: Readers,
+}
+
+impl<T> Held<T> {
+    /// The value, for as long as `with` runs.
+    ///
+    /// A poisoned lock is read through: the panic that poisoned it was
+    /// somebody else's, and a page that refuses to draw because of it
+    /// is a worse answer than a page that draws what is there.
+    fn read<R>(&self, with: impl FnOnce(&T) -> R) -> R {
+        with(&self.value.read().unwrap_or_else(|poisoned| poisoned.into_inner()))
+    }
+
+    /// The value, to change in place.
+    fn write<R>(&self, with: impl FnOnce(&mut T) -> R) -> R {
+        with(&mut self.value.write().unwrap_or_else(|poisoned| poisoned.into_inner()))
+    }
+
+    /// The value, if reading it right now would not wait.
+    fn read_if_free<R>(&self, with: impl FnOnce(&T) -> R) -> Option<R> {
+        self.value.try_read().ok().map(|held| with(&held))
+    }
 }
 
 /// A handle on one shared value.
@@ -71,7 +106,7 @@ impl<T: Default + Clone + 'static> Store<T> {
     pub fn get(&self) -> T {
         let shared = held(Key::Type(TypeId::of::<T>()), T::default);
         enrol(&shared);
-        shared.value.borrow().clone()
+        shared.read(|held| held.clone())
     }
 }
 
@@ -80,27 +115,28 @@ impl<T: Default + 'static> Store<T> {
     pub fn with<R>(&self, read: impl FnOnce(&T) -> R) -> R {
         let shared = held(Key::Type(TypeId::of::<T>()), T::default);
         enrol(&shared);
-        read(&shared.value.borrow())
+        shared.read(read)
     }
 
     /// Replace the value and mark everyone who reads it.
     ///
-    /// The value that was there is dropped once the borrow is over: a
+    /// The value that was there is dropped once the lock is released: a
     /// `Drop` is the developer's code, and it may well read this store.
     pub fn set(&self, value: T) {
         let shared = held(Key::Type(TypeId::of::<T>()), T::default);
-        let previous = std::mem::replace(&mut *shared.value.borrow_mut(), value);
+        let previous = shared.write(|held| std::mem::replace(held, value));
         drop(previous);
         soil(&shared);
     }
 
     /// Change the value in place.
     ///
-    /// `change` runs while the store is borrowed, so it must not read
-    /// the same store — the way a `RefCell` has always behaved.
+    /// `change` runs while the store is held, so it must not read the
+    /// same store — the way a `RefCell` has always behaved, and the way
+    /// a lock does too.
     pub fn update(&self, change: impl FnOnce(&mut T)) {
         let shared = held(Key::Type(TypeId::of::<T>()), T::default);
-        change(&mut shared.value.borrow_mut());
+        shared.write(change);
         soil(&shared);
     }
 }
@@ -189,11 +225,69 @@ pub fn shared<T: 'static>(name: &'static str, initial: impl FnOnce() -> T) -> Sh
     let watching = Rc::downgrade(&held);
     crate::carried::report::<T>(name, move || {
         let held = watching.upgrade()?;
-        let value = held.value.try_borrow().ok()?;
-        crate::carried::text_of::<T>(&value)
+        held.read_if_free(|value| crate::carried::text_of::<T>(value))
+            .flatten()
     });
 
     Shared { held, name }
+}
+
+/// A value a page declared, reached from a future.
+///
+/// `Send`, `Sync` and `Clone`, and it carries the value rather than a
+/// copy of it: a read goes to where the value is. That is what lets a
+/// bare `async { … }` write `format!("clics: {clicks}")` with nothing
+/// declared beside it.
+///
+/// Reading and writing are deliberately not symmetric. A read is direct
+/// because a future asking what the page says has nothing to wait for;
+/// a write posts, because marking the page dirty, coalescing, and
+/// refusing a departed component's write all happen on the thread that
+/// draws. See [`Shared::reach_until`].
+pub struct Reach<T> {
+    value: Arc<RwLock<T>>,
+    posting: Remote<T>,
+}
+
+impl<T> Clone for Reach<T> {
+    fn clone(&self) -> Self {
+        Self {
+            value: Arc::clone(&self.value),
+            posting: self.posting.clone(),
+        }
+    }
+}
+
+impl<T: 'static> Reach<T> {
+    /// The value, for as long as `read` runs.
+    pub fn with<R>(&self, read: impl FnOnce(&T) -> R) -> R {
+        read(&self.value.read().unwrap_or_else(|poisoned| poisoned.into_inner()))
+    }
+
+    /// Change the value, on the next frame of the thread that owns it.
+    pub fn update(&self, change: impl FnOnce(&mut T) + Send + 'static) {
+        self.posting.update(change);
+    }
+
+    /// Replace the value, on the next frame of the thread that owns it.
+    pub fn set(&self, value: T)
+    where
+        T: Send,
+    {
+        self.posting.set(value);
+    }
+
+    /// Is there still somewhere for a write through this handle to go?
+    pub fn is_open(&self) -> bool {
+        self.posting.is_open()
+    }
+}
+
+impl<T: Clone + 'static> Reach<T> {
+    /// The value, as a copy — the shape a page's own read takes.
+    pub fn get(&self) -> T {
+        self.with(|held| held.clone())
+    }
 }
 
 /// A handle on one shared value.
@@ -222,7 +316,7 @@ impl<T: Clone + 'static> Shared<T> {
     /// The value, as a copy.
     pub fn get(&self) -> T {
         enrol(&self.held);
-        self.held.value.borrow().clone()
+        self.held.read(|held| held.clone())
     }
 }
 
@@ -230,15 +324,15 @@ impl<T: 'static> Shared<T> {
     /// Read without copying, for a value that is not `Clone`.
     pub fn with<R>(&self, read: impl FnOnce(&T) -> R) -> R {
         enrol(&self.held);
-        read(&self.held.value.borrow())
+        self.held.read(read)
     }
 
     /// Replace the value and mark everyone who reads it.
     ///
-    /// What was there is dropped once the borrow is over: a `Drop` is
+    /// What was there is dropped once the lock is released: a `Drop` is
     /// the developer's code, and it may well read this value.
     pub fn set(&self, value: T) {
-        let previous = std::mem::replace(&mut *self.held.value.borrow_mut(), value);
+        let previous = self.held.write(|held| std::mem::replace(held, value));
         drop(previous);
         soil(&self.held);
         crate::carried::keep();
@@ -262,9 +356,30 @@ impl<T: 'static> Shared<T> {
         crate::state::remote_for_shared(self.name, Some(until.clone()))
     }
 
+    /// A handle a future can **read** as well as write.
+    ///
+    /// What a bare `async { … }` captures when the block reads the
+    /// value and not only writes it. Reading goes straight to where the
+    /// value is — no copy is published and no clone is added to a
+    /// write — and writing still posts on the mailbox, so the frame
+    /// keeps marking the page, coalescing a thousand writes into one
+    /// render, and refusing a write whose component has gone.
+    ///
+    /// The consequence to know: a future that writes and then reads
+    /// sees the old value until the frame applies the write.
+    pub fn reach_until(&self, until: &Cancel) -> Reach<T>
+    where
+        T: Send + Sync,
+    {
+        Reach {
+            value: Arc::clone(&self.held.value),
+            posting: crate::state::remote_for_shared(self.name, Some(until.clone())),
+        }
+    }
+
     /// Change the value in place.
     pub fn update(&self, change: impl FnOnce(&mut T)) {
-        change(&mut self.held.value.borrow_mut());
+        self.held.write(change);
         soil(&self.held);
         // Written as it happens: the window `rustx dev` replaces is
         // killed, so nothing that waits for a tidy shutdown would run.
@@ -285,7 +400,7 @@ fn held<T: 'static>(key: Key, initial: impl FnOnce() -> T) -> Rc<Held<T>> {
             let readers: Readers = Rc::new(RefCell::new(Vec::new()));
             Entry {
                 held: Rc::new(Held {
-                    value: RefCell::new(initial()),
+                    value: Arc::new(RwLock::new(initial())),
                     readers: Rc::clone(&readers),
                 }),
                 readers,
@@ -353,7 +468,7 @@ pub(crate) fn write_to_shared<T: 'static>(name: &'static str, change: impl FnOnc
     let Ok(held) = found.downcast::<Held<T>>() else {
         return false;
     };
-    change(&mut held.value.borrow_mut());
+    held.write(change);
     soil(&held);
     // Not `carried::keep()` here: that is a synchronous write of the
     // whole carried-state file, and a thousand writes from an `async`
