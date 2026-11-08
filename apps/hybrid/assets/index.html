@@ -20,6 +20,92 @@
       // own frames from a timer when that happens; so does this.
       const rustx_soon = (then) => setTimeout(then, 16);
 
+      if (rustx_scenario() === "attente") {
+        const waitFor = (ready, then, left = 900) => {
+          const look = () => {
+            if (ready()) {
+              then();
+              return;
+            }
+            if (left-- <= 0) {
+              rustx_report("gave_up_on", ready.toString().slice(0, 120));
+              rustx_report("done", "no");
+              return;
+            }
+            rustx_soon(look);
+          };
+          look();
+        };
+        const text = (id) => {
+          const found = document.querySelector(id);
+          return found === null ? null : found.textContent.trim();
+        };
+
+        // What a component that awaits its value shows before the value
+        // is there: nothing. Read on the first look, which is a frame
+        // the window produced while the answer was still coming -- so
+        // this line is also the proof that the await did not block it.
+        rustx_report(
+          "answer_at_first_look",
+          text("#reponse") === null ? "nothing" : text("#reponse")
+        );
+
+        // The page opens on `/attente`, so the three awaits are already
+        // in flight. Each one writes a row, and the timer they wait on
+        // is the runtime's: it fires on a machine whose window produces
+        // no frames of its own.
+        waitFor(
+          () => text("#rows-count") === "3",
+          () => {
+            rustx_report("rows_after_three_awaits", text("#rows-count"));
+            rustx_report("rows_drawn", String(document.querySelectorAll("#rows .row").length));
+
+            // And the answer, once it is there: the component that was
+            // drawing nothing draws it, without the page asking again.
+            waitFor(
+              () => text("#reponse") !== null,
+              () => {
+            rustx_report("answer_later", text("#reponse"));
+
+            // A thousand writes with nothing between them, applied by
+            // the frame that drained them.
+            waitFor(
+              () => text("#burst") === "1000",
+              () => {
+                rustx_report("burst_total", text("#burst"));
+                rustx_report("renders_for_the_burst", text("#drawn"));
+
+                // And the endless one. Leaving the page drops the cell
+                // that holds its token, so the future is abandoned
+                // where it waits. Nothing below cancels it by name.
+                const before = Number(rustx_shared("ticks"));
+                rustx_report("ticks_before_leaving", String(before));
+                document.querySelector("#attente-leave").click();
+
+                waitFor(
+                  () => document.querySelector("#attente") === null,
+                  () => {
+                    // What the counter says the moment the page is gone.
+                    const atLeave = Number(rustx_shared("ticks"));
+                    // Long enough that twenty-millisecond ticks would
+                    // have added a dozen more.
+                    setTimeout(() => {
+                      const after = Number(rustx_shared("ticks"));
+                      rustx_report("ticks_at_leaving", String(atLeave));
+                      rustx_report("ticks_after_leaving", String(after));
+                      rustx_report("still_ticking", after > atLeave ? "yes" : "no");
+                      rustx_report("done", "yes");
+                    }, 400);
+                  }
+                );
+              }
+            );
+              }
+            );
+          }
+        );
+      }
+
       if (rustx_scenario() === "page") {
         const waitFor = (ready, then) => {
           const look = () => {

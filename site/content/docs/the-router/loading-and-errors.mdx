@@ -1,0 +1,82 @@
+---
+title: "Loading and errors"
+description: "loading.rsx while the page has nothing, error.rsx if it fails — inside the same layouts."
+---
+
+A page that waits on an `.await` draws nothing until the response arrives. That is
+correct, and it is also a blank screen.
+
+## `loading.rsx`
+
+The nearest `loading.rsx` takes the place of the page while it has
+nothing, **inside the same layouts**: the top bar stays, and only the
+middle says "one moment".
+
+```rust
+// app/repos/loading.rsx
+fn Loading() -> Element {
+    return <p className="animate-pulse">loading…</p>;
+}
+```
+
+There is nothing to declare: the file is enough. The nearest one to the page
+wins, as for layouts, so an `app/loading.rsx` serves as the fallback
+for the whole application.
+
+## `error.rsx`
+
+If the page fails — an `unwrap` on nothing, an index past the end of a list — the
+nearest `error.rsx` takes its place, with what the panic said,
+instead of the window going away.
+
+```rust
+// app/repos/error.rsx
+fn Error(why: String) -> Element {
+    return <div>
+        <p>That did not work: {why}</p>
+        <button onClick={|_| { rustx::router::back(); }}>back</button>
+    </div>;
+}
+```
+
+`why` is the message of the panic, as Rust wrote it.
+
+<Callout type="warn" title="Without error.rsx, nothing is caught">
+A page that fails with no `error.rsx` above it behaves as before:
+nothing is caught. This is intended — catching everywhere would turn a bug into a
+screen nobody asked for, and a lost call stack is a bug that can no longer be found.
+</Callout>
+
+## Both together
+
+A screen that calls the network often has all three files:
+
+```text
+app/repos/page.rsx      the screen, which waits for a response
+app/repos/loading.rsx   while waiting
+app/repos/error.rsx     if it fails
+```
+
+And in the page, an **expected** failure is not a panic: it is a screen.
+
+```rust
+// app/repos/page.rsx
+let mut found: Vec<Repo> = Vec::new();
+let mut failure = String::new();
+
+fn Page() -> Element {
+    async move {
+        match crate::api::search("tokio").await {
+            Ok(list) => found = list,
+            Err(why) => failure = why.to_string(),
+        }
+    };
+
+    return <section>
+        {if failure.is_empty() { Element::Empty } else { Failure(failure.clone()) }}
+        <ul>{found.iter().map(|each| Row(each.clone())).collect::<Vec<Element>>()}</ul>
+    </section>;
+}
+```
+
+`error.rsx` is for what was not foreseen; an HTTP 404 response is drawn.

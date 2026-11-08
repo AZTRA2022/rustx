@@ -1,0 +1,81 @@
+---
+title: "Environment"
+description: "The environment variables rustx reads, constants fixed at build time, and why a secret does not belong in either."
+---
+
+There is no `.env` file support. rustx does not read one, in `rustx dev` or in
+a shipped application. Next.js loads `.env.local` for you. Here, the
+environment is the process's own.
+
+## What the framework reads
+
+| | |
+|---|---|
+| `RUSTX_SOFTWARE` | `1` composes the window on the processor. For machines with no 3D driver. Unset or `0` is off |
+| `RUSTX_TRACE` | set to anything, it traces the messages between the window and the page, and each page context |
+| `LOCALAPPDATA` | where the engine puts its profile folder. The temporary folder is used if it is unset |
+| `RUSTX_CARRIED` | set by `rustx dev` on the process it launches, to hand over state. Do not set it yourself |
+
+`RUSTX_SOFTWARE` has to be true in every process of the application. The
+environment is what all of them share, which is why it is a variable and not a
+flag.
+
+The engine also reads two command-line arguments that are not environment but
+belong in the same list: `--do-not-de-elevate`, which Chromium reads, and
+`--scenario=<name>` with `--report=<path>`, which the test harness uses. See
+[testing](/docs/tooling/testing).
+
+The build reads `CARGO_MANIFEST_DIR`, which cargo sets. `rustx` as a command
+reads no variable.
+
+## Your own variables
+
+`std::env::var` is ordinary Rust, and a `.rsx` page can call it. It reads the
+environment of the process **at run time**, on the user's machine.
+
+```rust
+let level = std::env::var("MY_APP_LEVEL").unwrap_or_else(|_| "info".to_string());
+```
+
+A desktop application is started from a shortcut, not from a shell with your
+variables in it, so a variable that works in your terminal is usually absent
+for the user. Treat every variable as optional and give it a default.
+
+## Fixed at build time
+
+Rust has two macros for values that are in the file for good, and both are
+ordinary Rust:
+
+| | |
+|---|---|
+| `env!("CARGO_PKG_VERSION")` | read by the compiler, absent from the environment later. A build without it does not compile |
+| `option_env!("MY_APP_CHANNEL")` | the same, as an `Option<&str>` |
+
+```rust
+Config::new("My app")
+    .version(env!("CARGO_PKG_VERSION"))
+    .description("Notes for the desktop")
+```
+
+This is the way to keep the version in one place. See
+[configuration](/docs/tooling/configuration).
+
+## Secrets
+
+A value read by `env!` or written in a `const` is **in the executable**, and
+anyone with the file can read it. A distributed application therefore cannot
+keep a secret key in either place. The same goes for the JavaScript bundle and
+for any file in `assets/`.
+
+What to do instead depends on the secret:
+
+- a key that belongs to the **user**, such as a token they typed or received at
+  sign-in, is stored on their machine. There is no secure storage module yet,
+  see [what's left](/docs/whats-left);
+- a key that belongs to **you** and must stay secret belongs on a server you
+  control. The application calls that server and not the third party;
+- a key that is safe to publish, such as a public client id, may be a `const`.
+
+The existing example of reading a token at start, with `async fn main` and a
+file, is in [network calls](/docs/async/network-calls). The file is the
+user's, read at run time.

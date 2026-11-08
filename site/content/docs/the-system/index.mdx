@@ -1,0 +1,83 @@
+---
+title: "The system"
+description: "What the web cannot do: the clipboard, dialogs, the system tray, shortcuts, dropped files."
+---
+
+A page cannot read the clipboard when it wants to, nor open a dialog that returns a path,
+nor place an icon next to the clock.
+This is what `rustx-os` does, and it is written in a page like the rest.
+
+```rust
+use rustx::{autostart, clipboard, devices, dialog, instance, notify, shortcut, tray};
+```
+
+Nothing more to import: these modules are on the facade, so a page
+writes `clipboard::text()` without declaring anything in its `Cargo.toml`.
+
+## Two rules, for the whole module
+
+### `supported()` before asking
+
+Each module answers `supported()`, so that a missing feature is a button you
+do not draw, rather than an error to read.
+
+```rust
+return <div>
+    {if clipboard::supported() {
+        <button onClick={|_| { let _ = clipboard::set_text("copied"); }}>Copy</button>
+    } else {
+        <></>
+    }}
+</div>;
+```
+
+This is the answer of the **platform** itself — each
+`<os>/clipboard.rs` declares it — and not a list of system names
+kept up to date somewhere.
+
+### What is registered is a token
+
+A tray icon, a global shortcut, an instance lock: the token that is released removes the thing. A dead icon next to the clock or a `Ctrl+Shift+R` that no application handles are defects that
+the user can only fix by restarting, and that is why these objects have a lifetime rather than a `register` and an `unregister`.
+
+```rust
+fn Tray() -> Element {
+    // Kept by a cell of the component: the icon lives as long as
+    // the screen that set it.
+    let icon = keep(tray::Icon::new(Path::new("assets/icon.ico"), "My app"));
+
+    return <></>;
+}
+```
+
+For an icon that lives as long as the application, it is the root `layout.rsx` that keeps it: it is the only component that never leaves.
+
+## What an error says
+
+Everything that speaks to the system returns a `Result<_, OsError>`, and the refusal
+is a sentence:
+
+```text
+rustx: the clipboard is held by another program — tried for 200 ms
+```
+
+```text
+rustx: « tray » n'est pas écrit pour linux — le fichier à écrire est
+crates/rustx-os/src/linux/tray.rs
+```
+
+Nothing panics, and nothing pretends to have succeeded.
+
+## The pages
+
+| | |
+|---|---|
+| [The clipboard](/docs/the-system/the-clipboard) | text, image, a format of its own |
+| [File dialogs](/docs/the-system/file-dialogs) | open, save, choose a folder |
+| [Notifications and the tray](/docs/the-system/notifications-and-the-tray) | an icon, a menu, a toast |
+| [Global shortcuts](/docs/the-system/global-shortcuts) | that work without focus |
+| [Dropped files](/docs/the-system/dropped-files) | with their real path |
+| [A single instance](/docs/the-system/a-single-instance) | and the arguments it receives |
+| [Start with the session](/docs/the-system/start-with-the-session) | `autostart` |
+| [Devices](/docs/the-system/devices) | camera, microphone, screens |
+| [Platforms](/docs/the-system/platforms) | what is written, and where to write the rest |

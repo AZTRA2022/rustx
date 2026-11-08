@@ -1,0 +1,88 @@
+---
+title: "Several windows"
+description: "Open a second window on the route you choose, bring it to the front, close it."
+---
+
+A page can open a second window, on the route it chooses.
+
+```rust
+<button onClick={move |_| {
+    let _ = rustx::window::open(
+        rustx::window::What::new("settings")   // its name, to close it later
+            .titled("Settings")
+            .size(520, 400)
+            .at("/settings"),                  // the route it opens on
+    );
+}}>Settings</button>
+```
+
+## `What`
+
+| | |
+|---|---|
+| `What::new(name)` | the name by which it is designated afterwards |
+| `.titled(title)` | the title of the bar; the default name |
+| `.size(width, height)` | 900 × 640 by default |
+| `.at(route)` | the opening route; `/` by default |
+| `.frameless()` | without the system frame |
+
+The **name** is what designates it: a page names the window it opens,
+and so does not need an identifier passed back to it across two
+processes.
+
+## Opening the same name twice
+
+Brings the window to the front, instead of making a second one under a name that
+`close` could no longer designate. This is the behavior you expect from "open
+settings" clicked twice.
+
+## Closing it
+
+```rust
+let window = rustx::window::open(rustx::window::What::new("tool"))?;
+
+// later, from the same page
+window.close();
+```
+
+The `Drop` of the token does **not** close it, and this is intended: a page opens a
+window from an event handler, and the token dies at the end of the
+handler. A window that died with it would never be seen.
+
+## How the route travels
+
+The second window loads the **same document**, with a fragment that says
+its route: `…/index.html#/settings`. This is what `at(…)` writes, and it
+can be read in the traces (`RUSTX_TRACE=1`).
+
+```rust
+// What the window reads before it starts its router.
+rustx::window::page_asked_for()   // Some("/settings"), or None for the first
+```
+
+## Each window has its own state
+
+Two windows are **two render processes**, so two states: the `let mut` at the top
+of a `.rsx` file is not shared between them. What they share, they share through a
+message — a file, a database, a channel — and not through a variable.
+
+This is measured, not assumed: the plan announced the opposite, and two
+`RUSTX_TRACE=1` runs side by side showed two processes.
+
+## How many are open
+
+```rust
+rustx::window::how_many_are_open()
+```
+
+## `window::open` is called from the page
+
+A window can only be created by the process that owns them, and the request
+travels through the page's bridge. Called from `main` or from a thread, the call answers:
+
+```text
+a window can only be opened from a page
+```
+
+What an application wants to do at startup is therefore done from the
+opening page, or from `on_context_created`.

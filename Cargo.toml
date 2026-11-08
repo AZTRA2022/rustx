@@ -4,7 +4,7 @@ members = ["apps/catalogue", "apps/capture", "apps/hybrid", "apps/counter", "app
  "crates/rustx-lsp", "crates/rustx-macros", "crates/rustx-os"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 # Edition 2024, so 1.85 is the floor. Said out loud, because a compiler
 # error about an edition is a worse way to learn it than a refusal that

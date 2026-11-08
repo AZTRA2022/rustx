@@ -295,6 +295,25 @@ asynchrone) est promue en cellule d'état persistante, identifiée par son
 emplacement dans le code, et survit aux re-rendus. Toute autre variable
 reste un `let` Rust ordinaire, sans coût.
 
+> **La forme retenue, au 2026-11-06.** La moitié « lue dans le JSX » a
+> été abandonnée : une **mutation** depuis un gestionnaire ou depuis un
+> bloc `async` suffit à promouvoir. La règle à deux moitiés engendrait du
+> Rust qui ne compile pas pour une variable écrite et montrée nulle part
+> — un gestionnaire est rangé dans un `Rc<dyn Fn>`, et une fermeture qui
+> affecte une variable capturée ne peut pas en être une. La moitié « lue »
+> ne choisissait donc pas entre une cellule et un `let` ordinaire : elle
+> choisissait entre une cellule et une erreur d'emprunt sur un fichier
+> engendré.
+>
+> Et pour le bloc `async`, que ce paragraphe nommait déjà : la capture est
+> un **handle** qui porte l'identité de la valeur et rien d'autre
+> (`Remote`), l'écriture part sur la file de la frame, et la frame
+> l'applique sur le thread qui possède la cellule. Une **lecture** dans le
+> bloc est refusée en toutes lettres — la valeur vit sur le thread qui
+> dessine — et ce qu'il faut lire se lit avant le bloc. Mille écritures
+> depuis une boucle `async` coûtent un rendu, par le même marquage que
+> tout le reste.
+
 Les captures sont réécrites pour passer par des handles plutôt que par
 des emprunts, ce qui rend les conflits d'emprunt structurellement
 impossibles — sans `unsafe`.

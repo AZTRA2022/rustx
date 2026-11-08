@@ -1,0 +1,91 @@
+---
+title: "Commanding the window"
+description: "Minimize, maximize, full screen, stay on top, move, close — from the page."
+---
+
+What the system frame did, `rustx::window` provides. The calls
+come from the page and are executed in the process that holds the
+window's handle: the window targeted is **the one the page is
+drawn in**, so there is nothing to name.
+
+| | |
+|---|---|
+| `window::drag()` | start a mouse drag |
+| `window::minimize()` | minimize to the taskbar |
+| `window::maximize()` | maximize to the full desktop |
+| `window::restore()` | return to its size |
+| `window::fullscreen()` | the full screen, the one the window is on |
+| `window::toggle_maximize()` | maximize, or restore its size if it already is |
+| `window::toggle_fullscreen()` | take the full screen, or come back from it |
+| `window::on_top(true)` | keep it in front of the others |
+| `window::frameless()` / `window::framed()` | remove or restore the frame |
+| `window::shut()` | close it |
+
+## The toggles
+
+A title bar does not have one button to maximize and another to
+restore: it has **one**, and it toggles.
+
+```rust
+<button onClick={|_| { rustx::window::toggle_maximize(); }}>□</button>
+<button onClick={|_| { rustx::window::toggle_fullscreen(); }}>⛶</button>
+```
+
+The toggle asks the system where the window is before acting, in the process
+where the handle is held: the page has no state to keep, and two windows
+do not mistake one for the other.
+
+Leaving full screen gives the window **the place it had**. Full screen is not a
+state that Windows keeps — it is a size that was set — so the framework
+remembers the previous rectangle and restores it.
+
+## Moving
+
+```rust
+<span className="h-6 flex-1" onMouseDown={|_| { rustx::window::drag(); }} />
+```
+
+`drag()` hands the mouse to the system, which takes over and moves the
+window until release — exactly as on its own bar. While this happens, the system
+holds the loop: the window does not redraw while you drag it, like any window
+you drag.
+
+## Staying on top
+
+```rust
+let mut pinned = false;
+
+fn Pin() -> Element {
+    return <button onClick={move |_| {
+        pinned = !pinned;
+        rustx::window::on_top(pinned);
+    }}>{if pinned { "unpin" } else { "pin" }}</button>;
+}
+```
+
+## What a refusal says
+
+Each call can fail, and the refusal is a sentence on the error output rather than a
+panic: a handle that is no longer a window, a platform that does not yet have this
+code, an order that the system refused.
+
+```text
+rustx: « maximize » a été refusé : the handle 0x1a0f2 is not a window any
+more — it was closed
+```
+
+## Under the facade
+
+`rustx::os::window` is the layer that speaks to the system, and an
+application that needs it can call it directly: `Pane`,
+`Dressing`, `Spread`, `Switchable`, `spread_of`, `pointer`. This is where
+the Windows calls live, and it is where the other platforms will be written.
+
+```rust
+// Where the mouse is, in screen coordinates — for a bar of your own that
+// needs to know which monitor it is on.
+let (x, y) = rustx::os::window::pointer()?;
+```
+
+`rustx::window` is what the **page** commands; `rustx::os::window` is
+the window as the system knows it. Two things, two names.

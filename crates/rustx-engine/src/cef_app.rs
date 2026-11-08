@@ -27,6 +27,8 @@ pub struct WindowSpec {
     pub width: u32,
     pub height: u32,
     pub url: String,
+    /// Le cadre que le système dessinera autour d'elle, ou pas.
+    pub dressing: rustx_os::window::Dressing,
 }
 
 wrap_browser_process_handler! {
@@ -113,11 +115,24 @@ wrap_render_process_handler! {
             // when the window closes (`LifeSpanHandler::on_before_close`),
             // not here. The DOM handles belong to the main frame's
             // document, so only the main frame's release makes them stale.
+            //
+            // The mailbox and the async runtime are a third thing again:
+            // they belong to **this thread**, and this is the only hook
+            // the render process gets. `on_before_close` runs in the
+            // browser process, where there is no runtime and where
+            // asking for the mailbox makes a new one just to close it —
+            // so leaving it to that call left a future writing into the
+            // page that came next, through a shared value found by its
+            // name. `frame::open` takes the mailbox again when the next
+            // context arrives, and the runtime starts again at the next
+            // future.
             contain("on_context_released", || {
                 let is_main = frame.is_some_and(|frame| frame.is_main() != 0);
                 if is_main {
                     crate::dom::context_released();
                     crate::renderer::forget_context();
+                    rustx_dom::state::close_remote();
+                    crate::runtime::stop();
                 }
             });
         }
@@ -188,22 +203,41 @@ wrap_app! {
                 // These switches take the GPU out of the picture and
                 // composite on the CPU, which is slower and always
                 // works.
-                for switch in [
-                    "disable-gpu",
-                    "disable-gpu-compositing",
-                    "disable-gpu-sandbox",
-                    "disable-software-rasterizer",
-                ] {
-                    command_line.append_switch(Some(&CefString::from(switch)));
+                for switch in SOFTWARE_SWITCHES {
+                    command_line.append_switch(Some(&CefString::from(*switch)));
                 }
-                command_line.append_switch_with_value(
-                    Some(&CefString::from("use-angle")),
-                    Some(&CefString::from("swiftshader")),
-                );
+                for (switch, value) in SOFTWARE_VALUES {
+                    command_line.append_switch_with_value(
+                        Some(&CefString::from(*switch)),
+                        Some(&CefString::from(*value)),
+                    );
+                }
             });
         }
     }
 }
+
+/// The switches that take the GPU out of the picture.
+///
+/// Not `disable-software-rasterizer`, and that is the whole lesson of
+/// this constant. It was in the list, and it undoes the other three:
+/// `disable-gpu` tells Chromium to draw in software, and this one takes
+/// the software drawing away — so there was nothing left to draw with,
+/// the GPU process kept being started and kept failing, and
+/// `RUSTX_SOFTWARE=1` logged *the very error it exists to remove*,
+/// four times a second, while the window produced no frames.
+pub const SOFTWARE_SWITCHES: &[&str] = &[
+    "disable-gpu",
+    "disable-gpu-compositing",
+    "disable-gpu-sandbox",
+];
+
+/// The same, for the switches that carry a value.
+///
+/// SwiftShader is the CPU implementation of GL that Chromium brings
+/// with it; naming it is what makes a context possible at all on a
+/// machine with no driver.
+pub const SOFTWARE_VALUES: &[(&str, &str)] = &[("use-angle", "swiftshader")];
 
 /// Should this window composite on the CPU?
 ///
@@ -230,7 +264,7 @@ pub fn child_app() -> App {
 /// c'est pourquoi une page passe par le pont pour en demander une.
 pub(crate) fn open_window(spec: &WindowSpec) {
     // Le nom que `on_after_created` donnera à cette fenêtre.
-    crate::window::expecting(&spec.name);
+    crate::window::expecting(&spec.name, spec.dressing);
 
     let mut window_info =
         WindowInfo::default().set_as_popup(cef::sys::HWND(std::ptr::null_mut()), &spec.title);
@@ -256,4 +290,38 @@ pub(crate) fn open_window(spec: &WindowSpec) {
         None,
         None,
     );
+}
+
+#[cfg(test)]
+mod laws {
+    use super::{SOFTWARE_SWITCHES, SOFTWARE_VALUES};
+
+    /// The switch that undid the other three.
+    ///
+    /// `RUSTX_SOFTWARE=1` is what a machine with no 3D driver is told to
+    /// use, and for a while it changed nothing: the log still filled
+    /// with "Failed to create shared context for virtualization" and the
+    /// window still produced no frames. `disable-software-rasterizer`
+    /// was in the list, and it takes away the very fallback
+    /// `disable-gpu` asks for.
+    #[test]
+    fn software_rendering_does_not_disable_the_software_rasterizer() {
+        assert!(
+            !SOFTWARE_SWITCHES.contains(&"disable-software-rasterizer"),
+            "asking Chromium to draw in software and then taking the \
+             software drawing away leaves it nothing to draw with"
+        );
+    }
+
+    #[test]
+    fn software_rendering_names_swiftshader_and_leaves_the_gpu_out() {
+        assert!(SOFTWARE_SWITCHES.contains(&"disable-gpu"));
+        assert!(SOFTWARE_SWITCHES.contains(&"disable-gpu-compositing"));
+        assert_eq!(
+            SOFTWARE_VALUES.iter().find(|(name, _)| *name == "use-angle"),
+            Some(&("use-angle", "swiftshader")),
+            "SwiftShader is the CPU implementation that makes a context \
+             possible at all when there is no driver"
+        );
+    }
 }

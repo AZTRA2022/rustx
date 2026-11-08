@@ -1,0 +1,129 @@
+---
+title: "Navigating"
+description: "navigate, replace, back, forward, can_go_back, history: the history is a list and a finger on it."
+---
+
+```rust
+// go somewhere else
+rustx::router::navigate("/settings");
+
+// go *in place of* the current screen: going back will not return here
+rustx::router::replace("/thanks");
+
+// go back, and forward again
+rustx::router::back();            // false if there is nothing before
+rustx::router::forward();         // false if we have not gone back
+
+// what a button asks before drawing itself greyed out
+rustx::router::can_go_back();
+rustx::router::can_go_forward();
+
+// where we are
+let here = rustx::router::current();       // with the query string
+let route = rustx::router::route();        // the path alone
+let (visited, at) = rustx::router::history();
+```
+
+## The history is a list and a finger on it
+
+Going back moves the finger and **keeps** what is ahead; going somewhere else
+erases that future. This is the rule of a browser, and `history()` makes it
+readable: the list of paths, and the index where we are.
+
+```rust
+fn Bar() -> Element {
+    let (visited, at) = rustx::router::history();
+
+    return <nav>
+        <button id="back" disabled={!rustx::router::can_go_back()}
+            onClick={move |_| { rustx::router::back(); }}>back</button>
+        <button id="forward" disabled={!rustx::router::can_go_forward()}
+            onClick={move |_| { rustx::router::forward(); }}>forward</button>
+        <span className="font-mono">{format!("{}/{}", at + 1, visited.len())}</span>
+    </nav>;
+}
+```
+
+`can_go_back()` and `can_go_forward()` answer **without having to move** to find out: a button knows
+to draw itself greyed out on the first render.
+
+## `navigate` or `replace`
+
+| | |
+|---|---|
+| `navigate(path)` | adds an entry: going back returns here |
+| `replace(path)` | replaces the current entry: going back skips over it |
+
+`replace` is what to use to write the state of a screen into the URL without
+filling the history — a search term, a tab, a sort order:
+
+```rust
+let mut term = String::new();
+
+fn Search() -> Element {
+    async move {
+        let mut last = String::new();
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            if term == last {
+                continue;
+            }
+            last = term.clone();
+            // A keystroke is not a visited page.
+            rustx::router::replace(rustx::router::with_query(
+                "q",
+                if term.is_empty() { None } else { Some(term.as_str()) },
+            ));
+        }
+    };
+
+    return <input value={term.clone()} onInput={move |event| term = event.value} />;
+}
+```
+
+## A link
+
+There is no `<Link>` component: a button or an `<a>` tag that
+calls `navigate` is a link, and it is the same code everywhere.
+
+```rust
+fn Link(to: String, text: String) -> Element {
+    return <button className="underline-offset-4 hover:underline"
+        onClick={move |_| { rustx::router::navigate(to.clone()); }}>
+        {text}
+    </button>;
+}
+```
+
+<Callout title="A tab that knows it is active">
+The current route is enough — this is the Next.js rule, computed without storing anything:
+
+```rust
+fn Tab(to: String, text: String) -> Element {
+    let here = rustx::router::current();
+    let active = if to == "/" { here == "/" } else { here.starts_with(&to) };
+
+    return <button className={if active { "bg-accent" } else { "" }}
+        onClick={move |_| { rustx::router::navigate(to.clone()); }}>{text}</button>;
+}
+```
+</Callout>
+
+## A breadcrumb
+
+The path, segment by segment, each one clickable:
+
+```rust
+fn Breadcrumb(path: String) -> Element {
+    let mut so_far = String::new();
+    let mut pieces: Vec<Element> = vec![Link("/".to_string(), "home".to_string())];
+
+    for segment in path.split('/').filter(|part| !part.is_empty()) {
+        so_far.push('/');
+        so_far.push_str(segment);
+        pieces.push(Link(so_far.clone(), segment.to_string()));
+    }
+
+    return <span className="flex gap-2">{pieces}</span>;
+}
+```

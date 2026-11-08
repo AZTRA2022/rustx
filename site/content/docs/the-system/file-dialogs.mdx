@@ -1,0 +1,113 @@
+---
+title: "File dialogs"
+description: "The system's own dialogs, which return a `PathBuf` and not a browser `File`."
+---
+
+```rust
+use rustx::dialog;
+
+let files = dialog::open(
+    dialog::Ask::new("Choose an image")
+        .filter("Images", ["png", "jpg", "jpeg"])
+        .starting_in("C:/Users/me/Pictures")
+        .many(),
+)?;                                    // Vec<PathBuf>
+
+let where_to = dialog::save(dialog::Ask::new("Save").named("untitled.png"))?;
+let folder = dialog::folder(dialog::Ask::new("Choose a folder"))?;
+```
+
+A `PathBuf`, and not a browser `File`: that is the whole reason for this module. The path can be reopened tomorrow, written next to, passed to a Rust library.
+
+## `Ask`
+
+| | |
+|---|---|
+| `Ask::new(title)` | the dialog's title |
+| `.filter(label, extensions)` | a filter; several calls, several filters |
+| `.starting_in(directory)` | where it opens |
+| `.named(name)` | the suggested name, for a save |
+| `.many()` | several files at once, for `open` |
+
+```rust
+dialog::Ask::new("Import")
+    .filter("Projects", ["json"])
+    .filter("Everything", ["*"])
+    .many()
+```
+
+## A cancellation is a normal case
+
+Not a failure. The user has the right to change their mind, and an `else`
+is enough:
+
+```rust
+let Ok(files) = dialog::open(dialog::Ask::new("Open")) else { return; };
+```
+
+To tell the cases apart, `DialogError` names them: the cancellation, the
+refusal of the system, the platform that does not have this code.
+
+## From an event handler
+
+```rust
+let mut chosen = Vec::<std::path::PathBuf>::new();
+
+fn Import() -> Element {
+    return <>
+        <button onClick={move |_| {
+            if let Ok(files) = dialog::open(
+                dialog::Ask::new("Import").filter("Images", ["png", "jpg"]).many()
+            ) {
+                chosen = files;
+            }
+        }}>Import…</button>
+
+        <ul>{chosen.iter().map(|path| <li key={path.display().to_string()}>
+            {path.file_name().unwrap_or_default().to_string_lossy().to_string()}
+        </li>).collect::<Vec<_>>()}</ul>
+    </>;
+}
+```
+
+A modal dialog runs its **own** message loop: the window stays drawn while it is open, and the application does not look frozen. This is also why the call is blocking and reads like ordinary code, without `.await`.
+
+## Reading the file afterwards
+
+This is plain Rust, and it is the right place for an `async` block:
+
+```rust
+let mut chosen = None::<std::path::PathBuf>;
+let mut text = String::new();
+
+fn Open() -> Element {
+    // The dialog is blocking and returns a path; the reading, however, waits,
+    // so it goes in a block.
+    async move {
+        let mut last = None::<std::path::PathBuf>;
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            if chosen == last {
+                continue;
+            }
+            last = chosen.clone();
+            if let Some(path) = last.clone() {
+                text = tokio::fs::read_to_string(path).await.unwrap_or_default();
+            }
+        }
+    };
+
+    return <>
+        <button onClick={move |_| {
+            chosen = dialog::open(dialog::Ask::new("Open")).ok()
+                .and_then(|files| files.into_iter().next());
+        }}>Open…</button>
+        <pre>{text.clone()}</pre>
+    </>;
+}
+```
+
+## Files dropped on the window
+
+A file dropped on the window arrives with its path, without a dialog:
+see [dropped files](/docs/the-system/dropped-files).

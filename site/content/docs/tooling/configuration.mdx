@@ -1,0 +1,146 @@
+---
+title: "Configuration"
+description: "Every place a rustx project is configured: Config, the manifests, the assets folder, and what has no setting."
+---
+
+There is **no rustx configuration file**. No `rustx.toml` exists and nothing
+reads one. A project is configured in four places, each the tool's own: Rust
+for the window, `Cargo.toml` for the identity, `package.json` for the
+JavaScript libraries, and the `assets/` folder for the rest.
+
+## `Config`, in `main.rs`
+
+```rust
+use rustx::{App, Config};
+
+#[rustx::main]
+fn main() -> Result<(), rustx::Error> {
+    let app = App::new(
+        Config::new("My app")
+            .size(1000, 700)
+            .icon("assets/icon.ico")
+            .version("1.4.0")
+            .start("/inbox"),
+    )?;
+
+    app.run()
+}
+```
+
+| | | default |
+|---|---|---|
+| `Config::new(title)` | the title, and the application's name | required |
+| `.size(width, height)` | the window, in pixels | 1024 by 768 |
+| `.frameless()` | no system frame. The page draws everything | system frame |
+| `.index(path)` | a document other than `assets/index.html` | `assets/index.html`, or a generated one |
+| `.icon(path)` | the window's `.ico`, relative to the project | `assets/icon.ico` if it exists |
+| `.version(text)` | what `rustx_about()` returns | empty |
+| `.description(text)` | likewise | empty |
+| `.publisher(text)` | likewise | empty |
+| `.host(id)` | the element the screens are mounted in | `app` |
+| `.start(path)` | the route the window opens on | `/` |
+| `.not_found(component)` | the screen for a path nobody declared | "This page does not exist." |
+| `.mount(id, component)` | a component placed by hand in an element | none |
+| `.on_context_created(hook)` | work to do when the page's JavaScript context appears | none |
+
+The defaults are read from `Config::new`. The page for each one has the detail:
+[the window](/docs/the-window), [routes](/docs/getting-started/routes) and
+[the Rust bridge](/docs/javascript-libraries/rust-bridge).
+
+`.version()` is **not** taken from `Cargo.toml` at run time. A page that shows a
+version reads `rustx_about()`, which returns what `Config` was given. The
+version stamped on the `.exe` by `rustx build` comes from `Cargo.toml`. If both
+matter, write the number in one place and use `env!("CARGO_PKG_VERSION")`:
+
+```rust
+Config::new("My app").version(env!("CARGO_PKG_VERSION"))
+```
+
+## `#[rustx::main]`
+
+| | |
+|---|---|
+| `#[rustx::main]` | compiles `app/`, builds the route table, mounts the router |
+| `#[rustx::main(pages)]` | compiles `app/` without routing, for an application that mounts its own components with `Config::mount` |
+| `async fn main` | allowed. The body runs on the framework's runtime. See [`async fn main`](/docs/async/async-fn-main) |
+
+Any other argument is a compile error that says so.
+
+## `Cargo.toml`
+
+The dependency `rustx new` writes:
+
+```toml
+rustx = { package = "rustx-app", version = "0.2" }
+```
+
+`rustx build` also reads these fields of `[package]`, to stamp the `.exe`:
+
+| | |
+|---|---|
+| `name` | the binary's file name, and the application's name if `Config::new` has no literal |
+| `version` | the file version. `version.workspace = true` is followed to `[workspace.package]` |
+| `authors` | the first one is the publisher. `authors.workspace = true` is followed too |
+| `description` | the file description |
+
+The reading is by hand, not a TOML parser: it looks for these keys in the
+`[package]` table and in `[workspace.package]` of the nearest workspace above.
+Write them as plain strings.
+
+## `.cargo/config.toml`
+
+```toml
+[build]
+target-dir = "../shared-target"
+```
+
+This is cargo's own setting. `rustx build` reads it for one thing: the check
+that no running window holds `libcef.dll` in that folder. Finding the binary
+to stamp, it looks in `target/` only, beside the project or in a workspace
+above. Until that changes, leave `target-dir` alone in a project you build with
+`rustx build`.
+
+## `package.json`
+
+Only needed when the project uses JavaScript libraries. The framework reads
+`dependencies` and writes the entry point from them. Build tools in
+`dependencies` (`tailwindcss`, `@tailwindcss/cli`, `esbuild`, `typescript`,
+`vite`) are left out of the bundle. See
+[JavaScript libraries](/docs/javascript-libraries).
+
+A project with no `package.json` has no bundle, no `node_modules` and no
+esbuild.
+
+## `assets/`
+
+| | |
+|---|---|
+| `index.html` | the document. If it is missing, the framework writes a default |
+| `icon.ico` | found without a declaration |
+| `tailwind.css` | your style sheet and theme. Tailwind 3 or 4 is detected from `node_modules` |
+| `rustx-bundle.js` | generated. Ignore it in version control |
+
+See [assets](/docs/getting-started/assets).
+
+## Other files in the project
+
+| | |
+|---|---|
+| `app/` | the pages. See [project structure](/docs/getting-started/project-structure) |
+| `components/`, `lib/`, `hooks/` | your own React code, and where shadcn writes |
+| `components.json`, `tsconfig.json` | only for `npx shadcn add`. See [shadcn/ui](/docs/javascript-libraries/shadcn) |
+| `.rustx/` | generated by the build. Ignored by the `.gitignore` that `rustx new` writes |
+
+## Environment and the command line
+
+The environment variables the framework reads are on one page:
+[environment](/docs/tooling/environment). The commands take one flag in all:
+`--release`, on `rustx build`. See [the commands](/docs/tooling/the-commands).
+
+## What has no setting
+
+- the sandbox, which is off by design. See [security](/docs/the-system/security);
+- the profile folder, which is derived from the title;
+- the Chromium switches, apart from the software-rendering environment variable;
+- a bundle identifier, an installer, a signing identity. There is no packaging
+  configuration. See [packaging](/docs/tooling/packaging).

@@ -6,6 +6,7 @@ fn config_with(index: &str) -> AppConfig {
         width: 800,
         height: 600,
         index: index.into(),
+        dressing: rustx_os::window::Dressing::System,
     }
 }
 

@@ -254,6 +254,9 @@ pub fn current() -> Option<InstanceId> {
 pub struct State<T> {
     value: Rc<RefCell<T>>,
     owner: InstanceId,
+    /// Where the cell is in its instance. Carried so that a handle which
+    /// crosses a thread can say which cell it means without holding it.
+    key: (Slot, String),
 }
 
 impl<T> Clone for State<T> {
@@ -261,6 +264,7 @@ impl<T> Clone for State<T> {
         Self {
             value: Rc::clone(&self.value),
             owner: self.owner,
+            key: self.key.clone(),
         }
     }
 }
@@ -367,10 +371,19 @@ pub fn cell<T: 'static>(slot: Slot, initial: impl FnOnce() -> T) -> State<T> {
     let value = CELLS.with(|cells| {
         let mut cells = cells.borrow_mut();
         let slots = cells.entry(owner).or_default();
-        let existing = slots
-            .entry(key)
-            .or_insert_with(|| Rc::new(RefCell::new(initial())));
-        Rc::clone(existing)
+        // `entry` wants the key owned, and half of this key is a
+        // `String`. Every render after the first finds the cell already
+        // there, so that clone would be made and thrown away on the one
+        // path every cell of every component takes every frame. Asked
+        // for first, cloned only when there is something to insert.
+        match slots.get(&key) {
+            Some(existing) => Rc::clone(existing),
+            None => {
+                let made: Rc<dyn Any> = Rc::new(RefCell::new(initial()));
+                slots.insert(key.clone(), Rc::clone(&made));
+                made
+            }
+        }
     });
 
     // The downcast cannot fail: the same slot is the same `let mut`, and
@@ -379,7 +392,7 @@ pub fn cell<T: 'static>(slot: Slot, initial: impl FnOnce() -> T) -> State<T> {
         .downcast::<RefCell<T>>()
         .expect("a slot holds one type, because it is one declaration");
 
-    State { value, owner }
+    State { value, owner, key }
 }
 
 /// The instances that changed since the last call, in the order they
@@ -821,6 +834,394 @@ pub fn reached_keys() -> Vec<String> {
         keys.dedup();
         keys
     })
+}
+
+// --- A write that comes from somewhere else -------------------------
+//
+// State belongs to the render thread: a cell is an `Rc` around a
+// `RefCell`, there is no lock on the hot path, and a `let mut n = 0;`
+// puts no thread bound on what a closure captures. That is the bargain
+// of §7.4, and it is what makes a future unable to touch a cell.
+//
+// So a future does not. It holds a `Remote`, which carries the identity
+// of a cell and nothing else — an instance number, a slot, a key path,
+// all of them `Send` — and posting a write puts a job in the mailbox of
+// the thread that owns the cell. The frame drains the mailbox. The same
+// coalescing as every other write follows for free: a thousand writes
+// mark one instance dirty once, so they cost one render.
+//
+// The mailbox belongs to the render thread and not to the process,
+// because the cells do. One window is one render process is one such
+// thread; a test is several, and each gets its own.
+
+/// A job a frame will run on the thread that owns the cells.
+type RemoteJob = Box<dyn FnOnce() + Send>;
+
+/// The mailbox of one render thread.
+///
+/// `None` inside the mutex means closed: the window is going, nothing
+/// will draw again, and a write has nobody to reach. Refused rather
+/// than queued, exactly as the frame queue refuses a post, so a future
+/// still producing can be told to stop.
+struct Mailbox {
+    jobs: std::sync::Mutex<Option<Vec<RemoteJob>>>,
+    /// Writes this mailbox would not take, counted here rather than in a
+    /// thread-local: posting happens on a runtime worker and asking
+    /// happens on the render thread, so a per-thread count was always
+    /// zero to the only thread that ever asked.
+    refused: std::sync::atomic::AtomicU64,
+}
+
+impl Mailbox {
+    fn new() -> Self {
+        Self {
+            jobs: std::sync::Mutex::new(Some(Vec::new())),
+            refused: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+}
+
+/// A token that says whether the work behind a handle is still wanted.
+///
+/// `Clone` and `Send`, and it carries one bit. The engine's `Task` holds
+/// one and drops it when the component goes; every [`Remote`] built for
+/// that task holds the other end. Abandoning a future stops it making
+/// new writes, and this is what refuses the ones it had already posted
+/// — which for a value found by name is the difference between a write
+/// that lands on the next page and one that does not.
+#[derive(Clone, Default)]
+pub struct Cancel(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl Cancel {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The work is no longer wanted.
+    pub fn cancel(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Acquire)
+    }
+}
+
+/// A thread's own end of its mailbox.
+///
+/// The mailbox outlives the thread, because every handle given out holds
+/// an `Arc` to it. What must not outlive the thread is its being *open*:
+/// a render thread that ends without `close_remote` -- a panic, a test,
+/// a window whose teardown did not run -- would otherwise leave every
+/// future posting into a vector nobody will ever drain again, neither
+/// applied nor refused, and growing for as long as the future produces.
+/// This end is dropped when the thread is, and closing it there is what
+/// turns those writes into refusals.
+struct Owned(std::sync::Arc<Mailbox>);
+
+impl Drop for Owned {
+    fn drop(&mut self) {
+        let mut jobs = self
+            .0
+            .jobs
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *jobs = None;
+    }
+}
+
+thread_local! {
+    /// This thread's mailbox, made on the first `remote()` it is asked for.
+    static MAILBOX: RefCell<Option<Owned>> = const { RefCell::new(None) };
+    /// Writes that arrived for a component that had already gone.
+    static DROPPED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Has a remote write changed a value `rustx dev` carries over?
+    static CARRIED_STALE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn mailbox() -> std::sync::Arc<Mailbox> {
+    MAILBOX.with(|held| {
+        let mut held = held.borrow_mut();
+        std::sync::Arc::clone(
+            &held
+                .get_or_insert_with(|| Owned(std::sync::Arc::new(Mailbox::new())))
+                .0,
+        )
+    })
+}
+
+/// Accept remote writes on this thread again.
+///
+/// Called by the host when a window's render thread starts, and by a
+/// test. A thread that has never closed its mailbox needs no call: the
+/// first `remote()` opens one.
+pub fn open_remote() {
+    // In place, not a fresh mailbox: every handle already given out
+    // holds an `Arc` to this one, and replacing it would orphan them —
+    // their writes would go into a vector nobody drains, neither
+    // applied nor refused.
+    let held = mailbox();
+    let mut jobs = held
+        .jobs
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if jobs.is_none() {
+        *jobs = Some(Vec::new());
+    }
+}
+
+/// Refuse remote writes on this thread from now on.
+///
+/// The window is going. What a future posts next is refused instead of
+/// waiting for a frame that will never come.
+pub fn close_remote() {
+    let held = mailbox();
+    let mut jobs = held
+        .jobs
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *jobs = None;
+}
+
+/// Run every remote write waiting on this thread.
+///
+/// The host calls this at the start of a frame, before it asks what is
+/// dirty: a write that landed has to be in the render it asked for, not
+/// in the one after.
+pub fn apply_remote() {
+    let held = mailbox();
+    let taken = {
+        let mut jobs = held
+            .jobs
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match jobs.as_mut() {
+            Some(waiting) => std::mem::take(waiting),
+            None => Vec::new(),
+        }
+    };
+    for job in taken {
+        // A job is the developer's code once removed, and it runs at the
+        // top of a frame: one that panics must not take the frame with
+        // it, for the same reason a frame callback may not.
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(job)).is_err() {
+            eprintln!("rustx: a write posted from a future panicked; the frame carried on");
+        }
+    }
+    // Once for the whole drain. A thousand writes from an `async` loop
+    // cost one render, and they have to cost one file write too, or the
+    // frame they are coalesced into is the one that stalls.
+    if CARRIED_STALE.with(|stale| stale.replace(false)) {
+        crate::carried::keep();
+    }
+}
+
+/// How many writes this thread refused because its window had gone.
+pub fn remote_refused() -> u64 {
+    mailbox()
+        .refused
+        .load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// How many writes arrived for a component that had already left.
+/// Said by a remote write to a shared value: the file `rustx dev`
+/// carries over is out of date, and the frame will say so once.
+pub(crate) fn carried_is_stale() {
+    CARRIED_STALE.with(|stale| stale.set(true));
+}
+
+pub fn remote_dropped() -> u64 {
+    DROPPED.with(std::cell::Cell::get)
+}
+
+/// The identity of a cell, and a way to write to it from anywhere.
+///
+/// `Send` and `Clone`, and it carries no value: a cell is not `Send` and
+/// never becomes one. What crosses a thread is where the cell is, never
+/// the cell.
+pub struct Remote<T> {
+    which: Which,
+    mailbox: std::sync::Arc<Mailbox>,
+    /// The task this handle belongs to, when it belongs to one. `None`
+    /// for a handle a page asked for itself, which nothing cancels.
+    until: Option<Cancel>,
+    what: std::marker::PhantomData<fn(T)>,
+}
+
+/// Which value a remote means.
+///
+/// A `let mut` inside a component is a cell of an instance; a `let mut`
+/// at the top of a page is a shared value with a name. Both are written
+/// the same way by a developer, so both are reachable the same way from
+/// a future.
+#[derive(Clone)]
+enum Which {
+    /// A component's own cell: the instance, and the declaration.
+    Cell(InstanceId, (Slot, String)),
+    /// A value the page declared, by the name it was written with.
+    Shared(&'static str),
+}
+
+impl<T> Clone for Remote<T> {
+    fn clone(&self) -> Self {
+        Self {
+            which: self.which.clone(),
+            mailbox: std::sync::Arc::clone(&self.mailbox),
+            until: self.until.clone(),
+            what: std::marker::PhantomData,
+        }
+    }
+}
+
+// No `unsafe` anywhere: `fn(T)` is `Send` and `Sync` whatever `T` is, so
+// a handle that holds an instance number, a slot, a key and an `Arc` is
+// one too, by the compiler's own reckoning. What crosses a thread is the
+// closure, and that is where `Send` is asked for.
+
+impl<T: 'static> Remote<T> {
+    /// Change the value in place, on the next frame of the thread that
+    /// owns it — the shape `n += 1` is rewritten into inside an `async`
+    /// block.
+    ///
+    /// Nothing is returned, and nothing panics. There are two ways for a
+    /// write not to happen and neither is the developer's mistake: the
+    /// window has gone, or the component has. Both are counted, and
+    /// [`remote_refused`] and [`remote_dropped`] say how often.
+    pub fn update(&self, change: impl FnOnce(&mut T) + Send + 'static) {
+        let which = self.which.clone();
+        let until = self.until.clone();
+        let mailbox = std::sync::Arc::clone(&self.mailbox);
+        self.post(Box::new(move || {
+            // The task went while this was waiting for a frame. A
+            // component's cell would have been gone too, but a shared
+            // value is found by a name the next page also uses — so the
+            // refusal has to be said here, not left to a lookup.
+            if until.is_some_and(|until| until.is_cancelled()) {
+                mailbox
+                    .refused
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                return;
+            }
+            let landed = match which {
+                Which::Cell(owner, key) => write_to_cell(owner, key, change),
+                Which::Shared(name) => crate::store::write_to_shared(name, change),
+            };
+            if !landed {
+                DROPPED.with(|dropped| dropped.set(dropped.get() + 1));
+            }
+        }));
+    }
+
+    /// Replace the value, on the next frame of the thread that owns it.
+    pub fn set(&self, value: T)
+    where
+        T: Send,
+    {
+        self.update(move |held| *held = value);
+    }
+
+    /// Is there still somewhere for a write through this handle to go?
+    ///
+    /// `false` once the window has gone, or once the thread that owned
+    /// the cell has. A future that computes something expensive can ask
+    /// before it starts rather than post into a refusal.
+    pub fn is_open(&self) -> bool {
+        self.mailbox
+            .jobs
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_some()
+    }
+
+    fn post(&self, job: RemoteJob) {
+        let mut jobs = self
+            .mailbox
+            .jobs
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match jobs.as_mut() {
+            Some(waiting) => waiting.push(job),
+            None => {
+                self.mailbox
+                    .refused
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+    }
+}
+
+/// Apply `change` to the cell at `key` of `owner`, or say it has gone.
+///
+/// Runs on the thread that owns the cells, which is the only thread that
+/// can look in `CELLS`.
+fn write_to_cell<T: 'static>(
+    owner: InstanceId,
+    key: (Slot, String),
+    change: impl FnOnce(&mut T),
+) -> bool {
+    let held = CELLS.with(|cells| {
+        let cells = cells.borrow();
+        cells
+            .get(&owner)
+            .and_then(|slots| slots.get(&key))
+            .map(Rc::clone)
+    });
+    let Some(held) = held else {
+        return false;
+    };
+    // The downcast cannot fail for a handle this module made: a slot is
+    // one declaration and a declaration has one type. It is written as a
+    // question anyway, because a write that arrives for a slot reused by
+    // a different type would otherwise be a panic inside a frame.
+    let Ok(held) = held.downcast::<RefCell<T>>() else {
+        return false;
+    };
+    change(&mut held.borrow_mut());
+    mark_dirty(owner);
+    true
+}
+
+impl<T: 'static> State<T> {
+    /// A handle on this cell that may cross a thread.
+    ///
+    /// What a `task(async { … })` captures. Writing through it posts on
+    /// the mailbox of the thread this call is made on — the render
+    /// thread, because that is where a component renders.
+    pub fn remote(&self) -> Remote<T> {
+        self.remote_for(None)
+    }
+
+    /// The same, bound to a task: when `until` is cancelled, what this
+    /// handle had already posted is refused instead of applied.
+    pub fn remote_until(&self, until: &Cancel) -> Remote<T> {
+        self.remote_for(Some(until.clone()))
+    }
+
+    fn remote_for(&self, until: Option<Cancel>) -> Remote<T> {
+        Remote {
+            which: Which::Cell(self.owner, self.key.clone()),
+            mailbox: mailbox(),
+            until,
+            what: std::marker::PhantomData,
+        }
+    }
+}
+
+/// A remote on the value the page declared under `name`.
+///
+/// Built here rather than in `store`, because the mailbox and the job
+/// are this module's, and a shared value differs only in how the frame
+/// finds it.
+pub(crate) fn remote_for_shared<T: 'static>(
+    name: &'static str,
+    until: Option<Cancel>,
+) -> Remote<T> {
+    Remote {
+        which: Which::Shared(name),
+        mailbox: mailbox(),
+        until,
+        what: std::marker::PhantomData,
+    }
 }
 
 #[cfg(test)]

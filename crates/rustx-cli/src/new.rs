@@ -30,8 +30,9 @@ pub fn write(name: &str, into: &Path) -> Result<Vec<PathBuf>, String> {
         (root.join("Cargo.toml"), manifest(name)),
         (root.join("src").join("main.rs"), main_for(name)),
         (root.join("app").join("page.rsx"), page()),
-        (root.join(".gitignore"), "/target\n".to_string()),
+        (root.join(".gitignore"), ignored()),
         (root.join("assets").join("readme.md"), assets_note()),
+        (root.join("package.json"), package_json(name)),
     ];
 
     let mut written = Vec::new();
@@ -81,17 +82,57 @@ fn why(path: &Path, error: &std::io::Error) -> String {
 }
 
 fn manifest(name: &str) -> String {
+    let wanted = wanted_version();
     format!(
         "[package]\n\
          name = \"{name}\"\n\
          version = \"0.1.0\"\n\
          edition = \"2024\"\n\n\
          [dependencies]\n\
-         # Le paquet s'appelle `rustx-app` sur crates.io, parce que\n\
-         # `rustx` y est pris. La bibliothèque s'appelle `rustx`, donc\n\
-         # le code et la documentation écrivent `rustx::` comme si de\n\
-         # rien n'était.\n\
-         rustx = {{ package = \"rustx-app\", version = \"0.1\" }}\n"
+         # The package is called `rustx-app` on crates.io, because\n\
+         # `rustx` is taken there. The library is called `rustx`, so the\n\
+         # code and the documentation write `rustx::` as if nothing had\n\
+         # happened.\n\
+         rustx = {{ package = \"rustx-app\", version = \"{wanted}\" }}\n"
+    )
+}
+
+/// What a new project asks for: this command line's own minor.
+///
+/// Read from the version of this crate rather than written out, because
+/// a written-out one goes stale in silence. `version = "0.1"` outlived
+/// 0.2.0, and under cargo's rule for 0.x a `0.1` requirement does not
+/// accept 0.2.0 — so `rustx new` kept making projects pinned to the
+/// framework of the version before, and what they got was a refusal
+/// that had been fixed months earlier.
+fn wanted_version() -> String {
+    let full = env!("CARGO_PKG_VERSION");
+    let mut parts = full.split('.');
+    match (parts.next(), parts.next()) {
+        (Some("0"), Some(minor)) => format!("0.{minor}"),
+        (Some(major), _) => major.to_string(),
+        _ => full.to_string(),
+    }
+}
+
+/// A project ready for the documentation's first line: `npm install
+/// recharts`, `npm install shadcn`, whatever the page reaches for.
+///
+/// Without this file, `npm install` still runs — but on an old `npm`
+/// it refuses outright, and on a new one it writes a `package.json` of
+/// its own: named after the directory rather than the project, at
+/// `"1.0.0"`, with no `"private"`. That file shows up a step late and
+/// looks like something `rustx new` forgot, when the fix is one file
+/// written on the day the project is born.
+fn package_json(name: &str) -> String {
+    let npm_name = name.to_lowercase();
+    format!(
+        "{{\n\
+         \x20   \"name\": \"{npm_name}\",\n\
+         \x20   \"private\": true,\n\
+         \x20   \"version\": \"0.1.0\",\n\
+         \x20   \"dependencies\": {{}}\n\
+         }}\n"
     )
 }
 
@@ -155,6 +196,17 @@ fn page() -> String {
      \x20   </main>;\n\
      }\n"
     .to_string()
+}
+
+/// What a project does not commit.
+///
+/// Four lines rather than one, because three of them are output the
+/// framework writes on every build: the entry point and the bundle in
+/// `.rustx`, the copy of the bundle the document loads from `assets`,
+/// and `node_modules`. A project whose first `git add .` carried two
+/// megabytes of minified JavaScript learned that from here.
+fn ignored() -> String {
+    "/target\n/node_modules\n/.rustx/\n/assets/rustx-bundle.js\n".to_string()
 }
 
 fn assets_note() -> String {

@@ -1,0 +1,106 @@
+---
+title: "Attributes and events"
+description: "HTML and JSX props, style as an object, and the fields an event carries."
+---
+
+Tags take **the props of HTML and JSX**, and the compiler refuses what does not exist, proposing the closest name.
+
+```rust
+return <button
+    id="go"
+    className="primary large"
+    disabled={busy}
+    aria-label="Start the render"
+    data-kind="action"
+    onClick={move |_| start()}
+>Start</button>;
+```
+
+- `className` and not `class`, `onClick` and not `onclick`: the JSX spelling;
+- `aria-*` and `data-*` are accepted as they are, with their dashes;
+- a boolean attribute takes an expression: `disabled={true}`;
+- a handler takes a closure: `onClick={move |_| …}`,
+  `onInput={move |event| …}`.
+
+## What an event carries
+
+A short, fixed list, because a DOM node does not cross the boundary.
+
+| | |
+|---|---|
+| `event.kind` | `click`, `input`, `keydown`: the DOM name |
+| `event.value` | `target.value`: what is in the field, as text |
+| `event.number()` | the same, as a number, when it is one |
+| `event.id` | `target.id`, so that one handler can serve several elements |
+| `event.key` | `a`, `Enter`, `Escape`, `ArrowUp` |
+| `event.checked` | for a checkbox |
+| `event.shift` `event.control` `event.alt` `event.meta` | the modifiers |
+
+```rust
+let mut term = String::new();
+
+fn Search() -> Element {
+    return <div>
+        <input value={term.clone()} onInput={move |event| term = event.value} />
+        <input onKeyDown={move |event| if event.key == "Enter" { start(&term) }} />
+    </div>;
+}
+```
+
+<Callout title="Inside a React subtree">
+An ordinary tag written **inside** a React component — an `<input>`
+inside a shadcn `<Card>` — receives the same `Event`. React mounts the
+tag, the handler comes back through the props path, and the framework
+converts it: the `.rsx` is identical, and an ancestor does not change the
+behavior.
+</Callout>
+
+## `value` and `checked` are properties
+
+Once someone has typed into a field, the `value` attribute says what the
+field **was at the start** and the property says what it **is now**.
+The framework sets both for `value`, `checked` and `selected`, on the
+elements that have one — without this, a field that the page clears would keep
+what it had.
+
+```rust
+let mut term = String::new();
+
+fn Search() -> Element {
+    return <div>
+        <input id="search" value={term.clone()} onInput={move |event| term = event.value} />
+        // And the field is cleared on screen, not only in the state.
+        <button onClick={move |_| term = String::new()}>clear</button>
+    </div>;
+}
+```
+
+## Style
+
+As an object, as in JSX, with keys in `camelCase`:
+
+```rust
+return <div style={{
+    display: "grid",
+    placeItems: "center",
+    height: "100vh",
+    backgroundColor: "#0b0b10",
+}}>…</div>;
+```
+
+An unknown property name is refused by the compiler, with the closest name.
+
+## Available handlers
+
+React's events, in their spelling: `onClick`, `onDoubleClick`,
+`onMouseDown`, `onMouseUp`, `onMouseEnter`, `onMouseLeave`, `onMouseMove`,
+`onInput`, `onChange`, `onFocus`, `onBlur`, `onKeyDown`, `onKeyUp`,
+`onKeyPress`, `onSubmit`, `onScroll`, `onWheel`, `onContextMenu`,
+`onCopy`, `onCut`, `onPaste`, `onDragStart`, `onDragEnter`, `onDragOver`,
+`onDragLeave`, `onDrop`, `onDragEnd`, `onTouchStart`, `onTouchMove`,
+`onTouchEnd`, `onAnimationStart`, `onAnimationEnd`,
+`onAnimationIteration`, `onTransitionEnd`, `onLoad`, `onError`,
+`onEnded`.
+
+`onDoubleClick` becomes `dblclick` for the DOM; the others are the name
+without its `on`, in lowercase.

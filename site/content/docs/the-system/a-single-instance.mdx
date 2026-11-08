@@ -1,0 +1,84 @@
+---
+title: "A single instance"
+description: "One copy running, and the arguments that the second one hands to it."
+---
+
+Many desktop applications open only once: relaunching
+the executable — or double-clicking a file associated with it — brings back the existing window and passes it the path, instead of opening a second application.
+
+```rust
+use rustx::{App, Config, instance};
+
+#[rustx::main]
+fn main() -> Result<(), rustx::Error> {
+    let Ok(_only) = instance::Only::one("my-software") else {
+        // Already running: hand it our arguments, and leave.
+        let arguments: Vec<String> = std::env::args().skip(1).collect();
+        instance::hand_over("my-software", &arguments)?;
+        return Ok(());
+    };
+
+    let app = App::new(Config::new("My software").size(1000, 700))?;
+    app.run()
+}
+```
+
+The `_only` token **must** be kept: released, it frees the name, and the
+next launch will open as a second one. This is why it is named and not ignored with a `let _ =`.
+
+## What the second instance handed over
+
+In the page, read whenever you want:
+
+```rust
+let mut opened = Vec::<String>::new();
+
+fn Page() -> Element {
+    for argument in instance::handed_over() {
+        opened.push(argument);
+    }
+
+    return <ul>{opened.len()} files</ul>;
+}
+```
+
+`handed_over()` is taken, like the rest: read once. A page that queries it on every frame sees each handover exactly once.
+
+The arguments travel separated by `instance::BETWEEN` — the byte `0x1f`,
+the unit separator — because a Windows path contains spaces
+and quotes, but never a control character.
+
+## Bringing the window to the front
+
+This is what a user expects when they relaunch the software:
+
+```rust
+fn Page() -> Element {
+    let handed = instance::handed_over();
+
+    if !handed.is_empty() {
+        rustx::window::restore();
+        rustx::window::on_top(true);
+        rustx::window::on_top(false);   // in front, without staying there
+        for path in handed { open(&path); }
+    }
+
+    return <main>…</main>;
+}
+```
+
+## The name
+
+It is a name for the whole machine, in the system's namespace. Two different
+applications that choose the same name would take each other for one another: a project name, not a word like `"app"`.
+
+```rust
+instance::Only::one("com.example.my-software")
+```
+
+`instance::supported()` says whether this platform can do it, and
+`only.name()` returns the name as it was taken.
+
+## What it is not
+
+It is not a file lock, and it is not a general inter-process communication: `hand_over` passes a list of strings, once, to an instance that is listening. An application that needs more — an open channel, a protocol — writes it itself; the framework does not decide for it.

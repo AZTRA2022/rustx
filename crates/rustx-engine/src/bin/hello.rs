@@ -33,6 +33,9 @@ fn main() {
         width: 960,
         height: 640,
         index,
+        // Le cadre du système : cet exemple est une fenêtre ordinaire,
+        // et c'est `apps/` qui montre l'autre.
+        dressing: rustx_os::window::Dressing::System,
     })
     .expect("the bundled example page should be present");
 
@@ -269,16 +272,30 @@ fn missing() -> Element {
         .build()
 }
 
+// Un layout recoit les parametres de la route, comme un layout genere
+// par le compilateur : ces deux-la n'en veulent pas, et le disent.
+fn bar_framing(children: Element, _params: &rustx_dom::route::Params) -> Element {
+    bar(children)
+}
+
+fn inner_framing(children: Element, _params: &rustx_dom::route::Params) -> Element {
+    inner(children)
+}
+
 static ROUTES: &[rustx_dom::route::Route] = &[
     rustx_dom::route::Route {
         pattern: "/",
         render: home,
-        layouts: &[bar],
+        layouts: &[bar_framing],
+        loading: None,
+        failed: None,
     },
     rustx_dom::route::Route {
         pattern: "/device/[id]",
         render: device,
-        layouts: &[bar, inner],
+        layouts: &[bar_framing, inner_framing],
+        loading: None,
+        failed: None,
     },
 ];
 

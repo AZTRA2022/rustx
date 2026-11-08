@@ -1,0 +1,54 @@
+---
+title: "Troubleshooting"
+description: "The messages you read, and what they ask you to do."
+---
+
+**"This page does not exist."** — the requested route is not declared
+anywhere. This is the default screen of `not_found`: check the path
+passed to `navigate`, the name of the folder in `app/`, and the `.start(…)` of
+`Config`.
+
+**"the page asked for `Button`, and nothing has it"** — the name is neither
+a function of the page nor an export of an installed library. The message
+lists the libraries found. Often: a forgotten `npm install`, or a component of the page called as a tag
+(`<Card />` instead of `{Card()}`).
+
+**"this application declares JavaScript libraries … and has no
+node_modules"** — run `npm install` in the application's folder.
+
+**"… names `recharts` under `dependencies`, and `node_modules` has
+nothing of that name"** — the `package.json` has grown since the last
+`npm install`. The same command, in the same folder.
+
+**"this application installed tailwindcss and nothing that can run it"** —
+Tailwind 4 keeps its command line in
+`@tailwindcss/cli`: `npm install @tailwindcss/cli`.
+
+**A capitalized tag that the page cannot find, although the file exists in `components/`** — a component of your own is taken under the name of its file when it has an `export default`. `components/Editor.tsx`
+gives `<Editor>`; a function exported by its name gives that name.
+
+**The window is white and the log repeats "Failed to create shared
+context"** — the machine has no usable 3D driver (virtual machine, remote desktop). `RUSTX_SOFTWARE=1` composes on the processor: slower, but it always works.
+
+The same applies to the test suite: half of the scenarios wait for a frame, and a window that is not composed produces none. On such a machine, run `RUSTX_SOFTWARE=1 cargo test --workspace`. The harnesses say so themselves when they recognize the log.
+
+**A message between the window and the page does not arrive** —
+`RUSTX_TRACE=1` traces both ends: what leaves, what arrives, and what nobody is listening to.
+
+**"a window can only be opened from a page"** — `window::open` was called from
+`main` or from a thread; it is called from the page, which is the only place that has the frame to carry the request.
+
+**The compiler speaks of an `onClick`, an `effect` or a `task`** — a state was written during the render. The write goes in one of the three.
+
+**"ContentMainInitialize failed with exit code 38"** — the terminal is elevated. Chromium de-elevates itself since M156: launched as administrator, the process relaunches non-elevated and the first one fails. Launch from an ordinary terminal, or pass `--do-not-de-elevate` — which the test harnesses do. The engine recognizes the case and says so in the failure.
+
+**The window opens, all the `className`s are there, and there is no style at all** — the style sheet declares variables and no theme tokens: `--background` is not `bg-background`. The `@theme inline` block is missing; the block is in [Tailwind](/docs/javascript-libraries/tailwind). This is the failure that nothing signals.
+
+**The editor underlines an error that the compiler does not report** — the installed `rustx-lsp` is older than the repository. **rustx: Restart the language server** in the palette, then `cargo install --path crates/rustx-lsp --force` — in that order, because the running server holds its own file.
+
+**"a window can only be opened from a page" at startup** — `window::open` called from
+`main`. What an application wants to open at startup is opened from the opening page, or from `on_context_created`.
+
+**A file dropped on the window replaces the application with its contents** — this must no longer happen: the engine takes the drop back from Chromium. If it does, it is a bug, and it belongs in `docs/chasse-aux-bugs.md`.
+
+**"Access is denied. (os error 5)" from a build script named `cef-dll-sys`** — a window from an earlier run (of this project, or of another one sharing the same `target-dir`) still holds `libcef.dll`, which gets deleted and recopied on every build. Close the window, or `taskkill /im <the application>.exe /f` if there is none on screen. `rustx build`, `rustx run` and `rustx dev` check for this before calling cargo at all and name the file and the fix; a plain `cargo build`/`cargo run` does not go through that check, and shows this raw message instead — there is no hook from outside cargo into a dependency's build-script failure. Prefer the `rustx` commands for exactly this reason.

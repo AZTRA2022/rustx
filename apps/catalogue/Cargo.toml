@@ -8,6 +8,3 @@ description = "A rustx application, written the way anyone will write one."
 
 [dependencies]
 rustx = { package = "rustx-app", path = "../../crates/rustx" }
-rustx-dom = { path = "../../crates/rustx-dom" }
-# Named by the generated pages, never by a line a developer writes.
-rustx-engine = { path = "../../crates/rustx-engine" }

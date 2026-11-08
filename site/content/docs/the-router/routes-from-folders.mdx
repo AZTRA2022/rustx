@@ -1,0 +1,79 @@
+---
+title: "Routes from folders"
+description: "A page.rsx is a route, its path is its URL, and the most specific one wins."
+---
+
+A `page.rsx` file **is** a route. Its path in `app/` is its
+URL, and there is nothing to declare elsewhere: the route table is
+written by `#[rustx::main]` by reading the folder.
+
+```text
+app/page.rsx                 →  /
+app/settings/page.rsx        →  /settings
+app/settings/audio/page.rsx  →  /settings/audio
+```
+
+A folder without a `page.rsx` is not a route: it only organizes
+what it contains.
+
+## Groups
+
+A folder in parentheses does **not** appear in the URL. It is used to
+group files, and to give a layout to a set of screens without lengthening their
+paths.
+
+```text
+app/(shop)/cart/page.rsx       →  /cart
+app/(shop)/checkout/page.rsx   →  /checkout
+app/(shop)/layout.rsx          →  the frame for both, and for nothing else
+app/(admin)/users/page.rsx     →  /users
+```
+
+This is the Next.js rule, and it serves the same purpose: two sections
+of an application can have two different frames without the user
+seeing `shop` or `admin` in the URL.
+
+## The most specific wins
+
+When several routes describe the same path, the most specific one wins:
+a **static** segment beats a **named** one, which beats a
+**catch-all**.
+
+```text
+app/tasks/running/page.rsx    →  /tasks/running   (static)
+app/tasks/[id]/page.rsx       →  /tasks/42        (named)
+app/tasks/[...rest]/page.rsx  →  /tasks/a/b/c     (catch-all)
+```
+
+`/tasks/running` always goes to the static file: there is no declaration
+order to watch, because there is no declaration.
+
+And what **looks like** the static segment without being one —
+`/tasks/running-late` — goes to the parameter, as it should.
+
+## What a folder can contain
+
+| | |
+|---|---|
+| `page.rsx` | the screen of this route |
+| `layout.rsx` | a frame around this route and everything below it |
+| `loading.rsx` | what is shown while the page has drawn nothing |
+| `error.rsx` | what is shown if the page fails |
+
+These four names are the only ones the framework reads; another `.rsx` in
+`app/` is an ordinary component file, and a page calls it
+through `crate::`.
+
+## The component's name
+
+In a `page.rsx`, the component is called `Page`; in a `layout.rsx`,
+`Layout`; in a `loading.rsx`, `Loading`; in an `error.rsx`,
+`Error`. The file states its role, and the function carries the name the
+framework looks for.
+
+```rust
+// app/settings/page.rsx
+fn Page() -> Element {
+    return <h1>Settings</h1>;
+}
+```

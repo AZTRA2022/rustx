@@ -181,7 +181,7 @@ wrap_client! {
         /// qui ne peut naître que de ce côté-ci.
         fn on_process_message_received(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             _frame: Option<&mut Frame>,
             _source_process: cef::ProcessId,
             message: Option<&mut cef::ProcessMessage>,
@@ -189,7 +189,7 @@ wrap_client! {
             let mut handled = 0;
             crate::panics::contain("on_process_message_received", || {
                 if let Some(message) = message {
-                    handled = i32::from(crate::window::asked(message));
+                    handled = i32::from(crate::window::asked(message, browser.as_deref()));
                 }
             });
             handled

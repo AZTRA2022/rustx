@@ -14,19 +14,42 @@ pub struct Report {
 }
 
 impl Report {
+    /// The value reported under `key`, or a panic naming what was captured.
     pub fn get(&self, key: &str) -> &str {
         self.values.get(key).map(String::as_str).unwrap_or_else(|| {
             panic!(
                 "the page never reported '{key}'. Full output:\n{}",
-                self.raw
+                self.raw()
             )
         })
     }
 
-    pub fn raw(&self) -> &str {
-        &self.raw
+    pub fn raw(&self) -> String {
+        match self.no_driver() {
+            false => self.raw.clone(),
+            true => format!("{}\n{NO_DRIVER}\n", self.raw),
+        }
+    }
+
+    /// Did this machine fail to give Chromium a 3D context?
+    ///
+    /// Half the scenarios wait on frames, and a window that is not being
+    /// composited produces none — so the assertion that fails says "a
+    /// panicking job killed the frame loop" about a machine that simply
+    /// has no driver. The sentence below is appended to every failure so
+    /// that nobody debugs the framework for an afternoon over it.
+    fn no_driver(&self) -> bool {
+        self.raw.contains("Failed to create shared context")
     }
 }
+
+/// What to read when the window was never composited.
+const NO_DRIVER: &str = "\
+    --- rustx: this machine gave Chromium no 3D context (\"Failed to create shared \
+    context\"), so the window produced no frames and every scenario that waits on one \
+    reports nothing. It is the machine, not the framework: a virtual machine, a remote \
+    desktop, or a driver. Run the suite with RUSTX_SOFTWARE=1, which composites on the \
+    processor. ---";
 
 /// Run the application on its only scenario and collect what it reported.
 pub fn run_catalogue_scenario() -> Report {

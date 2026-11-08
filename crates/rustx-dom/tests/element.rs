@@ -1,6 +1,6 @@
 //! The tree a component returns.
 
-use rustx_dom::{AttributeValue, Element, Event, Handler, into_element};
+use rustx_dom::{AttributeValue, Element, Event, Handler, Value, into_element};
 
 #[test]
 fn a_tag_carries_its_attributes_handlers_and_children_in_order() {
@@ -34,9 +34,7 @@ fn a_handler_is_callable_and_needs_no_thread_bound() {
     let Element::Tag(tag) = element else {
         panic!("expected a tag")
     };
-    tag.handlers[0].1.call(Event {
-        kind: "click".into(),
-    });
+    tag.handlers[0].1.call(Event::of("click"));
     assert_eq!(seen.get(), 1);
 }
 
@@ -47,4 +45,39 @@ fn anything_displayable_can_be_written_between_braces() {
     assert!(matches!(into_element("hi"), Element::Text(t) if t == "hi"));
     assert!(matches!(into_element(Element::Empty), Element::Empty));
     assert!(matches!(into_element(Vec::<Element>::new()), Element::Fragment(c) if c.is_empty()));
+}
+
+// ───────── Un évènement qui traverse la frontière React ─────────
+//
+// Une balise ordinaire écrite dans un sous-arbre React n'est pas montée
+// par le moteur : c'est React qui la fait, et son `onInput` arrive par
+// le chemin des props. Ce qu'une closure reçoit doit pourtant être le
+// même `Event` que sur une balise montée par le moteur — le `.rsx` est
+// le même, la closure est la même, et ce qui change est un ancêtre.
+
+#[test]
+fn an_event_crosses_as_a_record_and_comes_back_whole() {
+    let event = Event {
+        kind: "input".to_string(),
+        value: "tokio".to_string(),
+        id: "recherche".to_string(),
+        key: "o".to_string(),
+        checked: true,
+        shift: false,
+        control: true,
+        alt: false,
+        meta: false,
+    };
+    assert_eq!(Event::from_value(&event.as_value()), event);
+}
+
+#[test]
+fn a_value_that_is_not_an_event_reads_as_an_empty_one() {
+    // Ce qu'une bibliothèque passe à `onChange` n'est pas toujours un
+    // évènement : refuser serait une bibliothèque qui s'arrête, donc
+    // c'est un évènement vide, et le texte reçu est quand même là.
+    let said = Event::from_value(&Value::String("tokio".to_string()));
+    assert_eq!(said.value, "tokio", "le texte passé doit rester lisible");
+    assert!(said.kind.is_empty());
+    assert_eq!(Event::from_value(&Value::Null), Event::default());
 }

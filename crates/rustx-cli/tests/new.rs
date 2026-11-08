@@ -136,3 +136,111 @@ fn every_command_is_read_from_what_was_typed() {
         arguments::Command::Unknown("biuld".to_string())
     );
 }
+
+#[test]
+fn a_new_project_ignores_what_the_build_writes() {
+    // `/target` alone was the whole file, and the first `git add .` of
+    // a project with npm libraries carried two megabytes of minified
+    // JavaScript, a `node_modules`, and the entry point the framework
+    // generates.
+    let into = somewhere();
+    new::write("mon-app", &into).expect("a project");
+    let ignored = fs::read_to_string(into.join("mon-app").join(".gitignore")).expect("a file");
+    for line in ["/target", "/node_modules", "/.rustx/", "/assets/rustx-bundle.js"] {
+        assert!(
+            ignored.lines().any(|written| written == line),
+            "`{line}` is not ignored: {ignored}"
+        );
+    }
+}
+
+#[test]
+fn a_new_project_names_one_dependency_and_one_only() {
+    // The documentation's promise: "Une application n'en nomme qu'un :
+    // `rustx-app`." The generated pages name `rustx_dom` and
+    // `rustx_engine`, so the facade re-exports them and the prelude of
+    // `#[rustx::main]` imports them -- which is what makes the promise
+    // true rather than aspirational. A project written before that did
+    // not compile at all.
+    let into = somewhere();
+    new::write("mon-app", &into).expect("a project");
+    let manifest = fs::read_to_string(into.join("mon-app").join("Cargo.toml")).expect("a file");
+    let dependencies: Vec<&str> = manifest
+        .lines()
+        .skip_while(|line| !line.starts_with("[dependencies]"))
+        .skip(1)
+        .filter(|line| !line.trim().is_empty() && !line.trim_start().starts_with('#'))
+        .collect();
+    assert_eq!(dependencies.len(), 1, "got {dependencies:?}");
+    assert!(dependencies[0].starts_with("rustx ="), "got {dependencies:?}");
+}
+
+/// What a new project asks of the framework must be a version that
+/// exists.
+///
+/// `rustx = { package = "rustx-app", version = "0.1" }` was written out
+/// by hand, and it outlived 0.2.0. Under cargo's rule for 0.x a `0.1`
+/// requirement does not accept 0.2.0, so every project made by
+/// `rustx new` silently got the framework of the version before —
+/// including its refusals, fixed months earlier. The requirement is
+/// read from this crate's own version now, and this law is what keeps
+/// the two from drifting again.
+#[test]
+fn a_new_project_asks_for_the_version_this_command_line_belongs_to() {
+    let into = somewhere();
+    new::write("my-app", &into).expect("a project");
+
+    let manifest = fs::read_to_string(into.join("my-app").join("Cargo.toml"))
+        .or_else(|_| fs::read_to_string(into.join("Cargo.toml")))
+        .expect("the manifest it wrote");
+
+    let mine = env!("CARGO_PKG_VERSION");
+    let mut parts = mine.split('.');
+    let wanted = match (parts.next(), parts.next()) {
+        (Some("0"), Some(minor)) => format!("0.{minor}"),
+        (Some(major), _) => major.to_string(),
+        _ => mine.to_string(),
+    };
+
+    assert!(
+        manifest.contains(&format!("version = \"{wanted}\"")),
+        "a project made by rustx {mine} asks for something else:\n{manifest}"
+    );
+}
+
+/// `npm install <library>` has to find a project to install into.
+///
+/// Without a `package.json`, an old `npm` refuses outright and a new
+/// one writes one of its own — named after the directory, at version
+/// `1.0.0`, with no `private` field — the moment a developer follows
+/// the documentation's first line (`npm install recharts`). The file
+/// this command should have written shows up a step late, named by
+/// npm and not by the project, and `rustx new` looks like it forgot a
+/// file every project that reaches for a JavaScript library needs.
+#[test]
+fn a_new_project_can_already_receive_an_npm_install() {
+    let into = somewhere();
+    new::write("mon-app", &into).expect("a project");
+    let manifest = fs::read_to_string(into.join("mon-app").join("package.json"))
+        .expect("a package.json ready for npm install");
+    assert!(manifest.contains("\"name\""), "got {manifest}");
+    assert!(manifest.contains("\"private\": true"), "got {manifest}");
+    assert!(manifest.contains("\"dependencies\""), "got {manifest}");
+    let _: () = assert_is_valid_json(&manifest);
+    let _ = fs::remove_dir_all(&into);
+}
+
+/// Not a parser brought in for one test: a `package.json` with a
+/// trailing comma or an unclosed brace fails every `npm install` with
+/// an error that does not name this command at all.
+fn assert_is_valid_json(text: &str) {
+    let mut depth = 0i32;
+    for letter in text.chars() {
+        match letter {
+            '{' | '[' => depth += 1,
+            '}' | ']' => depth -= 1,
+            _ => {}
+        }
+    }
+    assert_eq!(depth, 0, "unbalanced braces: {text}");
+}

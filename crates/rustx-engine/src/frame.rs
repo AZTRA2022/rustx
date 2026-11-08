@@ -111,7 +111,13 @@ pub fn frame_count() -> u64 {
 /// to explain it, the queue would grow without bound behind it, and the
 /// application the framework is built for — one that drives hardware —
 /// is precisely the kind where a job panics sooner or later.
-pub(crate) fn tick() {
+pub fn tick() {
+    // The writes a future posted since the last frame, first: a write
+    // that landed has to be in the render it asked for and not in the
+    // one after. State is this thread's, so this is the only thread
+    // that could apply them.
+    rustx_dom::state::apply_remote();
+
     let jobs = {
         let mut guard = queue()
             .lock()
@@ -179,6 +185,21 @@ pub fn shutdown() {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     *guard = None;
+    drop(guard);
+    // And the mailbox a future writes state through, for whichever
+    // thread calls this. In the render process that is the thread that
+    // owns the cells; in the browser process there is no mailbox worth
+    // closing and this makes an empty one. The call that matters for a
+    // real window is the one in `cef_app::on_context_released`, which
+    // runs where the runtime and the cells are — this one is for the
+    // single-process paths and for an application winding down on its
+    // own terms.
+    rustx_dom::state::close_remote();
+    // And the async runtime, in the process that has one. A future left
+    // polling after its window has gone has nobody to post to and
+    // nothing to draw; in the browser process there is no runtime and
+    // this is a lock and a look.
+    crate::runtime::stop();
 }
 
 /// How long the loop waits for a frame of its own before running one.
@@ -250,13 +271,20 @@ fn schedule_check() {
 }
 
 /// Reopen the queue for a freshly created context.
-pub(crate) fn open() {
+pub fn open() {
     let mut guard = queue()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     if guard.is_none() {
         *guard = Some(Vec::new());
     }
+    drop(guard);
+    // And the mailbox a future writes state through. Without this, a
+    // page that follows a closed context ran its futures and had every
+    // write refused in silence. The queue's lock is let go first, the
+    // way `shutdown` lets it go: no path takes these two in the other
+    // order today, and keeping them apart is how it stays true.
+    rustx_dom::state::open_remote();
 }
 
 /// The script that drives the loop.

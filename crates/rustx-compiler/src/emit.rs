@@ -92,8 +92,16 @@ fn expression(node: &Node, context: &Context<'_>) -> Result<TokenStream, Compile
             // Verbatim. `{clicks}` is `clicks`, and `into_element` is what
             // spares the developer a conversion they should never have to
             // write.
+            //
+            // Braced, because what is between the braces of a tag may
+            // hold statements: `{ let (visites, rang) = …;
+            // format!(…) }` is ordinary Rust, and the braces of the tag
+            // were being taken for the braces of the block. What came
+            // out was `into_element(let … ; …)`, which nothing can
+            // analyse. A block around an expression is still that
+            // expression.
             let inner = rust(code, *offset)?;
-            Ok(quote! { rustx_dom::into_element(#inner) })
+            Ok(quote! { rustx_dom::into_element({ #inner }) })
         }
         Node::Tag(tag) if tag.is_fragment() => Ok(fragment(&tag.children, context)?),
         // A capitalised tag the page declares is the page's own
@@ -479,6 +487,40 @@ fn foreign_node(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, Com
         ));
     }
 
+    /// How many arguments the closure written for a callback takes.
+    ///
+    /// Counted in the text, because that is where the answer is: a
+    /// closure says its parameters between two pipes, and `|| …` says
+    /// it takes none. Anything that is not a closure literal — a
+    /// function's name, a path — is called with one argument, which is
+    /// what a library almost always passes and what this did for
+    /// everything before.
+    fn taken(code: &str) -> usize {
+        let written = code.trim();
+        let written = written.strip_prefix("move").unwrap_or(written).trim_start();
+        let Some(rest) = written.strip_prefix('|') else {
+            return 1;
+        };
+        // `||` with nothing between the pipes: no parameters at all.
+        if let Some(after) = rest.strip_prefix('|') {
+            let _ = after;
+            return 0;
+        }
+        let mut depth = 0usize;
+        let mut parameters = 1usize;
+        for letter in rest.chars() {
+            match letter {
+                '(' | '[' | '{' | '<' => depth += 1,
+                ')' | ']' | '}' | '>' => depth = depth.saturating_sub(1),
+                ',' if depth == 0 => parameters += 1,
+                '|' if depth == 0 => return parameters,
+                _ => {}
+            }
+        }
+        // No closing pipe: not a closure after all.
+        1
+    }
+
     let mut props = Vec::new();
     let mut callbacks = Vec::new();
     for attribute in &tag.attributes {
@@ -503,13 +545,60 @@ fn foreign_node(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, Com
                 ));
             };
             let inner = rust(code, attribute.offset)?;
+            // As many arguments as the closure was written to take. A
+            // library that calls `onChange(valeur, index)` is ordinary
+            // — virtual lists, tables and range pickers all do — and a
+            // closure of two parameters handed one argument does not
+            // compile, with the error naming a generated file.
+            // Une balise ordinaire ecrite dans un sous-arbre React
+            // garde ses evenements : `<input onInput={…}>` donne un
+            // `Event`, que React l'ait montee ou que le moteur l'ait
+            // montee. Sinon le meme `.rsx` se comportait de deux
+            // facons selon un ancetre -- et du cote React la closure
+            // recevait `null`.
+            //
+            // Une prop d'un composant, elle, reste une valeur : ce
+            // qu'une bibliothèque passe a `onValueChange` est ce
+            // qu'elle veut, et seul le DOM garantit un evenement.
+            let an_event = !crate::tags::looks_like_a_component(export)
+                && crate::attributes::is_event(&attribute.name);
+            let given: Vec<proc_macro2::TokenStream> = (0..taken(code))
+                .map(|at| {
+                    let at = Literal::usize_suffixed(at);
+                    if an_event && at.to_string() == "0usize" {
+                        quote! {
+                            rustx_dom::Event::from_value(
+                                &rustx_dom::Callback::nth(__arguments, 0usize),
+                            )
+                        }
+                    } else {
+                        quote! { rustx_dom::Callback::nth(__arguments, #at) }
+                    }
+                })
+                .collect();
+            // Une closure dans un `let` est verifiee avant d'etre
+            // appelee : sans attente, `event.value` ne se lit pas
+            // encore. `taking_an_event` est cette attente, et elle rend
+            // la closure telle quelle.
+            let inner = if an_event && taken(code) == 1 {
+                quote! { rustx_dom::taking_an_event(#inner) }
+            } else {
+                inner
+            };
             callbacks.push(quote! {
                 (
                     #name.to_string(),
                     rustx_dom::Callback::new({
-                        let __called = #inner;
+                        // `mut`, because a handler that writes an
+                        // état is `FnMut` and a `FnMut` is called
+                        // through a mutable binding. Without it,
+                        // `onClick={move |_| ouvert = !ouvert}` on a
+                        // library's component did not compile.
+                        #[allow(unused_mut)]
+                        let mut __called = #inner;
                         move |__arguments: &[rustx_dom::Value]| {
-                            __called(rustx_dom::Callback::first(__arguments))
+                            let _ = __arguments;
+                            __called(#(#given),*)
                         }
                     }),
                 )
@@ -565,12 +654,16 @@ fn foreign_child(child: &Node, context: &Context<'_>) -> Result<TokenStream, Com
         }
         Node::Tag(tag) => Err(unknown_tag(tag)),
         // `{content}` inside a library's component. React renders a
-        // string, a number or a list of them as children, so the value
-        // crosses the way a prop does.
+        // string, a number or a list of them as children, so a value
+        // crosses the way a prop does — and a component of the page
+        // crosses as the tree it is, described the way a native tag
+        // below the boundary is already described. Which of the two it
+        // is is decided by the type the developer wrote, not by a guess
+        // here: `into_foreign_child` takes either.
         Node::Expression { code, offset } => {
             let inner = rust(code, *offset)?;
             Ok(quote! {
-                rustx_dom::ForeignChild::Value(rustx_dom::value::ToValue::to_value(&(#inner)))
+                rustx_dom::into_foreign_child({ #inner })
             })
         }
     }

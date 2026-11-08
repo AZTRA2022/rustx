@@ -1,0 +1,94 @@
+---
+title: "shadcn/ui"
+description: "`shadcn add` works, `shadcn init` does not — and the two files it would have written."
+---
+
+`npx shadcn add` works. `npx shadcn init` **does not**: it looks for a
+framework it knows — Next, Vite, Remix — and stops, saying it finds none. What it would have written is written by hand, once, and there are two files.
+
+## `components.json`
+
+It tells `shadcn add` where to put what it downloads:
+
+```json
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "new-york",
+  "rsc": false,
+  "tsx": true,
+  "tailwind": {
+    "config": "",
+    "css": "assets/tailwind.css",
+    "baseColor": "neutral",
+    "cssVariables": true
+  },
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils",
+    "ui": "@/components/ui",
+    "lib": "@/lib",
+    "hooks": "@/hooks"
+  },
+  "iconLibrary": "lucide"
+}
+```
+
+## `tsconfig.json`
+
+It tells esbuild what `@/` means — shadcn's components import each other by this alias:
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": { "@/*": ["./*"] }
+  },
+  "include": ["components/**/*", "lib/**/*", "hooks/**/*"]
+}
+```
+
+## Then
+
+```sh
+npm install react react-dom class-variance-authority clsx tailwind-merge lucide-react
+npx shadcn add button card dialog input
+```
+
+The files arrive in `components/ui/`, and a capitalized tag finds them:
+
+```rust
+return <Card className="w-80">
+    <CardHeader><CardTitle>New repository</CardTitle></CardHeader>
+    <CardContent className="space-y-2">
+        <Input placeholder="name" value={name.clone()}
+               onInput={move |event| name = event.value} />
+        <Button onClick={move |_| create(name.clone())}>Create</Button>
+    </CardContent>
+</Card>;
+```
+
+Pairs that shadcn does not always install itself are requested like the rest: `npm install @radix-ui/react-dialog`.
+
+## The theme
+
+This is where a style sheet copied by hand goes wrong, and it shows first: a white window whose `className`s are all words in attributes. `@theme inline` is the missing bridge, and it is explained in [Tailwind](/docs/javascript-libraries/tailwind).
+
+## What does not cross
+
+A shadcn component that takes a **function child** — a *render prop*
+— or a `ref` cannot receive it from a `.rsx` page: a rustx `Element`
+is a tree, not a function. The way out is
+[a component of your own](/docs/javascript-libraries/your-own-components),
+in TypeScript, which keeps this detail on its side.
+
+An `onValueChange`, an `onOpenChange`, an `onSelect` — the props that
+shadcn invents — are passed as ordinary callbacks and receive
+their arguments as they are. Only DOM events (`onClick`,
+`onInput`, `onChange`…) on a **lowercase** tag are converted into
+a rustx `Event`.

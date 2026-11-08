@@ -1,0 +1,111 @@
+---
+title: "Dropped files"
+description: "Drag and drop, with the real path of the files — what a `DataTransfer` does not give."
+---
+
+A page sees a drop: `ondrop`, a `DataTransfer`, and `File` objects that it can
+read. What it does not see, and what the browser deliberately hides from it, is **where** those files are. A program that catalogues, converts, watches or re-saves needs the path: to reopen the file tomorrow, to write next to it, to pass it to a Rust library.
+
+```rust
+use rustx::dropped;
+
+fn Drop() -> Element {
+    effect((), || {
+        dropped::on_files(move |paths| {
+            for path in paths {
+                catalogue(&path);
+            }
+        });
+    });
+
+    return <div className="border-2 border-dashed p-8">Drop files here</div>;
+}
+```
+
+Or, for a page that prefers to read on every beat:
+
+```rust
+for path in dropped::files() {
+    catalogue(&path);
+}
+```
+
+`files()` is **taken**: read once. Without this, a page that reads on
+every frame would reopen the same file endlessly.
+
+## The two forms
+
+| | |
+|---|---|
+| `dropped::on_files(hook)` | called on the page's thread, like an event handler. Several hooks are called in the order they were set, each with the full list |
+| `dropped::files()` | what has been dropped since the last read, and taken |
+
+The hook is set in an `effect((), …)`, so **once** per instance of the component, and not on every render.
+
+## When it enters, not when it drops
+
+What CEF reports is the **entry** of the cursor into the window with something in hand, and not the release: its drag-and-drop handler has no event for the release. The paths are therefore known a moment **before**, and that is when they arrive.
+
+A page that wants exact coincidence listens to its own `ondrop` and reads `files()` at that moment: the path is already there.
+
+```rust
+return <div
+    onDragOver={|_| {}}
+    onDrop={move |_| {
+        for path in dropped::files() {
+            catalogue(&path);
+        }
+    }}
+>Drop files here</div>;
+```
+
+An accepted consequence: a drag that is **abandoned** — entered the window, then left without dropping — leaves paths pending. `files()` takes them, and the next drop replaces them.
+
+## What the engine takes over from Chromium
+
+Without this, dropping a file on a window makes the browser **navigate** to that file: the application disappears, replaced by the contents of the PDF just dropped. The engine intercepts the drop so this does not happen, and this is the kind of thing a framework must handle once and for all.
+
+## Hover, and the screen that responds
+
+Hovering is ordinary DOM, so it is written as it is on the web:
+
+```rust
+let mut over = false;
+
+fn Zone() -> Element {
+    effect((), || {
+        dropped::on_files(move |paths| {
+            over = false;
+            for path in paths { catalogue(&path); }
+        });
+    });
+
+    return <div
+        className={if over {
+            "border-2 border-dashed border-foreground p-8"
+        } else {
+            "border-2 border-dashed border-border p-8"
+        }}
+        onDragOver={move |_| over = true}
+        onDragLeave={move |_| over = false}
+    >
+        {if over { "Let go" } else { "Drop files here" }}
+    </div>;
+}
+```
+
+## Dragging **from** the application
+
+Taking a file out of the window to the explorer is not written: it is the other direction of drag and drop, and it requires an
+`IDataObject` that the window's process must hold for the whole duration of the gesture. This is noted in [what's left](/docs/whats-left).
+
+What works in the meantime: a button that writes the file into a folder chosen by
+[a save dialog](/docs/the-system/file-dialogs).
+
+## The name under which it crosses
+
+The paths are known to the window's process, and the page lives in the render process. They cross through the bridge, under `dropped::WHAT` — `"dropped"`. An application has nothing to write for this; it is visible in the traces:
+
+```sh
+RUSTX_TRACE=1 cargo run
+```

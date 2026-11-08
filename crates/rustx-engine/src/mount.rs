@@ -152,12 +152,47 @@ pub(crate) fn set_attribute(
     name: &str,
     value: &AttributeValue,
 ) -> Result<(), DomError> {
+    // `value` and `checked` are not attributes once somebody has typed
+    // or clicked: the attribute says what the field *started* as, and
+    // the property says what it *is*. Setting the attribute alone meant
+    // a field the page cleared — `terme = String::new()` behind a
+    // « vider » button — kept what was in it, and the only thing that
+    // looked wrong was the application.
+    if is_a_property(name) {
+        set_property_too(node, name, value)?;
+    }
     match value {
         AttributeValue::Text(text) => node.set_attribute(name, text),
         // A flag is present or absent; `disabled="false"` is still
         // disabled in HTML, so absence is the only way to say no.
         AttributeValue::Flag(true) => node.set_attribute(name, ""),
         AttributeValue::Flag(false) => node.remove_attribute(name),
+    }
+}
+
+/// The attributes that a form element carries as a live property too.
+fn is_a_property(name: &str) -> bool {
+    matches!(name, "value" | "checked" | "selected")
+}
+
+/// Set the property as well as the attribute, where the element has
+/// one.
+///
+/// The tag is asked for, because `.value` on a `<div>` would be a
+/// property nobody reads and a lie in anybody's debugger. One extra
+/// call through V8, and only for the three names above.
+fn set_property_too(node: &Node, name: &str, value: &AttributeValue) -> Result<(), DomError> {
+    let tag = node.tag_name().unwrap_or_default();
+    let has_one = matches!(
+        tag.as_str(),
+        "INPUT" | "TEXTAREA" | "SELECT" | "OPTION" | "PROGRESS" | "METER"
+    );
+    if !has_one {
+        return Ok(());
+    }
+    match value {
+        AttributeValue::Text(text) => node.set_text_property(name, text),
+        AttributeValue::Flag(whether) => node.set_flag_property(name, *whether),
     }
 }
 
@@ -178,10 +213,20 @@ wrap_v8_handler! {
             &self,
             _name: Option<&CefString>,
             _object: Option<&mut V8Value>,
-            _arguments: Option<&[Option<V8Value>]>,
+            arguments: Option<&[Option<V8Value>]>,
             _retval: Option<&mut Option<V8Value>>,
             _exception: Option<&mut CefString>,
         ) -> ::std::os::raw::c_int {
+            // The DOM event is the first argument, and what a page asks
+            // of it is a short list: what was typed, which element it
+            // was, which key, which modifiers. The event object itself
+            // cannot cross — it holds DOM nodes — so the list is read
+            // here and the rest is left behind.
+            let event = arguments
+                .and_then(|arguments| arguments.first())
+                .and_then(Option::as_ref)
+                .map(read_event)
+                .unwrap_or_default();
             let kind = self.kind.to_string();
             let slot = Rc::clone(&self.slot);
             // This frame is called from C, so a panic in the
@@ -192,7 +237,7 @@ wrap_v8_handler! {
                 // find the slot borrowed when it returns.
                 let handler = slot.borrow().clone();
                 if let Some(handler) = handler {
-                    handler.call(Event { kind });
+                    handler.call(Event { kind, ..event });
                 }
             });
             1
@@ -213,6 +258,87 @@ fn listen(node: &Node, name: &str, slot: HandlerSlot) -> Result<(), DomError> {
         .ok_or_else(|| DomError::Failed("could not build the event name".into()))?;
 
     node.call_with_v8("addEventListener", vec![Some(kind_value), Some(callback)])
+}
+
+/// What the page may know about a DOM event.
+///
+/// Read field by field rather than converted whole: an event holds DOM
+/// nodes, and a node does not cross. `target` is read once and asked
+/// three questions, because `event.target` on a DOM event is a getter
+/// and calling it four times is four trips through V8 for nothing.
+///
+/// `pub(crate)`, parce que l'autre chemin en a besoin : une balise
+/// ordinaire ecrite dans un sous-arbre React est montee par React, et
+/// son `onInput` revient par les props. Ce qu'une closure recoit doit
+/// etre le meme evenement -- deux lectures separees finiraient par ne
+/// plus dire la meme chose.
+pub(crate) fn read_event(event: &V8Value) -> Event {
+    let target = field(event, "target");
+    Event {
+        kind: String::new(),
+        value: target.as_ref().map(|target| text(target, "value")).unwrap_or_default(),
+        id: target.as_ref().map(|target| text(target, "id")).unwrap_or_default(),
+        key: text(event, "key"),
+        checked: target
+            .as_ref()
+            .map(|target| flag(target, "checked"))
+            .unwrap_or_default(),
+        shift: flag(event, "shiftKey"),
+        control: flag(event, "ctrlKey"),
+        alt: flag(event, "altKey"),
+        meta: flag(event, "metaKey"),
+    }
+}
+
+/// One field of a JavaScript object, if it has one.
+fn field(object: &V8Value, name: &str) -> Option<V8Value> {
+    use cef::ImplV8Value;
+    object.value_bykey(Some(&CefString::from(name)))
+}
+
+/// A field as text. A number or a boolean is written out, because an
+/// `onInput` on `<input type="number">` is the ordinary case and the
+/// page asked for what is in the field.
+fn text(object: &V8Value, name: &str) -> String {
+    use cef::ImplV8Value;
+    let Some(held) = field(object, name) else {
+        return String::new();
+    };
+    if held.is_string() != 0 {
+        return CefString::from(&held.string_value()).to_string();
+    }
+    if held.is_int() != 0 {
+        return held.int_value().to_string();
+    }
+    if held.is_double() != 0 {
+        return held.double_value().to_string();
+    }
+    if held.is_bool() != 0 {
+        return held.bool_value().to_string();
+    }
+    String::new()
+}
+
+/// A field as a boolean, false when it is not there.
+fn flag(object: &V8Value, name: &str) -> bool {
+    use cef::ImplV8Value;
+    field(object, name).is_some_and(|held| held.is_bool() != 0 && held.bool_value() != 0)
+}
+
+/// Cet objet est-il un evenement ?
+///
+/// La question se pose parce qu'une bibliothèque appelle ses props avec
+/// ce qu'elle veut : `onValueChange("clair")` passe une chaine, et
+/// `onClick` passe l'evenement de React. Un evenement a un `type` et une
+/// cible ; c'est ce qu'on regarde, et pas le nom de la prop, que
+/// personne ne garantit.
+pub(crate) fn is_an_event(object: &V8Value) -> bool {
+    use cef::ImplV8Value;
+    if object.is_object() == 0 {
+        return false;
+    }
+    let has = |name: &str| field(object, name).is_some_and(|held| held.is_undefined() == 0);
+    has("type") && (has("target") || has("currentTarget") || has("nativeEvent"))
 }
 
 /// `onDoubleClick` is `dblclick` to the DOM; everything else is the name

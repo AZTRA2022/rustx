@@ -1,0 +1,91 @@
+---
+title: "Lists and conditions"
+description: "map and collect for a list, if and match for a choice: ordinary Rust in the tree."
+---
+
+Ordinary Rust: `map` and `collect` for a list, `if` or `match`
+for a choice. There is no template directive to learn.
+
+## A list
+
+```rust
+fn List(names: Vec<String>) -> Element {
+    let items: Vec<Element> = names
+        .iter()
+        .map(|name| Element::tag("li").child(Element::Text(name.clone())).build())
+        .collect();
+
+    return <ul>{items}</ul>;
+}
+```
+
+And more often, one component per row:
+
+```rust
+fn Devices(devices: Vec<Device>) -> Element {
+    let rows: Vec<Element> = devices.iter().map(|each| Row(each.clone())).collect();
+
+    return <ul>{rows}</ul>;
+}
+```
+
+A `Vec<Element>` goes into the tree as it is: it is what `{…}` accepts,
+just like a number or a string.
+
+## A condition
+
+```rust
+return <div>
+    {if busy { Spinner() } else { Result(value) }}
+</div>;
+```
+
+A `match`, when there are more than two cases:
+
+```rust
+return <div>
+    {match state {
+        State::Loading => Spinner(),
+        State::Failed(why) => Failure(why.clone()),
+        State::Ready(rows) => Table(rows.clone()),
+    }}
+</div>;
+```
+
+## Nothing at all
+
+`Element::Empty` is the element that draws nothing, and it is the branch
+that is often missing:
+
+```rust
+return <div>
+    {if open { Dialog() } else { Element::Empty }}
+</div>;
+```
+
+An `Option<Element>` works too: `None` draws nothing.
+
+## Keys
+
+A list whose rows move is **named**, so that the next frame corrects the row
+that changed rather than redrawing the whole list:
+
+```rust
+fn Row(device: Device) -> Element {
+    return <li key={device.id.clone()}>{device.name}</li>;
+}
+```
+
+`key` is not a DOM attribute and never reaches the page: it identifies the row
+for the reconciler **and** the state it holds — the same meaning as in
+React, and both from a single word. Outside of markup, it is `Element::tag("li").key(id)`.
+
+Without a key, the diff compares by position, which is right for a list
+that only grows at the end. With a key, a row inserted in the middle
+costs one insertion and not a thousand corrections.
+
+<Callout type="warn" title="A loop that never ends blocks the frame">
+Rendering is synchronous: a page that does not return its `Element` draws
+nothing. Work that takes time goes in an `async` block or in a
+[`task`](/docs/getting-started/keep-effect-task), never before the `return`.
+</Callout>

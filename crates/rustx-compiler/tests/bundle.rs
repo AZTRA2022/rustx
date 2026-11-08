@@ -246,3 +246,160 @@ fn an_applications_own_stylesheet_is_imported_and_not_replaced() {
         "the application's own stylesheet imports it: {generated}"
     );
 }
+
+// --- What the hunt of 2026-11-06 found, in an application built on the
+// --- framework from the outside: Tailwind 4, TipTap, shadcn.
+
+#[test]
+fn a_scoped_build_tool_is_not_a_library_of_the_page() {
+    // `npm install tailwindcss @tailwindcss/cli` is the first line of
+    // Tailwind 4's own getting-started page, and it puts the command
+    // line under `dependencies`. The bundle used to import it, and
+    // esbuild refused the whole build.
+    let entry = entry_for(&["@tailwindcss/cli".to_string(), "recharts".to_string()]);
+    assert!(!entry.contains("tailwindcssCli"), "got {entry}");
+    assert!(entry.contains("import * as recharts"), "got {entry}");
+}
+
+#[test]
+fn a_package_with_sub_paths_and_no_root_is_left_out_of_the_entry() {
+    // `@tiptap/pm` exports `./state`, `./view`, and no `.`. A page
+    // writes `@tiptap/pm/state` or nothing, and importing the root
+    // used to be an esbuild error about a path nobody wrote.
+    let app = somewhere("sub-paths-only");
+    write_package(
+        &app,
+        "{\"dependencies\": {\"@tiptap/pm\": \"3.0.0\", \"@tiptap/react\": \"3.0.0\"}}",
+    );
+    install(
+        &app,
+        "@tiptap/pm",
+        "{\"name\": \"@tiptap/pm\", \"exports\": {\"./state\": \"./state/index.js\"}}",
+    );
+    install(
+        &app,
+        "@tiptap/react",
+        "{\"name\": \"@tiptap/react\", \"main\": \"dist/index.js\"}",
+    );
+    assert_eq!(
+        rustx_compiler::bundle::installed(&app, "@tiptap/pm"),
+        rustx_compiler::bundle::Installed::NothingToImport
+    );
+    assert_eq!(
+        rustx_compiler::bundle::installed(&app, "@tiptap/react"),
+        rustx_compiler::bundle::Installed::Importable
+    );
+}
+
+#[test]
+fn a_package_whose_entry_point_is_a_stylesheet_is_left_out_too() {
+    // `tw-animate-css` belongs to the stylesheet, not to the bundle.
+    let app = somewhere("css-only");
+    install(
+        &app,
+        "tw-animate-css",
+        "{\"name\": \"tw-animate-css\", \"main\": \"dist/tw-animate.css\"}",
+    );
+    assert_eq!(
+        rustx_compiler::bundle::installed(&app, "tw-animate-css"),
+        rustx_compiler::bundle::Installed::NothingToImport
+    );
+}
+
+#[test]
+fn a_library_declared_and_never_installed_is_said_by_name() {
+    let app = somewhere("declared-not-installed");
+    write_package(&app, "{\"dependencies\": {\"recharts\": \"2.12.7\"}}");
+    // An esbuild to get past the first refusal, and nothing else.
+    install(&app, "esbuild", "{\"name\": \"esbuild\"}");
+    let binaries = app.join("node_modules").join(".bin");
+    std::fs::create_dir_all(&binaries).expect("a .bin");
+    std::fs::write(binaries.join("esbuild.cmd"), "").expect("a file");
+
+    let said = build(&app).expect_err("should refuse");
+    assert!(said.contains("recharts"), "got {said}");
+    assert!(said.contains("npm install"), "got {said}");
+}
+
+#[test]
+fn a_components_file_outside_ui_is_a_tag_as_well() {
+    // `components/ui` is where `shadcn add` leaves its own;
+    // `components/` is where a developer leaves theirs, and the
+    // Tailwind globs beside this have always read both. The index read
+    // only the first, so `<Editor>` compiled and found nothing.
+    let app = somewhere("own-components-nested");
+    let components = app.join("components");
+    std::fs::create_dir_all(components.join("ui")).expect("a directory");
+    std::fs::write(
+        components.join("Editor.tsx"),
+        "export default function Editor() { return null }\n",
+    )
+    .expect("a file");
+    std::fs::write(
+        components.join("ui").join("button.tsx"),
+        "export function Button() { return null }\n",
+    )
+    .expect("a file");
+
+    let index = rustx_compiler::bundle::index_for(&app).expect("an index");
+    assert!(index.contains("../components/ui/button.tsx"), "got {index}");
+    assert!(index.contains("../components/Editor.tsx"), "got {index}");
+    // And the default export, under the name of its file, because
+    // `export *` does not carry a default.
+    assert!(
+        index.contains("export { default as Editor }"),
+        "got {index}"
+    );
+}
+
+#[test]
+fn tailwind_installed_with_nothing_to_run_it_is_said_and_not_skipped() {
+    // Tailwind 4 keeps its command line in `@tailwindcss/cli`. An
+    // application that installed only the library used to get a window
+    // with every `className` in it and not one rule, and no word about
+    // it anywhere.
+    let app = somewhere("tailwind-without-a-cli");
+    write_package(&app, "{\"dependencies\": {\"tailwindcss\": \"^4.0.0\"}}");
+    install(&app, "tailwindcss", "{\"name\": \"tailwindcss\", \"version\": \"4.1.0\"}");
+
+    let said = build(&app).expect_err("should refuse");
+    assert!(said.contains("@tailwindcss/cli"), "got {said}");
+}
+
+/// A `package.json` for the application itself.
+fn write_package(app: &std::path::Path, text: &str) {
+    std::fs::write(app.join("package.json"), text).expect("a manifest");
+}
+
+/// A package in `node_modules`, with the manifest it would have.
+fn install(app: &std::path::Path, package: &str, manifest: &str) {
+    let directory = package
+        .split('/')
+        .fold(app.join("node_modules"), |at, part| at.join(part));
+    std::fs::create_dir_all(&directory).expect("a package directory");
+    std::fs::write(directory.join("package.json"), manifest).expect("a manifest");
+}
+
+#[test]
+fn two_libraries_that_come_to_one_name_are_refused() {
+    // `@tiptap/react` and `tiptap-react` both become `tiptapReact`. The
+    // entry point would write one over the other in a single object
+    // literal, which JavaScript allows and nobody can see.
+    let collision = rustx_compiler::bundle::a_collision_in(&[
+        "@tiptap/react".to_string(),
+        "recharts".to_string(),
+        "tiptap-react".to_string(),
+    ])
+    .expect("a collision");
+    assert_eq!(
+        collision,
+        ("@tiptap/react".to_string(), "tiptap-react".to_string())
+    );
+    assert!(
+        rustx_compiler::bundle::a_collision_in(&[
+            "@tiptap/react".to_string(),
+            "recharts".to_string()
+        ])
+        .is_none()
+    );
+}

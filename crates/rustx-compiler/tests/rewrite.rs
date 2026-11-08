@@ -225,3 +225,842 @@ fn a_let_mut_nothing_writes_to_warns_about_nothing() {
         "got {rust}"
     );
 }
+
+#[test]
+fn a_write_in_an_async_block_promotes_the_local() {
+    // The spec names the asynchronous block beside the handler: a local
+    // written from one is state, for the same reason and in the same
+    // words.
+    let rust = rewrite_one(
+        "fn C() -> Element {\n    let mut n = 0;\n    task(async move { n += 1; });\n    return <p>{n}</p>;\n}",
+    );
+    assert!(
+        rust.contains("rustx_dom::state::cell"),
+        "the local stayed a plain local: {rust}"
+    );
+}
+
+#[test]
+fn a_write_in_an_async_block_goes_through_the_remote() {
+    // A cell is an `Rc<RefCell<…>>` on the render thread, and a future
+    // runs on the runtime's threads. What crosses is a handle that says
+    // where the cell is, and the write lands on a frame.
+    let rust = rewrite_one(
+        "fn C() -> Element {\n    let mut n = 0;\n    task(async move { n += 1; });\n    return <p>{n}</p>;\n}",
+    );
+    assert!(rust.contains("n.remote_until(&__cancel)"), "got {rust}");
+    assert!(rust.contains("spawn_future"), "got {rust}");
+    assert!(
+        rust.contains("n.update("),
+        "the write did not become an update: {rust}"
+    );
+    assert!(
+        !rust.contains("n += 1"),
+        "a bare write to state survived into the future: {rust}"
+    );
+}
+
+#[test]
+fn a_shared_value_written_in_an_async_block_is_bound_before_the_block() {
+    // `let mut rows = …` at the top of a page. The handle is built on
+    // the render thread, where the store lives, and moved in.
+    let rust = rewrite_one(
+        "let mut rows = 0;\n\nfn C() -> Element {\n    task(async move { rows += 1; });\n    return <p>{rows}</p>;\n}",
+    );
+    assert!(
+        rust.contains("rustx_dom::store::shared(\"rows\", || 0).remote_until(&__cancel)"),
+        "got {rust}"
+    );
+    assert!(rust.contains("rows.update("), "got {rust}");
+}
+
+#[test]
+fn a_read_of_state_in_an_async_block_is_refused_in_words() {
+    // A cell cannot be read from another thread, and pretending
+    // otherwise would hand the developer a borrow error about a
+    // generated file. Refused where it was written, with the way out.
+    let said = transpile(
+        "fn C() -> Element {\n    let mut n = 0;\n    task(async move { let copy = n; n += copy; });\n    return <p>{n}</p>;\n}",
+    )
+    .expect_err("should refuse");
+    let said = format!("{said:?}");
+    assert!(said.contains("read"), "got {said}");
+    assert!(
+        said.contains("async") || said.contains("task"),
+        "the refusal does not say where the read is: {said}"
+    );
+}
+
+#[test]
+fn an_async_task_that_writes_keeps_the_line_count() {
+    let source = "fn C() -> Element {\n    let mut n = 0;\n    task(async move {\n        n += 1;\n    });\n    return <p>{n}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert_eq!(
+        rust.matches('\n').count(),
+        source.matches('\n').count(),
+        "got {rust}"
+    );
+}
+
+#[test]
+fn a_write_with_no_semicolon_in_an_async_block_is_a_write_and_not_a_read() {
+    // `uses_in` hardcoded `tail_discarded = false`, so a method write
+    // that ends the block without a semicolon was classified as a read
+    // and the file was refused -- telling the developer to move a read
+    // that does not exist. `spawn_future` wants `Output = ()`, so an
+    // async block's tail value is discarded by construction.
+    let rust = rewrite_one(
+        "let mut rows = Vec::<u32>::new();\n\nfn C() -> Element {\n    task(async move { rows.push(1) });\n    return <p>{rows.len()}</p>;\n}",
+    );
+    assert!(rust.contains("rows.update("), "got {rust}");
+}
+
+#[test]
+fn a_write_in_an_async_block_leaves_what_it_used_borrowable_afterwards() {
+    // `move |__v| __v.push(reponse)` took ownership of everything the
+    // expression mentioned, so a line after it that used the same value
+    // was a use-after-move -- reported against a generated file, for
+    // code that would have compiled had the target been a plain local.
+    // The value is bound first and only the binding is moved.
+    let rust = rewrite_one(
+        "let mut lignes = Vec::<String>::new();\n\nfn C() -> Element {\n    task(async move { let r = charger().await; lignes.push(r.clone()); journal(&r); });\n    return <p>{lignes.len()}</p>;\n}",
+    );
+    assert!(
+        rust.contains("let __a0 = r.clone();"),
+        "the argument was not bound before the closure: {rust}"
+    );
+    assert!(
+        rust.contains("__v.push(__a0)"),
+        "the closure did not take the binding: {rust}"
+    );
+    assert!(rust.contains("journal(&r)"), "got {rust}");
+}
+
+#[test]
+fn an_async_task_binds_a_token_its_writes_are_refused_by() {
+    // Abandoning a future stops it making new writes. The ones already
+    // posted are refused by a token the handles share with the `Task`.
+    let rust = rewrite_one(
+        "let mut rows = Vec::<u32>::new();\n\nfn C() -> Element {\n    task(async move { rows.push(1); });\n    return <p>{rows.len()}</p>;\n}",
+    );
+    assert!(rust.contains("Cancel::new()"), "got {rust}");
+    assert!(rust.contains(".remote_until(&"), "got {rust}");
+    assert!(rust.contains("spawn_future_until("), "got {rust}");
+}
+
+// --- Anything a crate's macro writes, inside a page -----------------
+//
+// "It should work for any crate that uses a macro or whatever." A page
+// is Rust, so a page may call a macro, derive a trait, or carry an
+// attribute — and the `.rsx` compiler scans braces to find the JSX, so
+// a macro with a brace body is exactly where a brace scanner goes wrong.
+
+#[test]
+fn a_macro_with_a_brace_body_inside_an_async_block_is_left_alone() {
+    // `tokio::select! { … => … }`. The arms are braces that are not JSX
+    // and not a closure, inside an argument the compiler rewrites.
+    let source = "let mut n = 0;\n\nfn C() -> Element {\n    task(async move {\n        rustx::tokio::select! {\n            _ = tick() => { n += 1; }\n            _ = stop() => {}\n        }\n    });\n    return <p>{n}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("select!"), "the macro call was mangled: {rust}");
+    assert!(rust.contains("n.update("), "the write inside an arm was missed: {rust}");
+    assert_eq!(
+        rust.matches('\n').count(),
+        source.matches('\n').count(),
+        "got {rust}"
+    );
+}
+
+#[test]
+fn a_derive_and_an_attribute_in_a_page_survive() {
+    let source = "#[derive(Debug, Clone, PartialEq)]\npub struct Point {\n    pub at: f64,\n}\n\n#[allow(dead_code)]\nfn aside() -> u8 { 1 }\n\nfn C() -> Element {\n    return <p>ok</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("#[derive(Debug, Clone, PartialEq)]"), "got {rust}");
+    assert!(rust.contains("#[allow(dead_code)]"), "got {rust}");
+}
+
+#[test]
+fn a_macro_that_takes_braces_in_the_body_of_a_component_is_left_alone() {
+    // `vec![]`, `format!` with its own braces, and a declarative macro
+    // whose body is a block — all before the `return`.
+    let source = "fn C() -> Element {\n    let rows = vec![1, 2, 3];\n    let said = format!(\"{} rows\", rows.len());\n    let _held = matches!(rows.len(), 3);\n    return <p>{said}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("vec![1, 2, 3]"), "got {rust}");
+    assert!(rust.contains("format!(\"{} rows\""), "got {rust}");
+}
+
+#[test]
+fn an_applications_own_async_fn_is_awaited_from_a_page() {
+    // An `async fn` written anywhere in the crate, awaited in a page.
+    // Nothing about it is the framework's business — which is the claim.
+    let source = "let mut charge = 0;\n\nfn C() -> Element {\n    task(async move {\n        let got = crate::charger().await;\n        charge += got;\n    });\n    return <p>{charge}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("crate::charger().await"), "got {rust}");
+    assert!(rust.contains("charge.update("), "got {rust}");
+}
+
+#[test]
+fn a_bare_async_block_in_a_component_is_a_task() {
+    // JSX asks for no wrapper, so neither does this: an `async` block
+    // written as a statement of a component is work that runs beside
+    // the render, and `task(...)` around it said nothing the `async`
+    // did not.
+    let source = "let mut n = 0;\n\nfn C() -> Element {\n    async move {\n        n += 1;\n    };\n    return <p>{n}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("spawn_future_until("), "the block was not spawned: {rust}");
+    assert!(rust.contains(".remote_until(&__cancel)"), "no handle was built for it: {rust}");
+    assert!(rust.contains("n.update("), "the write inside it was missed: {rust}");
+    assert_eq!(
+        rust.matches('\n').count(),
+        source.matches('\n').count(),
+        "got {rust}"
+    );
+}
+
+#[test]
+fn an_async_block_that_is_a_value_is_left_alone() {
+    // `let held = async { … };` is a future the component holds, and
+    // whatever it does with it is its business. Only a block written as
+    // a statement is work to run.
+    let source = "fn C() -> Element {\n    let held = async { 1u8 };\n    let _ = held;\n    return <p>ok</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(
+        !rust.contains("spawn_future"),
+        "a future the component holds was spawned behind its back: {rust}"
+    );
+    assert!(rust.contains("let held = async { 1u8 };"), "got {rust}");
+}
+
+#[test]
+fn an_async_block_passed_to_something_is_left_alone() {
+    let source = "fn C() -> Element {\n    let _ = taken(async { 1u8 });\n    return <p>ok</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(
+        !rust.contains("spawn_future"),
+        "an argument was spawned: {rust}"
+    );
+}
+
+#[test]
+fn task_around_an_async_block_still_means_the_same_thing() {
+    // The explicit form keeps working, and spawns once -- not twice.
+    let source = "let mut n = 0;\n\nfn C() -> Element {\n    task(async move {\n        n += 1;\n    });\n    return <p>{n}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert_eq!(
+        rust.matches("spawn_future_until(").count(),
+        1,
+        "got {rust}"
+    );
+}
+
+#[test]
+fn a_bare_async_block_behind_a_comment_is_still_a_statement() {
+    // What sits in front of a block is almost always a line saying what
+    // it is for. Reading only the whitespace back made every explained
+    // block look like the middle of an expression.
+    let source = "let mut n = 0;\n\nfn C() -> Element {\n    // What this does, and the url \"http://example\" in it.\n    async move {\n        n += 1;\n    };\n    return <p>{n}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("spawn_future_until("), "got {rust}");
+}
+
+#[test]
+fn an_await_before_the_return_does_not_block_the_render() {
+    // A component is asked for the screen as it is now. What it waits
+    // for, it waits for beside the render: the first frame gets nothing
+    // and draws nothing, the frame after the future lands gets the
+    // value, and the window never stopped.
+    let source = "fn C() -> Element {\n    let greeting = fetch().await;\n    return <p>{greeting}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("rustx_engine::task::awaited("),
+        "the await was left on the render thread: {rust}"
+    );
+    assert!(rust.contains("let Some(greeting)"), "got {rust}");
+    assert!(rust.contains("else { return Element::Empty; }"), "got {rust}");
+    assert!(rust.contains("fetch()"), "the expression was lost: {rust}");
+    // The await is inside an `async move` block, which is the only
+    // place it can be: the component itself stayed synchronous.
+    assert!(
+        rust.contains("async move { __work.await }"),
+        "the await was not moved into a future: {rust}"
+    );
+    assert_eq!(
+        rust.matches('\n').count(),
+        source.matches('\n').count(),
+        "got {rust}"
+    );
+}
+
+#[test]
+fn an_awaited_value_that_is_mutable_stays_mutable() {
+    let source = "fn C() -> Element {\n    let mut rows = load().await;\n    rows.push(1);\n    return <p>{rows.len()}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("let Some(mut rows)"), "got {rust}");
+}
+
+#[test]
+fn an_awaited_value_keeps_the_type_it_was_written_with() {
+    let source = "fn C() -> Element {\n    let name: String = ask().await;\n    return <p>{name}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("let Some(name): Option<String>"), "got {rust}");
+}
+
+#[test]
+fn an_awaited_expression_can_read_state() {
+    // `fetch(id)` where `id` is a cell: the expression is left where it
+    // was written, so the read in it is rewritten like any other.
+    let source = "let mut id = 0;\n\nfn C() -> Element {\n    let got = fetch(id).await;\n    return <p onClick={move |_| id += 1}>{got}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("fetch(id.get())"), "the read was missed: {rust}");
+    assert!(rust.contains("rustx_engine::task::awaited("), "got {rust}");
+}
+
+#[test]
+fn an_await_inside_an_async_block_is_left_alone() {
+    let source = "let mut n = 0;\n\nfn C() -> Element {\n    async move {\n        tick().await;\n        n += 1;\n    };\n    return <p>{n}</p>;\n}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("tick().await"), "got {rust}");
+    assert!(!rust.contains("task::awaited("), "got {rust}");
+}
+
+#[test]
+fn an_await_that_is_not_the_value_of_a_let_is_refused_in_words() {
+    let source = "fn C() -> Element {\n    ping().await;\n    return <p>ok</p>;\n}";
+    let error = rustx_compiler::transpile::transpile(source).expect_err("refused");
+    assert!(
+        error.message.contains("await") && error.message.contains("async"),
+        "got {error:?}"
+    );
+}
+
+#[test]
+fn work_after_the_await_goes_with_it() {
+    // `.await.unwrap_or_else(…)` and `.await.ok()` are how anybody
+    // writes this. The tail runs on the answer, which only exists
+    // beside the window -- so it travels with the future rather than
+    // being left on the render thread.
+    let source = "fn C() -> Element {
+    let texte = read(\"x\").await.unwrap_or_default();
+    return <p>{texte}</p>;
+}";
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("async move { __work.await.unwrap_or_default() }"),
+        "got {rust}"
+    );
+    assert!(rust.contains("let Some(texte)"), "got {rust}");
+    assert_eq!(
+        rust.matches('\n').count(),
+        source.matches('\n').count(),
+        "got {rust}"
+    );
+}
+
+#[test]
+fn an_await_buried_in_an_argument_is_refused_in_words() {
+    // `f(g().await)` waits for `g` before `f` is called, which is a wait
+    // on the render thread whatever is done with the result.
+    let source = "fn C() -> Element {
+    let got = wrap(inner().await);
+    return <p>{got}</p>;
+}";
+    let error = rustx_compiler::transpile::transpile(source).expect_err("refused");
+    assert!(error.message.contains("await"), "got {error:?}");
+}
+
+#[test]
+fn a_read_of_state_after_the_await_is_refused_in_words() {
+    // What follows the await runs beside the window. A cell is not
+    // there, so this is the same refusal an `async` block gets.
+    let source = "let mut n = 0;
+
+fn C() -> Element {
+    let got = load().await.max(n);
+    return <p onClick={move |_| n += 1}>{got}</p>;
+}";
+    let error = rustx_compiler::transpile::transpile(source).expect_err("refused");
+    assert!(
+        error.message.contains("after an `.await`"),
+        "got {error:?}"
+    );
+}
+
+#[test]
+fn an_accent_in_front_of_a_block_is_not_cut_in_half() {
+    // The offsets here are bytes and the text is French: a comment
+    // ending on an accented word put a slice boundary inside a
+    // character, and the compiler panicked instead of compiling.
+    let source = "let mut n = 0;
+
+fn C() -> Element {
+    // Le `async` le disait déjà.
+    async move {
+        n += 1;
+    };
+    return <p>{n}</p>;
+}";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("spawn_future_until("), "got {rust}");
+}
+
+#[test]
+fn a_refusal_is_one_sentence_of_prose_and_not_a_wall_of_spaces() {
+    // A refusal is read by a developer in a terminal. A line continued
+    // in the source carries a `\` or the indentation of the next line
+    // lands in the message itself, and what they read is
+    // "A value that            comes from a future".
+    let walls = [
+        "fn C() -> Element {\n    ping().await;\n    return <p>ok</p>;\n}",
+        "fn C() -> Element {
+    let mut compte = load().await;
+    return <p onClick={move |_| compte += 1}>{compte}</p>;
+}",
+    ];
+    for source in walls {
+        let error = rustx_compiler::transpile::transpile(source).expect_err("refused");
+        assert!(
+            !error.message.contains("  "),
+            "two spaces in a row: {:?}",
+            error.message
+        );
+    }
+}
+
+#[test]
+fn a_page_value_read_in_an_async_block_is_read_where_it_is() {
+    // This is what an `Arc<Mutex<String>>` beside the page used to be
+    // for: the block wants to know what the page says. The handle it
+    // gets reads as well as writes, and the read happens where the
+    // value is -- no copy is published, and no clone is added to a
+    // write.
+    let source = "let mut clicks = 0;
+
+fn Page() -> Element {
+    async move {
+        let texte = format!(\"clics: {}\", clicks);
+        envoyer(texte).await;
+    };
+    return <p onClick={move |_| clicks += 1}>{clicks}</p>;
+}";
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("reach_until(&__cancel)"),
+        "the block did not ask for a handle it can read: {rust}"
+    );
+    assert!(
+        rust.contains("clicks.get()"),
+        "the read was not rewritten: {rust}"
+    );
+    assert_eq!(
+        rust.matches('\n').count(),
+        source.matches('\n').count(),
+        "got {rust}"
+    );
+}
+
+#[test]
+fn a_block_that_only_writes_keeps_the_handle_it_had() {
+    // A write does not need to read, and a handle that reads asks more
+    // of the type than a write does. A block that only writes must not
+    // pay for a bound it has no use for.
+    let source = "let mut compte = 0;
+
+fn Page() -> Element {
+    async move {
+        compte += 1;
+    };
+    return <p>ok</p>;
+}";
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("remote_until(&__cancel)"),
+        "a writing block changed handle: {rust}"
+    );
+    assert!(
+        !rust.contains("reach_until"),
+        "a writing block asked to read: {rust}"
+    );
+}
+
+#[test]
+fn a_component_s_own_cell_read_in_an_async_block_is_still_refused() {
+    // A page value lives in one place both sides reach. A cell belongs
+    // to the instance that is drawing, and the instance is what goes
+    // when the component does -- so this one keeps its refusal, and the
+    // refusal says where the value belongs instead.
+    let source = "fn Page() -> Element {
+    let mut compte = 0;
+    async move {
+        let texte = format!(\"{}\", compte);
+        envoyer(texte).await;
+    };
+    return <p onClick={move |_| compte += 1}>{compte}</p>;
+}";
+    let error = rustx_compiler::transpile::transpile(source).expect_err("refused");
+    assert!(
+        error.message.contains("own cell") && error.message.contains("top of the page"),
+        "got {error:?}"
+    );
+}
+
+#[test]
+fn an_assignment_in_a_match_arm_stops_at_the_arm_and_not_at_the_next_one() {
+    // What a developer writes the first time they answer a `Result` in a
+    // handler. The end of the written value is the comma: an assignment
+    // that read past it swallowed the arms that followed and emitted
+    // `dit.set(String::new(), _ => dit = …)` -- which is not Rust, and
+    // which the developer was told about as « this Rust does not parse »
+    // on a line they had written correctly.
+    let source = "fn Page() -> Element {\n    \
+        let mut dit = String::new();\n    \
+        return <button onClick={move |_| {\n        \
+            match dit.len() {\n            \
+                0 => dit = String::new(),\n            \
+                _ => dit = String::from(\"autre\"),\n        \
+            };\n    \
+        }}>x</button>;\n}\n";
+
+    let rust = transpile(source).expect("a match in a handler is ordinary Rust").rust;
+    assert!(
+        rust.contains("set"),
+        "neither arm was rewritten into a write: {rust}"
+    );
+    // The arms keep their arrows, so what is asserted is the thing that
+    // actually broke: what comes out is Rust.
+    assert!(
+        syn::parse_file(&rust).is_ok(),
+        "what came out does not parse: {rust}"
+    );
+}
+
+#[test]
+fn an_assignment_in_an_argument_list_stops_at_the_comma() {
+    // The same rule, where it also matters: a comma that separates
+    // arguments is not part of the value being written.
+    let source = "fn Page() -> Element {\n    \
+        let mut dit = String::new();\n    \
+        return <button onClick={move |_| { \
+            std::mem::drop((dit = String::new(), 1)); \
+        }}>x</button>;\n}\n";
+
+    let rust = transpile(source).expect("transpilable").rust;
+    assert!(rust.contains("set"), "the write was not rewritten: {rust}");
+}
+
+#[test]
+fn a_name_in_a_comment_inside_an_async_block_is_left_alone() {
+    // Everywhere else in the compiler, a name is looked for in the code
+    // and not in the prose: `push_code` drops strings and comments
+    // first. An `async` block was the one region looked at raw, so a
+    // comment that mentioned the value came out rewritten -- the
+    // developer's sentence about `compteur` became a sentence about
+    // `compteur.get()`.
+    let source = "let mut compteur = 0;\n\n\
+        fn Page() -> Element {\n    \
+            async move {\n        \
+                // Ce que `compteur` vaut est lu plus bas.\n        \
+                let dit = \"compteur\";\n        \
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;\n        \
+                compteur += 1;\n        \
+                drop(dit);\n    \
+            };\n\n    \
+            return <p>{compteur}</p>;\n}\n";
+
+    let rust = transpile(source).expect("transpilable").rust;
+    assert!(
+        rust.contains("Ce que `compteur` vaut"),
+        "the comment was rewritten: {rust}"
+    );
+    assert!(
+        rust.contains("\"compteur\""),
+        "the string literal was rewritten: {rust}"
+    );
+}
+
+#[test]
+fn a_method_of_that_name_on_something_else_is_not_a_read_of_the_state() {
+    // `dit` is a value of the page, and `Echec::dit()` is a method
+    // somebody else wrote. Reading the second as the first emitted
+    // `dit.set(pourquoi.dit.get()())`, and then applied the same edit
+    // twice over itself.
+    let source = "let mut dit = String::new();\n\n\
+        fn Page() -> Element {\n    \
+            return <button onClick={move |_| { dit = autre().dit(); }}>x</button>;\n}\n\n\
+        struct Autre;\n\
+        impl Autre { fn dit(&self) -> String { String::new() } }\n\
+        fn autre() -> Autre { Autre }\n";
+
+    let rust = transpile(source).expect("transpilable").rust;
+    assert!(
+        rust.contains("dit.set") || rust.contains("dit . set"),
+        "the write was not rewritten: {rust}"
+    );
+    assert!(
+        !rust.contains("dit.get()()") && !rust.contains("dit . get () ()"),
+        "a method name was read as the state: {rust}"
+    );
+}
+
+#[test]
+fn a_name_after_a_range_is_still_a_read() {
+    // The rule above looks at the byte before the name, and a range
+    // ends in a dot too: `0..combien` reads `combien`, and refusing it
+    // would be a cure worse than the disease.
+    let source = "fn Page() -> Element {\n    \
+        let mut combien = 3;\n    \
+        let total: usize = (0..combien).sum();\n    \
+        return <button onClick={move |_| combien += 1}>{total}</button>;\n}\n";
+
+    let rust = transpile(source).expect("transpilable").rust;
+    assert!(
+        rust.contains("0 .. combien . get ()") || rust.contains("0..combien.get()"),
+        "a read at the end of a range was dropped: {rust}"
+    );
+}
+
+#[test]
+fn a_local_of_the_async_block_belongs_to_the_future() {
+    // The memory of a loop: what it saw last time round. Nobody else
+    // sees it, it survives nothing, and it has no reason to be state.
+    // It was promoted to a cell of the component all the same, and then
+    // refused to the block by the rule that protects cells -- a refusal
+    // that is right for a cell and absurd for a local. The way round
+    // was to declare it at the top of the page, which makes shared
+    // state out of a loop counter.
+    let source = "let mut terme = String::new();\n\n\
+        fn Page() -> Element {\n    \
+            async move {\n        \
+                let mut dernier_vu = String::new();\n        \
+                loop {\n            \
+                    tokio::time::sleep(std::time::Duration::from_millis(1)).await;\n            \
+                    if terme != dernier_vu {\n                \
+                        dernier_vu = terme.clone();\n            \
+                    }\n        \
+                }\n    \
+            };\n\n    \
+            return <p>{terme}</p>;\n\
+        }\n";
+
+    let rust = transpile(source).expect("a local of the block is not state").rust;
+    assert!(
+        rust.contains("let mut dernier_vu = String::new()"),
+        "the block's own local was promoted: {rust}"
+    );
+    assert!(
+        !rust.contains("shared(\"dernier_vu\"") && !rust.contains("dernier_vu.set"),
+        "the block's own local became state: {rust}"
+    );
+    // And the page's value, which the block really does read, still is.
+    assert!(
+        rust.contains("terme.get()"),
+        "the page's value stopped being read where it is: {rust}"
+    );
+}
+
+#[test]
+fn a_local_of_a_handler_belongs_to_the_handler() {
+    let source = "fn Page() -> Element {\n    \
+        let mut total = 0;\n    \
+        return <button onClick={move |_| {\n        \
+            let mut pas = 0;\n        \
+            while pas < 3 { pas += 1; total += pas; }\n    \
+        }}>{total}</button>;\n}\n";
+
+    let rust = transpile(source).expect("transpilable").rust;
+    assert!(
+        rust.contains("let mut pas = 0"),
+        "the handler's own local was promoted: {rust}"
+    );
+    assert!(
+        rust.contains("total.update") || rust.contains("total . update"),
+        "the component's own state stopped being written: {rust}"
+    );
+}
+
+#[test]
+fn an_inline_capture_of_a_format_string_reads_the_value() {
+    // The most ordinary line in Rust since 2021, and the framework
+    // required the style from before it: an inline capture lives inside
+    // a literal, the rewrite reads names in code and not in prose, so
+    // the capture took the handle and `rustc` said
+    // `Shared<u64> doesn't implement Display`.
+    let source = "fn Page() -> Element {\n    \
+        let mut clics = 0;\n    \
+        let dit = format!(\"clics: {clics}\");\n    \
+        return <button onClick={move |_| clics += 1}>{dit}</button>;\n}\n";
+
+    let rust = transpile(source).expect("transpilable").rust;
+    assert!(
+        rust.contains("clics = clics.get()"),
+        "the capture was left reading the handle: {rust}"
+    );
+    assert!(
+        syn::parse_file(&rust).is_ok(),
+        "what came out does not parse: {rust}"
+    );
+}
+
+#[test]
+fn an_inline_capture_in_an_async_block_reads_the_page() {
+    // Where it matters most: the loop that writes a file.
+    let source = "let mut clics = 0;\nlet mut ecrits = 0;\n\n\
+        fn Page() -> Element {\n    \
+            async move {\n        \
+                let texte = format!(\"clics: {clics}\");\n        \
+                if tokio::fs::write(\"x\", texte).await.is_ok() { ecrits += 1; }\n    \
+            };\n\n    \
+            return <p>{ecrits}</p>;\n\
+        }\n";
+
+    let rust = transpile(source).expect("transpilable").rust;
+    assert!(
+        rust.contains("clics = clics.get()"),
+        "the capture never reached the page value: {rust}"
+    );
+    assert!(
+        rust.contains("reach_until"),
+        "the block was not given a handle that reads: {rust}"
+    );
+}
+
+#[test]
+fn a_capture_of_something_else_is_left_alone() {
+    // Only the names that became state. A capture of a plain local is
+    // already right, and a second argument for it would be a mistake.
+    let source = "fn Page() -> Element {\n    \
+        let mut clics = 0;\n    \
+        let nom = \"labo\";\n    \
+        let dit = format!(\"{nom}: {clics}\");\n    \
+        return <button onClick={move |_| clics += 1}>{dit}</button>;\n}\n";
+
+    let rust = transpile(source).expect("transpilable").rust;
+    assert!(!rust.contains("nom = nom.get()"), "a plain local was touched: {rust}");
+    assert!(rust.contains("clics = clics.get()"), "the state was not read: {rust}");
+}
+
+#[test]
+fn an_escaped_brace_is_not_a_capture() {
+    let source = "fn Page() -> Element {\n    \
+        let mut clics = 0;\n    \
+        let dit = format!(\"{{clics}} vaut {clics}\");\n    \
+        return <button onClick={move |_| clics += 1}>{dit}</button>;\n}\n";
+
+    let rust = transpile(source).expect("transpilable").rust;
+    // One capture, so one argument — the escaped pair is text.
+    assert_eq!(
+        rust.matches("clics = clics.get()").count(),
+        1,
+        "an escaped brace was counted as a capture: {rust}"
+    );
+}
+
+#[test]
+fn a_macro_that_is_not_a_format_is_left_alone() {
+    // `vec!` has no format string, and a brace in a string it holds
+    // means whatever the developer meant by it.
+    let source = "fn Page() -> Element {\n    \
+        let mut clics = 0;\n    \
+        let noms = vec![\"{clics}\"];\n    \
+        return <button onClick={move |_| clics += 1}>{noms.len()}</button>;\n}\n";
+
+    let rust = transpile(source).expect("transpilable").rust;
+    assert!(
+        !rust.contains("clics = clics.get()"),
+        "an argument was appended to a macro that takes none: {rust}"
+    );
+}
+
+#[test]
+fn a_method_that_gives_something_back_still_leaves_the_closure_at_nothing() {
+    // `battements.remove(0)` became `update(move |__v| __v.remove(__a0))`,
+    // and `remove` gives back the element it removed: rustc answered
+    // "expected `()`, found `Battement`" against a generated line, for
+    // a method the developer is entitled to call.
+    let source = "fn Page() -> Element {\n    \
+         let mut battements: Vec<u32> = Vec::new();\n    \
+         return <button onClick={move |_| battements.remove(0)}>x</button>;\n}\n";
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("{ __v . remove (0) ; }") || rust.contains("{ __v.remove(0); }"),
+        "the closure's body should be a statement: {rust}"
+    );
+}
+
+// ---------------------------------------------------------------------
+// A write that something harmless sits in front of.
+//
+// `items.push(x)` is a write when it is a statement of its own, and a
+// read when it feeds something else — so what decides is what comes
+// before it. The test walked back over spaces and nothing else, so a
+// comment line above the write made it a read: the emitted Rust was
+// `items.get().push(x)`, which pushes into a copy and throws it away.
+// Nothing failed to compile, nothing was logged, and the screen simply
+// never changed. It is the worst failure a rewrite can have, and the
+// laboratory's chart found it.
+// ---------------------------------------------------------------------
+
+const SHARED: &str = "let mut rows: Vec<String> = Vec::new();\nlet mut seconds = 0_u32;\n\n";
+
+/// A page whose `async` block holds `body`.
+fn in_an_async_block(body: &str) -> String {
+    format!(
+        "{SHARED}fn Page() -> Element {{\n    async move {{\n{body}\n    }};\n    return <p>{{rows.len()}}</p>;\n}}\n"
+    )
+}
+
+fn pushes_into_the_state(rust: &str) -> bool {
+    rust.contains("rows.update") && !rust.contains("rows.get().push")
+}
+
+#[test]
+fn a_line_comment_before_a_write_does_not_turn_it_into_a_read() {
+    let rust = rewrite_one(&in_an_async_block(
+        "        // what the next line does\n        rows.push(String::new());",
+    ));
+    assert!(pushes_into_the_state(&rust), "got {rust}");
+}
+
+#[test]
+fn a_block_comment_before_a_write_does_not_turn_it_into_a_read() {
+    let rust = rewrite_one(&in_an_async_block(
+        "        /* what the next line does */\n        rows.push(String::new());",
+    ));
+    assert!(pushes_into_the_state(&rust), "got {rust}");
+}
+
+#[test]
+fn a_comment_on_the_same_line_as_the_statement_before_hides_nothing() {
+    let rust = rewrite_one(&in_an_async_block(
+        "        seconds += 1;   // one more\n        rows.push(String::new());",
+    ));
+    assert!(pushes_into_the_state(&rust), "got {rust}");
+}
+
+#[test]
+fn a_block_that_closed_on_the_line_before_is_the_end_of_a_statement() {
+    let rust = rewrite_one(&in_an_async_block(
+        "        if seconds > 2 {\n            seconds = 0;\n        }\n        rows.push(String::new());",
+    ));
+    assert!(pushes_into_the_state(&rust), "got {rust}");
+}
+
+#[test]
+fn two_slashes_inside_a_string_are_not_a_comment() {
+    let rust = rewrite_one(&in_an_async_block(
+        "        let url = \"https://example.com\";\n        rows.push(url);",
+    ));
+    assert!(pushes_into_the_state(&rust), "got {rust}");
+}
+
+#[test]
+fn a_comment_before_a_read_leaves_it_a_read() {
+    // The other direction, which is what the statement test is for:
+    // `rows.len()` feeding something else must not become an update,
+    // comment or no comment.
+    let rust = rewrite_one(&in_an_async_block(
+        "        // how many are there\n        let how_many = rows.len();\n        seconds = how_many as u32;",
+    ));
+    assert!(
+        !rust.contains("rows.update"),
+        "a read became a write: {rust}"
+    );
+}

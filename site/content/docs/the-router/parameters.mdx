@@ -1,0 +1,85 @@
+---
+title: "Parameters"
+description: "[id], [...rest] and [[...rest]]: a segment in square brackets arrives as an argument of the component."
+---
+
+A segment in square brackets arrives **as an argument of the component**, in the
+order it is written in the path. There is no hook to call and
+nothing to unpack: it is a `String`.
+
+```rust
+// app/device/[id]/page.rsx
+fn Page(id: String) -> Element {
+    return <h1>Device {id}</h1>;
+}
+```
+
+`/device/42` gives `id = "42"`.
+
+## Several parameters
+
+In path order, from left to right:
+
+```rust
+// app/repos/[owner]/[name]/page.rsx
+fn Page(owner: String, name: String) -> Element {
+    return <h1>{owner}/{name}</h1>;
+}
+```
+
+## The catch-all
+
+`[...rest]` takes **everything else** in the path, with its slashes.
+
+```rust
+// app/files/[...path]/page.rsx
+fn Page(path: String) -> Element {
+    // `/files/docs/2026/report.pdf` gives "docs/2026/report.pdf"
+    return <code>{path}</code>;
+}
+```
+
+A catch-all needs at least one segment: `/files` on its own does not
+match it.
+
+## The optional catch-all
+
+`[[...rest]]` takes the rest **or nothing**: the route also answers to the
+bare path.
+
+```rust
+// app/help/[[...path]]/page.rsx
+fn Page(path: String) -> Element {
+    // `/help` gives "", `/help/windows/frameless` gives "windows/frameless"
+    return <article>{if path.is_empty() { Index() } else { Topic(path) }}</article>;
+}
+```
+
+## A parameter is not a number
+
+It is a `String`, and that is intended: a URL carries only text. What the
+page does with it is its own business, and the case "this is not a number" is
+a screen case, not a failure.
+
+```rust
+// app/tasks/[id]/page.rsx
+fn Page(id: String) -> Element {
+    let Ok(number) = id.parse::<u64>() else {
+        return <p>"{id}" is not a task number.</p>;
+    };
+
+    return <h1>Task {number}</h1>;
+}
+```
+
+## What the URL had encoded
+
+A parameter arrives **decoded**: `/search/caf%C3%A9` gives `café`. What goes
+into a URL is encoded for you by
+[`with_query`](/docs/the-router/the-query-string) and by `navigate`.
+
+<Callout title="A layout only sees its own folder">
+A `layout.rsx` can ask for the segments of **its own** folder, not those
+of the screens below it — it is the frame for all of them, and they do not
+have the same ones. See [layouts](/docs/the-router/layouts).
+</Callout>

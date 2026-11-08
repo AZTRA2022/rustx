@@ -308,6 +308,7 @@ fn offer(
         None => suggest::Page {
             components: rustx_compiler::promote::component_signatures(source),
             libraries: Vec::new(),
+            application: None,
         },
     };
 
@@ -381,14 +382,43 @@ fn assist(
             .replace(&shadow.uri, &uri);
     }
 
-    let Some((line, character)) = shadow
+    let (line, character) = match shadow
         .map
         .to_generated_position(asked_line, asked_character)
-    else {
-        // On a line the rewrite rebuilt, or in the markup itself, where
-        // the position has no counterpart. A position next door is not
-        // an answer, it is a wrong one.
-        return empty.to_string();
+    {
+        Some(position) => position,
+        // On a line the rewrite rebuilt. The map calls it opaque, and a
+        // question with no position used to be answered with nothing --
+        // which is every line that reads a value, every handler, every
+        // `async` block: precisely the lines where somebody reaches for
+        // a crate's name, and what made it look as though the whole
+        // path had to be typed before anything was offered. Most of
+        // such a line is still the developer's own text, so the column
+        // is found by matching what is in front of the cursor.
+        None => {
+            let page = sources.get(&uri).map(String::as_str).unwrap_or("");
+            let page_line = page.lines().nth(asked_line - 1).unwrap_or("");
+            let generated_line = shadow.rust.lines().nth(asked_line - 1).unwrap_or("");
+            let Some(column) = picked::aligned(page_line, generated_line, asked_character) else {
+                // Nothing of the line survived the rewrite: a position
+                // next door is not an answer, it is a wrong one.
+                return empty.to_string();
+            };
+            let asked = format!(
+                "{{\"textDocument\":{{\"uri\":\"{}\"}},\"position\":{{\"line\":{},\"character\":{}}}}}",
+                json::escape(&shadow.uri),
+                asked_line - 1,
+                column - 1
+            );
+            let Some(answer) = server.ask(method, &asked) else {
+                return empty.to_string();
+            };
+            let result = cut_result(&answer).unwrap_or(empty);
+            // Back by the distance it went out, so a `textEdit` lands
+            // on what was typed and not on what the rewrite put there.
+            let by = asked_character as isize - column as isize;
+            return picked::shifted(&result.replace(&shadow.uri, &uri), asked_line - 1, by);
+        }
     };
 
     let asked = format!(

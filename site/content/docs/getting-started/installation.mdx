@@ -1,0 +1,66 @@
+---
+title: "Installation"
+description: "Install `rustx-cli`, write a project, and open a window."
+---
+
+```sh
+cargo install rustx-cli      # rustx new, dev, build, run
+```
+
+You need Rust 1.88 or later. Nothing else: CEF — the browser engine
+— arrives with the `cef` package on the first build, and an
+application that uses no npm library needs neither Node
+nor npm.
+
+For JavaScript libraries, you need Node and npm, as for any
+project that uses them.
+
+## A project
+
+```sh
+rustx new my-app
+cd my-app
+rustx dev
+```
+
+Five files, and a window:
+
+```text
+my-app/
+  Cargo.toml        rustx = { package = "rustx-app", version = "0.2" }
+  src/main.rs       the window, in four lines
+  app/page.rsx      the `/` page
+  assets/           what the page loads (an icon, an image, an index.html)
+  .gitignore        /target
+```
+
+The package is called `rustx-app` on crates.io, because `rustx` is
+taken there by another project. The **library** is called `rustx`, so
+all the code is written as `rustx::`:
+
+```toml
+[dependencies]
+rustx = { package = "rustx-app", version = "0.2" }
+```
+
+The whole `main.rs`:
+
+```rust
+use rustx::{App, Config};
+
+#[rustx::main]
+fn main() -> Result<(), rustx::Error> {
+    let app = App::new(Config::new("My app").size(900, 640))?;
+
+    app.run()
+}
+```
+
+`#[rustx::main]` does all the rest: it compiles the `.rsx` files in `app/` into
+Rust, writes the route table, builds the JavaScript package and the
+style sheet if there is a `package.json`, finds or writes
+`assets/index.html`, and shuts down the Chromium subprocesses before
+they touch anything. None of these lines varies from one
+application to another, so none of them has to be written.
+
+There is **no `build.rs`**, and nothing to configure.

@@ -197,3 +197,85 @@ fn a_component_of_the_applications_own_library_is_named_the_same_way() {
     let rust = rewrite_one("fn P() -> Element {\n    return <ui::Button id=\"go\" />;\n}");
     assert!(rust.contains("\"ui::Button\""), "got {rust}");
 }
+
+#[test]
+fn a_callback_of_two_arguments_is_given_two() {
+    // Une bibliothèque qui appelle `onChange(valeur, index)` existe —
+    // les listes virtuelles, les tableaux, les sélecteurs de plage en
+    // ont tous. Le compilateur n'appelait la closure qu'avec le premier
+    // argument, donc une closure à deux paramètres ne compilait pas.
+    let rust = rewrite_one(
+        "fn Page() -> Element {\n    \
+         return <Liste.Root onChange={move |valeur, index| drop((valeur, index))} />;\n}\n",
+    );
+    assert!(
+        rust.contains("nth (__arguments , 0usize)") || rust.contains("nth(__arguments, 0usize)"),
+        "le premier argument doit être pris par son rang : {rust}"
+    );
+    assert!(
+        rust.contains("nth (__arguments , 1usize)") || rust.contains("nth(__arguments, 1usize)"),
+        "et le second aussi : {rust}"
+    );
+}
+
+#[test]
+fn a_callback_of_no_argument_is_given_none() {
+    // `onOpenChange={move || ferme()}` : un bouton de fermeture ne
+    // reçoit rien, et une closure sans paramètre à qui on passe un
+    // argument ne compile pas.
+    let rust = rewrite_one(
+        "fn Page() -> Element {\n    \
+         return <Dialog.Root onClose={move || drop(1)} />;\n}\n",
+    );
+    assert!(
+        rust.contains("__called ()") || rust.contains("__called()"),
+        "rien ne doit être passé : {rust}"
+    );
+}
+
+#[test]
+fn a_callback_of_one_argument_still_gets_the_first() {
+    let rust = rewrite_one(
+        "fn Page() -> Element {\n    \
+         return <Tabs.Root onValueChange={move |value| drop(value)} />;\n}\n",
+    );
+    assert!(
+        rust.contains("nth (__arguments , 0usize)") || rust.contains("nth(__arguments, 0usize)"),
+        "{rust}"
+    );
+}
+
+// ───── Une balise ordinaire dans un sous-arbre React ─────
+
+#[test]
+fn an_event_on_a_plain_tag_inside_react_is_still_an_event() {
+    // Ce que le labo a rencontré : `<input onInput={move |event| …}>`
+    // écrit dans une carte shadcn. React monte la balise, donc le
+    // gestionnaire revient par le chemin des props — et la closure
+    // recevait une valeur, quand la même balise montée par le moteur
+    // reçoit un évènement. Le `.rsx` était le même ; seul un ancêtre
+    // changeait.
+    let emitted = rewrite_one(
+        "fn Page() -> Element {\n    \
+         return <Card><input onInput={move |event| { let _ = event.value; }} /></Card>;\n}",
+    );
+    assert!(
+        emitted.contains("Event :: from_value") || emitted.contains("Event::from_value"),
+        "l'évènement ne traverse pas : {emitted}"
+    );
+}
+
+#[test]
+fn a_library_prop_that_is_not_a_dom_event_stays_a_value() {
+    // `onValueChange` n'est pas un évènement du DOM : ce qu'une
+    // bibliothèque y passe est ce qu'elle veut, et le lire comme un
+    // évènement perdrait la chaîne qu'elle a envoyée.
+    let emitted = rewrite_one(
+        "fn Page() -> Element {\n    \
+         return <Select onValueChange={move |valeur| { let _ = valeur; }} />;\n}",
+    );
+    assert!(
+        !emitted.contains("Event :: from_value") && !emitted.contains("Event::from_value"),
+        "une prop de bibliothèque a été lue comme un évènement : {emitted}"
+    );
+}

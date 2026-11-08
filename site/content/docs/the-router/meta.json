@@ -1,0 +1,14 @@
+{
+  "title": "The router",
+  "pages": [
+    "index",
+    "routes-from-folders",
+    "parameters",
+    "layouts",
+    "loading-and-errors",
+    "navigating",
+    "the-query-string",
+    "the-not-found-screen",
+    "special-files"
+  ]
+}

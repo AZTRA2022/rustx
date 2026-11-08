@@ -123,6 +123,28 @@ fn Page() -> Element {
 Tout ce qui sait devenir un `Element` ou du texte peut aller là :
 nombres, chaînes, booléens, `Option`, `Vec<Element>`.
 
+Un `.rsx` est du Rust, et un commentaire s'y écrit comme en Rust —
+y compris **dans** les balises :
+
+```rust
+return <div>
+    // Ce qui suit est la barre de titre, et ceci ne sera pas affiché.
+    <header
+        // Un commentaire entre deux attributs est un commentaire aussi.
+        className="flex gap-2"
+    >
+        {/* Et la forme de JSX, pour qui vient de là. */}
+        <b>ok</b>
+    </header>
+    /* Sur plusieurs lignes, également. */
+</div>;
+```
+
+Un `//` est un commentaire quand il **commence** une ligne : `voir
+https://exemple.fr` reste une phrase, adresse comprise. Ce qui entoure
+un commentaire reste du texte, et ce qui est dedans n'arrive jamais à
+l'écran.
+
 ### Les attributs
 
 Les balises prennent **les props de HTML et de JSX**, et le compilateur
@@ -145,6 +167,30 @@ return <button
 - un attribut booléen prend une expression (`disabled={true}`) ;
 - un gestionnaire prend une fermeture : `onClick={move |_| …}`,
   `onInput={move |event| …}`.
+
+Ce que l'événement porte — une liste courte et fixe, parce qu'un nœud du
+DOM ne traverse pas :
+
+| | |
+|---|---|
+| `event.kind` | `click`, `input`, `keydown` : le nom du DOM |
+| `event.value` | `target.value` : ce qui est dans le champ, en texte |
+| `event.number()` | le même, en nombre, quand c'en est un |
+| `event.id` | `target.id`, pour qu'un gestionnaire serve plusieurs éléments |
+| `event.key` | `a`, `Enter`, `Escape`, `ArrowUp` |
+| `event.checked` | pour une case à cocher |
+| `event.shift` `event.control` `event.alt` `event.meta` | les modificateurs |
+
+```rust
+let mut terme = String::new();
+
+fn Chercher() -> Element {
+    return <div>
+        <input value={terme.clone()} onInput={move |event| terme = event.value} />
+        <input onKeyDown={move |event| if event.key == "Enter" { lancer(&terme) }} />
+    </div>;
+}
+```
 
 Le `style` s'écrit en objet, comme en JSX, avec les clés en
 `camelCase` :
@@ -295,25 +341,98 @@ l'arrête, sans un seul nettoyage écrit à la main.
 Les routes sont le dossier `app/` :
 
 ```text
-app/page.rsx                 →  /
-app/reglages/page.rsx        →  /reglages
-app/device/[id]/page.rsx     →  /device/<quelque chose>
-app/layout.rsx               →  un cadre autour de ce qui est en dessous
+app/page.rsx                      →  /
+app/reglages/page.rsx             →  /reglages
+app/device/[id]/page.rsx          →  /device/<quelque chose>
+app/fichiers/[...chemin]/page.rsx →  /fichiers/<tout le reste>
+app/aide/[[...chemin]]/page.rsx   →  /aide, et /aide/<tout le reste>
+app/(boutique)/panier/page.rsx    →  /panier  (le groupe n'est pas dans l'URL)
+app/layout.rsx                    →  un cadre autour de ce qui est en dessous
+app/depots/loading.rsx            →  ce qu'on montre tant que la page n'a rien
+app/depots/error.rsx              →  ce qu'on montre si la page tombe
 ```
+
+Un segment entre crochets arrive en argument du composant, dans l'ordre
+où il est écrit. Quand plusieurs routes décrivent le même chemin, le
+plus précis gagne : un segment statique bat un segment nommé, qui bat un
+attrape-tout.
 
 ```rust
 // aller ailleurs
 rustx::router::navigate("/reglages");
 
-// revenir
-rustx::router::back();        // false s'il n'y a pas d'avant
+// y aller *à la place* de l'écran courant : revenir ne ramènera pas ici
+rustx::router::replace("/merci");
+
+// revenir, et repartir en avant
+rustx::router::back();            // false s'il n'y a pas d'avant
+rustx::router::forward();         // false si on n'est pas revenu
+
+// ce qu'un bouton demande avant de se dessiner gris
+rustx::router::can_go_back();
+rustx::router::can_go_forward();
 
 // où on est
-let ici = rustx::router::current();
+let ici = rustx::router::current();        // avec la query string
+let route = rustx::router::route();        // le chemin seul
+let (visites, rang) = rustx::router::history();
+
+// ce que la query string dit
+let terme = rustx::router::query("q");     // "" si personne ne l'a écrit
+rustx::router::has_query("brut");          // `?brut` ne dit rien et est là
+// l'URL d'à côté, sans encoder quoi que ce soit à la main
+rustx::router::navigate(rustx::router::with_query("tri", Some("étoiles")));
 ```
+
+L'historique est une liste et un doigt dessus : revenir déplace le
+doigt et garde ce qui est devant, aller ailleurs efface ce futur-là.
+C'est la règle d'un navigateur.
+
+Une page peut aussi lire ses paramètres sans les déclarer, et un
+**layout** prend ceux de son propre dossier :
+
+```rust
+// app/depots/[proprietaire]/layout.rsx
+fn Layout(children: Element, proprietaire: String) -> Element {
+    return <section><h1>{proprietaire}</h1>{children}</section>;
+}
+```
+
+Il ne peut demander que les segments de son dossier à lui : les écrans
+en dessous peuvent en avoir plus, et il est le cadre de tous. Un layout
+qui demande autre chose est refusé en disant pourquoi.
 
 Un layout qui entoure encore le nouvel écran garde ses cellules ; l'écran
 qu'on quitte est libéré, et les fils qu'il tenait s'arrêtent.
+
+### Attendre, et tomber
+
+Une page qui attend un `.await` ne dessine rien jusqu'à la réponse — ce
+qui est juste, et est aussi un écran blanc. Le `loading.rsx` le plus
+proche va là, **dans les mêmes layouts** : la barre du haut reste, et
+seul le milieu dit « un instant ».
+
+```rust
+// app/depots/loading.rsx
+fn Loading() -> Element {
+    return <p className="animate-pulse">un instant…</p>;
+}
+```
+
+Et si la page tombe — un `unwrap` sur rien, un index hors liste — le
+`error.rsx` le plus proche prend sa place, avec ce que la panique a dit,
+au lieu que la fenêtre s'en aille :
+
+```rust
+// app/depots/error.rsx
+fn Error(pourquoi: String) -> Element {
+    return <p>ça n'a pas marché : {pourquoi}</p>;
+}
+```
+
+Sans `error.rsx` au-dessus d'elle, une page qui tombe se comporte comme
+avant : rien n'est attrapé, parce qu'attraper partout transformerait un
+bogue en écran que personne n'a demandé.
 
 `Config` dit par où ça commence et ce qu'on montre pour une route que
 personne n'a déclarée :
@@ -366,6 +485,105 @@ n'accepte pas : `recharts` reste `recharts`, `@radix-ui/react-dialog`
 devient `radixUiReactDialog`. Deux bibliothèques qui exportent le même
 nom, et c'est dit dans la console avec la forme explicite à écrire.
 
+### shadcn
+
+`npx shadcn add` marche. `npx shadcn init` **non** : il cherche un
+framework qu'il connaît — Next, Vite, Remix — et s'arrête en disant
+qu'il n'en trouve aucun. Ce qu'il aurait écrit s'écrit à la main, une
+fois, et ce sont deux fichiers.
+
+`components.json`, qui dit à `shadcn add` où poser ce qu'il télécharge :
+
+```json
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "new-york",
+  "rsc": false,
+  "tsx": true,
+  "tailwind": {
+    "config": "",
+    "css": "assets/tailwind.css",
+    "baseColor": "neutral",
+    "cssVariables": true
+  },
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils",
+    "ui": "@/components/ui",
+    "lib": "@/lib",
+    "hooks": "@/hooks"
+  },
+  "iconLibrary": "lucide"
+}
+```
+
+`tsconfig.json`, qui dit à esbuild ce que `@/` veut dire — les
+composants de shadcn s'importent entre eux par cet alias :
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": { "@/*": ["./*"] }
+  },
+  "include": ["components/**/*", "lib/**/*", "hooks/**/*"]
+}
+```
+
+Ensuite, `npx shadcn add button card dialog` pose ses fichiers dans
+`components/ui/`, et une balise majuscule les trouve. Les paires que
+shadcn n'installe pas toujours lui-même se demandent comme le reste :
+`npm install class-variance-authority lucide-react`.
+
+### Les composants React que le projet écrit lui-même
+
+`components/` en entier, pas seulement `components/ui/`. Un composant à
+soi — celui qui appelle un hook, ce qu'une page `.rsx` ne sait pas
+faire — se range là, et son `export default` est une balise sous le nom
+de son fichier :
+
+```tsx
+// components/Editor.tsx
+import { useEditor, EditorContent } from "@tiptap/react"
+import StarterKit from "@tiptap/starter-kit"
+
+export default function Editor({ contenu }: { contenu?: string }) {
+  const editor = useEditor({ extensions: [StarterKit], content: contenu })
+  return <EditorContent editor={editor} />
+}
+```
+
+```rust
+return <Editor contenu="<p>Écrire ici.</p>" />;
+```
+
+C'est la porte de sortie pour tout ce qu'un hook fait et qu'une page ne
+peut pas : TipTap, une carte, un éditeur de code. La page garde l'état
+et les props ; le hook reste en TypeScript, là où il est chez lui.
+
+### Les paquets que le paquet n'embarque pas
+
+Trois sortes de `dependencies` ne vont pas dans le paquet du
+navigateur, et le framework les laisse de côté sans rien demander :
+
+- **les outils de la construction** — `tailwindcss`,
+  `@tailwindcss/cli`, `esbuild`, `typescript`, `vite`. Un navigateur ne
+  rend pas un compilateur ;
+- **ceux qui n'exportent que des sous-chemins** — `@tiptap/pm` exporte
+  `./state` et `./view` et pas de racine : une page écrit
+  `@tiptap/pm/state` ou rien ;
+- **ceux dont le point d'entrée est une feuille de style** —
+  `tw-animate-css` appartient à la feuille, pas au paquet.
+
+Un paquet déclaré dans `dependencies` et absent de `node_modules`, lui,
+est dit par son nom, parce que la réparation est une commande.
+
 ### Les props qui traversent
 
 Ce qu'on passe à un composant JavaScript est une valeur V8, dans le même
@@ -391,10 +609,54 @@ Il marche, en version 3 comme en 4, et le framework lit laquelle
 cherchées dans les `.rsx`, et la feuille de style est posée dans la page
 sans qu'on l'écrive nulle part.
 
+En 4, la ligne de commande vit dans un paquet à elle : il faut les deux,
+`npm install tailwindcss @tailwindcss/cli`, comme la page de Tailwind le
+dit. Avec la bibliothèque seule, la construction refuse en nommant la
+commande qui manque — elle se taisait, et la fenêtre s'ouvrait avec
+tous ses `className` et pas une règle.
+
+Les classes sont cherchées dans `app/**/*.rsx`, `src/**/*.rs`,
+`components/**` et `lib/**` : les pages, le Rust — un nom de classe peut
+vivre dans un `const` — et les composants React du projet, où shadcn
+garde les siens.
+
 C'est la **seule** exception à la règle « aucune ligne du framework ne
 nomme une bibliothèque ni une version », parce qu'un programme que la
 construction *exécute* a une ligne de commande, et qu'une ligne de
 commande a une version.
+
+#### Un thème : les jetons ne suffisent pas
+
+Une feuille de style qui déclare `--background` et `--foreground` ne
+donne **pas** `bg-background` ni `text-foreground` : une variable CSS
+n'est pas une utilitaire Tailwind. Sans le pont, les classes sont des
+mots dans des attributs, la fenêtre est blanche, et rien ne se plaint.
+Ce pont est `@theme inline`, dans `assets/tailwind.css` :
+
+```css
+@import "tailwindcss";
+@custom-variant dark (&:is(.dark *));   /* si le thème est une classe */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --radius-lg: var(--radius);
+  /* La police d'une application de bureau est celle du système :
+     elle est déjà installée, et c'est celle qu'on reconnaît. */
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", ui-sans-serif, system-ui;
+}
+
+@layer base {
+  html, body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+  }
+}
+```
+
+`npx shadcn@latest init` écrit ce bloc ; une feuille copiée à la main
+l'oublie, et c'est ce qui se voit en premier.
 
 ### Dans l'autre sens : un composant rustx dans du React
 
@@ -426,6 +688,71 @@ Config::new("Mon app").mount("panneau", Panneau)
 | `.not_found(Composant)` | l'écran d'une route que personne n'a déclarée |
 | `.mount("id", Composant)` | un composant que React pourra monter |
 | `.on_context_created(…)` | du travail au démarrage de la page |
+| `.frameless()` | sans le cadre du système : la page dessine tout |
+
+### Une fenêtre sans cadre, et ce qu'il faut alors rendre
+
+Beaucoup de logiciels n'ont pas la fenêtre que le système dessine.
+`Config::frameless()` enlève la barre de titre et les trois boutons —
+les bords qu'on attrape pour redimensionner restent, ainsi que l'ombre
+portée.
+
+Ce que le cadre faisait, la page doit le rendre, et `rustx::window` le
+donne :
+
+| | |
+|---|---|
+| `window::drag()` | commencer un déplacement à la souris |
+| `window::minimize()` | réduire dans la barre des tâches |
+| `window::maximize()` | agrandir à toute la place du bureau |
+| `window::restore()` | revenir à sa taille |
+| `window::fullscreen()` | tout l'écran, celui où la fenêtre se trouve |
+| `window::toggle_maximize()` | agrandir, ou rendre sa taille si elle l'est déjà |
+| `window::toggle_fullscreen()` | prendre tout l'écran, ou en revenir |
+| `window::on_top(true)` | la garder devant les autres |
+| `window::frameless()` / `window::framed()` | enlever ou remettre le cadre, en cours de route |
+| `window::shut()` | la fermer |
+
+Une barre de titre à soi, en entier :
+
+```rust
+<header className="flex items-center gap-2 border-b px-3 py-2">
+    <span className="font-semibold">Mon logiciel</span>
+    // La poignée : appuyer dessus et le système déplace la fenêtre.
+    <span className="h-6 flex-1" onMouseDown={|_| { rustx::window::drag(); }} />
+    <button onClick={|_| { rustx::window::minimize(); }}>–</button>
+    <button onClick={|_| { rustx::window::maximize(); }}>□</button>
+    <button onClick={|_| { rustx::window::shut(); }}>×</button>
+</header>
+```
+
+La poignée est posée sur un espace vide et non sur toute la barre :
+un événement rustx ne dit pas encore sur quoi on a appuyé, donc une
+barre entière traînable avalerait les clics de ses propres boutons.
+
+Le bouton « agrandir » d'une barre à soi **bascule** : c'est
+`toggle_maximize()` et non `maximize()`. Dire « agrandis-toi » à une
+fenêtre déjà agrandie ne fait rien, et un bouton qui n'agit qu'une fois
+est ce qu'on obtient avec l'autre. La bascule interroge le système
+avant d'agir, dans le processus qui tient la poignée — la page n'a rien
+à retenir. `toggle_fullscreen()` de même, et sortir du plein écran rend
+à la fenêtre **la place qu'elle avait**, parce que le plein écran est
+une taille qu'on a posée et que personne d'autre ne s'en souvient.
+
+Et ce que la fenêtre sans cadre rend aussi : **le haut**. Enlever la
+barre de titre laisse une bande de quelques pixels que le système peint
+lui-même, et qui se voit comme un trait clair au-dessus de ce que la
+page a dessiné. `frameless()` la reprend, de sorte que le contenu
+commence au bord ; les bords de gauche, de droite et du bas restent ceux
+du système, car ce sont eux qu'on attrape pour retailler.
+
+Une deuxième fenêtre se demande sans cadre de la même façon :
+`What::new("outil").frameless()`.
+
+Tout ceci est Windows aujourd'hui. Sur les autres plateformes, chaque
+appel refuse en nommant la plateforme et la chose demandée, plutôt que
+de ne rien faire en silence — ce qui sera écrit est dit dans
+`crates/rustx-os/src/linux/window.rs` et dans `other/mod.rs`.
 
 Une page peut ouvrir une **deuxième fenêtre**, sur la route qu'elle
 choisit :
@@ -480,9 +807,237 @@ task(move |alive| {
 Hors d'un composant, `rustx::poster()` donne le même jeton, et
 `rustx::task::spawn(travail)` un fil dont on garde le `Task`.
 
-> L'`async` (`async fn`, tokio) dans un composant n'est **pas** encore
-> là : le plan est écrit, le code ne l'est pas. Un travail qui attend
-> s'écrit aujourd'hui dans un `task`.
+### L'asynchrone : un bloc `async`
+
+Un bloc `async` écrit comme une instruction d'un composant est du
+travail qui tourne à côté du rendu, porté par un runtime tokio qui vit
+sur ses propres threads. Il n'y a rien à mettre autour : en JSX on
+n'enveloppe rien non plus, et le mot `async` disait déjà tout ce que
+`task(…)` ajoutait.
+
+```rust
+let mut lignes = Vec::<String>::new();
+
+fn Panneau() -> Element {
+    async move {
+        let reponse = charger().await;
+        lignes.push(reponse);
+    };
+
+    return <ul>{lignes.len()} lignes</ul>;
+}
+```
+
+Un bloc qui est une **valeur** est laissé tranquille : `let tenu = async
+{ … };` est une future que le composant garde, et ce qu'il en fait lui
+appartient. `task(async { … })` marche toujours, et veut dire la même
+chose — la forme explicite, pour qui préfère la nommer.
+
+#### Lire une valeur de la page depuis le bloc
+
+Un bloc lit les valeurs que la page a déclarées, là où elles sont :
+
+```rust
+let mut clics = 0;
+let mut enregistrements = 0;
+
+fn Page() -> Element {
+    async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            let texte = format!("clics: {}", clics);
+            if tokio::fs::write("sauvegarde.txt", texte).await.is_ok() {
+                enregistrements += 1;
+            }
+        }
+    };
+
+    return <button onClick={move |_| clics += 1}>{clics}</button>;
+}
+```
+
+Il n'y a rien à déclarer à côté : ni `keep`, ni `Arc`, ni `Mutex`, ni
+tampon qu'un gestionnaire devrait penser à tenir à jour. Une valeur que
+le compilateur voit lue depuis une future vit dans un seul endroit que
+les deux côtés atteignent, donc la boucle voit le `clics` d'aujourd'hui
+et non une copie prise au premier tour.
+
+Lire et écrire ne sont pas symétriques, et c'est voulu. Une **lecture**
+est directe. Une **écriture** repart par la frame — c'est elle qui
+marque la page, qui fait coûter un seul rendu à mille écritures, et qui
+refuse l'écriture d'un composant déjà parti. Ce qui en découle, dit une
+fois : *une future qui écrit puis relit voit l'ancienne valeur jusqu'à
+la frame qui applique l'écriture.*
+
+Deux limites à connaître. La valeur doit être `Send + Sync` — c'est ce
+qu'être lue depuis un autre thread demande, et rustc le dit sur la ligne
+de la page. Et c'est une valeur **de la page**, déclarée au sommet du
+fichier : une `let mut` interne à un composant appartient à l'instance
+qui dessine, donc elle est refusée dans un bloc, et le refus dit où la
+déclarer.
+
+`.await` marche sur tout ce que l'écosystème écrit — `reqwest`, `sqlx`,
+un `Future` de `std`, un timer. Le runtime démarre à la **première**
+future du processus et jamais avant : une application qui n'écrit aucun
+`async` ne paie pas un thread de plus.
+
+`tokio` vient de la façade, donc une application ne le nomme ni dans
+son `Cargo.toml` ni dans ses `use`, et l'écrit du nom que tout le monde
+lui donne :
+
+```rust
+let mut battements = 0;
+
+fn Horloge() -> Element {
+    async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            battements += 1;
+        }
+    };
+
+    return <p>{battements}</p>;
+}
+```
+
+C'est tokio en entier, avec `full` : `tokio::fs`, `::net`, `::io`,
+`::sync`, `::process`, `select!`, `spawn` — ce qu'un code async
+ordinaire écrit, écrit pareil, et pas un sous-ensemble choisi par le
+framework. Une application qui déclare tokio elle-même obtient le même :
+cargo n'en résout qu'un seul en 1.x.
+
+### `async fn main`
+
+Le `main` peut attendre, comme n'importe où ailleurs :
+
+```rust
+use rustx::{App, Config};
+
+#[rustx::main]
+async fn main() -> Result<(), rustx::Error> {
+    let reglages = tokio::fs::read_to_string("reglages.toml").await?;
+
+    let app = App::new(Config::new(&titre_de(&reglages)).size(900, 640))?;
+
+    app.run()
+}
+```
+
+`main` lui-même ne peut pas être `async` — c'est Rust qui le dit, pas le
+framework — donc l'attribut lui retire son `async` et exécute le corps
+sur le runtime. Il n'y a rien d'autre à savoir : pas de `#[tokio::main]`
+à écrire à côté, et pas de `block_on` à la main.
+
+Ce qui reste vrai : **un composant** ne s'arrête jamais pour attendre.
+Il peut demander, et c'est la section suivante.
+
+### Attendre une valeur sans bloquer le rendu
+
+`let x = travail().await;` dans un composant s'écrit tel quel :
+
+```rust
+fn Reglages() -> Element {
+    let texte = tokio::fs::read_to_string("reglages.toml")
+        .await
+        .unwrap_or_default();
+
+    return <pre>{texte}</pre>;
+}
+```
+
+Un composant est interrogé sur l'écran **tel qu'il est maintenant**,
+donc il ne s'arrête pas : la première frame demande et ne dessine rien,
+la frame qui suit l'arrivée de la réponse la dessine. La question n'est
+posée qu'une fois, le type écrit est gardé, et le reste de la page est
+dessiné pendant ce temps — l'attente appartient au composant qui l'a
+écrite.
+
+Ce que la question **emprunte** doit lui survivre. `api::depot(&nom,
+&proprietaire).await` dans un composant ne compile pas : la future part
+sur le runtime, et un emprunt d'un local du fil qui dessine ne la suit
+pas. C'est du Rust ordinaire, pas une règle du framework, et la sortie
+est de prendre les arguments en propre — `depot(nom.clone(),
+proprietaire.clone())`. Le message, lui, vient de `rustc` et désigne une
+colonne d'un fichier engendré : c'est le défaut connu de ce coin-là.
+
+Ce qui suit le `.await` part avec la future, parce que la réponse
+n'existe que là-bas : `.unwrap_or_default()`, `.ok()`, un autre `.await`
+y sont à leur place. Un `.await` enterré dans un argument —
+`f(g().await)` — attend avant que `f` soit même appelée, et obtient une
+phrase au lieu d'une compilation. Lire une valeur de la page **après**
+le `.await` en obtient une aussi : ce code tourne à côté de la fenêtre,
+où il n'y a pas de cellule à lire.
+
+#### Écrire l'état depuis un `await`
+
+Comme depuis un `onClick`, et rien de plus à écrire. Ce qui se passe
+dessous : l'état appartient au thread qui dessine, donc la future ne le
+touche pas. Elle tient un **handle** qui dit où est la valeur, l'écriture
+part sur la file de la frame, et c'est la frame qui l'applique.
+
+Les conséquences se lisent, et ce sont les mêmes que pour un fil :
+
+- **mille écritures dans une boucle `async` font un rendu**, parce
+  qu'elles salissent la même valeur une fois. Il n'y a ni *debounce* à
+  régler ni limitation à apprendre ;
+- une écriture postée **après la fermeture de la fenêtre** est refusée,
+  et une écriture qu'une tâche avait postée **avant de s'en aller** l'est
+  aussi — le jeton que `task` rend la refuse, ce qui compte surtout pour
+  un `let mut` du haut de la page : un nom survit à l'écran, donc sans ça
+  l'écriture d'une page partie atterrissait sur la suivante. Rien ne
+  panique, et aucun des deux cas n'est une faute du développeur ;
+- un `let mut` écrit depuis un bloc `async` est un état, exactement comme
+  un `let mut` écrit depuis un gestionnaire. La règle de promotion ne
+  change pas.
+
+**Une valeur de la page se lit dans le bloc, là où elle est.** Pas de
+copie prise au premier tour : une boucle qui surveille un filtre voit
+celui que l'utilisateur vient de taper, et un bouton « pause » agit
+vraiment sur la boucle.
+
+```rust
+let mut resultats = Vec::<String>::new();
+let mut filtre = String::new();
+
+fn Recharger() -> Element {
+    async move {
+        let mut dernier = String::new();
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            if filtre == dernier {
+                continue;
+            }
+            dernier = filtre.clone();
+            resultats = chercher(&dernier).await;
+        }
+    };
+
+    return <p>{resultats.len()} trouvés</p>;
+}
+```
+
+Deux choses restent refusées, et le refus dit où déclarer la valeur :
+
+- **une cellule de composant** — un `let mut` écrit *dans* le composant —
+  appartient à l'instance qui dessine, et le bloc tourne à côté. Ce
+  qu'il faut lire se lit avant le bloc, et la copie y entre ;
+- **une lecture après un `.await`** dans un `let … .await` de composant :
+  ce qui suit le `.await` part avec la future, où il n'y a pas de cellule
+  à lire.
+
+#### Quitter l'écran arrête le travail
+
+Le jeton que `task` rend est une cellule du composant. Le composant
+s'en va, la cellule est lâchée, et la future est **abandonnée là où elle
+attend** — un `await` n'a pas de drapeau à regarder, contrairement au
+`alive.get()` d'un fil. Rien à nettoyer à la main, et rien à annuler par
+son nom.
+
+> **Un composant n'est jamais `async`.** `async fn Page()` est refusé en
+> toutes lettres, et le refus nomme `task(…)`. On demande à un composant
+> l'écran tel qu'il est **maintenant** : s'il pouvait attendre, la frame
+> attendrait avec lui, et une fenêtre qui attend est une fenêtre gelée.
+> C'est la seule raison, et elle suffit.
 
 ## Ce que le web ne sait pas faire
 
@@ -693,6 +1248,12 @@ Ne la traversent pas :
 Une valeur dont le *type* a changé entre deux compilations est jetée, pas
 réinjectée de force.
 
+Ce qui tourne pendant un `rustx dev` est une **copie** du binaire, dans
+`target/rustx-dev/` : un `.exe` en cours d'exécution est tenu par
+Windows, et le build suivant doit pouvoir réécrire celui que cargo a
+produit — sinon chaque sauvegarde finit en accès refusé. La copie garde
+le nom de l'application, et le dossier disparaît avec `target/`.
+
 ## L'éditeur
 
 L'extension VS Code est dans `editors/vscode` :
@@ -713,6 +1274,14 @@ Ce qu'elle donne :
 - la complétion des **composants des bibliothèques installées** —
   `CardHeader`, `TabsTrigger`, `LineChart` sont lus dans `node_modules`
   et dans `components/ui`, avec le nom de la bibliothèque à côté ;
+- la complétion de **ce que ces balises prennent** : sur `<Button `,
+  `variant`, `size` et `asChild` avant les attributs HTML, lus dans le
+  `.d.ts` du paquet ou dans le `components/ui/*.tsx` que `shadcn add` a
+  écrit ;
+- la **fermeture des balises** : taper le `>` de `<Card>` écrit
+  `</Card>` derrière le curseur. `Vec<u32>`, `a < b >`, `=>` et une
+  balise qui s'est fermée toute seule sont laissés tranquilles ;
+  `rustx.closeTags` le coupe ;
 - à l'intérieur d'un `{ … }`, c'est `rust-analyzer` qui répond, derrière
   le serveur : complétion, survol, aller-à-la-définition.
 
@@ -741,10 +1310,28 @@ oublié, ou un composant de la page appelé comme une balise
 **« this application declares JavaScript libraries … and has no
 node_modules »** — `npm install` dans le dossier de l'application.
 
+**« … names `recharts` under `dependencies`, and `node_modules` has
+nothing of that name »** — le `package.json` a grandi depuis le dernier
+`npm install`. La même commande, dans le même dossier.
+
+**« this application installed tailwindcss and nothing that can run it
+»** — Tailwind 4 garde sa ligne de commande dans
+`@tailwindcss/cli` : `npm install @tailwindcss/cli`.
+
+**Une balise majuscule que la page ne trouve pas, alors que le fichier
+existe dans `components/`** — un composant à soi est pris sous le nom de
+son fichier quand il a un `export default`. `components/Editor.tsx`
+donne `<Editor>` ; une fonction exportée par son nom donne ce nom.
+
 **La fenêtre est blanche et le journal répète « Failed to create shared
 context »** — la machine n'a pas de pilote 3D utilisable (machine
 virtuelle, bureau distant). `RUSTX_SOFTWARE=1` compose sur le
 processeur : plus lent, et ça marche toujours.
+
+La même chose vaut pour la suite : la moitié des scénarios attendent une
+frame, et une fenêtre qui n'est pas composée n'en produit aucune. Sur une
+telle machine, `RUSTX_SOFTWARE=1 cargo test --workspace`. Les harnais le
+disent eux-mêmes quand ils reconnaissent le journal.
 
 **Un message entre la fenêtre et la page n'arrive pas** —
 `RUSTX_TRACE=1` trace les deux bouts : ce qui part, ce qui arrive, et ce
@@ -783,12 +1370,12 @@ du code qu'on aurait pu écrire à la main.
 | `editors/vscode` | l'extension |
 | `docs/superpowers/` | la spécification et les plans |
 | `docs/dette-connue.md` | ce qu'on sait imparfait, et ce qui nous ferait changer d'avis |
+| `docs/chasse-aux-bugs.md` | ce qu'un projet écrit du dehors a cassé, et ce qui l'a réparé |
 | `docs/publier.md` | les huit paquets, et sous quels noms ils partent |
 
 ## Ce qui reste
 
 - macOS et Linux : chaque module compile et nomme ce qui lui manque ;
-- l'`async` (tokio, `async fn`) dans un composant : le plan est écrit ;
 - l'enregistrement et la capture au-delà de ce que Chromium donne déjà ;
 - un site de documentation, quand il aura à dire autre chose que ceci.
 

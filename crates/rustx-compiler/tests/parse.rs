@@ -122,3 +122,80 @@ fn an_attribute_string_has_no_escapes_just_like_in_jsx() {
         tag.attributes[0].value
     );
 }
+
+// ───────────── Les commentaires, dans le markup ─────────────
+//
+// Ce que le labo a vu à l'écran : « // Les trois boutons que le cadre
+// du système dessinait. » écrit dans la fenêtre, en toutes lettres, au
+// milieu de la barre. Un commentaire entre deux balises était du texte
+// pour le compilateur, donc du texte pour l'utilisateur.
+//
+// Le `.rsx` est du Rust, et un commentaire s'y écrit comme en Rust.
+// Trois places : entre des enfants, entre des attributs, et dans des
+// accolades, qui est la forme de JSX.
+
+#[test]
+fn a_line_comment_between_children_is_not_text() {
+    let node = parse_one(
+        "<div>\n    // les trois boutons que le cadre dessinait\n    <b>ok</b>\n</div>",
+    );
+    let Node::Tag(tag) = node else { panic!() };
+    assert_eq!(
+        tag.children.len(),
+        1,
+        "le commentaire ne doit pas devenir un enfant : {:?}",
+        tag.children
+    );
+    assert!(matches!(&tag.children[0], Node::Tag(_)));
+}
+
+#[test]
+fn a_block_comment_between_children_is_not_text_either() {
+    let node = parse_one("<div>\n    /* deux lignes\n       de prose */\n    <b>ok</b>\n</div>");
+    let Node::Tag(tag) = node else { panic!() };
+    assert_eq!(tag.children.len(), 1, "{:?}", tag.children);
+}
+
+#[test]
+fn a_comment_in_braces_is_the_jsx_form_and_disappears_too() {
+    // `{/* … */}` est ce qu'un développeur venu de React écrit, et il
+    // n'y a aucune raison de le refuser : des accolades qui ne tiennent
+    // qu'un commentaire ne tiennent aucune expression.
+    let node = parse_one("<div>{/* rien à voir */}<b>ok</b></div>");
+    let Node::Tag(tag) = node else { panic!() };
+    assert_eq!(tag.children.len(), 1, "{:?}", tag.children);
+}
+
+#[test]
+fn a_comment_between_attributes_is_not_an_attribute() {
+    let node = parse_one(
+        "<input\n    // le titre du document\n    id=\"titre\"\n    /* et sa valeur */\n    value={titre}\n/>",
+    );
+    let Node::Tag(tag) = node else { panic!() };
+    let names: Vec<&str> = tag.attributes.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, vec!["id", "value"], "{names:?}");
+}
+
+#[test]
+fn an_address_in_a_text_child_is_not_a_comment() {
+    // Le piège de la règle : `//` existe dans de la prose. Un
+    // commentaire commence une ligne ; ce qui est au milieu d'une
+    // phrase reste la phrase.
+    let node = parse_one("<p>voir https://exemple.fr pour la suite</p>");
+    let Node::Tag(tag) = node else { panic!() };
+    assert!(
+        matches!(&tag.children[0], Node::Text(text) if text.contains("https://exemple.fr")),
+        "{:?}",
+        tag.children
+    );
+}
+
+#[test]
+fn a_comment_does_not_eat_the_text_around_it() {
+    let node = parse_one("<p>avant\n    // au milieu\n    après</p>");
+    let Node::Tag(tag) = node else { panic!() };
+    let Node::Text(text) = &tag.children[0] else {
+        panic!("{:?}", tag.children)
+    };
+    assert_eq!(text, "avant après");
+}

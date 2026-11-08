@@ -1,0 +1,119 @@
+---
+title: "Notifications and the tray"
+description: "An icon next to the clock, its menu, the choices made in it, and a message that outlives the window."
+---
+
+## A notification
+
+```rust
+use rustx::notify;
+
+notify::show(notify::What::new("Done", "The render has finished."))?;
+
+notify::show(
+    notify::What::new("Export failed", "The disk is full.")
+        .icon("assets/error.ico"),
+)?;
+```
+
+It goes through `Shell_NotifyIconW` and **not** through a WinRT toast: a
+toast requires an identifier registered in the Start menu, which a `rustx dev`
+does not have and should not need. The cost is that it looks like a system tray
+balloon and not a modern card; the benefit is that it works from the very first `cargo run`.
+
+## An icon in the tray
+
+```rust
+use std::path::Path;
+use rustx::tray;
+
+let icon = tray::Icon::new(Path::new("assets/icon.ico"), "My software")?;
+```
+
+The icon is **removed when the token is released**. In a page, it is `keep` that holds it:
+
+```rust
+fn Shell(children: Element) -> Element {
+    let icon = keep(tray::Icon::new(Path::new("assets/icon.ico"), "My software"));
+
+    return <div>{children}</div>;
+}
+```
+
+Set in the root `layout.rsx`, it lives as long as the application: it is the only component that never leaves.
+
+The file must be a readable `.ico`. `tray::readable(path)` says so before trying, with the absolute path in the sentence — this is the most frequent failure, and it almost always comes from a path relative to a working directory that is not the one you think.
+
+## A menu
+
+```rust
+icon.menu(&[
+    tray::Item::new("render", "Start the render"),
+    tray::Item::new("quiet", "Silent").checked(false),
+    tray::Item::separator(),
+    tray::Item::new("quit", "Quit"),
+])?;
+```
+
+`Item::new(id, label)`: the **id** is what the code reads, the **label**
+is what the user sees. `.checked(true)` puts a tick, and
+`Item::separator()` a line.
+
+The menu is rewritten whenever you want — this is how a tick changes state:
+
+```rust
+let mut quiet = false;
+
+fn Tray() -> Element {
+    let icon = keep(tray::Icon::new(Path::new("assets/icon.ico"), "My software"));
+
+    if let Ok(icon) = icon.as_ref() {
+        effect(quiet, move || {
+            let _ = icon.menu(&[
+                tray::Item::new("quiet", "Silent").checked(quiet),
+                tray::Item::separator(),
+                tray::Item::new("quit", "Quit"),
+            ]);
+        });
+
+        if let Some(chosen) = icon.clicked() {
+            match chosen.as_str() {
+                "quiet" => quiet = !quiet,
+                "quit" => rustx::window::shut(),
+                tray::CLICK => rustx::window::restore(),   // the icon itself
+                _ => {}
+            }
+        }
+    }
+
+    return <></>;
+}
+```
+
+## The choices made in it
+
+`icon.clicked()` returns `Option<String>`: the id of the last choice, **taken** —
+read once. It is read during the render, as often as you like, and not in a callback: the menu is served by the window's thread, and a callback crossing two processes to say "we clicked" would be a bridge for an integer.
+
+`tray::CLICK` is the reserved id of a click on the icon itself, outside the
+menu. This is what brings the window back.
+
+`icon.notify(&what)` shows a notification **attached to this
+icon**: this is the form that looks as if it belongs to the application,
+rather than to an anonymous identifier.
+
+```rust
+icon.notify(&notify::What::new("Done", "The render has finished."))?;
+```
+
+## How many are shown
+
+```rust
+tray::shown()   // useful in tests, and to check that a token was released
+```
+
+## Living in the system tray
+
+An application that keeps its icon and closes its window must know that the
+**message loop stops with the last window**: the icon does not keep the application alive. The "minimize to the tray" behavior is therefore `window::minimize()`, and not `window::shut()` — see
+[closing](/docs/the-window/closing).

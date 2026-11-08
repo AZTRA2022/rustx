@@ -65,6 +65,14 @@ impl Alive {
 /// the work lasts precisely as long as the component does.
 pub struct Task {
     shared: Arc<Shared>,
+    /// Set when the body is a `Future` rather than a thread. A thread is
+    /// asked to stop and notices; a future is abandoned where it waits,
+    /// because an `await` has no flag to look at.
+    abandon: Option<tokio::task::AbortHandle>,
+    /// What the writes this task posted are bound to. Abandoning the
+    /// future stops it making new ones; this is what refuses the ones
+    /// already waiting for a frame.
+    until: Option<rustx_dom::state::Cancel>,
 }
 
 impl Task {
@@ -80,6 +88,12 @@ impl Task {
 impl Drop for Task {
     fn drop(&mut self) {
         self.shared.alive.store(false, Ordering::Release);
+        if let Some(until) = self.until.take() {
+            until.cancel();
+        }
+        if let Some(abandon) = self.abandon.take() {
+            abandon.abort();
+        }
     }
 }
 
@@ -105,7 +119,130 @@ pub fn spawn(work: impl FnOnce(Alive) + Send + 'static) -> Task {
         }
     });
 
-    Task { shared }
+    Task {
+        shared,
+        abandon: None,
+        until: None,
+    }
+}
+
+/// Run `future` on the async runtime, until it finishes or the token goes.
+///
+/// The same token as [`spawn`], so the same `Drop` ends it and the same
+/// cell of a component holds it. What differs is what ending means: a
+/// thread is asked to stop and looks at the flag when it next can, while
+/// a future is abandoned at the `await` it is parked on. A library that
+/// has nothing to poll cannot be asked politely.
+///
+/// The runtime starts here, on the first future of the process, and not
+/// before — an application that writes no `async` pays for no thread.
+pub fn spawn_future(future: impl Future<Output = ()> + Send + 'static) -> Task {
+    spawn_future_for(future, None)
+}
+
+/// The same, with the token the writes of this future are bound to.
+///
+/// What the compiler emits for `task(async { … })`: the handles are
+/// built before the block, on the render thread, and they hold the other
+/// end of this token. Dropping the `Task` cancels it, so a write that
+/// was already in the mailbox is refused rather than applied — which
+/// for a value found by a name is the difference between landing on the
+/// next page and not.
+pub fn spawn_future_until(
+    until: rustx_dom::state::Cancel,
+    future: impl Future<Output = ()> + Send + 'static,
+) -> Task {
+    spawn_future_for(future, Some(until))
+}
+
+/// The value of a future, on the render that has it -- and nothing on
+/// the ones before.
+///
+/// What `let x = f().await;` in a page becomes. A component is asked for
+/// the screen as it is now, so it cannot stop and wait: the first render
+/// asks for the future and is handed `None`, the future runs beside the
+/// window on the runtime's own threads, and the frame that drains its
+/// write draws the component again -- this time with the value.
+///
+/// `held` is where the answer lands, `slot` is where the asking is
+/// remembered -- so the future is started once and not once per frame --
+/// and `screen` is the address the render is of, which is what makes the
+/// question be asked again when the address changes and not otherwise.
+/// The compiler writes two different places for the first two because
+/// one slot holds one type.
+pub fn awaited<T, F>(
+    held: rustx_dom::state::Slot,
+    slot: rustx_dom::state::Slot,
+    screen: &str,
+    work: impl FnOnce() -> F,
+) -> Option<T>
+where
+    T: Clone + Send + 'static,
+    F: Future<Output = T> + Send + 'static,
+{
+    // Both places are keyed by the screen this render is of, which is
+    // the whole answer to a question that cost a `with_key` written by
+    // hand: `/depots/rust-lang/rust` and `/depots/tokio-rs/tokio` are
+    // the same route, so the same component at the same place, so the
+    // same cell -- and a question asked once per cell is a question
+    // asked once for both repositories. The second screen showed the
+    // first one's answer, and the only way to know was to have seen it.
+    //
+    // Keyed here rather than by the router, so that the component
+    // itself is **not** re-keyed: it keeps its cells, an effect
+    // watching the parameter still closes before it opens, and only
+    // the asking and the answer start again.
+    rustx_dom::state::with_key(format!("await\u{1f}{screen}"), || {
+        let held = rustx_dom::state::cell(held, || None::<T>);
+        // Kept, so this runs on the first render of this component and
+        // not again; held, so the task is abandoned when the component
+        // goes.
+        let _asked = rustx_dom::state::keep_at(slot, || {
+            let cancel = rustx_dom::state::Cancel::new();
+            let answer = held.remote_until(&cancel);
+            let work = work();
+            spawn_future_until(cancel, async move {
+                let got = work.await;
+                answer.update(move |held| *held = Some(got));
+            })
+        });
+        held.get()
+    })
+}
+
+fn spawn_future_for(
+    future: impl Future<Output = ()> + Send + 'static,
+    until: Option<rustx_dom::state::Cancel>,
+) -> Task {
+    let shared = Arc::new(Shared {
+        alive: AtomicBool::new(true),
+        running: AtomicBool::new(true),
+    });
+    // Owned by the future, so it is dropped when the future finishes and
+    // also when the future is abandoned without ever being polled.
+    let finished = Finished(Arc::clone(&shared));
+
+    let handle = crate::runtime::handle();
+    let body = handle.spawn(async move {
+        let _finished = finished;
+        future.await;
+    });
+    let abandon = body.abort_handle();
+
+    // A panic in a future arrives as a `JoinError`, and somebody has to
+    // be waiting for it or nothing would ever be said. Abandoning the
+    // body is not a panic, so a cancelled task stays quiet.
+    handle.spawn(async move {
+        if body.await.is_err_and(|ended| ended.is_panic()) {
+            report_panic();
+        }
+    });
+
+    Task {
+        shared,
+        abandon: Some(abandon),
+        until,
+    }
 }
 
 /// Says the body is over on the way out, whichever way it went.

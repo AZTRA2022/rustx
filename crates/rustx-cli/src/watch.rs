@@ -18,16 +18,26 @@ use std::time::{Duration, Instant, SystemTime};
 pub struct Watched {
     roots: Vec<PathBuf>,
     extensions: Vec<String>,
+    /// File names the build itself writes, which are therefore not news.
+    generated: Vec<String>,
     seen: HashMap<PathBuf, SystemTime>,
 }
 
 impl Watched {
     /// Start looking. The first census is now, so that what was on disk
     /// before `rustx dev` started is not a change.
-    pub fn new(roots: &[PathBuf], extensions: &[&str]) -> Self {
+    ///
+    /// `generated` is the file names the build produces inside the
+    /// directories being watched. They have to be named, because
+    /// otherwise the loop feeds itself: the bundle is written into
+    /// `assets/` by every build, and the next look would read it as a
+    /// reason for the next build. `target/` is excluded for the same
+    /// reason, one function down.
+    pub fn new(roots: &[PathBuf], extensions: &[&str], generated: &[&str]) -> Self {
         let mut watched = Self {
             roots: roots.to_vec(),
             extensions: extensions.iter().map(|kind| kind.to_string()).collect(),
+            generated: generated.iter().map(|name| name.to_string()).collect(),
             seen: HashMap::new(),
         };
         watched.seen = watched.census();
@@ -75,6 +85,10 @@ impl Watched {
     }
 
     fn interesting(&self, path: &Path) -> bool {
+        let named = path.file_name().and_then(|name| name.to_str());
+        if named.is_some_and(|name| self.generated.iter().any(|written| written == name)) {
+            return false;
+        }
         path.extension()
             .and_then(|kind| kind.to_str())
             .is_some_and(|kind| self.extensions.iter().any(|wanted| wanted == kind))

@@ -1,0 +1,106 @@
+---
+title: "keep, effect, task"
+description: "Keep a value, replay work when something changes, start a thread that stops by itself."
+---
+
+Three names, inside a component, and nothing else to remember.
+
+```rust
+fn Panel() -> Element {
+    // Built once, not on every render.
+    let client = keep(Client::connect());
+
+    // Replayed when the watched value changes. `()`: only once.
+    effect(filter.clone(), move || reload(&filter));
+
+    // A thread that stops when this component leaves the tree.
+    task(move |alive| {
+        while alive.get() {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            let _ = alive.post(|| ticks += 1);
+        }
+    });
+
+    return <p>{ticks}</p>;
+}
+```
+
+## `keep`
+
+`keep(EXPR)` keeps a value across renders. The expression is
+evaluated at the first render of this instance, and not at the later ones.
+
+```rust
+fn Editor() -> Element {
+    // An HTTP client holds its connection pool: building one per
+    // render would be a TLS handshake per keystroke.
+    let client = keep(reqwest::Client::new());
+
+    return <p>ready</p>;
+}
+```
+
+## `effect`
+
+`effect(WATCHED, WORK)` redoes the work when the watched value
+changes. The watched value is compared with `PartialEq`.
+
+```rust
+// Only once, at the first render: `()` never changes.
+effect((), || {
+    dropped::on_files(move |paths| open_all(&paths));
+});
+
+// Every time the route changes.
+let here = rustx::router::current();
+effect(here.clone(), move || {
+    visits.push(here.clone());
+});
+```
+
+An `effect` is where to **write** a state in reaction to a change: a
+component that computes its screen does not write it at the same time,
+and the compiler says so with these three words when one forgets.
+
+## `task`
+
+`task(WORK)` starts a thread whose token is a cell of the component:
+leaving the screen stops it, without a single cleanup written by hand.
+
+```rust
+task(move |alive| {
+    let stream = open_camera();
+    while alive.get() {
+        let frame = stream.read();
+        if alive.post(move || last = frame).is_err() {
+            break;          // the window is gone, or this component
+        }
+    }
+});
+```
+
+- `alive.get()`: is this component still there;
+- `alive.post(work)`: to run on the interface thread, at the start of the
+  next frame;
+- `Err(PostError::WindowClosed)`: the window is closed, the thread must
+  stop; `Err(PostError::Cancelled)`: the component that started this
+  thread is leaving.
+
+A thread **never** touches the state directly. It posts a piece of work, and the
+frame will drain it.
+
+`task(async { … })` also exists, and means the same thing as an `async` block
+written in place — see [async](/docs/async).
+
+## Outside a component
+
+`rustx::poster()` gives the same token as `alive`, and
+`rustx::task::spawn(work)` a thread whose `Task` you keep:
+
+```rust
+let task = rustx::task::spawn(|alive| {
+    while alive.get() {
+        // …
+    }
+});
+```

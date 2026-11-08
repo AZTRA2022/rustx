@@ -1,0 +1,109 @@
+---
+title: "Devices"
+description: "What is plugged in: cameras, microphones, screens — and who reads them afterwards."
+---
+
+```rust
+use rustx::devices;
+
+for device in devices::devices() {
+    println!("{} — {} ({})", device.name, device.kind, device.busy);
+}
+
+let cameras = devices::devices_of(devices::Kind::Camera);
+```
+
+```rust
+pub struct Device {
+    /// What a program keeps to come back to this device: the Media Foundation
+    /// symbolic link for a camera or a microphone, the device name for a screen.
+    pub id: String,
+    /// What a person reads: "Integrated Webcam", "\\.\DISPLAY1".
+    pub name: String,
+    pub kind: Kind,          // Camera | Microphone | Screen
+    /// Something else has opened it.
+    pub busy: bool,
+}
+```
+
+An **empty list is an answer**: a machine without a webcam is an ordinary
+machine, not a failure, so `devices()` and `devices_of()` do not return a `Result`.
+
+`devices::device(id)` finds a device by its id, as it is now, and refuses if it is no longer there.
+
+## Two empty lists that do not mean the same thing
+
+An empty list has two causes — nothing is plugged in, or a subsystem refused — and they look alike from the outside. `devices::explain()` writes to the error output what the platform answered during the enumeration:
+
+```rust
+let cameras = devices::devices_of(devices::Kind::Camera);
+if cameras.is_empty() {
+    devices::explain();
+}
+```
+
+This is meant for a developer, and not for the user: the sentence is the system's.
+
+## Choosing a device
+
+```rust
+let mut chosen = String::new();
+
+fn Pick() -> Element {
+    let cameras = keep(devices::devices_of(devices::Kind::Camera));
+
+    return <select value={chosen.clone()} onChange={move |event| chosen = event.value}>
+        {cameras.iter().map(|device| <option
+            key={device.id.clone()}
+            value={device.id.clone()}
+            disabled={device.busy}
+        >
+            {device.name.clone()}
+            {if device.busy { " (in use)" } else { "" }}
+        </option>).collect::<Vec<_>>()}
+    </select>;
+}
+```
+
+The `keep` is not a free optimization: enumerating devices talks to the system, and
+doing it sixty times a second would be sixty calls a second for a list that changes once a day. To refresh it when the user plugs something in, use a button and an `effect`.
+
+## Who reads them
+
+The camera, the microphone and the screen are **read** afterwards by Chromium —
+`getUserMedia`, `getDisplayMedia` — with the system's permissions.
+This is the same code as on the web, and there is no layer to learn on top of it:
+
+```tsx
+// components/Camera.tsx
+export default function Camera({ deviceId }: { deviceId: string }) {
+  const video = useRef<HTMLVideoElement>(null)
+
+  useEffect(() => {
+    let stopped = false
+    navigator.mediaDevices
+      .getUserMedia({ video: { deviceId: { exact: deviceId } } })
+      .then((stream) => {
+        if (stopped) return stream.getTracks().forEach((t) => t.stop())
+        if (video.current) video.current.srcObject = stream
+      })
+    return () => { stopped = true }
+  }, [deviceId])
+
+  return <video ref={video} autoPlay muted className="rounded-lg" />
+}
+```
+
+```rust
+return <Camera deviceId={chosen.clone()} />;
+```
+
+A `ref` and a `useEffect` are hook work: exactly the case where [a component of your own](/docs/javascript-libraries/your-own-components) is the right answer.
+
+`rustx-os` is used to know what is plugged in, and to name it. The identifier it returns is the one that `getUserMedia` expects, which is the whole point of putting them side by side.
+
+## Recording and capture
+
+Beyond what Chromium already gives — `MediaRecorder`,
+`getDisplayMedia` — nothing is written. This is noted in
+[what's left](/docs/whats-left).

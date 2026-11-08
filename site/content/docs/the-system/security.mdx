@@ -1,0 +1,97 @@
+---
+title: "Security model"
+description: "Why a window only loads local content, what that protects, and what the framework does not protect."
+---
+
+A desktop application is not a web page. The code in a rustx window runs with
+the rights of the user who started it, can read their files and can call
+anything `rustx-os` exposes. Everything on this page follows from that.
+
+## The one rule: only local content
+
+The renderer process, the one that runs **your Rust**, is not sandboxed. The
+engine turns the sandbox off on purpose, since the sandbox would be a wall
+between the page and the Rust it calls. That is safe only while nothing foreign
+gets into the page. If a remote page loaded there, its JavaScript would be
+handed every native function the application registered, with the user's full
+rights.
+
+So the engine refuses remote content, in three places:
+
+| | |
+|---|---|
+| `App::new` | an `index` whose path starts with `http://`, `https://`, `ftp://` or `ws://` returns `RemoteContentForbidden` |
+| every navigation | allowed only for `file://`, `about:blank`, `data:` and the empty URL. Any other load is cancelled |
+| the renderer | before it installs any native function, it checks the frame's URL. A context that got in some other way gets no natives |
+
+A refused load prints this to the terminal and goes no further:
+
+```text
+rustx: refused to load https://example.com/
+  A rustx application only loads local content. …
+```
+
+## What follows
+
+**A link to the web does nothing.** `<a href="https://example.com">` is a
+navigation, so it is cancelled and the message is printed. rustx has no
+function that opens the system browser. An application that needs one calls the
+system itself, with a crate of its choice.
+
+**An iframe to a remote site gets no natives.** The frame is checked at the
+renderer.
+
+**Text from outside is text.** The framework builds the DOM with `createTextNode`
+and `textContent`, so a string from the network or a file that contains
+`<script>` is displayed, not run. There is no raw-HTML escape hatch in the
+tags `.rsx` accepts. The one way to get one is to hand a string to a library
+component that parses HTML itself. Do not do that with data you did not write.
+
+**Data from the network is fetched by Rust.** A request made in a `task` or an
+`async` block, with a Rust HTTP client, is code of yours. The page never holds
+the connection. See [network calls](/docs/async/network-calls).
+
+## What is not protected
+
+This list is as important as the one above.
+
+- **No Content-Security-Policy is set.** The code contains none.
+- **Only navigation is gated.** The check sits on page loads. The engine has no
+  hook on the requests a page makes while it is loaded, such as `fetch`, images
+  or scripts. Do not rely on the engine to stop a library you installed from
+  contacting a server. Read what you add to `package.json`.
+- **Every registered native is open to every script in the page.** The page's
+  JavaScript, including each npm library you bundle, can call all of them. A
+  native that deletes a file is a function any of that code may call. Validate
+  arguments inside the native. See [the Rust bridge](/docs/javascript-libraries/rust-bridge).
+- **The npm libraries are trusted code.** They run in the same context as your
+  natives, and the build bundles them in.
+- **No permissions model for `rustx-os`.** The clipboard, dialogs and files are
+  not gated per call or per route. The user sees the system's own dialogs, and
+  nothing more.
+- **Devices ask the system.** The camera, the microphone and the screen go
+  through Chromium and the permissions of the operating system. See
+  [devices](/docs/the-system/devices).
+- **The `.rsx` and `assets/` are files on disk.** The executable reads
+  `assets/index.html` and the JavaScript bundle from the project folder it was
+  built in. Whoever can write there can change what the window runs. See
+  [packaging](/docs/tooling/packaging).
+- **Secrets in the binary are readable.** A key written in a `const` is in the
+  file. Do not put one there. See [environment](/docs/tooling/environment).
+
+## Rules that keep the model true
+
+1. Never point `Config::index` at a URL.
+2. Never load a remote page in the main window, even a page you own. Write
+   the window's content as pages, and fetch data from Rust.
+3. Treat every argument of a native as untrusted input.
+4. Add an npm library as you would add a crate: because you looked at it.
+5. Do not run the application as administrator. Chromium 156 refuses it
+   anyway, see [packaging](/docs/tooling/packaging).
+
+## Not written
+
+There is no secure storage module, no keychain access and no sign-in helper.
+See [what's left](/docs/whats-left). Until they exist, an application that
+stores a token calls the platform's credential store itself, with a crate of its
+choice.

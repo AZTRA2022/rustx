@@ -4,3 +4,5 @@ tsconfig.json
 build.mjs
 src/
 .vscodeignore
+*.vsix
+package-lock.json

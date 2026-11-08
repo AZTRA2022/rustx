@@ -28,6 +28,28 @@ use std::path::{Path, PathBuf};
 
 pub use rustx_macros::{ToValue, main};
 
+// Les deux caisses que le code engendré par le compilateur nomme —
+// `rustx_dom::Element`, `rustx_engine::task::spawn`. Elles passent par
+// la façade pour qu'une application n'en déclare qu'une seule dans son
+// `Cargo.toml`, ce que la documentation promet. Rien à écrire pour le
+// développeur : le prélude de `#[rustx::main]` les importe.
+#[doc(hidden)]
+pub use rustx_dom;
+#[doc(hidden)]
+pub use rustx_engine;
+
+/// Ce qu'un `await` attend.
+///
+/// `rustx::time::sleep(…)`, et tout ce que tokio appelle le temps. Une
+/// page ne nomme pas tokio dans son `Cargo.toml` : c'est le meme
+/// runtime que celui qui fait tourner ses `task(async { … })`, et deux
+/// tokio dans un processus seraient deux reacteurs dont un seul aurait
+/// les timers.
+pub use tokio::time;
+/// Le reste du runtime, pour une application qui en veut plus que le
+/// temps : `rustx::tokio::sync`, `rustx::tokio::select!`.
+pub use tokio;
+
 pub use rustx_dom::value::{ToValue, record};
 pub use rustx_dom::{
     AttributeValue, Element, Handler, IntoElement, Key, TagElement, Value, into_element, route,
@@ -39,6 +61,15 @@ pub use rustx_dom::{
 /// si cette plateforme sait le faire.
 pub use rustx_os::{autostart, clipboard, devices, dialog, instance, notify, shortcut, tray};
 pub use rustx_os::OsError;
+
+/// La couche qui parle au systeme, en entier.
+///
+/// Les modules ci-dessus sont la pour qu'une page ecrive
+/// `rustx::clipboard::text()` sans rien importer. `rustx::os` est pour
+/// le reste : `os::window`, qui tient la poignee de la fenetre et ne
+/// peut pas s'appeler `rustx::window` — ce nom est celui que la **page**
+/// commande, et deux choses ne peuvent pas porter le meme nom.
+pub use rustx_os as os;
 
 pub use rustx_engine::{
     Document, DomError, NativeError, Node, PostError, Poster, foreign, mount, mount_at_id,
@@ -69,6 +100,16 @@ thread_local! {
     static BUNDLE: Cell<Option<&'static str>> = const { Cell::new(None) };
     /// The stylesheet Tailwind wrote from the classes the pages use.
     static STYLESHEET: Cell<Option<&'static str>> = const { Cell::new(None) };
+}
+
+/// Attendre une future jusqu'au bout, depuis `main`.
+///
+/// Ce que `#[rustx::main]` enveloppe autour d'un `async fn main`. Un
+/// composant, lui, n'attend jamais : on lui demande l'ecran tel qu'il
+/// est maintenant, et ce qui attend s'ecrit dans un `task(async { … })`.
+#[doc(hidden)]
+pub fn block_on<T>(work: impl std::future::Future<Output = T>) -> T {
+    rustx_engine::runtime::block_on(work)
 }
 
 /// Said by `#[rustx::main]`, which is where `env!` reads the
@@ -145,6 +186,7 @@ pub struct Config {
     hooks: Vec<std::rc::Rc<dyn Fn()>>,
     icon: Option<PathBuf>,
     about: rustx_engine::window::About,
+    dressing: rustx_os::window::Dressing,
 }
 
 impl Config {
@@ -166,12 +208,26 @@ impl Config {
                 name: title,
                 ..Default::default()
             },
+            dressing: rustx_os::window::Dressing::System,
         }
     }
 
     pub fn size(mut self, width: u32, height: u32) -> Self {
         self.width = width;
         self.height = height;
+        self
+    }
+
+    /// Une fenêtre sans le cadre du système : pas de barre de titre,
+    /// pas de boutons, la page dessine tout.
+    ///
+    /// Ce qu'il faut alors rendre à l'utilisateur, et que le cadre
+    /// faisait : `window::drag()` sur l'appui de la barre qu'on a
+    /// dessinée, `window::minimize()`, `window::maximize()`,
+    /// `window::shut()` sur ses trois boutons. Sans `drag`, la fenêtre
+    /// ne se déplace plus.
+    pub fn frameless(mut self) -> Self {
+        self.dressing = rustx_os::window::Dressing::None;
         self
     }
 
@@ -372,6 +428,7 @@ impl App {
                 title: config.title,
                 width: config.width,
                 height: config.height,
+                dressing: config.dressing,
                 index,
             })?,
         })

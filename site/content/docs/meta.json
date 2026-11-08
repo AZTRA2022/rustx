@@ -1,0 +1,15 @@
+{
+  "title": "Documentation",
+  "pages": [
+    "index",
+    "getting-started",
+    "the-router",
+    "the-window",
+    "async",
+    "javascript-libraries",
+    "the-system",
+    "tooling",
+    "reference",
+    "whats-left"
+  ]
+}

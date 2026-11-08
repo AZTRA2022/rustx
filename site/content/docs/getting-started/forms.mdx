@@ -1,0 +1,180 @@
+---
+title: "Forms"
+description: "Inputs bound to state, validation computed from it, and a submit that runs work in the background."
+---
+
+A form is a few inputs, some state and a button. In rustx the state is a `let mut`
+and the inputs read and write it. There is no form library to learn.
+
+<Callout type="warn" title="Do not write a form tag">
+`event` has no way to cancel the browser's default action. A `<form>` would
+submit the way it does in a browser. No application in the repository uses one.
+Write the inputs in a `<div>`, and put the submit in a button's `onClick`.
+</Callout>
+
+## Controlled inputs
+
+Set `value` from the state and write it back in `onInput`. The framework sets
+both the attribute and the property, so a field that the page clears is cleared
+on screen too.
+
+```rust
+let mut name = String::new();
+let mut age = 0.0;
+let mut news = false;
+let mut country = String::from("fr");
+let mut bio = String::new();
+
+fn Page() -> Element {
+    return <div className="grid gap-3 p-6">
+        <input placeholder="Name" value={name.clone()}
+               onInput={move |event| name = event.value} />
+
+        <input type="number" value={age.to_string()}
+               onInput={move |event| age = event.number().unwrap_or(0.0)} />
+
+        <label>
+            <input type="checkbox" checked={news}
+                   onChange={move |event| news = event.checked} />
+            Send me the news
+        </label>
+
+        <select value={country.clone()}
+                onChange={move |event| country = event.value}>
+            <option value="fr">France</option>
+            <option value="de">Germany</option>
+        </select>
+
+        <textarea value={bio.clone()}
+                  onInput={move |event| bio = event.value} />
+    </div>;
+}
+```
+
+| | |
+|---|---|
+| text, textarea | `event.value` |
+| number | `event.number()` when the text is a number, `event.value` otherwise |
+| checkbox, radio | `event.checked` |
+| select | `event.value`, the `value` of the chosen option |
+| Enter in a field | `onKeyDown` and `event.key == "Enter"` |
+
+The fields of an event are listed in
+[attributes and events](/docs/getting-started/attributes-and-events). That is
+everything a handler can read: there is no `FormData`.
+
+## Validation
+
+Compute it from the state, in the component. A rule is a function. An error is a
+value that is drawn or not.
+
+```rust
+fn name_problem(name: &str) -> Option<String> {
+    if name.trim().is_empty() {
+        Some("A name is required".to_string())
+    } else if name.len() > 40 {
+        Some("40 characters at most".to_string())
+    } else {
+        None
+    }
+}
+
+let mut name = String::new();
+let mut saved = Vec::<String>::new();
+
+fn Page() -> Element {
+    let problem = name_problem(&name);
+
+    return <div>
+        <input value={name.clone()} onInput={move |event| name = event.value} />
+        {match &problem {
+            Some(why) => <p className="text-destructive">{why.clone()}</p>,
+            None => <></>,
+        }}
+        <button disabled={problem.is_some()} onClick={move |_| saved.push(name.clone())}>Save</button>
+    </div>;
+}
+```
+
+There is no "touched" state to track. If you do not want an error before the
+user has typed, keep a `let mut touched = false;` and set it in `onBlur`.
+
+## Submit
+
+A submit that is instant is a handler: check, write the state, go.
+
+```rust
+<button onClick={move |_| {
+    if name_problem(&name).is_none() {
+        saved.push(name.clone());
+        name = String::new();
+    }
+}}>Add</button>
+```
+
+A submit that waits, such as a request or a large write, is work for the
+background. A handler has to return, so it does not wait. It bumps a counter,
+and an `async` block beside the component does the work. This is the same
+idiom as the search that follows typing in
+[network calls](/docs/async/network-calls).
+
+```rust
+let mut name = String::new();
+let mut ticket = 0;
+let mut state = String::from("idle");
+
+fn Page() -> Element {
+    async move {
+        let mut handled = 0;
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            if ticket == handled {
+                continue;
+            }
+            handled = ticket;
+            state = String::from("saving…");
+            state = match crate::api::save(name.clone()).await {
+                Ok(()) => String::from("saved"),
+                Err(why) => format!("failed: {why}"),
+            };
+        }
+    };
+
+    return <div>
+        <input value={name.clone()} onInput={move |event| name = event.value} />
+        <button disabled={state == "saving…"} onClick={move |_| ticket += 1}>Save</button>
+        <p>{state.clone()}</p>
+    </div>;
+}
+```
+
+The button is disabled while the work runs, which stops a double submit. The
+write to `state` after the `.await` comes back through the frame, so the
+screen updates when the work ends. See
+[reading and writing state](/docs/async/reading-and-writing-state).
+
+An expected failure, such as a refused login or a name already taken, is a
+value in the state, drawn as a message. A panic is for what you did not foresee.
+See [error handling](/docs/getting-started/error-handling).
+
+## shadcn inputs
+
+`Input`, `Button` and the other components that `shadcn add` installs take the
+same props. The handlers on them receive their arguments as a library gives
+them. The page in [shadcn/ui](/docs/javascript-libraries/shadcn) shows an
+`Input` bound to state the same way.
+
+## A form library in a React component
+
+A component of your own written in TypeScript can use any library. React Hook
+Form and TanStack Form are ordinary libraries, but **no application in this
+repository uses either**, so their behaviour here has not been measured. If you
+try one, the path into Rust is a native, called with the values when the
+form is valid. See [the Rust bridge](/docs/javascript-libraries/rust-bridge).
+
+```tsx
+declare function save_profile(values: { name: string; age: number }): null
+
+// inside the library's onSubmit handler:
+save_profile(values)
+```

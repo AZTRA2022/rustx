@@ -120,7 +120,42 @@ fn read(path: &Path) -> Result<String, CompileError> {
 }
 
 fn write(path: &Path, contents: &str) -> Result<(), CompileError> {
+    if !changed(path, contents.as_bytes()) {
+        return Ok(());
+    }
     std::fs::write(path, contents).map_err(|error| io(path, error))
+}
+
+/// Whether writing these bytes there would change anything.
+///
+/// The one question that stands between `rustx dev` and a project it
+/// rebuilds for ever. `#[rustx::main]` `include!`s what this crate
+/// writes, so cargo records those files as sources of the crate; a file
+/// rewritten with the same bytes still gets a new modification date,
+/// and cargo then finds the binary older than its sources and rebuilds.
+/// That build writes them again. Nothing in the project changed, and
+/// the loop never stops.
+///
+/// A file that cannot be read is a file to write: a missing one, and one
+/// whose bytes we are not allowed to see.
+pub fn changed(path: &Path, contents: &[u8]) -> bool {
+    match std::fs::read(path) {
+        Ok(there) => there != contents,
+        Err(_) => true,
+    }
+}
+
+/// Copy `from` over `to`, unless the two already hold the same bytes.
+///
+/// `std::fs::copy` always writes, and the file it writes is watched —
+/// by cargo, when the attribute includes it, and by `rustx dev`, which
+/// looks at what the project's files say.
+pub fn copy_if_changed(from: &Path, to: &Path) -> std::io::Result<()> {
+    let bytes = std::fs::read(from)?;
+    if !changed(to, &bytes) {
+        return Ok(());
+    }
+    std::fs::write(to, bytes)
 }
 
 fn create_dir(path: &Path) -> Result<(), CompileError> {

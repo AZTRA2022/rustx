@@ -25,15 +25,37 @@ impl Report {
         self.values.get(key).map(String::as_str).unwrap_or_else(|| {
             panic!(
                 "the page never reported '{key}'. Full output:\n{}",
-                self.raw
+                self.raw()
             )
         })
     }
 
-    pub fn raw(&self) -> &str {
-        &self.raw
+    pub fn raw(&self) -> String {
+        match self.no_driver() {
+            false => self.raw.clone(),
+            true => format!("{}\n{NO_DRIVER}\n", self.raw),
+        }
+    }
+
+    /// Did this machine fail to give Chromium a 3D context?
+    ///
+    /// Half the scenarios wait on frames, and a window that is not being
+    /// composited produces none — so the assertion that fails says "a
+    /// panicking job killed the frame loop" about a machine that simply
+    /// has no driver. The sentence below is appended to every failure so
+    /// that nobody debugs the framework for an afternoon over it.
+    fn no_driver(&self) -> bool {
+        self.raw.contains("Failed to create shared context")
     }
 }
+
+/// What to read when the window was never composited.
+const NO_DRIVER: &str = "\
+    --- rustx: this machine gave Chromium no 3D context (\"Failed to create shared \
+    context\"), so the window produced no frames and every scenario that waits on one \
+    reports nothing. It is the machine, not the framework: a virtual machine, a remote \
+    desktop, or a driver. Run the suite with RUSTX_SOFTWARE=1, which composites on the \
+    processor. ---";
 
 /// Runs the application through a scenario and collects what it reported.
 ///
@@ -74,6 +96,12 @@ fn run(name: &str, ending: Ending) -> Completion {
     let _alone = alone();
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_hello"))
+        // Chromium 156 se dés-élève : lancé en administrateur, il se
+        // relance sans les droits et quitte avant que le moteur ait la
+        // main. Une suite se lance depuis le terminal qu'on a sous la
+        // main, administrateur ou pas, donc le commutateur est toujours
+        // là — il ne change rien quand les droits sont ordinaires.
+        .arg("--do-not-de-elevate")
         .arg(format!("--scenario={name}"))
         .arg(format!("--report={}", report_file.display()))
         .stdout(Stdio::piped())

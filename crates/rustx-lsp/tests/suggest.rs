@@ -35,6 +35,7 @@ fn empty_page() -> Page {
     Page {
         components: Vec::new(),
         libraries: Vec::new(),
+        application: None,
     }
 }
 
@@ -78,6 +79,7 @@ fn a_component_of_the_file_is_offered_by_its_name() {
             ("Footer".to_string(), Vec::new()),
         ],
         libraries: Vec::new(),
+        application: None,
     };
     let got = labels(&suggest::tags("He", &page));
     assert!(got.contains(&"Header".to_string()), "got {got:?}");
@@ -105,6 +107,7 @@ fn an_installed_component_is_offered_by_its_name() {
     let page = Page {
         components: Vec::new(),
         libraries: vec![from("Button", "ui"), from("Card", "ui")],
+        application: None,
     };
     let got = labels(&suggest::tags("Bu", &page));
     assert!(got.contains(&"Button".to_string()), "got {got:?}");
@@ -182,6 +185,7 @@ fn a_components_own_parameters_are_the_attributes_offered() {
             vec!["number: String".to_string(), "unit: String".to_string()],
         )],
         libraries: Vec::new(),
+        application: None,
     };
     let items = suggest::attributes("Stat", "", &page, &[]);
     let got = labels(&items);
@@ -260,6 +264,7 @@ fn an_installed_component_says_where_it_comes_from() {
     let page = Page {
         components: Vec::new(),
         libraries: vec![from("Button", "ui")],
+        application: None,
     };
     let items = suggest::attributes("Button", "class", &page, &[]);
     let class = items
@@ -403,6 +408,7 @@ fn a_component_of_an_installed_library_says_which_library() {
     let page = Page {
         components: Vec::new(),
         libraries: vec![from("LineChart", "recharts")],
+        application: None,
     };
     let items = suggest::tags("Line", &page);
     let chart = items
@@ -420,6 +426,7 @@ fn a_name_two_libraries_export_offers_the_explicit_form_too() {
     let page = Page {
         components: Vec::new(),
         libraries: vec![from("Dialog", "ui"), from("Dialog", "radixUiReactDialog")],
+        application: None,
     };
     let got = labels(&suggest::tags("Dia", &page));
     assert!(got.contains(&"Dialog".to_string()), "got {got:?}");
@@ -436,6 +443,7 @@ fn a_name_one_library_exports_is_not_repeated_in_full() {
     let page = Page {
         components: Vec::new(),
         libraries: vec![from("LineChart", "recharts")],
+        application: None,
     };
     let got = labels(&suggest::tags("", &page));
     assert!(
@@ -449,10 +457,151 @@ fn the_explicit_form_is_offered_to_whoever_starts_typing_it() {
     let page = Page {
         components: Vec::new(),
         libraries: vec![from("LineChart", "recharts")],
+        application: None,
     };
     let got = labels(&suggest::tags("recharts::", &page));
     assert!(
         got.contains(&"recharts::LineChart".to_string()),
         "got {got:?}"
     );
+}
+
+#[test]
+fn a_page_is_offered_what_the_application_around_it_installed() {
+    // The end-to-end shape, from a path on disk: a project with a
+    // `package.json`, a `node_modules`, a `components/ui`, and a page
+    // in `app/`. Nothing here mocks the lookup, which is the point —
+    // the server read `node_modules` from the application's *parent*
+    // for a while, so this list came back empty in every real project
+    // and the editor offered HTML tags and nothing else.
+    let root = std::env::temp_dir().join(format!(
+        "rustx-suggest-installed-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_nanos())
+            .unwrap_or(0)
+    ));
+    let written = |at: std::path::PathBuf, what: &str| {
+        std::fs::create_dir_all(at.parent().expect("a parent")).expect("a directory");
+        std::fs::write(at, what).expect("a file");
+    };
+    // What makes a directory an application: a manifest and `app/`.
+    written(root.join("Cargo.toml"), "[package]\nname = \"mon-app\"\n");
+    written(root.join("app/page.rsx"), "fn Page() -> Element { return <main></main>; }\n");
+    written(
+        root.join("package.json"),
+        "{\"dependencies\": {\"recharts\": \"2.12.7\"}}",
+    );
+    written(
+        root.join("node_modules/recharts/package.json"),
+        "{\"name\": \"recharts\", \"types\": \"./index.d.ts\"}",
+    );
+    written(
+        root.join("node_modules/recharts/index.d.ts"),
+        "export { LineChart } from './chart/LineChart';\n",
+    );
+    written(
+        root.join("components/ui/card.tsx"),
+        "export function Card() { return null }\n",
+    );
+    written(
+        root.join("components/Editor.tsx"),
+        "export default function Editor() { return null }\n",
+    );
+
+    let source = std::fs::read_to_string(root.join("app/page.rsx")).expect("the page");
+    let page = suggest::page_of(&source, &root.join("app/page.rsx"));
+    let names: Vec<&str> = page
+        .libraries
+        .iter()
+        .map(|export| export.name.as_str())
+        .collect();
+
+    assert!(names.contains(&"LineChart"), "a library off npm: {names:?}");
+    assert!(names.contains(&"Card"), "what shadcn add wrote: {names:?}");
+    assert!(names.contains(&"Editor"), "a component of its own: {names:?}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_prop_of_the_component_is_sorted_above_an_attribute_every_tag_has() {
+    // The order `attributes` builds is thrown away unless it is said on
+    // the wire: an editor sorts by `sortText`, and by the label when
+    // there is none. `variant` was therefore filed under V, behind
+    // `accesskey`, `action` and everything else alphabetical.
+    let offered = |label: &str, kind: suggest::Kind| suggest::Item {
+        label: label.to_string(),
+        kind,
+        detail: String::from("said somewhere"),
+        insert: None,
+    };
+    let items = vec![
+        offered("accesskey", suggest::Kind::Attribute),
+        offered("variant", suggest::Kind::Property),
+        offered("onClick", suggest::Kind::Event),
+    ];
+    let sent = suggest::json(&items);
+
+    let sort_of = |label: &str| {
+        let at = sent
+            .find(&format!("\"label\":\"{label}\""))
+            .unwrap_or_else(|| panic!("{label} is not in {sent}"));
+        let from = sent[at..]
+            .find("\"sortText\":\"")
+            .map(|found| at + found + "\"sortText\":\"".len())
+            .unwrap_or_else(|| panic!("{label} carries no sortText: {sent}"));
+        let end = sent[from..].find('"').expect("a closed string") + from;
+        sent[from..end].to_string()
+    };
+
+    assert!(
+        sort_of("variant") < sort_of("accesskey"),
+        "variant sorts at {:?} and accesskey at {:?}",
+        sort_of("variant"),
+        sort_of("accesskey")
+    );
+    assert!(
+        sort_of("variant") < sort_of("onClick"),
+        "variant sorts at {:?} and onClick at {:?}",
+        sort_of("variant"),
+        sort_of("onClick")
+    );
+}
+
+#[test]
+fn two_kinds_offered_in_the_same_list_never_share_an_icon() {
+    // `Kind` exists so the editor can draw a different icon for each,
+    // which is most of what makes a long list readable. Two kinds that
+    // never appear together may share a number -- a tag name and a prop
+    // do not meet -- but two that appear side by side may not, or the
+    // distinction exists only in our own source.
+    let lists = [
+        // Offered after a `<`.
+        ("a tag name", vec![suggest::Kind::Tag, suggest::Kind::Component]),
+        // Offered inside a tag.
+        (
+            "inside a tag",
+            vec![
+                suggest::Kind::Property,
+                suggest::Kind::Attribute,
+                suggest::Kind::Event,
+            ],
+        ),
+    ];
+
+    for (list, kinds) in lists {
+        for (at, one) in kinds.iter().enumerate() {
+            for two in &kinds[at + 1..] {
+                assert_ne!(
+                    one.number(),
+                    two.number(),
+                    "{list}: {one:?} and {two:?} both arrive as {}, so the editor \
+                     draws them the same",
+                    one.number()
+                );
+            }
+        }
+    }
 }

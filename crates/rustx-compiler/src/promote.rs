@@ -1,15 +1,18 @@
 //! Deciding which locals become state. Only deciding.
 //!
-//! The rule, from §7.4 of the design document: a local that is **read in
-//! the JSX the component returns** and **mutated from an event handler's
-//! closure** becomes a persistent cell. Everything else stays an ordinary
-//! `let`, recomputed each render, costing nothing.
+//! The rule: a local **mutated from an event handler's closure**
+//! becomes a persistent cell. Everything else stays an ordinary `let`,
+//! recomputed each render, costing nothing.
 //!
-//! Both halves matter. A local only read is recomputed anyway and has
-//! nothing to remember. A local only mutated is written and thrown away,
-//! and nobody would see it change. It is the combination — something the
-//! screen shows and a click changes — that needs to survive the render
-//! that drew it.
+//! The reading half used to count too — §7.4 of the design document
+//! asked for a local both shown and written. It was dropped because a
+//! local written by a handler and shown nowhere has no second meaning
+//! to fall back on: a handler is stored as an `Rc<dyn Fn>`, so a
+//! closure that assigns to a captured local does not compile at all,
+//! and the developer read a borrow-check error about a file in a
+//! temporary directory. Promoting it costs one cell and makes the
+//! sentence in the documentation true as written — a `let mut`, and
+//! its place says its scope.
 //!
 //! The rewrite lives next door, in `rewrite.rs`. Keeping the decision
 //! here means it can be tested by asking what was decided, rather than by
@@ -28,6 +31,10 @@ pub struct Component {
     pub returns_jsx: Vec<Span>,
     /// The `{…}` of every `on*` attribute in those regions.
     pub handlers: Vec<Span>,
+    /// The arguments of every `task(async … )`, which run on another
+    /// thread. A write in one is state, like a write in a handler, and
+    /// it is rewritten to go through a handle that may cross a thread.
+    pub remote_regions: Vec<Span>,
     pub promoted: Vec<Promoted>,
     /// The `keep`, `effect` and `task` calls written in the body.
     pub calls: Vec<Call>,
@@ -35,6 +42,28 @@ pub struct Component {
     /// locals. Half-written state: the value is there, the handler that
     /// will change it is not typed yet.
     pub unwritten: Vec<Span>,
+    /// The `let`s whose value is awaited, which are asked for once and
+    /// read on every render after.
+    pub awaited: Vec<Awaited>,
+}
+
+/// A `let` in a component whose value is awaited.
+///
+/// A component is asked for the screen as it is now, so the waiting
+/// cannot happen in it. What is kept here is where the statement begins
+/// and where it ends -- the expression between the two is left exactly
+/// where it was written, so a read of state inside it is rewritten like
+/// any other, and only the two ends change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Awaited {
+    /// `let [mut] NAME [: TYPE] =`, the `=` included.
+    pub prefix: Span,
+    /// From the `.` of `.await` through the `;`.
+    pub suffix: Span,
+    pub name: String,
+    pub mutable: bool,
+    /// The type as written, when one was.
+    pub annotation: Option<String>,
 }
 
 /// A call to one of the three names a component is given.
@@ -62,6 +91,10 @@ pub enum CallKind {
     Effect,
     /// `task(WORK)` — a thread that stops when the component goes.
     Task,
+    /// A bare `async { … }` written as a statement of a component: the
+    /// same thing as `task(async { … })`, without the wrapper. JSX asks
+    /// for none, and the `async` already said everything `task` said.
+    Async,
 }
 
 /// A local that became state.
@@ -77,9 +110,18 @@ pub struct Promoted {
     pub declaration: Span,
     /// `0` — what the cell starts at.
     pub initializer: Span,
+    /// The type the declaration named, if it named one. `Vec::new()`
+    /// says nothing about what is in the vector; `: Vec<String>` does.
+    pub annotation: Option<Span>,
     /// Every occurrence that only looks.
     pub reads: Vec<Span>,
     pub mutations: Vec<Mutation>,
+    /// The `format!` calls that read the value by writing its name
+    /// inside the string. A read nothing else counts: the name is in
+    /// prose, so no occurrence of it is found in the code, and a value
+    /// a future writes and the screen only captures was left with no
+    /// handle to read from.
+    pub captures: Vec<Span>,
 }
 
 /// One place a promoted local is written.
@@ -120,7 +162,31 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
         let handlers = handler_closures(source, &returns_jsx);
         let parameters = parameter_names(source, body.start);
 
-        let locals = locals_of(source, body);
+        let in_code = code_spans(source, body, &returns_jsx);
+        // The three calls are rewritten whole, arguments included, so a
+        // use of a value inside one belongs to that rewrite. Editing it
+        // twice would leave the call half replaced.
+        let calls = calls_of(source, body, &in_code, &handlers)?;
+        let inside_a_call = |span: &Span| calls.iter().any(|call| contains(call.span, *span));
+
+        // A `let mut` written inside a handler, a block or a `keep` /
+        // `effect` / `task` belongs to that closure and not to the
+        // component. It is the memory of a loop, a counter, a buffer:
+        // nobody else sees it, it survives nothing, and it has no
+        // reason to be a cell. Promoting it made state out of a loop
+        // counter and then refused it to the very block that had
+        // written it -- a refusal that is right for a cell and absurd
+        // for a local, and whose only way round was to declare the
+        // thing at the top of the page.
+        let locals: Vec<Local> = locals_of(source, body)
+            .into_iter()
+            .filter(|local| {
+                !handlers
+                    .iter()
+                    .any(|handler| contains(*handler, local.declaration))
+                    && !inside_a_call(&local.declaration)
+            })
+            .collect();
         // Shadowing is idiomatic Rust, and matching occurrences by name
         // cannot tell two `n`s apart: both would claim the same spans
         // and the edits would overwrite each other. Refusing is the
@@ -139,12 +205,30 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             .resolve(source));
         }
 
-        let in_code = code_spans(source, body, &returns_jsx);
-        // The three calls are rewritten whole, arguments included, so a
-        // use of a value inside one belongs to that rewrite. Editing it
-        // twice would leave the call half replaced.
-        let calls = calls_of(source, body, &in_code, &handlers)?;
-        let inside_a_call = |span: &Span| calls.iter().any(|call| contains(call.span, *span));
+        // `task(async move { … })`. What decides is the first word of
+        // the argument, exactly as it decides which spawn is emitted.
+        let remote_regions: Vec<Span> = calls
+            .iter()
+            .filter(|call| matches!(call.kind, CallKind::Task | CallKind::Async))
+            .filter(|call| is_a_future(&source[call.arguments.start..call.arguments.end]))
+            .map(|call| call.arguments)
+            .collect();
+        let writes_from = |name: &str| -> Vec<Mutation> {
+            let in_a_handler = handlers
+                .iter()
+                .flat_map(|handler| mutations_in(source, name, *handler, &in_code, true));
+            // A handler is one of the braced regions `in_code` holds, so
+            // it is found there. The arguments of a call are inside one
+            // of those regions rather than being one, so the region is
+            // its own code — the same thing `uses_in` does for exactly
+            // this reason.
+            let in_a_future = remote_regions
+                .iter()
+                .flat_map(|region| mutations_in(source, name, *region, &[*region], true));
+            in_a_handler.chain(in_a_future).collect()
+        };
+
+        let awaited = awaited_of(source, body, &in_code, &handlers, &calls)?;
 
         let mut promoted = Vec::new();
         let mut unwritten = Vec::new();
@@ -152,41 +236,61 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             if parameters.contains(&local.name) {
                 continue;
             }
-            let mutations: Vec<Mutation> = handlers
+            let mutations: Vec<Mutation> = writes_from(&local.name);
+
+            // A value that comes from a future is bound again on every
+            // render, out of the cell the answer landed in. It cannot
+            // also *be* that cell: there would be two declarations of
+            // one name on one line, each written by a different half of
+            // the compiler.
+            if let Some(waited) = awaited
                 .iter()
-                .flat_map(|handler| mutations_in(source, &local.name, *handler, &in_code, true))
-                .collect();
+                .find(|waited| waited.prefix.start == local.declaration.start)
+            {
+                if mutations.is_empty() {
+                    continue;
+                }
+                return Err(CompileError::flagged(
+                    waited.prefix.start,
+                    format!(
+                        "`{name}` is awaited and also written from a handler. A value that \
+                         comes from a future is read again on every render, so it cannot be \
+                         the thing a handler changes -- await it into a value of its own, \
+                         and keep what the handler changes in a `let mut` beside it.",
+                        name = waited.name
+                    ),
+                )
+                .resolve(source));
+            }
 
-            // "Read in the JSX" means read by what is drawn, not read by
-            // a handler that happens to sit inside the JSX. A handler is
-            // written between the tags, so without this an `onClick` that
-            // only writes would look like a read of itself and promote a
-            // variable nobody ever shows.
-            let shown = occurrences(source, &local.name, &in_jsx_code(&in_code, &returns_jsx))
-                .into_iter()
-                .filter(|span| !handlers.iter().any(|handler| contains(*handler, *span)))
-                .count();
-
-            if shown == 0 || mutations.is_empty() {
+            if mutations.is_empty() {
                 // Nothing writes to it, so there is nothing to keep
                 // across renders and it stays what it was written as —
                 // a plain local, which `rustc` then warns is mutable
                 // for no reason, pointing at a file in a temporary
                 // directory the developer has never seen.
-                if mutations.is_empty() {
-                    unwritten.push(local.declaration);
-                }
+                unwritten.push(local.declaration);
                 continue;
             }
 
             // Everywhere the name appears without writing to it — the
             // rewrite turns each into a read of the cell.
+            // The code after the declaration -- which is a *part* of a
+            // span and not a choice between spans. The body's code up to
+            // the JSX is one span that begins before the declaration, so
+            // dropping it whole dropped every read written between the
+            // `let mut` and the `return`: `let double = n * 2;` came out
+            // naming the cell itself, and rustc complained about a line
+            // the developer had written correctly.
             let after_declaration: Vec<Span> = in_code
                 .iter()
-                .filter(|span| span.start >= local.declaration.end)
-                .copied()
+                .filter(|span| span.end > local.declaration.end)
+                .map(|span| Span {
+                    start: span.start.max(local.declaration.end),
+                    end: span.end,
+                })
                 .collect();
-            let reads = occurrences(source, &local.name, &after_declaration)
+            let reads = names_used(source, &local.name, &after_declaration)
                 .into_iter()
                 .filter(|span| !mutations.iter().any(|mutation| mutation.span == *span))
                 .filter(|span| !inside_a_call(span))
@@ -196,8 +300,14 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
                 shared: false,
                 declaration: local.declaration,
                 initializer: local.initializer,
+                annotation: local.annotation,
                 reads,
                 mutations,
+                captures: format_captures(source, &local.name, body)
+                    .into_iter()
+                    .map(|call| call.span)
+                    .filter(|span| span.start >= local.declaration.end)
+                    .collect(),
             });
         }
 
@@ -211,13 +321,8 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             {
                 continue;
             }
-            let mutations: Vec<Mutation> = handlers
-                .iter()
-                .flat_map(|handler| {
-                    mutations_in(source, &declaration.name, *handler, &in_code, true)
-                })
-                .collect();
-            let every_use = occurrences(source, &declaration.name, &in_code);
+            let mutations: Vec<Mutation> = writes_from(&declaration.name);
+            let every_use = names_used(source, &declaration.name, &in_code);
             let reads: Vec<Span> = every_use
                 .iter()
                 .copied()
@@ -231,7 +336,15 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             // never asked to reach it, and the name was left bare, in a
             // scope that had nothing of that name in it.
             let in_a_call = every_use.iter().any(inside_a_call);
-            if reads.is_empty() && mutations.is_empty() && !in_a_call {
+            // And a value that is only ever captured inline by a format
+            // string is used too — the use is written in prose, which is
+            // exactly why nothing above found it.
+            let captures: Vec<Span> = format_captures(source, &declaration.name, body)
+                .into_iter()
+                .map(|call| call.span)
+                .collect();
+            let captured = !captures.is_empty();
+            if reads.is_empty() && mutations.is_empty() && !in_a_call && !captured {
                 continue;
             }
             promoted.push(Promoted {
@@ -245,8 +358,10 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
                     end: body.start + 1,
                 },
                 initializer: declaration.initializer,
+                annotation: declaration.annotation,
                 reads,
                 mutations,
+                captures,
             });
         }
 
@@ -284,14 +399,155 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             }
         }
 
+        // A read of state inside an `async` block. The cell is an `Rc`
+        // on the render thread and the block runs on another, so there
+        // is nothing to read from there — and leaving it would hand the
+        // developer a type error about a generated file. Refused where
+        // it was written, with the way out.
+        // What is written after an `.await` runs when the answer does, on
+        // the runtime's threads -- so a value of the page cannot be read
+        // there, for the same reason it cannot be read inside an `async`
+        // block. Said where it was written.
+        for held in &promoted {
+            for waited in &awaited {
+                let (reads, _) = uses_in(source, &held.name, waited.suffix, false);
+                if let Some(read) = reads.first() {
+                    return Err(CompileError::flagged(
+                        read.start,
+                        format!(
+                            "`{}` is read after an `.await`. What follows the await runs when the answer \
+                             does, beside the window rather than on it, so there is no cell \
+                             there to read -- read it before the await, or do the reading \
+                             once the answer is bound.",
+                            held.name
+                        ),
+                    )
+                    .resolve(source));
+                }
+            }
+        }
+
+        // A value the page declared is reached from a block as it is
+        // written: it lives in one place both the thread that draws and
+        // a future get to, so there is nothing to refuse and nothing to
+        // write by hand.
+        //
+        // A cell this component declared is another matter. It belongs
+        // to an instance, on the thread that draws, and an instance is
+        // what goes when the component does — so there is still no
+        // reading it from beside the window.
+        for held in promoted.iter().filter(|held| !held.shared) {
+            for region in &remote_regions {
+                let (reads, _) = uses_in(source, &held.name, *region, true);
+                if let Some(read) = reads.first() {
+                    return Err(CompileError::flagged(
+                        read.start,
+                        format!(
+                            "`{}` is this component's own cell, and it is read inside an \
+                             `async` block. A cell belongs to the instance that is drawing, \
+                             on the thread that draws -- read it before the block and move \
+                             the copy in, or declare it at the top of the page, which is \
+                             where a value a future reads belongs.",
+                            held.name
+                        ),
+                    )
+                    .resolve(source));
+                }
+            }
+        }
+
         components.push(Component {
             handlers,
+            remote_regions,
             name,
             body,
             returns_jsx,
             promoted,
             calls,
             unwritten,
+            awaited,
+        });
+    }
+
+    // And the helpers. A page value has a name, and the one thing a
+    // developer expects of a name is that it works where it is
+    // written: `fn combien() -> usize { journal.len() }` is ordinary
+    // Rust and was answered with "cannot find value `journal` in this
+    // scope", together with the suggestion to call the component
+    // `Journal` instead. A helper is rewritten exactly like a
+    // component with no markup -- the value is bound at the top of the
+    // body, the reads become `get`, the writes become `set`.
+    for (name, body) in helpers_of(source) {
+        let in_code = code_spans(source, body, &[]);
+        let locals = locals_of(source, body);
+        let parameters = parameter_names(source, body.start);
+        let mut promoted = Vec::new();
+        for declaration in shared_of(source) {
+            if locals.iter().any(|local| local.name == declaration.name)
+                || parameters.contains(&declaration.name)
+            {
+                continue;
+            }
+            let mutations = mutations_in(source, &declaration.name, body, &in_code, false);
+            let reads: Vec<Span> = names_used(source, &declaration.name, &in_code)
+                .into_iter()
+                .filter(|span| !mutations.iter().any(|mutation| mutation.span == *span))
+                .collect();
+            let captures: Vec<Span> = format_captures(source, &declaration.name, body)
+                .into_iter()
+                .map(|call| call.span)
+                .collect();
+            if reads.is_empty() && mutations.is_empty() && captures.is_empty() {
+                continue;
+            }
+            promoted.push(Promoted {
+                name: declaration.name,
+                shared: true,
+                declaration: Span {
+                    start: body.start + 1,
+                    end: body.start + 1,
+                },
+                initializer: declaration.initializer,
+                annotation: declaration.annotation,
+                reads,
+                mutations,
+                captures,
+            });
+        }
+        if promoted.is_empty() {
+            continue;
+        }
+        // Except when the runtime is the one who runs it. A page value
+        // lives on the thread that draws, and an `async fn` is handed
+        // to the runtime, which runs it wherever it likes: binding the
+        // value there would build a second, empty one on that thread
+        // and read it instead -- the right answer to a wrong question,
+        // silently. Refused where it is written, with both ways out
+        // named.
+        if let Some(at) = async_before(source, body.start) {
+            let held = &promoted[0].name;
+            return Err(CompileError::flagged(
+                at,
+                format!(
+                    "`{name}` is declared `async` and reaches `{held}`, a value of the \
+                     page. A page value lives on the thread that draws, and the runtime \
+                     runs an `async fn` elsewhere -- write this work inside the `async` \
+                     block of a component, where the page's values are reached for you, \
+                     or hand `{held}` in as a parameter."
+                ),
+            )
+            .resolve(source));
+        }
+        components.push(Component {
+            name,
+            body,
+            returns_jsx: Vec::new(),
+            handlers: Vec::new(),
+            remote_regions: Vec::new(),
+            promoted,
+            calls: Vec::new(),
+            unwritten: Vec::new(),
+            awaited: Vec::new(),
         });
     }
     Ok(components)
@@ -354,6 +610,51 @@ fn calls_of(
         }
     }
 
+    // A bare `async` block written as a statement is work to run beside
+    // the render. Nothing in JSX needs a wrapper to say "do this", and
+    // `task(…)` around an `async` block said nothing the `async` had not
+    // already said -- so the wrapper is optional, not required. A block
+    // that is a *value* (`let held = async { … };`, or an argument) is
+    // left alone: what the component does with a future it holds is its
+    // own business.
+    for span in occurrences(source, "async", in_code) {
+        if handlers.iter().any(|handler| contains(*handler, span)) {
+            continue;
+        }
+        if nested.iter().any(|inner| contains(*inner, span)) {
+            continue;
+        }
+        if calls.iter().any(|call| contains(call.arguments, span)) {
+            continue;
+        }
+        if !starts_a_statement(source, body, span.start) {
+            continue;
+        }
+        // `async move { … }` as well as `async { … }`.
+        let mut open = skip_spaces(bytes, span.end);
+        if source[open..].starts_with("move") {
+            open = skip_spaces(bytes, open + "move".len());
+        }
+        if bytes.get(open) != Some(&b'{') {
+            continue;
+        }
+        let Some(close) = matching(bytes, open, b'{', b'}') else {
+            continue;
+        };
+        // The block is both the call and its argument: there are no
+        // parentheses, so the thing to spawn is the thing that was
+        // written.
+        let whole = Span {
+            start: span.start,
+            end: close + 1,
+        };
+        calls.push(Call {
+            kind: CallKind::Async,
+            span: whole,
+            arguments: whole,
+        });
+    }
+
     calls.sort_by_key(|call| call.span.start);
 
     // Two edits over the same bytes shred each other: the inner one is
@@ -396,6 +697,157 @@ fn calls_of(
     Ok(calls)
 }
 
+/// Every `let` of this body whose value is awaited.
+///
+/// And a sentence for every other `.await`: one that is not the value of
+/// a `let` has nowhere for its answer to land, so there is nothing
+/// honest to turn it into.
+fn awaited_of(
+    source: &str,
+    body: Span,
+    in_code: &[Span],
+    handlers: &[Span],
+    calls: &[Call],
+) -> Result<Vec<Awaited>, CompileError> {
+    let bytes = source.as_bytes();
+    let nested = nested_functions(source, body);
+    // A handler runs long after the render returned, a nested `fn` may
+    // be `async` itself, and an `async` block is the one place in a
+    // component where waiting is exactly right.
+    let elsewhere = |span: Span| {
+        handlers.iter().any(|handler| contains(*handler, span))
+            || nested.iter().any(|inner| contains(*inner, span))
+            || calls.iter().any(|call| contains(call.span, span))
+    };
+
+    let mut found: Vec<Awaited> = Vec::new();
+    for span in occurrences(source, "let", in_code) {
+        if elsewhere(span) || !starts_a_statement(source, body, span.start) {
+            continue;
+        }
+        let Some(semicolon) = statement_end(source, span.start, body.end) else {
+            continue;
+        };
+        let Some((first, after_first)) = word_after(source, span.end) else {
+            continue;
+        };
+        let (name, mutable, after) = if first == "mut" {
+            match word_after(source, after_first) {
+                Some((name, after)) => (name, true, after),
+                None => continue,
+            }
+        } else {
+            (first, false, after_first)
+        };
+        if name.is_empty() {
+            continue;
+        }
+        let Some(equals) = assignment_in(source, after, semicolon) else {
+            continue;
+        };
+        // The `.await` of the value itself, and not one buried in an
+        // argument: `f(g().await)` waits for `g` before `f` is even
+        // called, which is a wait on the render thread whatever is done
+        // with it afterwards.
+        let Some(dot) = await_at(source, equals + 1, semicolon) else {
+            continue;
+        };
+        // What sits between the name and the `=` is either nothing or
+        // the type the developer wrote.
+        let between = source[after..equals].trim();
+        let annotation = match between.strip_prefix(':') {
+            Some(written) => Some(written.trim().to_string()),
+            None if between.is_empty() => None,
+            // A pattern rather than a name: `let (a, b) = …`. Left
+            // unclaimed, so the sentence below explains it.
+            None => continue,
+        };
+        found.push(Awaited {
+            prefix: Span {
+                start: span.start,
+                end: equals + 1,
+            },
+            suffix: Span {
+                start: dot,
+                end: semicolon + 1,
+            },
+            name,
+            mutable,
+            annotation,
+        });
+    }
+
+    for span in occurrences(source, "await", in_code) {
+        let before = skip_spaces_back(bytes, span.start);
+        if before == 0 || bytes[before - 1] != b'.' {
+            continue;
+        }
+        if elsewhere(span) || found.iter().any(|waited| contains(waited.suffix, span)) {
+            continue;
+        }
+        return Err(CompileError::flagged(
+            span.start,
+            "this `.await` would stop the render. rustx takes `let answer = work().await;` \
+             off the render thread by itself -- the first frame draws nothing and the frame \
+             after the answer lands draws it -- but the await has to be the value's own, \
+             not one inside an argument or a closure. Anything else belongs in an `async { \
+             … }` block, whose writes are posted back to the page."
+                .to_string(),
+        )
+        .resolve(source));
+    }
+
+    Ok(found)
+}
+
+/// The `.` of the `.await` this value waits on, at its own depth.
+///
+/// Its own depth, because the answer has to be the whole value: an
+/// `.await` inside an argument or inside a closure is a wait somewhere
+/// this cannot move.
+fn await_at(source: &str, from: usize, limit: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut index = from;
+    let mut depth = 0_i32;
+    while index < limit.min(bytes.len()) {
+        match bytes[index] {
+            b'(' | b'[' => depth += 1,
+            b')' | b']' => depth -= 1,
+            b'{' => index = skip_braces(source, index).ok()? - 1,
+            b'"' => index = crate::scan::skip_string(source, index).ok()? - 1,
+            b'.' if depth == 0 => {
+                let word = skip_spaces(bytes, index + 1);
+                if source[word..].starts_with("await")
+                    && !bytes
+                        .get(word + "await".len())
+                        .is_some_and(|byte| is_word_byte(*byte))
+                {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
+/// The `=` of an assignment between `from` and `limit`, skipping `==`.
+fn assignment_in(source: &str, from: usize, limit: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut index = from;
+    while index < limit.min(bytes.len()) {
+        if bytes[index] == b'='
+            && bytes.get(index + 1) != Some(&b'=')
+            && (index == 0 || bytes[index - 1] != b'=')
+        {
+            return Some(index);
+        }
+        index += 1;
+    }
+    None
+}
+
 /// The first pair where one call is written inside another's arguments.
 fn nested_pair(calls: &[Call]) -> Option<(&Call, &Call)> {
     calls.iter().find_map(|outer| {
@@ -412,6 +864,7 @@ fn name_of(kind: CallKind) -> &'static str {
         CallKind::Keep => "keep",
         CallKind::Effect => "effect",
         CallKind::Task => "task",
+        CallKind::Async => "async",
     }
 }
 
@@ -471,6 +924,15 @@ struct Local {
     name: String,
     declaration: Span,
     initializer: Span,
+    /// The `Vec<String>` of `let mut visites: Vec<String> = Vec::new();`
+    ///
+    /// Kept because the initializer alone does not always say what the
+    /// value is: `Vec::new()`, `None` and `Default::default()` are the
+    /// three most ordinary ways to start a value in Rust, and all three
+    /// take their type from the annotation. Dropping it emitted
+    /// `shared("visites", || Vec::new())` and rustc said it could not
+    /// infer `T` — about a declaration that was perfectly explicit.
+    annotation: Option<Span>,
 }
 
 /// `fn NAME(…) -> Element {`, and the span of its body.
@@ -504,7 +966,64 @@ fn async_before(source: &str, body_start: usize) -> Option<usize> {
         .then(|| before.len() - "async".len())
 }
 
+/// The body of every `fn` in the file, component or not.
+///
+/// Outermost only: a `fn` written inside another is inside the first
+/// one's body, and a span that contains it contains it.
+fn function_bodies(source: &str) -> Vec<Span> {
+    let bytes = source.as_bytes();
+    let mut found: Vec<Span> = Vec::new();
+    let mut index = 0;
+
+    while let Some(at) = find_word(source, "fn", index) {
+        index = at + 2;
+        // A `fn` inside a body already found is that body's business.
+        if found.iter().any(|body| body.start < at && at < body.end) {
+            continue;
+        }
+        let Some((_, after_name)) = word_after(source, index) else {
+            continue;
+        };
+        let Some(open) = next_byte(bytes, after_name, b'(') else {
+            continue;
+        };
+        let Some(close) = matching(bytes, open, b'(', b')') else {
+            continue;
+        };
+        let Some(brace) = next_byte(bytes, close, b'{') else {
+            continue;
+        };
+        let Ok(end) = skip_braces(source, brace) else {
+            continue;
+        };
+        found.push(Span { start: brace, end });
+        index = end;
+    }
+    found
+}
+
 fn components_of(source: &str) -> Vec<(String, Span)> {
+    functions_of(source)
+        .into_iter()
+        .filter(|(_, _, element)| *element)
+        .map(|(name, body, _)| (name, body))
+        .collect()
+}
+
+/// Every `fn` the page writes that is not a component: a helper, a
+/// formatter, a worker. Outermost only, like the components.
+fn helpers_of(source: &str) -> Vec<(String, Span)> {
+    functions_of(source)
+        .into_iter()
+        .filter(|(_, _, element)| !*element)
+        .map(|(name, body, _)| (name, body))
+        .collect()
+}
+
+/// Every outermost `fn` of the file: its name, its body braces
+/// included, and whether it gives back an `Element` — which is the
+/// marker that makes it a component.
+fn functions_of(source: &str) -> Vec<(String, Span, bool)> {
     let bytes = source.as_bytes();
     let mut found = Vec::new();
     let mut index = 0;
@@ -527,13 +1046,11 @@ fn components_of(source: &str) -> Vec<(String, Span)> {
         };
         // The marker the document already uses: a component returns an
         // Element.
-        if !source[close_paren..brace].contains("Element") {
-            continue;
-        }
+        let element = source[close_paren..brace].contains("Element");
         let Ok(end) = skip_braces(source, brace) else {
             continue;
         };
-        found.push((name.0, Span { start: brace, end }));
+        found.push((name.0, Span { start: brace, end }, element));
         index = end;
     }
     found
@@ -624,9 +1141,18 @@ fn locals_of(source: &str, body: Span) -> Vec<Local> {
         };
         // `let mut n: u8 = 0;` — step over an annotation if there is one.
         let mut cursor = skip_spaces(bytes, name.1);
+        let mut annotation = None;
         if bytes.get(cursor) == Some(&b':') {
+            let from = skip_spaces(bytes, cursor + 1);
             while cursor < body.end && bytes[cursor] != b'=' {
                 cursor += 1;
+            }
+            let until = source[from..cursor.min(source.len())].trim_end().len() + from;
+            if until > from {
+                annotation = Some(Span {
+                    start: from,
+                    end: until,
+                });
             }
         }
         if bytes.get(cursor) != Some(&b'=') {
@@ -647,6 +1173,7 @@ fn locals_of(source: &str, body: Span) -> Vec<Local> {
                 start: initializer_start,
                 end: semicolon,
             },
+            annotation,
         });
         index = semicolon;
     }
@@ -715,6 +1242,278 @@ fn occurrences(source: &str, name: &str, spans: &[Span]) -> Vec<Span> {
         }
     }
     found
+}
+
+/// Is this name a field or a method of something else?
+///
+/// `autre.dit()` names a method somebody else wrote, and `Echec::dit` a
+/// path into their type. Neither is the page's `dit`, and reading them
+/// as one emitted `dit.set(pourquoi.dit.get()())` — an edit that then
+/// landed on top of itself, because the read sat inside the span of the
+/// write.
+///
+/// A range ends in dots too, and `0..combien` *is* a read: two dots are
+/// a range and one is an access, which is the whole of the rule.
+/// The macros whose string is a format string.
+///
+/// Named rather than guessed: a macro that is not one of these may hold
+/// a string with braces in it that means something else entirely, and
+/// appending an argument to it would break a line that worked.
+const FORMATTING: [&str; 11] = [
+    "format",
+    "format_args",
+    "print",
+    "println",
+    "eprint",
+    "eprintln",
+    "write",
+    "writeln",
+    "panic",
+    "assert",
+    "debug_assert",
+];
+
+/// One call of a formatting macro, and where its arguments are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FormatCall {
+    /// `format!(…)`, the whole of it.
+    pub span: Span,
+    /// What is between the delimiters, ends exclusive — so appending an
+    /// argument is an insertion at `arguments.end`.
+    pub arguments: Span,
+}
+
+/// Every formatting macro in here whose string captures `name` inline.
+///
+/// Rust 2021 reads `{nom}` from the environment, and the environment
+/// holds a cell. The capture is inside a string literal, so a rewrite
+/// that reads names in code and not in prose never saw it: `rustc` said
+/// `Shared<u64> doesn't implement Display` about the most ordinary line
+/// in Rust.
+///
+/// This is analysis and not rewriting, because a value that is captured
+/// and nothing else is still a value the component uses — and a
+/// component credited with no use at all is never given a handle.
+pub fn format_captures(source: &str, name: &str, within: Span) -> Vec<FormatCall> {
+    let bytes = source.as_bytes();
+    let mut found = Vec::new();
+    let mut index = within.start;
+
+    while index < within.end && index < bytes.len() {
+        if bytes[index] != b'!' {
+            index += 1;
+            continue;
+        }
+        let Some(called) = word_ending_at(source, index) else {
+            index += 1;
+            continue;
+        };
+        if !FORMATTING.contains(&called.as_str()) {
+            index += 1;
+            continue;
+        }
+        let open = skip_spaces(bytes, index + 1);
+        let closing = match bytes.get(open) {
+            Some(b'(') => b')',
+            Some(b'[') => b']',
+            Some(b'{') => b'}',
+            _ => {
+                index += 1;
+                continue;
+            }
+        };
+        let Some(close) = delimiter_matching(source, open, bytes[open], closing) else {
+            index += 1;
+            continue;
+        };
+
+        let arguments = Span {
+            start: open + 1,
+            end: close,
+        };
+        if captures_inline(source, name, arguments) {
+            found.push(FormatCall {
+                span: Span {
+                    start: index - called.len(),
+                    end: close + 1,
+                },
+                arguments,
+            });
+        }
+        index = close + 1;
+    }
+    found
+}
+
+/// The delimiter that closes the one at `open`, with the strings in
+/// between left out of the count: `format!("a )")` holds a bracket that
+/// closes nothing.
+fn delimiter_matching(source: &str, open: usize, opener: u8, closer: u8) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut depth = 0_i32;
+    let mut index = open;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' => {
+                index = crate::scan::skip_string(source, index).ok()?;
+                continue;
+            }
+            b'\'' => {
+                index = crate::scan::skip_char_or_lifetime(bytes, index);
+                continue;
+            }
+            byte if byte == opener => depth += 1,
+            byte if byte == closer => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
+/// Does a string literal in here capture `name` inline?
+fn captures_inline(source: &str, name: &str, arguments: Span) -> bool {
+    let bytes = source.as_bytes();
+    let mut index = arguments.start;
+    while index < arguments.end && index < bytes.len() {
+        if bytes[index] != b'"' {
+            index += 1;
+            continue;
+        }
+        let Ok(after) = crate::scan::skip_string(source, index) else {
+            break;
+        };
+        let inside = Span {
+            start: index + 1,
+            end: after.saturating_sub(1).max(index + 1),
+        };
+        if literal_captures(&source[inside.start..inside.end], name) {
+            return true;
+        }
+        index = after;
+    }
+    false
+}
+
+/// `"… {nom} …"` or `"… {nom:>5} …"`, and never `"{{nom}}"`.
+fn literal_captures(literal: &str, name: &str) -> bool {
+    let bytes = literal.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] != b'{' {
+            index += 1;
+            continue;
+        }
+        // `{{` is a brace the string shows, not a capture.
+        if bytes.get(index + 1) == Some(&b'{') {
+            index += 2;
+            continue;
+        }
+        let mut end = index + 1;
+        while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
+            end += 1;
+        }
+        let closed = matches!(bytes.get(end), Some(b'}') | Some(b':'));
+        if closed && &literal[index + 1..end] == name {
+            return true;
+        }
+        index = end.max(index + 1);
+    }
+    false
+}
+
+/// The identifier that ends right before `at`.
+fn word_ending_at(source: &str, at: usize) -> Option<String> {
+    let bytes = source.as_bytes();
+    let mut start = at;
+    while start > 0 && is_word_byte(bytes[start - 1]) {
+        start -= 1;
+    }
+    (start < at).then(|| source[start..at].to_string())
+}
+
+/// Every place this name is used as a name of its own.
+///
+/// `occurrences` finds the word; this drops the ones that belong to
+/// somebody else. It is the reads that need it and not every scan:
+/// `.await` is a word that is always preceded by a dot, so a filter
+/// inside `occurrences` would have made every awaited let invisible.
+fn names_used(source: &str, name: &str, spans: &[Span]) -> Vec<Span> {
+    occurrences(source, name, spans)
+        .into_iter()
+        .filter(|span| !reaches_into_something_else(source.as_bytes(), span.start))
+        .filter(|span| !bound_by_a_let(source, span.start))
+        .collect()
+}
+
+/// Is this occurrence a name a `let` is **binding**, rather than a
+/// name being read?
+///
+/// `let (rang, total) = …` declares a `rang`; it does not read the page
+/// value of that name. Rewritten as a read it gave
+/// `let (rang.get(), total) = …`, which nothing can analyse — found by
+/// a layout that reads the navigation stack into two names.
+///
+/// Decided by looking backwards for the `let` that would own it: a
+/// pattern runs from `let` to the `=` that follows, and nothing else
+/// may be between the two. A `;`, a brace or an `=` first means this
+/// occurrence is somewhere else entirely.
+fn bound_by_a_let(source: &str, at: usize) -> bool {
+    let bytes = source.as_bytes();
+    let mut index = at;
+    while index > 0 {
+        index -= 1;
+        match bytes[index] {
+            // The end of whatever came before: no `let` owns this.
+            b';' | b'{' | b'}' => return false,
+            // `=` before a `let` means we are on the value's side.
+            // `==`, `!=`, `<=`, `>=` are comparisons and not that, and
+            // `=>` is a match arm.
+            b'=' => {
+                let doubled = index > 0
+                    && matches!(bytes[index - 1], b'=' | b'!' | b'<' | b'>')
+                    || bytes.get(index + 1) == Some(&b'=')
+                    || bytes.get(index + 1) == Some(&b'>');
+                if !doubled {
+                    return false;
+                }
+            }
+            b't' => {
+                // `let`, as a word and not the tail of `violet`.
+                if index >= 2 && &source[index - 2..=index] == "let" {
+                    let before = index.checked_sub(3).map(|at| bytes[at]);
+                    let word = before
+                        .is_some_and(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
+                    if !word {
+                        return true;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// The byte before, and not the last byte that was not a space: a
+/// comment ends in a full stop, and `// … pendant qu'on dessine.`
+/// followed by `effect((), …)` on the next line made the call look like
+/// somebody's field. `a . b` is legal Rust that nobody writes; a
+/// sentence that ends in a full stop is written every day.
+fn reaches_into_something_else(bytes: &[u8], at: usize) -> bool {
+    if at == 0 {
+        return false;
+    }
+    match bytes[at - 1] {
+        b'.' => !(at >= 2 && bytes[at - 2] == b'.'),
+        b':' => at >= 2 && bytes[at - 2] == b':',
+        _ => false,
+    }
 }
 
 /// The parts of a component's body that are Rust, as opposed to the
@@ -895,12 +1694,11 @@ fn shift_assign(bytes: &[u8], at: usize) -> bool {
 /// screen never reordered. In the argument of a `keep` or a `task` it
 /// does not: there the last expression is the value being computed.
 fn is_statement(bytes: &[u8], span: Span, handler: Span, tail_discarded: bool) -> bool {
-    let mut before = span.start;
-    while before > handler.start && bytes[before - 1].is_ascii_whitespace() {
-        before -= 1;
-    }
+    let before = back_over_space_and_comments(bytes, span.start, handler.start);
     let opens = before == handler.start
-        || matches!(bytes.get(before - 1), Some(b'{') | Some(b';'))
+        // `}`: the statement before was a block — an `if`, a `for`, a
+        // `match` — and a block needs no semicolon to have ended.
+        || matches!(bytes.get(before - 1), Some(b'{') | Some(b';') | Some(b'}'))
         || opens_a_closure_body(bytes, handler, before);
     if !opens {
         return false;
@@ -922,6 +1720,71 @@ fn is_statement(bytes: &[u8], span: Span, handler: Span, tail_discarded: bool) -
         index += 1;
     }
     tail_discarded
+}
+
+/// Back from `at` over whitespace and comments, down to `floor`.
+///
+/// What is in front of a method call is what says whether the call is a
+/// statement — a write — or an expression feeding something else — a
+/// read. Walking back over spaces alone made a **comment** the thing in
+/// front: `rows.push(row)` under a line explaining it was read as a
+/// read, emitted as `rows.get().push(row)`, and pushed into a copy that
+/// was thrown away. Nothing failed to compile and the screen never
+/// changed.
+///
+/// A comment is not a token. This steps over the three forms a comment
+/// takes, as many times as they are stacked.
+fn back_over_space_and_comments(bytes: &[u8], at: usize, floor: usize) -> usize {
+    let mut at = at;
+    loop {
+        while at > floor && bytes[at - 1].is_ascii_whitespace() {
+            at -= 1;
+        }
+        // `/* … */`, however many lines it spans.
+        if at >= floor + 2 && &bytes[at - 2..at] == b"*/" {
+            let mut index = at - 2;
+            while index > floor + 1 {
+                if &bytes[index - 2..index] == b"/*" {
+                    at = index - 2;
+                    break;
+                }
+                index -= 1;
+            }
+            if index <= floor + 1 {
+                return floor;
+            }
+            continue;
+        }
+        // `// …` to the end of its line, wherever on the line it began.
+        match line_comment_before(bytes, at, floor) {
+            Some(begins) => at = begins,
+            None => return at,
+        }
+    }
+}
+
+/// Where the line comment that ends at `at` began, if there is one.
+///
+/// Only a `//` that is not inside a string: `let url = "https://…";` is
+/// a statement and not a comment, and reading it as one would hide the
+/// write on the line after it — the very thing this exists to stop.
+fn line_comment_before(bytes: &[u8], at: usize, floor: usize) -> Option<usize> {
+    let mut start = at;
+    while start > floor && bytes[start - 1] != b'\n' {
+        start -= 1;
+    }
+    let mut index = start;
+    let mut in_string = false;
+    while index + 1 < at {
+        match bytes[index] {
+            b'\\' if in_string => index += 1,
+            b'"' => in_string = !in_string,
+            b'/' if !in_string && bytes[index + 1] == b'/' => return Some(index),
+            _ => {}
+        }
+        index += 1;
+    }
+    None
 }
 
 /// Is `at` the first thing in the body of the closure the handler is?
@@ -948,6 +1811,85 @@ fn opens_a_closure_body(bytes: &[u8], handler: Span, at: usize) -> bool {
         index = skip_spaces_back(bytes, index - 4);
     }
     index == handler.start + 1
+}
+
+/// Is what sits at `at` the first thing of a statement?
+///
+/// What decides is the byte before it: a `;` ends the statement before,
+/// a `{` opens the block, and a `}` closes a statement that was a block.
+/// Anything else -- `=`, `(`, `,`, `=>`, `return` -- means the thing at
+/// `at` is a value somebody is being given, not work to do.
+fn starts_a_statement(source: &str, body: Span, at: usize) -> bool {
+    let before = skip_trivia_back(source, at);
+    if before <= body.start {
+        return true;
+    }
+    matches!(source.as_bytes()[before - 1], b';' | b'{' | b'}')
+}
+
+/// The first offset at or before `from` that is neither whitespace nor
+/// a comment.
+///
+/// Written because what sits in front of a statement is almost always a
+/// line explaining it: reading only the whitespace back made every
+/// commented block look like the middle of an expression.
+fn skip_trivia_back(source: &str, from: usize) -> usize {
+    let bytes = source.as_bytes();
+    let mut index = skip_spaces_back(bytes, from);
+    loop {
+        if index == 0 {
+            return 0;
+        }
+        // Bytes, and the text may be French: a boundary two bytes back
+        // can sit inside a character, and slicing there is a panic.
+        if index >= 2 && source.is_char_boundary(index - 2) && &source[index - 2..index] == "*/" {
+            match source[..index - 2].rfind("/*") {
+                Some(open) => {
+                    index = skip_spaces_back(bytes, open);
+                    continue;
+                }
+                None => return index,
+            }
+        }
+        let line_start = source[..index].rfind('\n').map_or(0, |at| at + 1);
+        match line_comment_in(&source[line_start..index]) {
+            Some(at) => {
+                index = skip_spaces_back(bytes, line_start + at);
+            }
+            None => return index,
+        }
+    }
+}
+
+/// Where a line comment starts in one line of code, if one does.
+///
+/// Quote-aware, so the `//` of `"http://example"` is not a comment and
+/// the line before a statement is read for what it is.
+fn line_comment_in(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut inside: Option<u8> = None;
+    let mut escaped = false;
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if escaped {
+            escaped = false;
+        } else if let Some(quote) = inside {
+            match byte {
+                b'\\' => escaped = true,
+                _ if byte == quote => inside = None,
+                _ => {}
+            }
+        } else {
+            match byte {
+                b'"' | b'\'' => inside = Some(byte),
+                b'/' if bytes.get(index + 1) == Some(&b'/') => return Some(index),
+                _ => {}
+            }
+        }
+        index += 1;
+    }
+    None
 }
 
 fn skip_spaces_back(bytes: &[u8], from: usize) -> usize {
@@ -1062,15 +2004,6 @@ impl Component {
     }
 }
 
-/// The code spans that fall inside a JSX region — the braced
-/// expressions, which is where a read can be.
-fn in_jsx_code(code: &[Span], regions: &[Span]) -> Vec<Span> {
-    code.iter()
-        .filter(|span| regions.iter().any(|region| contains(*region, **span)))
-        .copied()
-        .collect()
-}
-
 /// The second declaration of a name already declared in this component.
 fn shadowed(locals: &[Local]) -> Option<&Local> {
     locals
@@ -1135,6 +2068,8 @@ pub struct SharedDeclaration {
     pub declaration: Span,
     /// `0` — what it starts at, the first time anything asks.
     pub initializer: Span,
+    /// The type the declaration named, if it named one.
+    pub annotation: Option<Span>,
 }
 
 /// Every `let mut` written outside a component.
@@ -1143,10 +2078,15 @@ pub struct SharedDeclaration {
 /// values, the way two modules declaring the same `static` do. Sharing
 /// across files is not this; it is what a parameter or a route is for.
 pub fn shared_of(source: &str) -> Vec<SharedDeclaration> {
-    let mut bodies: Vec<Span> = components_of(source)
-        .into_iter()
-        .map(|(_, body)| body)
-        .collect();
+    // Every function's body, and not only every component's. A page is
+    // allowed to hold plain Rust beside its components -- a function
+    // that cuts a path into segments, a method on a type of its own --
+    // and those locals are theirs. Reading "at the top level" as "not
+    // inside a component" made a `let mut` in such a function a value
+    // of the page: its declaration was blanked where it stood, bound
+    // again at the top of every component, and the function came out
+    // naming something that was no longer there.
+    let mut bodies: Vec<Span> = function_bodies(source);
 
     // And everything inside a tag. A page that shows code to its reader
     // writes `let mut` in its own interface: that is text, like any
@@ -1170,6 +2110,7 @@ pub fn shared_of(source: &str) -> Vec<SharedDeclaration> {
         name: local.name,
         declaration: local.declaration,
         initializer: local.initializer,
+        annotation: local.annotation,
     })
     .collect()
 }
@@ -1179,9 +2120,47 @@ pub fn shared_of(source: &str) -> Vec<SharedDeclaration> {
 /// For the arguments of `keep`, `effect` and `task`, which are code
 /// that runs later — on the next render, or on another thread — and so
 /// cannot hold a handle the way a handler can.
-pub fn uses_in(source: &str, name: &str, region: Span) -> (Vec<Span>, Vec<Mutation>) {
-    let mutations = mutations_in(source, name, region, &[region], false);
-    let reads = occurrences(source, name, &[region])
+/// Is this `task(…)` argument a `Future` rather than a closure?
+///
+/// Read off the first word, because that is the whole difference a
+/// developer writes. One definition, called by the promotion that
+/// decides a region is remote and by the emission that spawns it: two
+/// copies one edit apart would let promotion treat a region as remote
+/// while emission spawned a thread, which is a `Send` error about a
+/// file nobody wrote.
+pub fn is_a_future(arguments: &str) -> bool {
+    let Some(rest) = arguments.trim_start().strip_prefix("async") else {
+        return false;
+    };
+    // `asyncwork()` is a name that begins with those five letters and is
+    // not a block.
+    !rest.starts_with(|letter: char| letter.is_alphanumeric() || letter == '_')
+}
+
+/// Every use of `name` inside `region`, split into reads and writes.
+///
+/// `tail_discarded` says whether an expression that ends the region
+/// with no semicolon is a statement. For an `async` block it is:
+/// `spawn_future` wants `Output = ()`, so the tail value is thrown away
+/// by construction, and `rows.push(1)` with no semicolon is a write. For
+/// a `keep` argument it is not: the tail *is* the value.
+pub fn uses_in(
+    source: &str,
+    name: &str,
+    region: Span,
+    tail_discarded: bool,
+) -> (Vec<Span>, Vec<Mutation>) {
+    // The code of the region, which is not the region: everywhere else
+    // the compiler looks for a name through `push_code`, so that a
+    // string literal and a comment are prose rather than code. An
+    // `async` block was the one place looked at raw, and a developer's
+    // sentence about `compteur` came out rewritten into one about
+    // `compteur.get()`.
+    let mut code = Vec::new();
+    push_code(source, region, &mut code);
+
+    let mutations = mutations_in(source, name, region, &code, tail_discarded);
+    let reads = names_used(source, name, &code)
         .into_iter()
         .filter(|span| !mutations.iter().any(|mutation| mutation.span == *span))
         .collect();

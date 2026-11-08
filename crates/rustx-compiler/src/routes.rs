@@ -20,6 +20,11 @@ use crate::promote::component_signatures;
 
 /// One page, and the layouts that enclose it.
 struct Page {
+    /// Index into the loading list: the `loading.rsx` nearest above
+    /// this page, if there is one.
+    loading: Option<usize>,
+    /// And the `error.rsx` nearest above it.
+    failed: Option<usize>,
     /// `/device/[id]`, as the matcher will see it.
     pattern: String,
     /// The generated `.rs` to include, relative to the table.
@@ -58,23 +63,101 @@ pub fn table_for(from: &Path) -> Result<String, CompileError> {
         .cloned()
         .collect();
     layouts.sort_by_key(|path| (path.components().count(), path.clone()));
+    // What each layout takes after `children`: the dynamic segments of
+    // its own folder, in the order it wrote them.
+    let mut layout_parameters: Vec<Vec<String>> = Vec::new();
     for layout in &layouts {
         // A layout is a component that wraps what is below it, so it
         // has to take it. Reading the parameters and discarding them
         // sent the developer a `rustc` arity error about a call written
         // in `OUT_DIR` — a file they never wrote.
         let parameters = declares(layout, "Layout")?;
-        if parameters != ["children"] {
+        if parameters.first().map(String::as_str) != Some("children") {
             return Err(flag(
                 layout,
                 format!(
-                    "`fn Layout` takes `children: Element` and nothing else — it takes {}. \
+                    "`fn Layout` takes `children: Element` first — it takes {}. \
                      A layout wraps the screens below it, and `children` is what it wraps.",
                     if parameters.is_empty() {
                         "nothing".to_string()
                     } else {
                         parameters.join(", ")
                     }
+                ),
+            ));
+        }
+        // And then, if it wants them, the parameters of its own folder.
+        // Not those of the pages below: a layout of `/depots` is the
+        // frame of every repository, so it cannot be handed one.
+        let directory = layout
+            .strip_prefix(from)
+            .unwrap_or(layout)
+            .parent()
+            .unwrap_or(Path::new(""))
+            .to_path_buf();
+        let pattern = pattern_of_directory(&directory);
+        let rest: Vec<String> = parameters.into_iter().skip(1).collect();
+        for parameter in &rest {
+            if !declares_segment(&pattern, parameter) {
+                return Err(flag(
+                    layout,
+                    format!(
+                        "`fn Layout` takes `{parameter}`, and its folder — `{pattern}` — has no \
+                         `[{parameter}]` segment to fill it from. A layout may take the dynamic \
+                         segments of its own folder, and only those: the screens below it may \
+                         have more, and it is the frame of all of them."
+                    ),
+                ));
+            }
+        }
+        layout_parameters.push(rest);
+    }
+
+    // The waiting screens, and which folder each one covers.
+    let mut loadings: Vec<PathBuf> = sources
+        .iter()
+        .filter(|path| file_name(path) == "loading.rsx")
+        .cloned()
+        .collect();
+    // Outermost first, by how deep the folder is — the same order the
+    // layouts are in, so that reading the generated file, `loading_0`
+    // is the outermost one and the numbers mean something.
+    loadings.sort_by_key(|path| (path.components().count(), path.clone()));
+    // And the error boundaries, the same way.
+    let mut failures: Vec<PathBuf> = sources
+        .iter()
+        .filter(|path| file_name(path) == "error.rsx")
+        .cloned()
+        .collect();
+    failures.sort_by_key(|path| (path.components().count(), path.clone()));
+    for failure in &failures {
+        let parameters = declares(failure, "Error")?;
+        if parameters.len() != 1 {
+            return Err(flag(
+                failure,
+                format!(
+                    "`fn Error` takes one argument -- the reason, as a `String` -- and it takes \
+                     {}. A frontier that says \"something happened\" is a frontier nobody can \
+                     act on: name it `pourquoi`, or whatever you like, and show it.",
+                    if parameters.is_empty() {
+                        "nothing".to_string()
+                    } else {
+                        parameters.join(", ")
+                    }
+                ),
+            ));
+        }
+    }
+
+    for loading in &loadings {
+        let parameters = declares(loading, "Loading")?;
+        if !parameters.is_empty() {
+            return Err(flag(
+                loading,
+                format!(
+                    "`fn Loading` takes nothing — it takes {}. It is shown while the page \
+                     below has nothing to show, which is before anything is known.",
+                    parameters.join(", ")
                 ),
             ));
         }
@@ -87,7 +170,7 @@ pub fn table_for(from: &Path) -> Result<String, CompileError> {
         let pattern = pattern_of(relative);
 
         for parameter in &parameters {
-            if !pattern.contains(&format!("[{parameter}]")) {
+            if !declares_segment(&pattern, parameter) {
                 return Err(flag(
                     source,
                     format!(
@@ -120,7 +203,42 @@ pub fn table_for(from: &Path) -> Result<String, CompileError> {
             .map(|(name, _)| name)
             .collect();
 
+        // The nearest waiting screen above this page: the deepest
+        // folder that is a prefix of this one. One, not all — a page
+        // waits in one place.
+        let loading = loadings
+            .iter()
+            .enumerate()
+            .filter(|(_, loading)| {
+                let folder = loading
+                    .strip_prefix(from)
+                    .unwrap_or(loading)
+                    .parent()
+                    .unwrap_or(Path::new(""))
+                    .to_path_buf();
+                directory.starts_with(&folder)
+            })
+            .max_by_key(|(_, loading)| loading.components().count())
+            .map(|(at, _)| at);
+
+        let failed = failures
+            .iter()
+            .enumerate()
+            .filter(|(_, failure)| {
+                let folder = failure
+                    .strip_prefix(from)
+                    .unwrap_or(failure)
+                    .parent()
+                    .unwrap_or(Path::new(""))
+                    .to_path_buf();
+                directory.starts_with(&folder)
+            })
+            .max_by_key(|(_, failure)| failure.components().count())
+            .map(|(at, _)| at);
+
         pages.push(Page {
+            loading,
+            failed,
             pattern,
             include: include_path(relative),
             parameters,
@@ -136,7 +254,15 @@ pub fn table_for(from: &Path) -> Result<String, CompileError> {
     // whether a page or a layout declared it.
     let layout_shown: Vec<Vec<(String, String)>> = layouts.iter().map(shown_by).collect();
 
-    Ok(render(&pages, &layouts, &layout_shown, from))
+    Ok(render(
+        &pages,
+        &layouts,
+        &layout_parameters,
+        &loadings,
+        &failures,
+        &layout_shown,
+        from,
+    ))
 }
 
 /// The values declared at the top of this file that a line of text
@@ -174,6 +300,9 @@ fn shown_entries(shown: &[(String, String)]) -> Vec<String> {
 fn render(
     pages: &[Page],
     layouts: &[PathBuf],
+    layout_parameters: &[Vec<String>],
+    loadings: &[PathBuf],
+    failures: &[PathBuf],
     layout_shown: &[Vec<(String, String)>],
     from: &Path,
 ) -> String {
@@ -188,16 +317,56 @@ fn render(
     // call has to be written inside the module that can see them.
     for (at, layout) in layouts.iter().enumerate() {
         let relative = layout.strip_prefix(from).unwrap_or(layout);
+        // What this layout takes after `children`, read out of the
+        // params the matcher captured.
+        let arguments: Vec<String> = layout_parameters
+            .get(at)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .iter()
+            .map(|parameter| format!(", params.get(\"{parameter}\").to_string()"))
+            .collect();
         out.push_str(&format!(
             "mod layout_{at}_file {{\n    use super::*;\n    include!(\"{}\");\n\n\
-             \x20   pub(super) fn frame(children: rustx_dom::Element) -> rustx_dom::Element {{\n\
-             \x20       Layout(children)\n    }}\n\n\
+             \x20   pub(super) fn frame(children: rustx_dom::Element, \
+             params: &rustx_dom::route::Params) -> rustx_dom::Element {{\n\
+             \x20       let _ = params;\n        Layout(children{})\n    }}\n\n\
              \x20   pub(super) fn shared_values() -> Vec<(&'static str, fn() -> String)> \
              {{\n        vec![{}]\n    }}\n}}\n\n\
-             fn layout_{at}(children: rustx_dom::Element) -> rustx_dom::Element {{\n\
-             \x20   layout_{at}_file::frame(children)\n}}\n\n",
+             fn layout_{at}(children: rustx_dom::Element, \
+             params: &rustx_dom::route::Params) -> rustx_dom::Element {{\n\
+             \x20   layout_{at}_file::frame(children, params)\n}}\n\n",
             include_path(relative),
+            arguments.join(""),
             shown_entries(layout_shown.get(at).map(Vec::as_slice).unwrap_or(&[])).join(", ")
+        ));
+    }
+
+    // The waiting screens, each in a module of its own, like everything
+    // else a `.rsx` declares.
+    for (at, loading) in loadings.iter().enumerate() {
+        let relative = loading.strip_prefix(from).unwrap_or(loading);
+        out.push_str(&format!(
+            "mod loading_{at}_file {{\n    use super::*;\n    include!(\"{}\");\n\n\
+             \x20   pub(super) fn screen() -> rustx_dom::Element {{\n\
+             \x20       Loading()\n    }}\n}}\n\n\
+             fn loading_{at}() -> rustx_dom::Element {{\n\
+             \x20   loading_{at}_file::screen()\n}}\n\n",
+            include_path(relative),
+        ));
+    }
+
+    // The error boundaries, likewise. Each takes the reason, which is
+    // what the panic said.
+    for (at, failure) in failures.iter().enumerate() {
+        let relative = failure.strip_prefix(from).unwrap_or(failure);
+        out.push_str(&format!(
+            "mod error_{at}_file {{\n    use super::*;\n    include!(\"{}\");\n\n\
+             \x20   pub(super) fn screen(pourquoi: String) -> rustx_dom::Element {{\n\
+             \x20       Error(pourquoi)\n    }}\n}}\n\n\
+             fn error_{at}(pourquoi: String) -> rustx_dom::Element {{\n\
+             \x20   error_{at}_file::screen(pourquoi)\n}}\n\n",
+            include_path(relative),
         ));
     }
 
@@ -242,10 +411,20 @@ fn render(
             .iter()
             .map(|at| format!("layout_{at}"))
             .collect();
+        let waiting = match page.loading {
+            Some(which) => format!("Some(loading_{which})"),
+            None => "None".to_string(),
+        };
+        let fallen = match page.failed {
+            Some(which) => format!("Some(error_{which})"),
+            None => "None".to_string(),
+        };
         out.push_str(&format!(
             "        rustx_dom::route::Route {{\n            pattern: \"{}\",\n\
              \x20           render: page_{at}::screen,\n\
-             \x20           layouts: &[{}],\n        }},\n",
+             \x20           layouts: &[{}],\n\
+             \x20           loading: {waiting},\n\
+             \x20           failed: {fallen},\n        }},\n",
             page.pattern,
             enclosing.join(", ")
         ));
@@ -287,6 +466,11 @@ fn render(
 }
 
 /// `device/[id]/page.rsx` → `/device/[id]`, and `page.rsx` → `/`.
+///
+/// A folder in parentheses is a **group**: it carries a layout and
+/// nothing else, so it is not a segment of the URL. That is what lets
+/// one layout cover several screens without adding a word to each of
+/// their addresses.
 fn pattern_of(relative: &Path) -> String {
     let segments: Vec<String> = relative
         .parent()
@@ -294,6 +478,7 @@ fn pattern_of(relative: &Path) -> String {
         .components()
         .map(|component| component.as_os_str().to_string_lossy().to_string())
         .filter(|segment| !segment.is_empty())
+        .filter(|segment| !is_a_group(segment))
         .collect();
     if segments.is_empty() {
         "/".to_string()
@@ -330,6 +515,52 @@ fn declares(path: &Path, wanted: &str) -> Result<Vec<String>, CompileError> {
                 ),
             )
         })
+}
+
+/// `(boutique)` — a folder that carries a layout and no segment.
+fn is_a_group(segment: &str) -> bool {
+    segment.starts_with('(') && segment.ends_with(')') && segment.len() > 2
+}
+
+/// Does this pattern declare a segment called `name`?
+///
+/// `[name]`, `[...name]` and `[[...name]]` all do: the three are a
+/// parameter a page may take, and only the brackets differ.
+fn declares_segment(pattern: &str, name: &str) -> bool {
+    pattern
+        .split('/')
+        .any(|segment| segment_name(segment).is_some_and(|declared| declared == name))
+}
+
+/// The name a dynamic segment declares, whichever of the three forms it
+/// was written in.
+fn segment_name(segment: &str) -> Option<&str> {
+    let inner = segment
+        .strip_prefix("[[...")
+        .and_then(|rest| rest.strip_suffix("]]"))
+        .or_else(|| {
+            segment
+                .strip_prefix("[...")
+                .and_then(|rest| rest.strip_suffix(']'))
+        })
+        .or_else(|| {
+            segment
+                .strip_prefix('[')
+                .and_then(|rest| rest.strip_suffix(']'))
+        })?;
+    (!inner.is_empty()).then_some(inner)
+}
+
+/// The pattern a folder is at, groups dropped — what a layout in it may
+/// ask for.
+fn pattern_of_directory(directory: &Path) -> String {
+    let segments: Vec<String> = directory
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy().to_string())
+        .filter(|segment| !segment.is_empty())
+        .filter(|segment| !is_a_group(segment))
+        .collect();
+    format!("/{}", segments.join("/"))
 }
 
 fn file_name(path: &Path) -> String {

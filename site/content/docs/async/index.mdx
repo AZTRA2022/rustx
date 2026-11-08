@@ -1,0 +1,80 @@
+---
+title: "Async"
+description: "An `async` block written like a statement of a component: work that runs next to the rendering."
+---
+
+A component is **never** `async`. It is asked for the screen as it
+is now: if it could stop to wait, the frame
+would wait with it, and a window that waits is a frozen window.
+`async fn Page()` is therefore refused outright, and the refusal names
+what to write instead.
+
+What to write instead is an **`async` block**, placed like an ordinary
+statement of the component:
+
+```rust
+let mut lines = Vec::<String>::new();
+
+fn Panel() -> Element {
+    async move {
+        let answer = load().await;
+        lines.push(answer);
+    };
+
+    return <ul>{lines.len()} lines</ul>;
+}
+```
+
+Nothing goes around it. The compiler sees an `async` block that is a
+**statement** — a `;` and nothing to receive it — and hands it to the
+runtime. In JSX you do not wrap anything either, and the word `async`
+already said everything that a `task(…)` added.
+
+<Callout title="A block that is a value is left alone">
+`let held = async { … };` is a future that the component keeps, and what it does
+with it is its business. `task(async { … })` still works and means the same
+thing — the explicit form, for those who prefer to name it.
+</Callout>
+
+## The runtime
+
+It is tokio, in full, with `full`: `tokio::fs`, `::net`, `::io`,
+`::sync`, `::process`, `select!`, `spawn`. It comes from the facade, so
+an application names it neither in its `Cargo.toml` nor in its `use` lines:
+
+```rust
+let mut beats = 0;
+
+fn Clock() -> Element {
+    async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            beats += 1;
+        }
+    };
+
+    return <p>{beats}</p>;
+}
+```
+
+`rustx::time` is the same module under a shorter name, and
+`rustx::tokio` gives the rest. An application that declares tokio
+itself gets exactly the same reactor: cargo resolves only one in 1.x.
+
+The runtime starts at the **first** future of the process, and never
+before: an application that writes no `async` pays for no extra thread.
+
+## `.await` works on everything
+
+Nothing here is a future of the framework. `reqwest`, `sqlx`, a `Future`
+from `std`, a timer, a library written this morning: if it awaits
+elsewhere, it awaits here.
+
+## The four things to know
+
+| | |
+|---|---|
+| [Reading and writing state](/docs/async/reading-and-writing-state) | a read is direct, a write goes out through the frame |
+| [Awaiting a value](/docs/async/awaiting-a-value) | a `.await` written in the body of a component |
+| [Network calls](/docs/async/network-calls) | an HTTP client, a deserializer, and the three-state screen |
+| [Worker threads](/docs/async/worker-threads) | `task(…)`, for work that does not wait but computes |

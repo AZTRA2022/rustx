@@ -136,6 +136,7 @@ fn describe(children: &[ForeignChild]) -> Option<V8Value> {
             ForeignChild::Text(text) => crate::value::into_v8(Value::String(text.clone()))?,
             ForeignChild::Value(value) => crate::value::into_v8(value.clone())?,
             ForeignChild::Node(node) => describe_node(node)?,
+            ForeignChild::Element(element) => describe_element(element)?,
         };
         array.set_value_byindex(at as i32, Some(&mut item));
     }
@@ -157,7 +158,7 @@ fn describe_node(node: &ForeignNode) -> Option<V8Value> {
     let mut component = crate::value::into_v8(Value::String(node.component.clone()))?;
     set("component", &mut component);
 
-    let props = crate::value::object_of(&node.props)?;
+    let props = crate::value::object_of(&as_react_reads_them(&node.props))?;
     for (name, callback) in &node.callbacks {
         let mut function = function_for(name, callback)?;
         props.set_value_bykey(
@@ -172,6 +173,121 @@ fn describe_node(node: &ForeignNode) -> Option<V8Value> {
     let mut children = describe(&node.children)?;
     set("children", &mut children);
     Some(object)
+}
+
+/// The props of a node, with `style` as React reads it.
+///
+/// A plain tag written inside a library's component crosses as a node,
+/// and its `style` was written as the DOM writes one — a string. React
+/// throws on that, and the exception empties the boundary around it.
+fn as_react_reads_them(props: &[(String, Value)]) -> Vec<(String, Value)> {
+    props
+        .iter()
+        .map(|(name, value)| match (name.as_str(), value) {
+            ("style", Value::String(text)) => {
+                (name.clone(), rustx_dom::value::style_object(text))
+            }
+            _ => (name.clone(), value.clone()),
+        })
+        .collect()
+}
+
+/// A component of the page, written inside a component of a library.
+///
+/// `<Card>{Resume()}</Card>`. What crosses is a description of the same
+/// shape a native tag below a boundary already crosses as — React
+/// builds the tree and reconciles it — because everything below a
+/// boundary is React's, and that is the rule the boundary exists for.
+///
+/// A handler crosses as a function, like a library's callback: a
+/// `<button onClick={…}>` written inside a `<Card>` has to work, and it
+/// is the same closure either way.
+fn describe_element(element: &rustx_dom::Element) -> Option<V8Value> {
+    use rustx_dom::{AttributeValue, Element};
+
+    match element {
+        Element::Text(text) => crate::value::into_v8(Value::String(text.clone())),
+        // React renders `null` as nothing, and an array as its items.
+        Element::Empty => crate::value::into_v8(Value::Null),
+        Element::Fragment(children) => {
+            let array = cef::v8_value_create_array(children.len() as i32)?;
+            for (at, child) in children.iter().enumerate() {
+                let mut item = describe_element(child)?;
+                array.set_value_byindex(at as i32, Some(&mut item));
+            }
+            Some(array)
+        }
+        Element::Foreign { node, .. } => describe_node(node),
+        Element::Tag(tag) => {
+            let object = cef::v8_value_create_object(None, None)?;
+            let set = |name: &str, value: &mut V8Value| {
+                object.set_value_bykey(
+                    Some(&cef::CefString::from(name)),
+                    Some(value),
+                    cef::V8Propertyattribute::default(),
+                );
+            };
+
+            let mut component = crate::value::into_v8(Value::String(tag.tag.clone()))?;
+            set("component", &mut component);
+
+            // `class` is what the DOM calls it and `className` is what
+            // React calls it. The page wrote one of the two; React has
+            // to be given its own name or the styles do not arrive.
+            let named: Vec<(String, Value)> = tag
+                .attributes
+                .iter()
+                .map(|(name, value)| {
+                    let name = match name.as_str() {
+                        "class" => "className".to_string(),
+                        "for" => "htmlFor".to_string(),
+                        other => other.to_string(),
+                    };
+                    let value = match value {
+                        // `style` is a string in the DOM and a mapping
+                        // in React, and React throws on the string.
+                        AttributeValue::Text(text) if name == "style" => {
+                            rustx_dom::value::style_object(text)
+                        }
+                        AttributeValue::Text(text) => Value::String(text.clone()),
+                        AttributeValue::Flag(flag) => Value::Bool(*flag),
+                    };
+                    (name, value)
+                })
+                .collect();
+            let props = crate::value::object_of(&named)?;
+            for (name, handler) in &tag.handlers {
+                let mut function = function_for_handler(name, handler)?;
+                props.set_value_bykey(
+                    Some(&cef::CefString::from(name.as_str())),
+                    Some(&mut function),
+                    cef::V8Propertyattribute::default(),
+                );
+            }
+            // A key, where React wants one: a list of rows written
+            // inside a library's component is reordered by React, and
+            // without the key it reorders the state with the position.
+            if let Some(key) = tag.key.as_ref() {
+                let mut key = crate::value::into_v8(Value::String(key.as_str().to_string()))?;
+                props.set_value_bykey(
+                    Some(&cef::CefString::from("key")),
+                    Some(&mut key),
+                    cef::V8Propertyattribute::default(),
+                );
+            }
+            let mut props = props;
+            set("props", &mut props);
+
+            let array = cef::v8_value_create_array(tag.children.len() as i32)?;
+            for (at, child) in tag.children.iter().enumerate() {
+                let mut item = describe_element(child)?;
+                array.set_value_byindex(at as i32, Some(&mut item));
+            }
+            let mut children = array;
+            set("children", &mut children);
+            Some(object)
+        }
+    }
 }
 
 /// Tell React to let `container` go, while it is still in the document.
@@ -281,10 +397,17 @@ wrap_v8_handler! {
     impl V8Handler {
         /// The library called the prop.
         ///
-        /// Whatever it passed arrives as values; what cannot cross — an
-        /// event object, a DOM node, another function — arrives as null,
-        /// because a callback that refused the call would be a library
-        /// that stops working halfway through.
+        /// Whatever it passed arrives as values; what cannot cross — a
+        /// DOM node, another function — arrives as null, because a
+        /// callback that refused the call would be a library that stops
+        /// working halfway through.
+        ///
+        /// Un evenement est l'exception : il ne traverse pas comme
+        /// objet — il tient des noeuds — mais ses champs, si. Sans cela
+        /// une balise ordinaire ecrite dans un sous-arbre React recevait
+        /// `null` dans son `onInput`, alors que la meme balise montee
+        /// par le moteur recevait son evenement : le `.rsx` etait le
+        /// meme, et ce qui changeait etait un ancetre.
         fn execute(
             &self,
             _name: Option<&CefString>,
@@ -297,10 +420,13 @@ wrap_v8_handler! {
                 .unwrap_or(&[])
                 .iter()
                 .map(|argument| {
-                    argument
-                        .as_ref()
-                        .and_then(crate::value::read_or_null)
-                        .unwrap_or(rustx_dom::Value::Null)
+                    let Some(argument) = argument.as_ref() else {
+                        return rustx_dom::Value::Null;
+                    };
+                    if crate::mount::is_an_event(argument) {
+                        return crate::mount::read_event(argument).as_value();
+                    }
+                    crate::value::read_or_null(argument).unwrap_or(rustx_dom::Value::Null)
                 })
                 .collect();
 
@@ -319,4 +445,24 @@ wrap_v8_handler! {
 pub(crate) fn function_for(name: &str, callback: &Callback) -> Option<V8Value> {
     let mut handler = Called::new(callback.clone());
     cef::v8_value_create_function(Some(&CefString::from(name)), Some(&mut handler))
+}
+
+/// The same, for the handler of a tag of the page described to React.
+///
+/// A `<button onClick={…}>` written inside a `<Card>` is React's to
+/// build, so its handler has to cross as a React prop rather than be
+/// attached to a node — but it is the same closure, and it is given the
+/// same `Event` a handler on a tag rustx owns is given. What React
+/// passes is ignored: an event object does not cross, and the kind is
+/// known from the name.
+fn function_for_handler(name: &str, handler: &rustx_dom::Handler) -> Option<V8Value> {
+    let kind = match name {
+        "onDoubleClick" => "dblclick".to_string(),
+        other => other.strip_prefix("on").unwrap_or(other).to_lowercase(),
+    };
+    let handler = handler.clone();
+    let callback = Callback::new(move |_| {
+        handler.call(rustx_dom::Event::of(kind.clone()));
+    });
+    function_for(name, &callback)
 }

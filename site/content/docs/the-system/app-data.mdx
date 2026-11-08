@@ -1,0 +1,147 @@
+---
+title: "App data"
+description: "Where an application keeps settings on disk, what the framework already writes, and a settings file."
+---
+
+State lives in memory and ends with the process. A setting that has to
+outlive it goes in a file. The framework has no module for this: there is no
+`settings::` and no `storage::`. A file is written with `std::fs`, like in any
+Rust program, and this page shows where to put it.
+
+## What the framework already writes
+
+At the first start the engine makes this folder:
+
+```text
+%LOCALAPPDATA%\rustx\<title in lowercase, words joined by dashes>\
+```
+
+`Config::new("My app")` gives `my-app`. If `LOCALAPPDATA` is not set, the engine
+uses the system's temporary folder.
+
+It holds Chromium's profile, its cookies and caches, and `engine.log`. It
+exists so that two applications never share a profile. Leave it to the engine:
+do not write your own files there, and do not read the profile.
+
+Two consequences of the title:
+
+- changing `Config::new("…")` starts a fresh profile, since the name is a new one;
+- `localStorage` and cookies in the page live in that profile. They are
+  the browser's, and nothing in Rust reads them. Prefer a file you own.
+
+## Where your own files go
+
+Beside it, in a folder of your own. `LOCALAPPDATA` is what the engine reads, and
+Windows is the only platform written today.
+
+```rust
+use std::path::PathBuf;
+
+pub fn data_dir() -> PathBuf {
+    let base = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    base.join("my-app")
+}
+```
+
+The framework does not export this function, so the application defines it.
+When macOS and Linux are written, a crate such as `dirs` will give the right
+folder on each. That crate is not part of rustx.
+
+## A settings file
+
+The example uses `serde` and `serde_json`, which are ordinary dependencies of
+your own `Cargo.toml`.
+
+```rust
+// src/settings.rs
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub struct Settings {
+    pub theme: String,
+    pub font_size: u32,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self { theme: "light".to_string(), font_size: 14 }
+    }
+}
+
+fn file() -> PathBuf {
+    crate::data_dir().join("settings.json")
+}
+
+impl Settings {
+    /// A missing or unreadable file is the defaults, not an error: the first
+    /// start has no file.
+    pub fn load() -> Self {
+        std::fs::read_to_string(file())
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save(&self) -> std::io::Result<()> {
+        std::fs::create_dir_all(crate::data_dir())?;
+        std::fs::write(file(), serde_json::to_string_pretty(self)?)
+    }
+}
+```
+
+The functions of the application's modules are in scope in the pages, so a
+page writes `Settings::load()` without a `use`.
+
+```rust
+// app/settings/page.rsx
+let mut settings = Settings::load();
+
+fn Page() -> Element {
+    // Runs when `settings` changes, and writes the file.
+    effect(settings.clone(), move || {
+        let _ = settings.save();
+    });
+
+    return <main>
+        <p>Theme: {settings.theme.clone()}</p>
+        <button onClick={move |_| {
+            let next = if settings.theme == "light" { "dark" } else { "light" };
+            settings = Settings { theme: String::from(next), ..settings.clone() };
+        }}>Switch</button>
+    </main>;
+}
+```
+
+A top-of-file `let mut` is read from its initializer once, at the first start of
+the process, so the file is read once. `effect` is the place to write in reaction to a
+change. See [keep, effect, task](/docs/getting-started/keep-effect-task).
+
+A small file written from an effect is fine. For a large one, or a database,
+do the work in a `task`, so that the window does not wait for the disk. See
+[worker threads](/docs/async/worker-threads).
+
+## Changing the format
+
+The file outlives the version of the application that wrote it. Two habits
+keep an upgrade from losing it:
+
+- give every field a default with `#[serde(default)]`, so a file written by an
+  older version still loads;
+- on a failure to parse, keep the old file under another name before writing
+  the defaults over it.
+
+## Window position and size
+
+Nothing remembers them between launches. A window opens at the size in
+`Config::size`. Saving the size and reading it back at the next start is an
+application's job, with the file above. See [what's left](/docs/whats-left).
+
+## `rustx dev` and your files
+
+`rustx dev` relaunches the process, and a top-of-file `let mut` comes back from
+the previous run, not from your file. If the file and the state disagree
+after a reload, that is why. See [the commands](/docs/tooling/the-commands).

@@ -163,3 +163,69 @@ fn a_call_inside_a_nested_fn_is_left_alone() {
     let rust = rewrite_one(source);
     assert!(!rust.contains("keep_at"), "got {rust}");
 }
+
+#[test]
+fn a_task_whose_argument_is_an_async_block_spawns_a_future() {
+    // The second form of `task`. What decides is the first word of the
+    // argument: a closure is a thread, `async` is a future. The token
+    // goes with it: dropping the `Task` has to refuse the writes the
+    // future had already posted, not only abandon the future.
+    let rust = rewrite_one(
+        "fn C() -> Element {\n    task(async move { work().await; });\n    return <p>ok</p>;\n}",
+    );
+    assert!(rust.contains("keep_at"), "got {rust}");
+    assert!(
+        rust.contains("rustx_engine::task::spawn_future_until(__cancel, async move { work().await; })"),
+        "got {rust}"
+    );
+}
+
+#[test]
+fn a_task_whose_argument_is_a_closure_still_spawns_a_thread() {
+    let rust = rewrite_one(
+        "fn C() -> Element {\n    task(move |alive| while alive.get() {});\n    return <p>ok</p>;\n}",
+    );
+    assert!(rust.contains("task::spawn("), "got {rust}");
+    assert!(!rust.contains("spawn_future"), "got {rust}");
+}
+
+#[test]
+fn an_async_task_keeps_the_line_count_of_what_it_replaced() {
+    // Plan 2's position map rests on the line count: an error `rustc`
+    // reports at line 4 has to be line 4 of the `.rsx`.
+    let source =
+        "fn C() -> Element {\n    task(async move {\n        work().await;\n    });\n    return <p>ok</p>;\n}";
+    let rust = rewrite_one(source);
+    assert_eq!(
+        rust.matches('\n').count(),
+        source.matches('\n').count(),
+        "the rewrite changed how many lines the file has:\n{rust}"
+    );
+}
+
+#[test]
+fn a_write_in_a_future_whose_value_is_another_page_value_reads_it_once() {
+    // `vus = lancements;` inside an `async` block came out as
+    // `vus.set(lancements).get()`: the write was rewritten without
+    // looking at the other value in its right-hand side, and that
+    // value's own read edit then landed after the write it belonged
+    // inside. rustc answered "no method named `get` found for unit
+    // type `()`" on a line the developer had written as an
+    // assignment. The handler on the next line was already right.
+    let source = "let mut vus = 0_u64;\n\
+         let mut lancements = 0_u64;\n\n\
+         fn Page() -> Element {\n    \
+         async move {\n        \
+         vus = lancements;\n    \
+         };\n\n    \
+         return <p>{vus}</p>;\n}\n";
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("vus.set(lancements.get())"),
+        "the right-hand side is a read like any other: {rust}"
+    );
+    assert!(
+        !rust.contains(").get()"),
+        "nothing should be appended to the write: {rust}"
+    );
+}

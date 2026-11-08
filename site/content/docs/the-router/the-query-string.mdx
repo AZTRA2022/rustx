@@ -1,0 +1,94 @@
+---
+title: "The query string"
+description: "query, has_query, with_query: the state of a screen in the URL, encoded for you."
+---
+
+What follows the `?` is read by three functions, and written by one.
+
+```rust
+// what the query string says
+let term = rustx::router::query("q");      // "" if nobody wrote it
+rustx::router::has_query("raw");           // `?raw` says nothing and is there
+
+// the URL next to it, without encoding anything by hand
+rustx::router::navigate(rustx::router::with_query("sort", Some("stars")));
+```
+
+## `query`
+
+Returns the value, or the empty string. No `Option` to unpack: a screen
+that asks for a filter wants a filter, and "nothing" is an empty filter.
+
+```rust
+fn Page() -> Element {
+    let tab = rustx::router::query("tab");
+
+    return <section>
+        {match tab.as_str() {
+            "issues" => Issues(),
+            "pulls" => Pulls(),
+            _ => Readme(),
+        }}
+    </section>;
+}
+```
+
+The value arrives **decoded**: `?q=caf%C3%A9` gives `café`.
+
+## `has_query`
+
+For a flag that has no value — `?raw`, `?debug`:
+
+```rust
+let raw = rustx::router::has_query("raw");
+```
+
+`query("raw")` would return `""` in both cases — absent, or present and
+empty. `has_query` tells them apart.
+
+## `with_query`
+
+Builds the current URL with a key set, changed, or removed, and encodes
+what needs encoding.
+
+```rust
+// set or change
+rustx::router::with_query("sort", Some("stars"));
+
+// remove
+rustx::router::with_query("sort", None);
+```
+
+The path does not move, and the other keys stay. This avoids writing
+`format!("{path}?{a}&{b}")` by hand, which always forgets an encoding.
+
+## The state of a screen in the URL
+
+A search term, a tab, a sort order: they belong in the URL, so that going
+back finds them again. With
+[`replace`](/docs/the-router/navigating), they do not clutter
+the history:
+
+```rust
+let mut term = String::new();
+
+fn Search() -> Element {
+    // The field starts from what the URL says, so going back fills it.
+    effect((), move || term = rustx::router::query("q"));
+
+    return <input value={term.clone()} onInput={move |event| {
+        term = event.value;
+        rustx::router::replace(rustx::router::with_query(
+            "q",
+            if term.is_empty() { None } else { Some(term.as_str()) },
+        ));
+    }} />;
+}
+```
+
+<Callout title="current() and route()">
+`current()` returns the path **with** its query string, `route()` the path
+alone. A tab that compares itself to `/repos` wants `route()`; a breadcrumb that
+must survive a `?q=` wants `route()` too. `current()`
+is for displaying where we are.
+</Callout>

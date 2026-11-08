@@ -1,0 +1,71 @@
+---
+title: "JavaScript libraries"
+description: "A `package.json`, an `npm install`, and a capitalized tag. React, shadcn, recharts."
+---
+
+A `package.json` and an `npm install`, and that is all: the framework reads the
+`dependencies`, writes the entry point, builds the package with
+esbuild, and a capitalized tag is resolved at runtime.
+
+```sh
+cd my-app
+npm install react react-dom recharts
+```
+
+```rust
+return <Card>
+    <CardHeader><CardTitle>Sales</CardTitle></CardHeader>
+    <CardContent>
+        <LineChart width={520} height={240} data={points}>
+            <XAxis dataKey="at" />
+            <Line dataKey="value" stroke="#8b5cf6" />
+        </LineChart>
+    </CardContent>
+</Card>;
+```
+
+`Card` and `CardHeader` come from `components/ui/`, where
+[`npx shadcn add`](/docs/javascript-libraries/shadcn) left them;
+`LineChart` comes from recharts.
+
+## No prefix to write
+
+The application's components take precedence over the libraries they are built from: `<Dialog>` is the one in `components/ui/dialog.tsx`,
+and not the primitive from `@radix-ui/react-dialog` on which it is
+built. To ask for the other one, explicitly:
+
+```rust
+return <radixUiReactDialog::Dialog>…</radixUiReactDialog::Dialog>;
+```
+
+The name before `::` is the package's name, without what a line of Rust
+does not accept: `recharts` stays `recharts`, `@radix-ui/react-dialog`
+becomes `radixUiReactDialog`. Two libraries that export the same name, and this is said in the console with the explicit form to write.
+
+## Packages the bundle does not embed
+
+Three kinds of `dependencies` do not go into the browser package,
+and the framework leaves them out without asking:
+
+- **the build tools** — `tailwindcss`,
+  `@tailwindcss/cli`, `esbuild`, `typescript`, `vite`. A browser does not
+  run a compiler;
+- **those that export only subpaths** — `@tiptap/pm` exports
+  `./state` and `./view` and no root: a page writes
+  `@tiptap/pm/state` or nothing;
+- **those whose entry point is a style sheet** —
+  `tw-animate-css` belongs to the style sheet, not to the package.
+
+A package declared in `dependencies` and absent from `node_modules`, however,
+is named, because the fix is a command.
+
+## What the boundary costs
+
+A library component is a **node rendered by React**, in the
+same process and the same document. There is no serialization, no JSON, no
+`postMessage`: what the page passes is a V8 value.
+What that changes for the code is read in
+[props that cross](/docs/javascript-libraries/props-that-cross).
+
+An application that writes no capitalized tag has neither React, nor
+esbuild, nor `node_modules`: there is no package by default.

@@ -1,0 +1,139 @@
+---
+title: "Error handling"
+description: "Expected errors as values, what a panic does in a page, a handler and a task, and what error.rsx catches."
+---
+
+Two kinds of failure need two tools. An **expected** failure, such as a missing
+file, a refused login or a network error, is a `Result` and gets drawn. An
+**unexpected** one is a panic, and the framework decides how far it spreads. This
+page follows both.
+
+## Expected errors are values
+
+A function that can fail returns `Result`. The component keeps the outcome in
+state and draws each case. The page never panics.
+
+```rust
+let mut text = String::new();
+let mut problem = String::new();
+
+fn Page() -> Element {
+    return <main>
+        <button onClick={move |_| {
+            match std::fs::read_to_string("notes.txt") {
+                Ok(read) => { text = read; problem = String::new(); }
+                Err(why) => problem = format!("could not read notes.txt: {why}"),
+            }
+        }}>Open</button>
+
+        {if problem.is_empty() { <></> } else { <p className="text-destructive">{problem.clone()}</p> }}
+        <pre>{text.clone()}</pre>
+    </main>;
+}
+```
+
+For work that waits, the same idea is in
+[network calls](/docs/async/network-calls): a `Failure` enum, an `Option` in
+state, and a screen for each of the three cases. A failure that the user can act
+on is part of the screen, and it should not unwind anything.
+
+`?` works in the functions you write. A component returns `Element`, not
+`Result`, so it matches at the point where it can say something to the user.
+
+## A panic while drawing
+
+A component that panics, with an `unwrap` on nothing or an index past the end of a
+list, is caught or not depending on one file.
+
+| | |
+|---|---|
+| an `error.rsx` above the page | the nearest one takes the page's place, with the panic's message. The layouts around the page stay |
+| no `error.rsx` | nothing is caught at the page. The panic goes on to the frame boundary, where the loop prints a line such as `rustx: a frame callback panicked; the frame loop carried on` |
+
+The loop carries on in both cases: the process does not exit. See
+[loading and errors](/docs/the-router/loading-and-errors).
+
+`error.rsx` is optional on purpose. A caught panic becomes a screen, and a
+screen makes a bug easy to miss. Add one at the root of `app/` for a release,
+and leave it out while you develop if you want the terminal to be the first
+thing that tells you.
+
+## A panic in a handler
+
+The closure of an `onClick`, `onInput` or any other handler is called from C, and
+a panic cannot cross that edge. The engine catches it and prints:
+
+```text
+rustx: an event handler panicked; the engine carried on
+```
+
+Rust's own message, with the file and line, is printed before it. The window
+stays. **`error.rsx` is not involved**: it covers the drawing of the page, not
+its handlers. If the user needs to hear about a failure, the handler has to
+catch it itself, as in the first example.
+
+## A panic in a task
+
+A `task(…)` thread and a `task(async { … })` block catch their own panics:
+
+```text
+rustx: a background task panicked; the application carried on
+```
+
+The task ends. The component that started it is not told, and it keeps running
+without whatever the task was doing. A capture loop that died looks like a
+camera that froze.
+
+To make it visible, turn the failure into state instead of letting it unwind:
+
+```rust
+let mut failure = String::new();
+
+fn Reader() -> Element {
+    task(move |alive| {
+        if let Err(why) = read_forever(&alive) {
+            let _ = alive.post(move || failure = why.to_string());
+        }
+    });
+
+    return <p>{failure.clone()}</p>;
+}
+```
+
+`rustx::task::panics()` counts the panics in the process and
+`rustx::task::last_panic()` returns the last message. They are for tests and
+diagnostics. See [worker threads](/docs/async/worker-threads).
+
+## A panic in a native
+
+A Rust function registered for JavaScript is caught at the edge, and the page
+receives a thrown exception reading `internal error in '<name>'`. Return
+`Err(NativeError::new("…"))` to give the page a message of your own. See
+[the Rust bridge](/docs/javascript-libraries/rust-bridge).
+
+## A freeze is not a panic
+
+A component that loops without end does not panic. After five seconds the
+watchdog prints which component has been drawing for how long. Nothing can
+interrupt it. Move that work into a task. See
+[where your code runs](/docs/getting-started/where-code-runs).
+
+## What is not caught
+
+- **A panic while starting**, in `main` or in `App::new`, ends the process
+  with the usual message. `App::new` and `app.run()` return
+  `Result<_, rustx::Error>`, so return it from `main` and the error is
+  printed.
+- **A JavaScript error in a library** is not a Rust panic. It shows on the terminal as
+  `page error: …`. See [debugging](/docs/tooling/debugging).
+- **A panic that aborts**, such as a double panic or `panic = "abort"` in your
+  `Cargo.toml`, ends the process. The engine catches unwinding panics only.
+
+## Summary
+
+| | | the user sees |
+|---|---|---|
+| expected | a `Result`, matched | the message you draw |
+| page draws and panics | `error.rsx` if present | its screen, or nothing new |
+| handler panics | contained by the engine | nothing. The terminal has the message |
+| task panics | contained by the engine | nothing. The terminal has the message |

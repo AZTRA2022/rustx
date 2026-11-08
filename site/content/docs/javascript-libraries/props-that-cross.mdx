@@ -1,0 +1,111 @@
+---
+title: "Props that cross"
+description: "`#[derive(ToValue)]`, `record(…)`, children, callbacks, and what `Value` can carry."
+---
+
+What is passed to a JavaScript component is a V8 value, in the same
+process: no JSON, no serialized bridge.
+
+```rust
+#[derive(ToValue)]
+struct Point { at: f64, value: f64 }
+
+let data: Vec<Point> = points();
+
+return <LineChart data={data} width={520} height={240}>…</LineChart>;
+```
+
+`#[derive(ToValue)]` on a struct, and it crosses — along with the
+`Vec<T>`, the `Option<T>`, and the nested structs it contains.
+
+For an object written in place:
+
+```rust
+record([("at", 1.0.to_value()), ("value", 4.0.to_value())])
+```
+
+## What `Value` carries
+
+| | |
+|---|---|
+| `Value::Null` | `null` |
+| `Value::Bool` | a boolean |
+| `Value::Number` | an `f64` |
+| `Value::String` | a string |
+| `Value::List` | an array |
+| `Value::Record` | an object, in the order it was written |
+
+And nothing else. A function, a `Date`, a DOM node, a `Map` do not cross: whatever needs those things keeps them on the TypeScript side, in
+[a component of your own](/docs/javascript-libraries/your-own-components).
+
+## Reading what comes back
+
+A callback receives `Value`s, and they are read with their accessors:
+
+```rust
+<Select onValueChange={move |value: rustx::Value| {
+    chosen = value.text();
+}} />
+```
+
+| | |
+|---|---|
+| `value.text()` | what it is worth as text, whatever it is |
+| `value.number()` | `Option<f64>` |
+| `value.truth()` | its truthiness, in the JavaScript way |
+| `value.get("name")` | a field of an object |
+| `value.at(&["user", "id"])` | a field, deep down |
+| `value.as_str()` / `as_f64()` / `as_bool()` | strictly, or `None` |
+| `value.as_list()` / `as_record()` | what is inside it |
+| `value.is_null()` | `null` or `undefined` |
+
+```rust
+<Table onRowClick={move |row: rustx::Value| {
+    if let Some(id) = row.at(&["repo", "id"]).and_then(|v| v.as_str()) {
+        navigate(&format!("/repos/{id}"));
+    }
+}} />
+```
+
+## A DOM event, and the rest
+
+On a **lowercase** tag, `onClick`, `onInput`, `onChange`,
+`onKeyDown` receive a rustx `Event`, including inside a React subtree:
+
+```rust
+pub struct Event {
+    pub kind: String,     // click, input, keydown
+    pub value: String,    // event.target.value
+    pub id: String,       // event.target.id
+    pub key: String,      // Enter, Escape, ArrowUp
+    pub checked: bool,
+    pub shift: bool, pub control: bool, pub alt: bool, pub meta: bool,
+}
+```
+
+On a **capitalized** tag, a prop that starts with `on` is whatever the
+library makes of it: `onValueChange` receives the value that shadcn
+passes to it, not an event. This is why the closure declares its
+type, and why the two never get confused.
+
+## Children
+
+A rustx `Element` is a child of a library component, at any depth:
+
+```rust
+return <Dialog open={open}>
+    <DialogContent>
+        <DialogTitle>Delete {name.clone()}?</DialogTitle>
+        <p className="text-muted-foreground">This cannot be undone.</p>
+        <Button onClick={move |_| erase()}>Delete</Button>
+    </DialogContent>
+</Dialog>;
+```
+
+What does not cross is a **function** child: React turns it into a
+*render prop*, and a rustx `Element` is a tree already built. A component that wants one is written in TypeScript.
+
+## A `className` is a `className`
+
+Attribute names are React's — `className`, `htmlFor`,
+`onClick` — on capitalized **and** lowercase tags. There are not two conventions to remember depending on which side of the boundary you are on.

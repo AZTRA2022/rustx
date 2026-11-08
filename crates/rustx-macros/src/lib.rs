@@ -63,6 +63,24 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
     let manifest = PathBuf::from(manifest);
     let app = manifest.join("app");
 
+    // `main` cannot be `async` in Rust, so the `async` comes off the
+    // signature here -- before anything can go wrong, and not after.
+    // A page the compiler refuses used to re-emit the signature exactly
+    // as it was written, so the developer got their own error *and*
+    // `error[E0752]: main function is not allowed to be async`, which
+    // is about nothing they did and points at `src/main.rs`.
+    let (signature, waits) = without_async(signature);
+    // What a refused build emits: the function, with its body still on
+    // the runtime if it had one, so the only error is the real one.
+    let still_a_main = |body: TokenStream2| {
+        let body = if waits {
+            quote! { rustx::block_on(async move { #body }) }
+        } else {
+            body
+        };
+        quote! { #signature { #body } }
+    };
+
     let (pages, prelude) = if app.is_dir() {
         let out = generated_directory(&manifest);
         if let Err(complaint) = compile(&app, &out, routed) {
@@ -70,10 +88,10 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
             // page is one error; without this, the developer also gets
             // "`main` function not found", which is about nothing they
             // did and sends them looking in the wrong file.
-            let body = body.stream();
+            let emitted = still_a_main(body.stream());
             return quote! {
                 compile_error!(#complaint);
-                #signature { #body }
+                #emitted
             }
             .into();
         }
@@ -131,11 +149,30 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
             quote! {
                 #[doc(hidden)]
                 mod __rustx_pages {
-                    #![allow(non_snake_case, clippy::needless_return, clippy::useless_vec, clippy::type_complexity, clippy::redundant_closure)]
+                    // `unused_braces`: a `{ … }` in markup is an
+                    // expression the developer wrote, and it is emitted
+                    // as it was read. Forty warnings about braces
+                    // nobody can remove are forty warnings in front of
+                    // the one that matters.
+                    #![allow(non_snake_case, unused_braces, clippy::needless_return, clippy::useless_vec, clippy::type_complexity, clippy::redundant_closure)]
                     pub(crate) use super::*;
                     #(#opened)*
                     pub(crate) use rustx::Element;
                     pub(crate) use rustx::state::with_key;
+                    // Ce que le code engendré nomme. Importé ici, par la
+                    // façade, pour qu'une application n'ait pas à déclarer
+                    // `rustx-dom` ni `rustx-engine` dans son `Cargo.toml`.
+                    #[allow(unused_imports)]
+                    pub(crate) use rustx::{rustx_dom, rustx_engine};
+                    // Les crates que la facade porte, sous le nom que
+                    // tout le monde leur donne. Une page ecrit
+                    // `tokio::fs::write(...)` comme n'importe quel code
+                    // Rust : `rustx::tokio::` etait un chemin que
+                    // personne n'ecrit ailleurs, et cargo n'unifie
+                    // qu'un seul tokio 1.x de toute facon, donc une
+                    // application qui le declare aussi obtient le meme.
+                    #[allow(unused_imports)]
+                    pub(crate) use rustx::tokio;
 
                     include!(#generated);
                     #(#watched)*
@@ -160,10 +197,10 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
     // compiled and never otherwise.
     let javascript = match rustx_compiler::bundle::build(&manifest) {
         Err(complaint) => {
-            let body = body.stream();
+            let emitted = still_a_main(body.stream());
             return quote! {
                 compile_error!(#complaint);
-                #signature { #body }
+                #emitted
             }
             .into();
         }
@@ -186,8 +223,27 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let body = body.stream();
+
+    // The body on the framework's own runtime, since the `async` came
+    // off the signature above. A sub-process of Chromium runs this same
+    // `main`, so the runtime it builds is the one its futures would
+    // have used.
+    let body = if waits {
+        quote! { rustx::block_on(async move { #body }) }
+    } else {
+        body
+    };
+
     quote! {
         #pages
+
+        // Le meme nom que dans une page, et a cote de `main` plutot que
+        // dedans : le code de l'application qui attend n'est pas tout
+        // dans `main`, et une `async fn` ecrite a cote en a autant
+        // besoin. Un seul tokio 1.x est resolu de toute facon, donc une
+        // application qui le declare aussi obtient le meme.
+        #[allow(unused_imports)]
+        use rustx::tokio;
 
         #signature {
             #prelude
@@ -255,6 +311,25 @@ fn collect(directory: &Path, into: &mut Vec<PathBuf>) {
 
 /// The function's tokens, split into everything before its block and
 /// the block itself.
+/// The signature without its `async`, and whether it had one.
+///
+/// Only the function's own `async` is taken: the first one at the top
+/// level, before the parameter list. An `async` inside the parameters
+/// (a default value, a closure type) is somebody else's.
+fn without_async(signature: TokenStream2) -> (TokenStream2, bool) {
+    let mut kept = Vec::new();
+    let mut waits = false;
+    for token in signature {
+        let is_async = matches!(&token, TokenTree::Ident(name) if name == "async");
+        if is_async && !waits {
+            waits = true;
+            continue;
+        }
+        kept.push(token);
+    }
+    (kept.into_iter().collect(), waits)
+}
+
 fn split_body(item: TokenStream2) -> Option<(TokenStream2, Group)> {
     let tokens: Vec<TokenTree> = item.into_iter().collect();
     let (last, rest) = tokens.split_last()?;

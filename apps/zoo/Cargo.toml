@@ -8,6 +8,3 @@ description = "Many JavaScript libraries, one page, to find out what the boundar
 
 [dependencies]
 rustx = { package = "rustx-app", path = "../../crates/rustx" }
-rustx-dom = { path = "../../crates/rustx-dom" }
-# Named by the generated pages, never by a line a developer writes.
-rustx-engine = { path = "../../crates/rustx-engine" }

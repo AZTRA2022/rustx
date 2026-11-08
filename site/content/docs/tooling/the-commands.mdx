@@ -1,0 +1,35 @@
+---
+title: "The commands"
+description: "`rustx new`, `dev`, `build`, `run` — and what a reload keeps."
+---
+
+| | |
+|---|---|
+| `rustx new <name>` | writes a project that compiles the first time |
+| `rustx dev` | watches the files, rebuilds, brings the window back |
+| `rustx build` | builds, and gives the `.exe` its name and its icon |
+| `rustx build --release` | the version to ship |
+| `rustx run` | builds and launches once, without watching |
+| `rustx --help` | the four lines, and what a reload keeps |
+
+`cargo build` always works: the binary it produces runs, it only
+looks anonymous in the explorer — `rustx build` adds nothing beyond the icon and the version in the file properties.
+
+## What `rustx dev` keeps, and what it does not
+
+`rustx dev` **relaunches** the application; it does not reload native code while
+keeping the process alive, and does not claim to. What crosses the relaunch:
+
+- the shared state — the `let mut` written **at the top** of a `.rsx` file, which bears a
+  name, and a name is found again after a recompilation;
+- the page that was open.
+
+What does not cross:
+
+- the cells of a component, whose identity is a place in code that has just changed;
+- values that cannot be written on one line: anything that is neither a number, nor a string, nor a boolean, restarts from its initializer.
+
+A value whose *type* changed between two compilations is discarded, not forcibly reinjected.
+
+What runs during a `rustx dev` is a **copy** of the binary, in
+`target/rustx-dev/`: a running `.exe` is held by Windows, and the next build must be able to rewrite the one that cargo produced — otherwise every save would end in access denied. The copy keeps the application's name, and the folder disappears with `target/`.
