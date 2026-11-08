@@ -32,6 +32,7 @@ pub fn write(name: &str, into: &Path) -> Result<Vec<PathBuf>, String> {
         (root.join("app").join("page.rsx"), page()),
         (root.join(".gitignore"), ignored()),
         (root.join("assets").join("readme.md"), assets_note()),
+        (root.join("package.json"), package_json(name)),
     ];
 
     let mut written = Vec::new();
@@ -112,6 +113,27 @@ fn wanted_version() -> String {
         (Some(major), _) => major.to_string(),
         _ => full.to_string(),
     }
+}
+
+/// A project ready for the documentation's first line: `npm install
+/// recharts`, `npm install shadcn`, whatever the page reaches for.
+///
+/// Without this file, `npm install` still runs — but on an old `npm`
+/// it refuses outright, and on a new one it writes a `package.json` of
+/// its own: named after the directory rather than the project, at
+/// `"1.0.0"`, with no `"private"`. That file shows up a step late and
+/// looks like something `rustx new` forgot, when the fix is one file
+/// written on the day the project is born.
+fn package_json(name: &str) -> String {
+    let npm_name = name.to_lowercase();
+    format!(
+        "{{\n\
+         \x20   \"name\": \"{npm_name}\",\n\
+         \x20   \"private\": true,\n\
+         \x20   \"version\": \"0.1.0\",\n\
+         \x20   \"dependencies\": {{}}\n\
+         }}\n"
+    )
 }
 
 /// The `main.rs` of the design document, and not one line more.

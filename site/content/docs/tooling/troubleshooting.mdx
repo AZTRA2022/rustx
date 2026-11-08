@@ -50,3 +50,5 @@ The same applies to the test suite: half of the scenarios wait for a frame, and 
 `main`. What an application wants to open at startup is opened from the opening page, or from `on_context_created`.
 
 **A file dropped on the window replaces the application with its contents** — this must no longer happen: the engine takes the drop back from Chromium. If it does, it is a bug, and it belongs in `docs/chasse-aux-bugs.md`.
+
+**"Access is denied. (os error 5)" from a build script named `cef-dll-sys`** — a window from an earlier run (of this project, or of another one sharing the same `target-dir`) still holds `libcef.dll`, which gets deleted and recopied on every build. Close the window, or `taskkill /im <the application>.exe /f` if there is none on screen. `rustx build`, `rustx run` and `rustx dev` check for this before calling cargo at all and name the file and the fix; a plain `cargo build`/`cargo run` does not go through that check, and shows this raw message instead — there is no hook from outside cargo into a dependency's build-script failure. Prefer the `rustx` commands for exactly this reason.

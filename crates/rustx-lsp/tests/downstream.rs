@@ -174,6 +174,64 @@ fn a_child_that_answers_initialize_is_held() {
 }
 
 #[test]
+fn a_question_that_finds_the_server_gone_restarts_it_and_asks_again() {
+    // The bug report, word for word: `rust-analyzer` stops suddenly in
+    // the editor, and takes this client's completion down with it for
+    // the rest of the session. A child that answers the handshake and
+    // then exits without a word — crashed, not merely slow — has to be
+    // restarted rather than left for dead; and the restarted child
+    // answers the very question that found the first one gone.
+    let directory = std::env::temp_dir().join(format!(
+        "rustx-revived-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_nanos())
+            .unwrap_or(0)
+    ));
+    std::fs::create_dir_all(&directory).expect("a directory for the fixture");
+
+    std::fs::write(
+        directory.join("handshake.txt"),
+        framed("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"capabilities\":{}}}"),
+    )
+    .expect("the handshake is written");
+    std::fs::write(
+        directory.join("answer.txt"),
+        framed("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"contents\":\"revived\"}}"),
+    )
+    .expect("the answer is written");
+    // The first run answers the handshake only, and nothing after —
+    // the crash. The second run (the restart) finds the flag already
+    // there and answers both: the handshake it owes a fresh server,
+    // and the question the first run never got to.
+    std::fs::write(
+        directory.join("run.cmd"),
+        "@echo off\r\n\
+         if exist \"%~1\\flag\" (\r\n\
+         \x20   type \"%~1\\handshake.txt\"\r\n\
+         \x20   type \"%~1\\answer.txt\"\r\n\
+         ) else (\r\n\
+         \x20   echo x> \"%~1\\flag\"\r\n\
+         \x20   type \"%~1\\handshake.txt\"\r\n\
+         )\r\n",
+    )
+    .expect("the script is written");
+
+    let script = directory.join("run.cmd").display().to_string();
+    let argument = directory.display().to_string();
+    let mut server = Server::start_with("cmd", &["/c", &script, &argument])
+        .expect("a child that answers the handshake");
+
+    let answer = server
+        .ask("textDocument/hover", "{}")
+        .expect("the server was restarted and asked again, not left silent");
+    assert!(answer.contains("revived"), "got {answer}");
+
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
+#[test]
 fn the_project_the_editor_named_is_the_one_it_is_started_in() {
     // `rust-analyzer` analyses a workspace. Started without one it
     // analyses nothing and answers every question with silence, which
