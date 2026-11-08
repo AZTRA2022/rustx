@@ -58,7 +58,7 @@ framework promettait de tuer).
 | 42 | manque | `rustx-cli` | `rustx new` ne laissait rien à la première `npm install` | **corrigé** |
 | 43 | coûte | `rustx-lsp` | une mort de `rust-analyzer` rendait le LSP aveugle jusqu'au rechargement | **corrigé** |
 | 44 | manque | installation | pas de panneaux d'installation ni de métadonnées (auteur, version…) par OS | ouvert |
-| 45 | manque | `rustx-os` | fonctionnalités système non écrites pour macOS et Linux | ouvert — machine Windows seule |
+| 45 | manque | `rustx-os` | fonctionnalités système non écrites pour macOS | ouvert — machine Windows seule |
 | 46 | manque | `rustx-lsp` | pas d'autocomplétion ni d'auto-import des crates installées dans un `.rsx` | ouvert |
 
 ## Ce qui est cassé
@@ -575,15 +575,18 @@ avant l'ouverture : nom affiché, auteur, version, icône au bon format
 pour chaque système. Un travail de `rustx-cli build --release`, pas
 encore commencé.
 
-## 45. Les fonctionnalités système pour macOS et Linux — **ouvert**
+## 45. Les fonctionnalités système pour macOS — **ouvert**
 
 Fenêtre, presse-papiers, périphériques, notifications, démarrage
-automatique, démarrage en arrière-plan : tout existe pour Windows dans
-`rustx-os`, et rien n'est encore écrit pour les deux autres systèmes.
-Ce qui peut s'écrire sans machine pour le vérifier (du code appuyé sur
-des API documentées et stables) peut avancer ; ce qui a besoin d'être
-vu tourner — une notification qui s'affiche, un raccourci global qui
-se déclenche — attend une machine macOS ou Linux.
+automatique, instance unique : tout existe pour Windows **et pour
+Linux** dans `rustx-os` (`src/linux/`, huit fichiers, écrits et non de
+simples refus). macOS retombe encore dans `other/mod.rs`, qui compile
+partout et refuse en nommant la fonctionnalité plutôt que de
+prétendre marcher — mais ne fait rien de plus. `AppKit`/`NSPasteboard`
+pour le presse-papiers, `AVFoundation` pour les périphériques, et le
+reste restent à écrire ; ce qui peut s'écrire sans machine pour le
+vérifier peut avancer, ce qui a besoin d'être vu tourner attend une
+machine macOS.
 
 ## 46. L'autocomplétion des crates installées dans un `.rsx` — **ouvert**
 
