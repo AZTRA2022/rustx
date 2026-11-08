@@ -909,3 +909,103 @@ README le dit maintenant à l'endroit où l'on choisit Tailwind, et trois
 lois du labo le mesurent dans la fenêtre : la couleur du fond, celle du
 texte, et la police effective.
 
+---
+
+## Ce qu'une nuit à faire tourner le labo pour de vrai a trouvé — 2026-11-08
+
+Neuf bugs, dont cinq lus directement dans `labo-rustx/BUG.md`, et
+quatre trouvés en poussant le labo plus loin que ses propres
+scénarios : des graphiques, un routeur appelé depuis un futur, une
+fenêtre qui ne voulait pas fermer.
+
+**42. Un commentaire avant une écriture annulait l'écriture.**
+`battements.get().push(...)`, précédé d'un commentaire sur la ligne
+d'avant — ou d'un bloc `/* … */`, ou d'un commentaire en fin de la
+ligne précédente — ne passait plus par le magasin. `is_statement` ne
+remontait que sur les espaces et les saisissait pour un opérateur, pas
+pour un point-virgule ou une accolade laissés plus loin derrière le
+commentaire. `back_over_space_and_comments` lit maintenant les trois
+formes avant de décider ce qui précède, et distingue un `//` dans une
+chaîne (`"https://…"`) d'un vrai commentaire.
+
+**43. `style="width: 50%"` traversait la frontière en chaîne.** Trois
+barres de progression et la carte qui les tenait disparaissaient avec
+React #62 : une chaîne n'est pas un objet de style valide pour React,
+qui attend `{ width: "50%" }`. `style_object` découpe maintenant la
+chaîne sur `;` puis sur le premier `:`, met chaque propriété en
+camelCase — sauf les `--variables` — et c'est ce qui traverse pour
+l'attribut `style`.
+
+**44. Un nom de composant qui collisionnait avec une bibliothèque
+faisait tomber tout l'écran, en silence.** `LineChart`, `BarChart` et
+`Tooltip`, écrits sans le préfixe `recharts::`, se résolvaient vers
+`lucide-react` — qui a des icônes du même nom — plutôt que vers la
+bibliothèque de graphiques : React #130, et la carte entière
+disparaissait sans un mot. La forme `recharts::LineChart` lève
+l'ambiguïté ; et surtout, `draw()` entoure maintenant le rendu d'un
+`try`/`catch` qui dit lequel des composants a jeté et pourquoi, plutôt
+que de laisser tout le cadran mourir sans trace.
+
+**45. `router::replace` depuis un bloc `async` ne faisait rien.** Le
+routeur était tenu par du thread-local, et le futur d'un composant ne
+s'exécute pas forcément sur le thread qui a ouvert la page :
+`route_avec_query` restait sur `/depots` après avoir demandé
+`/depots?q=tokio`. Le routeur est maintenant une copie partagée par
+tout le processus (`Elsewhere`, derrière un `OnceLock<RwLock<_>>`), et
+`navigate`/`replace` se reposent eux-mêmes sur le thread de la page
+quand ils sont appelés d'ailleurs.
+
+**46. `rustx dev` reconstruisait sans fin.** `labo-rustx/BUG.md` : « ...
+rebuild en permanence le projet sans qu'aucun fichier n'ait même été
+modifié. » Les pages engendrées par la macro recevaient une date de
+modification neuve à chaque build, même sans changement — `include!`
+les relit, et cargo les croyait toujours à reconstruire. Toutes les
+écritures du compilateur (pages, entrée esbuild, bundle, feuille
+Tailwind) comparent maintenant le contenu avant d'écrire, et ne
+touchent le disque que si quelque chose a réellement changé.
+
+**47. Une fenêtre encore ouverte faisait échouer la construction de
+l'autre projet.** Le même rapport, en détail : « Access is denied. (os
+error 5) » au build de `cef-dll-sys`, qui supprime et recopie
+`libcef.dll` à chaque fois. Une fenêtre du labo oubliée ouverte tenait
+le fichier, et comme labo et framework partagent `target-dir`, une
+fenêtre de l'un bloquait une reconstruction de l'autre — un bug « très
+susceptible d'advenir sur des projets une fois les crates publiés »,
+disait le rapport, à raison. `build::held()` regarde si une DLL
+critique est tenue avant de lancer cargo et le dit en clair ; `rustx
+dev` ferme d'abord sa propre fenêtre plutôt que d'attendre l'erreur.
+
+**48. `rustx new` écrivait `version = "0.1"`.** Sous la règle de cargo
+pour le 0.x, une exigence `0.1` n'accepte pas 0.2.0 : tout projet neuf
+recevait silencieusement le framework de la version précédente, refus
+compris, déjà corrigés des mois plus tôt. La version demandée est
+maintenant lue dans la version de cette ligne de commande elle-même
+(`env!("CARGO_PKG_VERSION")`), et non recopiée à la main dans une
+chaîne qui vieillit mal.
+
+**49. `rustx new` ne laissait rien à `npm install`.** `labo-rustx/BUG.md`
+le demandait : « make sure that all files needed for npm lib
+installation are added ». La documentation commence par `npm install
+recharts`, et sans `package.json` un vieux `npm` refuse net, un récent
+en écrit un de son cru — nommé d'après le dossier, en `1.0.0`, sans
+`private`. Le fichier manquant apparaissait un pas trop tard et sous un
+autre nom que celui du projet. `rustx new` écrit maintenant un
+`package.json` minimal, prêt pour la première bibliothèque.
+
+**50. Une mort de `rust-analyzer` rendait le LSP aveugle pour le reste
+de la session.** Signalé mot pour mot dans `labo-rustx/BUG.md` : « rust
+analyser s'arrête subitement dans mon VSCode et fait flancher notre LSP
+avec lui. » Une question qui ne trouve plus de réponse après la mort du
+serveur en aval ne distinguait pas une simple lenteur d'un canal fermé
+pour de bon — et dans les deux cas rendait la main vide, pour toujours,
+jusqu'au rechargement de la fenêtre de l'éditeur. Un canal **fermé**
+(et non simplement lent) relance maintenant le serveur une fois et
+repose la question qui l'a trouvé parti.
+
+Restent ouverts, dans le même rapport : les panneaux d'installation et
+les métadonnées du logiciel par système, les fonctionnalités système
+pour macOS et Linux, et l'autocomplétion/auto-import des crates
+installées dans un `.rsx` — les trois demandent soit une machine que
+celle-ci n'est pas, soit un travail du serveur de langage qui dépasse
+une nuit. Voir `manques-du-framework.md`.
+

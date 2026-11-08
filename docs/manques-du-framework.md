@@ -48,6 +48,18 @@ framework promettait de tuer).
 | 28 | cassé | `rustx-compiler` | une fonction ordinaire à côté d'une page n'atteignait pas ses valeurs | **corrigé** |
 | 29 | manque | `rustx-compiler` | une `async fn` ne peut pas atteindre une valeur de page (refus explicite) | ouvert |
 | 30 | coûte | `rustx-compiler` | un `.await` de composant qui emprunte un local est refusé par rustc dans un fichier généré | documenté, pas refusé |
+| 35 | cassé | `rustx-compiler` | un commentaire avant une écriture annulait l'écriture | **corrigé** |
+| 36 | cassé | `rustx-dom` / `rustx-engine` | `style="…"` traversait la frontière React en chaîne, pas en objet | **corrigé** |
+| 37 | manque | `rustx-engine` | une collision de nom avec une bibliothèque JS faisait tomber tout l'écran sans un mot | **le silence est corrigé** ; la collision reste un piège à documenter |
+| 38 | cassé | `rustx-engine` | `router::replace`/`navigate` depuis un `async` sur un autre thread ne faisaient rien | **corrigé** |
+| 39 | coûte | `rustx-compiler` | `rustx dev` reconstruisait le projet sans qu'aucun fichier n'ait changé | **corrigé** |
+| 40 | cassé | `rustx-cli` / `rustx-engine` | une fenêtre encore ouverte faisait échouer la construction (os error 5) | **corrigé** |
+| 41 | cassé | `rustx-cli` | `rustx new` écrivait `version = "0.1"`, obsolète dès 0.2.0 | **corrigé** |
+| 42 | manque | `rustx-cli` | `rustx new` ne laissait rien à la première `npm install` | **corrigé** |
+| 43 | coûte | `rustx-lsp` | une mort de `rust-analyzer` rendait le LSP aveugle jusqu'au rechargement | **corrigé** |
+| 44 | manque | installation | pas de panneaux d'installation ni de métadonnées (auteur, version…) par OS | ouvert |
+| 45 | manque | `rustx-os` | fonctionnalités système non écrites pour macOS et Linux | ouvert — machine Windows seule |
+| 46 | manque | `rustx-lsp` | pas d'autocomplétion ni d'auto-import des crates installées dans un `.rsx` | ouvert |
 
 ## Ce qui est cassé
 
@@ -482,4 +494,106 @@ blanche sans que rien ne le dise. Le README porte maintenant le bloc
 minimal, à l'endroit où l'on installe Tailwind. Ce qui reste ouvert :
 `rustx new` pourrait écrire cette feuille, ce qui ferait du framework
 l'auteur d'un thème — un choix à faire, pas un oubli.
+
+## 35. Un commentaire avant une écriture — **corrigé**
+
+`is_statement` ne remontait que sur les espaces entre ce qui précède
+un appel et ce qui en décide la nature ; un commentaire juste avant
+suffisait à faire croire que l'appel suivait un opérateur plutôt qu'un
+point-virgule, et l'écriture n'était plus reconnue comme telle.
+`back_over_space_and_comments` lit maintenant les trois formes de
+commentaire, et un `//` dans une chaîne reste du texte. Voir la chasse
+aux bugs, #42.
+
+## 36. `style` en chaîne à la frontière React — **corrigé**
+
+`style_object` traduit maintenant une chaîne CSS en objet avant de la
+tendre à React, propriété par propriété, camelCase sauf les
+`--variables`. Voir #43.
+
+## 37. Une collision de nom avec une bibliothèque JS — **mitigé**
+
+`LineChart` sans préfixe se résout vers la première bibliothèque
+installée qui porte ce nom, qui peut ne pas être celle qu'on voulait —
+et ça reste vrai : rien n'empêche encore la collision elle-même. Ce qui
+est corrigé, c'est le silence : `draw()` dit maintenant lequel des
+composants a jeté et pourquoi, plutôt que de laisser tout l'écran
+disparaître sans un mot. **Reste ouvert** : avertir au moment de la
+compilation quand un nom de balise existe dans plus d'une bibliothèque
+déclarée, pour ne plus avoir à le découvrir à l'écran noir. Voir #44.
+
+## 38. Le routeur sourd à un autre thread — **corrigé**
+
+Un futur de composant ne s'exécute pas forcément sur le thread qui a
+ouvert la page, et le routeur était tenu par du thread-local : un
+`navigate`/`replace` appelé de là ne faisait rien, sans erreur. Il est
+maintenant une copie partagée par tout le processus, et les deux se
+reposent eux-mêmes sur le thread de la page quand ils sont appelés
+d'ailleurs. Voir #45.
+
+## 39. La reconstruction qui ne s'arrêtait jamais — **corrigé**
+
+Chaque build donnait aux pages engendrées une date neuve, même sans
+changement, et cargo les croyait toujours à refaire. Toute écriture du
+compilateur compare maintenant le contenu avant d'écrire. Voir #46.
+
+## 40. Une fenêtre tenue bloque l'autre projet — **corrigé**
+
+`cef-dll-sys` recopie `libcef.dll` à chaque build ; une fenêtre oubliée
+ouverte la tient, et comme labo et framework partagent `target-dir`,
+l'un bloquait l'autre avec « Access is denied. (os error 5) ».
+`build::held()` le dit en clair avant cargo, et `rustx dev` ferme sa
+propre fenêtre d'abord. Voir #47.
+
+## 41. La version demandée par un projet neuf — **corrigé**
+
+`rustx new` écrivait `version = "0.1"` à la main, et cargo refuse sous
+le 0.x qu'un `0.1` accepte un `0.2.0` : tout projet neuf recevait la
+version d'avant, en silence. Lue maintenant dans la version de la
+ligne de commande elle-même. Voir #48.
+
+## 42. Rien pour la première `npm install` — **corrigé**
+
+Sans `package.json`, la première bibliothèque qu'un projet installe
+écrit un fichier nommé d'après le dossier plutôt que par le projet, un
+pas trop tard. `rustx new` en écrit un minimal. Voir #49.
+
+## 43. Le LSP aveugle après la mort de `rust-analyzer` — **corrigé**
+
+Un canal fermé pour de bon (le serveur en aval est mort) ne se
+distinguait pas d'un canal simplement lent, et les deux rendaient la
+main vide pour le reste de la session. Un canal fermé relance
+maintenant le serveur une fois et repose la question. Voir #50.
+
+## 44. Les panneaux d'installation et les métadonnées du logiciel — **ouvert**
+
+`labo-rustx/BUG.md` : « les panneaux d'installation & metadata du
+logiciel (author, version, …) pour les différents OS. » Rien n'écrit
+encore, pour une application faite avec `rustx`, ce qu'un installateur
+Windows (MSI/NSIS), un `.app` macOS ou un `.deb`/`.rpm` Linux montre
+avant l'ouverture : nom affiché, auteur, version, icône au bon format
+pour chaque système. Un travail de `rustx-cli build --release`, pas
+encore commencé.
+
+## 45. Les fonctionnalités système pour macOS et Linux — **ouvert**
+
+Fenêtre, presse-papiers, périphériques, notifications, démarrage
+automatique, démarrage en arrière-plan : tout existe pour Windows dans
+`rustx-os`, et rien n'est encore écrit pour les deux autres systèmes.
+Ce qui peut s'écrire sans machine pour le vérifier (du code appuyé sur
+des API documentées et stables) peut avancer ; ce qui a besoin d'être
+vu tourner — une notification qui s'affiche, un raccourci global qui
+se déclenche — attend une machine macOS ou Linux.
+
+## 46. L'autocomplétion des crates installées dans un `.rsx` — **ouvert**
+
+`labo-rustx/BUG.md` : « on est obligé d'écrire tous les imports de la
+sorte… alors qu'on est censé avoir l'autocomplétion & l'auto-import à
+toutes les échelles possibles comme Rust-Analyzer Extension. »
+`rustx-lsp` relaie déjà `rust-analyzer` pour le fichier engendré ; ce
+qui manque est de lister, pour une crate installée, ses fonctions et
+composants publics avant que le chemin complet ne soit tapé — le
+travail de `libraries.rs`/`suggest.rs`, étendu au-delà de ce qu'ils
+couvrent aujourd'hui (les bibliothèques JavaScript déclarées, pas les
+crates Rust).
 

@@ -167,6 +167,27 @@ impl Server {
     }
 
     fn asked(&mut self, method: &str, params: &str, patience: Duration) -> Option<String> {
+        self.asked_or_revived(method, params, patience, false)
+    }
+
+    /// Ask, and if the server has died mid-session, restart it and ask
+    /// once more before giving up.
+    ///
+    /// `rust-analyzer` stopping was the whole bug report: it died once,
+    /// silently, and every question for the rest of the session came
+    /// back empty — a developer reached for completion, got nothing,
+    /// and the only fix anybody found was reloading the editor window.
+    /// The channel disconnecting, rather than merely timing out, is
+    /// what tells the two apart: a slow server still has a thread
+    /// reading its stdout, a dead one does not. `already_revived` stops
+    /// this from trying forever against a server that keeps dying.
+    fn asked_or_revived(
+        &mut self,
+        method: &str,
+        params: &str,
+        patience: Duration,
+        already_revived: bool,
+    ) -> Option<String> {
         self.next_id += 1;
         let id = self.next_id;
         self.write(&format!(
@@ -177,6 +198,14 @@ impl Server {
         loop {
             let message = match self.answers.recv_timeout(patience) {
                 Ok(message) => message,
+                Err(mpsc::RecvTimeoutError::Disconnected) if !already_revived => {
+                    traced(&format!("{method} #{id} found the server gone; restarting"));
+                    return if self.restart() {
+                        self.asked_or_revived(method, params, patience, true)
+                    } else {
+                        None
+                    };
+                }
                 Err(why) => {
                     traced(&format!("{method} #{id} got nothing ({why})"));
                     return None;
