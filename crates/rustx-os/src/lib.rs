@@ -22,13 +22,26 @@
 //! and the question "what is left to do on Linux?" is answered by
 //! looking in `linux/`.
 //!
-//! Every capability is Windows today. The other platforms compile, and
-//! refuse in a sentence that names both the platform and the capability:
-//! a program that builds everywhere and silently does nothing on two of
-//! the three is worse than one that says where it stands. The tests
-//! compile `linux/` and `other/` as well, on whatever machine they run
-//! on, so that a change to the API above breaks them here rather than
-//! on somebody else's machine three weeks later.
+//! Every capability is written for Windows. On Linux, the clipboard,
+//! notifications, autostart, a single instance and the camera list are
+//! real too — each by a program or a file every desktop distribution
+//! already has (`xclip`/`wl-copy`, `notify-send`, a `.desktop` file, a
+//! Unix socket, `/sys/class/video4linux`), not by a library this crate
+//! would have to add and this machine cannot run. File dialogs, global
+//! shortcuts, the tray and window control still refuse on Linux: each
+//! needs either a desktop portal over D-Bus or a connection to the
+//! display server, which is a larger piece of work than a file at a
+//! time. macOS has none of it yet. Every platform that cannot do a
+//! capability refuses in a sentence that names both the platform and
+//! the capability: a program that builds everywhere and silently does
+//! nothing on two of the three is worse than one that says where it
+//! stands. The tests compile `linux/` and `other/` as well, on
+//! whatever machine they run on, so that a change to the API above
+//! breaks them here rather than on somebody else's machine three weeks
+//! later — which is also why the Linux files that need a type
+//! `std::os::unix` does not have on Windows keep that part behind
+//! `#[cfg(unix)]`, with a stand-in beside it for this machine's own
+//! check to compile against.
 //!
 //! # One dependency
 //!
