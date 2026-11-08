@@ -965,15 +965,33 @@ Tailwind) comparent maintenant le contenu avant d'écrire, et ne
 touchent le disque que si quelque chose a réellement changé.
 
 **47. Une fenêtre encore ouverte faisait échouer la construction de
-l'autre projet.** Le même rapport, en détail : « Access is denied. (os
-error 5) » au build de `cef-dll-sys`, qui supprime et recopie
-`libcef.dll` à chaque fois. Une fenêtre du labo oubliée ouverte tenait
-le fichier, et comme labo et framework partagent `target-dir`, une
-fenêtre de l'un bloquait une reconstruction de l'autre — un bug « très
-susceptible d'advenir sur des projets une fois les crates publiés »,
-disait le rapport, à raison. `build::held()` regarde si une DLL
-critique est tenue avant de lancer cargo et le dit en clair ; `rustx
-dev` ferme d'abord sa propre fenêtre plutôt que d'attendre l'erreur.
+l'autre projet — à moitié corrigé.** Le même rapport, en détail :
+« Access is denied. (os error 5) » au build de `cef-dll-sys`, qui
+supprime et recopie `libcef.dll` à chaque fois. Une fenêtre du labo
+oubliée ouverte tenait le fichier, et comme labo et framework
+partagent `target-dir`, une fenêtre de l'un bloquait une
+reconstruction de l'autre — un bug « très susceptible d'advenir sur
+des projets une fois les crates publiés », disait le rapport, à
+raison. `build::held()` regarde si une DLL critique est tenue avant de
+lancer cargo et le dit en clair, dans `rustx build` et `rustx run` ;
+`rustx dev` ferme d'abord sa propre fenêtre plutôt que d'attendre
+l'erreur.
+
+**Ce qui n'est pas corrigé** : exactement ce que le rapport décrivait
+en premier, `cargo run` ou `cargo build` **tapé directement**, sans
+passer par `rustx`. Rejoué sur une vraie fenêtre ouverte, un `cargo
+build` nu dans `labo-rustx` affiche encore mot pour mot « Error:
+Access is denied. (os error 5) », sans nom de fichier ni de fenêtre —
+parce que ce chemin ne traverse jamais le code de `rustx-cli` : cargo
+appelle le script de construction de `cef-dll-sys` directement, et
+rien n'intercepte l'échec d'un script de construction d'une
+dépendance transitive depuis l'extérieur de cargo. L'écrire en
+`build.rs` du projet irait contre la règle même du framework
+(« no build.rs, no plumbing ») et serait de toute façon trop tard :
+`cef-dll-sys` construit avant le projet qui le demande, pas après. Le
+seul vrai correctif est le changement d'habitude — `rustx build` /
+`rustx run` plutôt que la commande cargo nue — documenté dans le
+dépannage.
 
 **48. `rustx new` écrivait `version = "0.1"`.** Sous la règle de cargo
 pour le 0.x, une exigence `0.1` n'accepte pas 0.2.0 : tout projet neuf

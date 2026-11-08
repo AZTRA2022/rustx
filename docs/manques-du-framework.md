@@ -53,7 +53,7 @@ framework promettait de tuer).
 | 37 | manque | `rustx-engine` | une collision de nom avec une bibliothèque JS faisait tomber tout l'écran sans un mot | **le silence est corrigé** ; la collision reste un piège à documenter |
 | 38 | cassé | `rustx-engine` | `router::replace`/`navigate` depuis un `async` sur un autre thread ne faisaient rien | **corrigé** |
 | 39 | coûte | `rustx-compiler` | `rustx dev` reconstruisait le projet sans qu'aucun fichier n'ait changé | **corrigé** |
-| 40 | cassé | `rustx-cli` / `rustx-engine` | une fenêtre encore ouverte faisait échouer la construction (os error 5) | **corrigé** |
+| 40 | cassé | `rustx-cli` / `rustx-engine` | une fenêtre encore ouverte faisait échouer la construction (os error 5) | **à moitié corrigé** — `rustx build`/`run`/`dev` seulement, pas `cargo build`/`run` nu |
 | 41 | cassé | `rustx-cli` | `rustx new` écrivait `version = "0.1"`, obsolète dès 0.2.0 | **corrigé** |
 | 42 | manque | `rustx-cli` | `rustx new` ne laissait rien à la première `npm install` | **corrigé** |
 | 43 | coûte | `rustx-lsp` | une mort de `rust-analyzer` rendait le LSP aveugle jusqu'au rechargement | **corrigé** |
@@ -537,13 +537,20 @@ Chaque build donnait aux pages engendrées une date neuve, même sans
 changement, et cargo les croyait toujours à refaire. Toute écriture du
 compilateur compare maintenant le contenu avant d'écrire. Voir #46.
 
-## 40. Une fenêtre tenue bloque l'autre projet — **corrigé**
+## 40. Une fenêtre tenue bloque l'autre projet — **à moitié corrigé**
 
 `cef-dll-sys` recopie `libcef.dll` à chaque build ; une fenêtre oubliée
 ouverte la tient, et comme labo et framework partagent `target-dir`,
 l'un bloquait l'autre avec « Access is denied. (os error 5) ».
-`build::held()` le dit en clair avant cargo, et `rustx dev` ferme sa
-propre fenêtre d'abord. Voir #47.
+`build::held()` le dit en clair avant cargo dans `rustx build`/`rustx
+run`, et `rustx dev` ferme sa propre fenêtre d'abord. **Mais** un
+`cargo build`/`cargo run` tapé directement — rejoué sur une vraie
+fenêtre ouverte — affiche encore l'erreur brute, mot pour mot : ce
+chemin ne passe jamais par le code de `rustx-cli`, et il n'y a pas de
+prise pour intercepter l'échec du script de construction d'une
+dépendance transitive depuis l'extérieur de cargo. Un `build.rs` du
+projet pour le détecter irait contre la règle du framework et serait
+de toute façon trop tard (`cef-dll-sys` construit avant). Voir #47.
 
 ## 41. La version demandée par un projet neuf — **corrigé**
 
