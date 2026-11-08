@@ -207,3 +207,40 @@ fn a_new_project_asks_for_the_version_this_command_line_belongs_to() {
         "a project made by rustx {mine} asks for something else:\n{manifest}"
     );
 }
+
+/// `npm install <library>` has to find a project to install into.
+///
+/// Without a `package.json`, an old `npm` refuses outright and a new
+/// one writes one of its own — named after the directory, at version
+/// `1.0.0`, with no `private` field — the moment a developer follows
+/// the documentation's first line (`npm install recharts`). The file
+/// this command should have written shows up a step late, named by
+/// npm and not by the project, and `rustx new` looks like it forgot a
+/// file every project that reaches for a JavaScript library needs.
+#[test]
+fn a_new_project_can_already_receive_an_npm_install() {
+    let into = somewhere();
+    new::write("mon-app", &into).expect("a project");
+    let manifest = fs::read_to_string(into.join("mon-app").join("package.json"))
+        .expect("a package.json ready for npm install");
+    assert!(manifest.contains("\"name\""), "got {manifest}");
+    assert!(manifest.contains("\"private\": true"), "got {manifest}");
+    assert!(manifest.contains("\"dependencies\""), "got {manifest}");
+    let _: () = assert_is_valid_json(&manifest);
+    let _ = fs::remove_dir_all(&into);
+}
+
+/// Not a parser brought in for one test: a `package.json` with a
+/// trailing comma or an unclosed brace fails every `npm install` with
+/// an error that does not name this command at all.
+fn assert_is_valid_json(text: &str) {
+    let mut depth = 0i32;
+    for letter in text.chars() {
+        match letter {
+            '{' | '[' => depth += 1,
+            '}' | ']' => depth -= 1,
+            _ => {}
+        }
+    }
+    assert_eq!(depth, 0, "unbalanced braces: {text}");
+}

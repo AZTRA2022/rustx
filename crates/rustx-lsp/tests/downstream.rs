@@ -107,6 +107,46 @@ fn a_server_over_plain_streams_has_nothing_to_restart() {
 }
 
 #[test]
+fn a_server_over_plain_streams_is_always_alive() {
+    // There is no child to watch, so there is nothing for `alive` to
+    // find dead. Whether it still answers is for `ask` to find out.
+    let mut server = canned(&[]);
+    assert!(server.alive());
+}
+
+#[test]
+fn a_child_that_has_exited_is_found_by_alive() {
+    // `rust-analyzer` can die without anyone calling `restart`: out of
+    // memory, a panic, a kill to free a machine. `alive` is what tells
+    // that apart from a child that is merely slow to answer — the
+    // child here exits on its own, the moment it is done printing.
+    let answer = framed("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"capabilities\":{}}}");
+    let script = std::env::temp_dir().join(format!(
+        "rustx-exits-{}-{}.txt",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_nanos())
+            .unwrap_or(0)
+    ));
+    std::fs::write(&script, answer.as_bytes()).expect("the answer is written");
+
+    let path = script.display().to_string();
+    let mut server = Server::start_with("cmd", &["/c", "type", &path]).expect("a child");
+
+    let found_dead = (0..200).any(|_| {
+        if server.alive() {
+            std::thread::sleep(Duration::from_millis(10));
+            false
+        } else {
+            true
+        }
+    });
+    assert!(found_dead, "the child should have exited and been noticed");
+    let _ = std::fs::remove_file(&script);
+}
+
+#[test]
 fn a_child_that_answers_initialize_is_held() {
     // The real handshake, without `rust-analyzer`: a child that prints
     // the answer to `initialize` and nothing else. What is proved is
@@ -131,6 +171,64 @@ fn a_child_that_answers_initialize_is_held() {
         server.written()
     );
     let _ = std::fs::remove_file(&script);
+}
+
+#[test]
+fn a_question_that_finds_the_server_gone_restarts_it_and_asks_again() {
+    // The bug report, word for word: `rust-analyzer` stops suddenly in
+    // the editor, and takes this client's completion down with it for
+    // the rest of the session. A child that answers the handshake and
+    // then exits without a word — crashed, not merely slow — has to be
+    // restarted rather than left for dead; and the restarted child
+    // answers the very question that found the first one gone.
+    let directory = std::env::temp_dir().join(format!(
+        "rustx-revived-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_nanos())
+            .unwrap_or(0)
+    ));
+    std::fs::create_dir_all(&directory).expect("a directory for the fixture");
+
+    std::fs::write(
+        directory.join("handshake.txt"),
+        framed("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"capabilities\":{}}}"),
+    )
+    .expect("the handshake is written");
+    std::fs::write(
+        directory.join("answer.txt"),
+        framed("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"contents\":\"revived\"}}"),
+    )
+    .expect("the answer is written");
+    // The first run answers the handshake only, and nothing after —
+    // the crash. The second run (the restart) finds the flag already
+    // there and answers both: the handshake it owes a fresh server,
+    // and the question the first run never got to.
+    std::fs::write(
+        directory.join("run.cmd"),
+        "@echo off\r\n\
+         if exist \"%~1\\flag\" (\r\n\
+         \x20   type \"%~1\\handshake.txt\"\r\n\
+         \x20   type \"%~1\\answer.txt\"\r\n\
+         ) else (\r\n\
+         \x20   echo x> \"%~1\\flag\"\r\n\
+         \x20   type \"%~1\\handshake.txt\"\r\n\
+         )\r\n",
+    )
+    .expect("the script is written");
+
+    let script = directory.join("run.cmd").display().to_string();
+    let argument = directory.display().to_string();
+    let mut server = Server::start_with("cmd", &["/c", &script, &argument])
+        .expect("a child that answers the handshake");
+
+    let answer = server
+        .ask("textDocument/hover", "{}")
+        .expect("the server was restarted and asked again, not left silent");
+    assert!(answer.contains("revived"), "got {answer}");
+
+    let _ = std::fs::remove_dir_all(&directory);
 }
 
 #[test]

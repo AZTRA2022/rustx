@@ -33,6 +33,13 @@ elles ont été écrites, pendant la frappe.
   s'il n'est pas là du tout, le balisage se complète quand même et le
   soulignement continue.
 
+  **Pas encore l'import automatique.** `std::fs::read` se complète dès
+  le `::` tapé, mais taper `read(` tout court ne propose pas
+  `std::fs::read` et n'ajoute pas le `use` qui irait avec — ce que
+  `rust-analyzer` fait d'ordinaire dans un `.rs` édité seul. En
+  attendant, le chemin s'écrit en entier : `std::fs::read`,
+  `rustx::dialog`.
+
 - **Et dans un `{…}` du balisage** — les vraies complétions, avec les
   types. Une région JSX est émise sur une seule ligne de Rust, donc une
   colonne dedans n'a pas d'équivalent : le serveur fabrique, pour cette
@@ -59,5 +66,5 @@ Le serveur se construit avec le reste du projet :
 cargo build -p rustx-lsp
 ```
 
-La complétion, le survol et « aller à la définition » viennent du plan
-suivant, qui met `rust-analyzer` derrière le même serveur.
+L'import automatique — un nom seul qui propose `std::fs::read` et pose
+le `use` — reste à faire ; voir `docs/manques-du-framework.md`, #35.

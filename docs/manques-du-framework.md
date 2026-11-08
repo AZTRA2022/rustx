@@ -48,6 +48,7 @@ framework promettait de tuer).
 | 28 | cassé | `rustx-compiler` | une fonction ordinaire à côté d'une page n'atteignait pas ses valeurs | **corrigé** |
 | 29 | manque | `rustx-compiler` | une `async fn` ne peut pas atteindre une valeur de page (refus explicite) | ouvert |
 | 30 | coûte | `rustx-compiler` | un `.await` de composant qui emprunte un local est refusé par rustc dans un fichier généré | documenté, pas refusé |
+| 35 | manque | `rustx-lsp` | la complétion ne propose pas un nom seul ni n'ajoute son `use` | ouvert |
 
 ## Ce qui est cassé
 
@@ -482,4 +483,144 @@ blanche sans que rien ne le dise. Le README porte maintenant le bloc
 minimal, à l'endroit où l'on installe Tailwind. Ce qui reste ouvert :
 `rustx new` pourrait écrire cette feuille, ce qui ferait du framework
 l'auteur d'un thème — un choix à faire, pas un oubli.
+
+## 35. Pas d'import automatique dans la complétion — **ouvert**
+
+Signalé par l'utilisateur : taper `read(` ne propose pas
+`std::fs::read`, et n'ajoute pas le `use` qui irait avec — ce que
+`rust-analyzer` fait d'ordinaire dans un `.rs` qu'on édite seul. Dans
+un `.rsx`, il faut écrire le chemin en entier (`std::fs::read`,
+`rustx::dialog`) ; la complétion normale reprend sur ce qui suit le
+dernier `::`, puisque c'est le cas que #22/#33 couvrent déjà.
+
+Piste non vérifiée, à mesurer avant de corriger : la poignée de main
+que `rustx-lsp` envoie à `rust-analyzer` déclare des capacités de
+client vides (`"capabilities":{}`), et un `textDocument/completion`
+qui propose un nom hors de portée revient normalement avec des
+`additionalTextEdits` posant le `use` — à une ligne du fichier généré
+qui n'a aucun équivalent dans le `.rsx`. Les deux peuvent expliquer
+l'absence : soit `rust-analyzer` ne propose rien de hors-portée sans
+capacité déclarée pour le recevoir, soit il le propose et ce serveur
+n'a pas encore de ligne où le poser dans la page.
+## 35. Un commentaire avant une écriture — **corrigé**
+
+`is_statement` ne remontait que sur les espaces entre ce qui précède
+un appel et ce qui en décide la nature ; un commentaire juste avant
+suffisait à faire croire que l'appel suivait un opérateur plutôt qu'un
+point-virgule, et l'écriture n'était plus reconnue comme telle.
+`back_over_space_and_comments` lit maintenant les trois formes de
+commentaire, et un `//` dans une chaîne reste du texte. Voir la chasse
+aux bugs, #42.
+
+## 36. `style` en chaîne à la frontière React — **corrigé**
+
+`style_object` traduit maintenant une chaîne CSS en objet avant de la
+tendre à React, propriété par propriété, camelCase sauf les
+`--variables`. Voir #43.
+
+## 37. Une collision de nom avec une bibliothèque JS — **mitigé**
+
+`LineChart` sans préfixe se résout vers la première bibliothèque
+installée qui porte ce nom, qui peut ne pas être celle qu'on voulait —
+et ça reste vrai : rien n'empêche encore la collision elle-même. Ce qui
+est corrigé, c'est le silence : `draw()` dit maintenant lequel des
+composants a jeté et pourquoi, plutôt que de laisser tout l'écran
+disparaître sans un mot. **Reste ouvert** : avertir au moment de la
+compilation quand un nom de balise existe dans plus d'une bibliothèque
+déclarée, pour ne plus avoir à le découvrir à l'écran noir. Voir #44.
+
+## 38. Le routeur sourd à un autre thread — **corrigé**
+
+Un futur de composant ne s'exécute pas forcément sur le thread qui a
+ouvert la page, et le routeur était tenu par du thread-local : un
+`navigate`/`replace` appelé de là ne faisait rien, sans erreur. Il est
+maintenant une copie partagée par tout le processus, et les deux se
+reposent eux-mêmes sur le thread de la page quand ils sont appelés
+d'ailleurs. Voir #45.
+
+## 39. La reconstruction qui ne s'arrêtait jamais — **corrigé**
+
+Chaque build donnait aux pages engendrées une date neuve, même sans
+changement, et cargo les croyait toujours à refaire. Toute écriture du
+compilateur compare maintenant le contenu avant d'écrire. Voir #46.
+
+## 40. Une fenêtre tenue bloque l'autre projet — **à moitié corrigé**
+
+`cef-dll-sys` recopie `libcef.dll` à chaque build ; une fenêtre oubliée
+ouverte la tient, et comme labo et framework partagent `target-dir`,
+l'un bloquait l'autre avec « Access is denied. (os error 5) ».
+`build::held()` le dit en clair avant cargo dans `rustx build`/`rustx
+run`, et `rustx dev` ferme sa propre fenêtre d'abord. **Mais** un
+`cargo build`/`cargo run` tapé directement — rejoué sur une vraie
+fenêtre ouverte — affiche encore l'erreur brute, mot pour mot : ce
+chemin ne passe jamais par le code de `rustx-cli`, et il n'y a pas de
+prise pour intercepter l'échec du script de construction d'une
+dépendance transitive depuis l'extérieur de cargo. Un `build.rs` du
+projet pour le détecter irait contre la règle du framework et serait
+de toute façon trop tard (`cef-dll-sys` construit avant). Voir #47.
+
+## 41. La version demandée par un projet neuf — **corrigé**
+
+`rustx new` écrivait `version = "0.1"` à la main, et cargo refuse sous
+le 0.x qu'un `0.1` accepte un `0.2.0` : tout projet neuf recevait la
+version d'avant, en silence. Lue maintenant dans la version de la
+ligne de commande elle-même. Voir #48.
+
+## 42. Rien pour la première `npm install` — **corrigé**
+
+Sans `package.json`, la première bibliothèque qu'un projet installe
+écrit un fichier nommé d'après le dossier plutôt que par le projet, un
+pas trop tard. `rustx new` en écrit un minimal. Voir #49.
+
+## 43. Le LSP aveugle après la mort de `rust-analyzer` — **corrigé**
+
+Un canal fermé pour de bon (le serveur en aval est mort) ne se
+distinguait pas d'un canal simplement lent, et les deux rendaient la
+main vide pour le reste de la session. Un canal fermé relance
+maintenant le serveur une fois et repose la question. Voir #50.
+
+## 44. Les panneaux d'installation et les métadonnées du logiciel — **ouvert**
+
+`labo-rustx/BUG.md` : « les panneaux d'installation & metadata du
+logiciel (author, version, …) pour les différents OS. » Rien n'écrit
+encore, pour une application faite avec `rustx`, ce qu'un installateur
+Windows (MSI/NSIS), un `.app` macOS ou un `.deb`/`.rpm` Linux montre
+avant l'ouverture : nom affiché, auteur, version, icône au bon format
+pour chaque système. Un travail de `rustx-cli build --release`, pas
+encore commencé.
+
+## 45. Les fonctionnalités système, barre système et raccourcis compris — **en partie ouvert**
+
+Mis à jour deux fois dans la même nuit. Presse-papiers, notifications,
+démarrage automatique, instance unique et liste des caméras sont réels
+maintenant pour **Linux et macOS**, pas seulement Windows —
+`src/linux/` et `src/macos/`, chacun par un outil ou un fichier que le
+système porte déjà (`xclip`/`wl-copy`, `notify-send`, un `.desktop`,
+`pbcopy`/`pbpaste`, `osascript`, un plist `LaunchAgent`, un socket
+Unix, `/sys/class/video4linux`, `system_profiler`), jamais par une
+bibliothèque que ce crate devrait ajouter. Le dialogue de fichiers
+aussi, des deux côtés : `zenity`/`kdialog` sous Linux, `osascript`
+disant `choose file` sous macOS.
+
+Reste ouvert sur les deux : les raccourcis globaux, la barre système et
+le contrôle de fenêtre, qui ont chacun besoin soit d'un portail de
+bureau sur D-Bus (Linux), soit d'`AppKit`/Carbon (macOS) — un
+attachement en processus ou une liaison native, pas un programme à
+lancer depuis une ligne de commande. Vérifié par `cargo check --target
+x86_64-unknown-linux-gnu` pour les fichiers Linux (zéro machine Linux,
+mais un vrai retour du compilateur) ; les fichiers macOS n'ont que la
+relecture à la main, faute d'une cible Apple installée ici — voir
+l'en-tête « Written, not run » de chacun.
+
+## 46. L'autocomplétion des crates installées dans un `.rsx` — **ouvert**
+
+`labo-rustx/BUG.md` : « on est obligé d'écrire tous les imports de la
+sorte… alors qu'on est censé avoir l'autocomplétion & l'auto-import à
+toutes les échelles possibles comme Rust-Analyzer Extension. »
+`rustx-lsp` relaie déjà `rust-analyzer` pour le fichier engendré ; ce
+qui manque est de lister, pour une crate installée, ses fonctions et
+composants publics avant que le chemin complet ne soit tapé — le
+travail de `libraries.rs`/`suggest.rs`, étendu au-delà de ce qu'ils
+couvrent aujourd'hui (les bibliothèques JavaScript déclarées, pas les
+crates Rust).
 

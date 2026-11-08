@@ -72,6 +72,7 @@ rendu ». Les trois étaient justes, et les numéros 14 à 17 en viennent.
 | 35 | bloquant | `rustx-compiler` | une expression de balise qui tient des instructions n'était pas émise en bloc | corrigé |
 | 36 | bloquant | `rustx-compiler` | un nom qu'un `let` lie était réécrit comme une lecture | corrigé |
 | 37 | important | `rustx-engine` | `value` posé en attribut seul : un champ que la page vide restait plein | corrigé |
+| 42 | bloquant | `rustx-lsp` | `rust-analyzer` mort laissait la complétion éteinte pour le reste de la session | corrigé |
 
 ---
 
@@ -908,4 +909,29 @@ dark` et le `@layer base` qui pose le fond, la couleur et la police. Le
 README le dit maintenant à l'endroit où l'on choisit Tailwind, et trois
 lois du labo le mesurent dans la fenêtre : la couleur du fond, celle du
 texte, et la police effective.
+
+**42. `rust-analyzer` qui meurt faisait tomber la complétion pour de
+bon.** `Server` avait déjà un `restart()`, testé, qu'aucun code de
+production n'appelait : rien ne regardait jamais si le processus tenu
+était encore là. Un `rust-analyzer` tué — mémoire épuisée, panique sur
+un rechargement d'espace de travail, un développeur qui libère sa
+machine — laissait `rustx-lsp` continuer à poser ses questions à un
+tube fermé, dont chaque réponse est un `None` : le `match` qui suit
+traite ça comme « rien à dire », pas comme « plus personne pour
+répondre ». Résultat vu de l'éditeur : complétion, survol et
+définition s'arrêtent en plein milieu d'une session, sans message,
+sans redémarrage, jusqu'à la fermeture de la fenêtre.
+
+Pire : `restart()` lui-même oubliait la racine et les `linkedProjects`
+donnés à la poignée de main — il repartait par `start_with`, qui les
+passe toujours à `None` et `&[]`. Un `rust-analyzer` relancé analysait
+donc un espace de travail vide et répondait silence à tout, ce qui est
+exactement indiscernable d'un processus mort. Corrigé par les deux
+bouts : `Server` retient maintenant les manifestes `linked` à côté de
+`root`, et `restart()` les redonne à la poignée de main suivante.
+`alive()` (`Child::try_wait`) dit si le processus tenu répond encore à
+l'OS ; `Downstream::held` l'interroge avant de poser une question, et
+sur un processus mort redémarre puis redit chaque fichier déjà ouvert
+— sans ça, le `rust-analyzer` tout neuf ne sait rien jusqu'à la
+prochaine frappe.
 
