@@ -48,6 +48,7 @@ framework promettait de tuer).
 | 28 | cassé | `rustx-compiler` | une fonction ordinaire à côté d'une page n'atteignait pas ses valeurs | **corrigé** |
 | 29 | manque | `rustx-compiler` | une `async fn` ne peut pas atteindre une valeur de page (refus explicite) | ouvert |
 | 30 | coûte | `rustx-compiler` | un `.await` de composant qui emprunte un local est refusé par rustc dans un fichier généré | documenté, pas refusé |
+| 35 | manque | `rustx-lsp` | la complétion ne propose pas un nom seul ni n'ajoute son `use` | ouvert |
 
 ## Ce qui est cassé
 
@@ -482,4 +483,23 @@ blanche sans que rien ne le dise. Le README porte maintenant le bloc
 minimal, à l'endroit où l'on installe Tailwind. Ce qui reste ouvert :
 `rustx new` pourrait écrire cette feuille, ce qui ferait du framework
 l'auteur d'un thème — un choix à faire, pas un oubli.
+
+## 35. Pas d'import automatique dans la complétion — **ouvert**
+
+Signalé par l'utilisateur : taper `read(` ne propose pas
+`std::fs::read`, et n'ajoute pas le `use` qui irait avec — ce que
+`rust-analyzer` fait d'ordinaire dans un `.rs` qu'on édite seul. Dans
+un `.rsx`, il faut écrire le chemin en entier (`std::fs::read`,
+`rustx::dialog`) ; la complétion normale reprend sur ce qui suit le
+dernier `::`, puisque c'est le cas que #22/#33 couvrent déjà.
+
+Piste non vérifiée, à mesurer avant de corriger : la poignée de main
+que `rustx-lsp` envoie à `rust-analyzer` déclare des capacités de
+client vides (`"capabilities":{}`), et un `textDocument/completion`
+qui propose un nom hors de portée revient normalement avec des
+`additionalTextEdits` posant le `use` — à une ligne du fichier généré
+qui n'a aucun équivalent dans le `.rsx`. Les deux peuvent expliquer
+l'absence : soit `rust-analyzer` ne propose rien de hors-portée sans
+capacité déclarée pour le recevoir, soit il le propose et ce serveur
+n'a pas encore de ligne où le poser dans la page.
 
