@@ -58,7 +58,7 @@ framework promettait de tuer).
 | 42 | manque | `rustx-cli` | `rustx new` ne laissait rien à la première `npm install` | **corrigé** |
 | 43 | coûte | `rustx-lsp` | une mort de `rust-analyzer` rendait le LSP aveugle jusqu'au rechargement | **corrigé** |
 | 44 | manque | installation | pas de panneaux d'installation ni de métadonnées (auteur, version…) par OS | ouvert |
-| 45 | manque | `rustx-os` | fonctionnalités système non écrites pour macOS | ouvert — machine Windows seule |
+| 45 | manque | `rustx-os` | raccourcis globaux, barre système et contrôle de fenêtre non écrits sur Linux et macOS | ouvert — le reste (presse-papiers, notifications, démarrage auto, instance unique, caméras, dialogue de fichiers) est réel sur les deux |
 | 46 | manque | `rustx-lsp` | pas d'autocomplétion ni d'auto-import des crates installées dans un `.rsx` | ouvert |
 
 ## Ce qui est cassé
@@ -575,18 +575,28 @@ avant l'ouverture : nom affiché, auteur, version, icône au bon format
 pour chaque système. Un travail de `rustx-cli build --release`, pas
 encore commencé.
 
-## 45. Les fonctionnalités système pour macOS — **ouvert**
+## 45. Les fonctionnalités système, barre système et raccourcis compris — **en partie ouvert**
 
-Fenêtre, presse-papiers, périphériques, notifications, démarrage
-automatique, instance unique : tout existe pour Windows **et pour
-Linux** dans `rustx-os` (`src/linux/`, huit fichiers, écrits et non de
-simples refus). macOS retombe encore dans `other/mod.rs`, qui compile
-partout et refuse en nommant la fonctionnalité plutôt que de
-prétendre marcher — mais ne fait rien de plus. `AppKit`/`NSPasteboard`
-pour le presse-papiers, `AVFoundation` pour les périphériques, et le
-reste restent à écrire ; ce qui peut s'écrire sans machine pour le
-vérifier peut avancer, ce qui a besoin d'être vu tourner attend une
-machine macOS.
+Mis à jour deux fois dans la même nuit. Presse-papiers, notifications,
+démarrage automatique, instance unique et liste des caméras sont réels
+maintenant pour **Linux et macOS**, pas seulement Windows —
+`src/linux/` et `src/macos/`, chacun par un outil ou un fichier que le
+système porte déjà (`xclip`/`wl-copy`, `notify-send`, un `.desktop`,
+`pbcopy`/`pbpaste`, `osascript`, un plist `LaunchAgent`, un socket
+Unix, `/sys/class/video4linux`, `system_profiler`), jamais par une
+bibliothèque que ce crate devrait ajouter. Le dialogue de fichiers
+aussi, des deux côtés : `zenity`/`kdialog` sous Linux, `osascript`
+disant `choose file` sous macOS.
+
+Reste ouvert sur les deux : les raccourcis globaux, la barre système et
+le contrôle de fenêtre, qui ont chacun besoin soit d'un portail de
+bureau sur D-Bus (Linux), soit d'`AppKit`/Carbon (macOS) — un
+attachement en processus ou une liaison native, pas un programme à
+lancer depuis une ligne de commande. Vérifié par `cargo check --target
+x86_64-unknown-linux-gnu` pour les fichiers Linux (zéro machine Linux,
+mais un vrai retour du compilateur) ; les fichiers macOS n'ont que la
+relecture à la main, faute d'une cible Apple installée ici — voir
+l'en-tête « Written, not run » de chacun.
 
 ## 46. L'autocomplétion des crates installées dans un `.rsx` — **ouvert**
 
