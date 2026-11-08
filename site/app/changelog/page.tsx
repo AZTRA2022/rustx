@@ -246,8 +246,8 @@ export default function ChangelogPage() {
       </PageHeader>
 
       <section className="border-t border-grid pb-16">
-        <div className="container-wrapper">
-          <div className="container grid gap-px bg-border/60">
+        <div className="">
+          <div className=" grid gap-px bg-border/60">
             {RELEASES.map((release) => (
               <article
                 key={release.version}

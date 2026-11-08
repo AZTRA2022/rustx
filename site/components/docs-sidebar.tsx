@@ -17,6 +17,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import { BoxIcon } from "lucide-react"
 
 function readScrollState() {
   try {
@@ -162,8 +163,8 @@ export function DocsSidebar({
 
           return (
             <SidebarGroup key={item.$id ?? index}>
-              <SidebarGroupLabel className="font-medium text-muted-foreground">
-                {item.name}
+              <SidebarGroupLabel className="font-medium text-bold gap-2 text-md text-muted-foreground">
+               <BoxIcon  />  {item.name } 
               </SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu className="gap-0.5">
@@ -176,7 +177,7 @@ export function DocsSidebar({
                       >
                         <Link href={page.url}>
                           <span className="absolute inset-0 flex w-(--sidebar-menu-width) bg-transparent" />
-                          {page.name}
+                          {page.name} 
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
