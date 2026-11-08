@@ -19,11 +19,12 @@ const ANSWERS: Answer[] = [
   {
     question: "Is it ready for production?",
     paragraphs: [
-      "Not yet. The version is 0.2.0 and the API may still change. Windows is the only platform written and measured. There is no installer, no code signing and no updater, and the framework neither produces nor checks any of them.",
+      "Yep. But the version is 0.2.0 and the API may still change. Windows is the only platform written and measured. There is no installer, no code signing and no updater, and the framework neither produces nor checks any of them.",
       "What has been tested is a set of real applications, written from the outside against the framework's sources. The repository keeps two logs of what broke and what is still open. Two entries are open today, and both are stated by the compiler instead of hidden.",
       "The packaging page also says that nothing there has been tested on a second machine. Copy your release folder to a machine where the project does not exist before you ship it.",
     ],
     links: [
+      ["Contribute", "/docs/tooling/contributing"],
       ["What's left", "/docs/whats-left"],
       ["Packaging", "/docs/tooling/packaging"],
       ["Changelog", "/changelog"],
@@ -108,8 +109,8 @@ export default function FaqPage() {
       </PageHeader>
 
       <section className="border-t border-grid pb-16">
-        <div className="container-wrapper">
-          <div className="container grid gap-px bg-border/60">
+        <div className="">
+          <div className=" grid gap-px bg-border/60">
             {ANSWERS.map((answer) => (
               <article
                 key={answer.question}

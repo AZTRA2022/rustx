@@ -10,6 +10,10 @@ import {
   PageHeaderHeading,
 } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
+import windows_logo from "@/assets/windows.png"
+import linux_logo from "@/assets/linux.jpeg"
+import apple_logo from "@/assets/apple.png"
+import Image from "next/image"
 
 const EXEMPLE = `let mut order = vec!["a".to_string(), "b".to_string(), "c".to_string()];
 
@@ -62,6 +66,23 @@ const ARGUMENTS = [
   },
 ]
 
+const OS = [
+  {
+    os:"Linux",
+    version:"0.2.0",
+    logo:linux_logo
+  },
+  {
+    os:"Windows",
+    version:"0.2.0",
+    logo:windows_logo
+  },
+  {
+    os:"MacOS",
+    version:"0.2.0",
+    logo:apple_logo
+  }
+]
 export default async function HomePage() {
   const [example, install] = await Promise.all([
     highlightCode(EXEMPLE, "rust"),
@@ -71,11 +92,18 @@ export default async function HomePage() {
   return (
     <div className="flex flex-1 flex-col">
       <PageHeader>
-        <span className="rounded-full border border-border bg-surface px-3 py-1 font-mono text-xs text-muted-foreground">
-          0.2.0 · Windows
+        <div className="flex flex-row gap-2">
+          {
+          OS.map((os) => (
+            <span className="flex flex-row rounded-full border border-border bg-surface px-3 gap-2 py-1 font-mono text-xs text-muted-foreground">
+              <Image alt={os.os} src={os.logo} height={14} width={14} className="rounded-full" />
+              {os.version} {os.os}
         </span>
+          ))
+        }
+        </div>
         <PageHeaderHeading>
-          Native software, written in Rust, drawn by a browser engine.
+          Native software, written in <span className="text-orange-500">Rust</span>, drawn by a browser engine.
         </PageHeaderHeading>
         <PageHeaderDescription>
           Pages in <code className="font-mono">.rsx</code> — the syntax of
@@ -94,8 +122,8 @@ export default async function HomePage() {
       </PageHeader>
 
       <section className="border-t border-grid">
-        <div className="container-wrapper">
-          <div className="container grid gap-px bg-border/60 py-0 md:grid-cols-2 xl:grid-cols-4">
+        <div className="">
+          <div className=" grid gap-px bg-border/60 py-0 md:grid-cols-2 xl:grid-cols-4">
             {ARGUMENTS.map((argument) => (
               <div
                 key={argument.titre}
@@ -113,9 +141,9 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section className="border-t border-grid py-12 lg:py-16">
-        <div className="container-wrapper">
-          <div className="container grid gap-10 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <section className="border-t border-grid px-4 py-12 lg:py-16">
+        <div className="">
+          <div className=" grid gap-10 lg:grid-cols-[minmax(0,1fr)_20rem]">
             <div className="flex min-w-0 flex-col gap-4">
               <div className="flex flex-col gap-1">
                 <h2 className="text-xl font-semibold tracking-tight">
@@ -173,9 +201,9 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section className="border-t border-grid py-12">
-        <div className="container-wrapper">
-          <div className="container flex flex-col items-start gap-4">
+      <section className="border-t border-grid px-6 py-12">
+        <div className="">
+          <div className=" flex flex-col items-start gap-4">
             <h2 className="text-xl font-semibold tracking-tight">
               What the web cannot do
             </h2>

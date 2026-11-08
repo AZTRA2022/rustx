@@ -5,7 +5,7 @@ import { siteConfig } from "@/lib/config"
 export function SiteFooter() {
   return (
     <footer className="border-t border-grid group-has-[[data-slot=docs]]/body:hidden">
-      <div className="container-wrapper px-4 xl:px-6">
+      <div className=" px-4 xl:px-6">
         <div className="flex h-(--footer-height) flex-col items-center justify-center gap-1 text-center text-xs leading-loose text-muted-foreground sm:text-sm">
           <nav className="flex flex-wrap justify-center gap-x-4 gap-y-1">
             {[

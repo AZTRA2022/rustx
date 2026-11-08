@@ -18,6 +18,7 @@ import {
   CommandSeparator,
 } from "@/components/ui/command"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
+import { ArrowRight, Box, Circle, CircleDashed, Hexagon, MessageCircleDashed, MoonStar, SquareDashed, SunDim, TriangleDashed } from "lucide-react"
 
 /**
  * ⌘K.
@@ -94,17 +95,25 @@ export function CommandMenu({
         onOpenChange={setOpen}
         title="Search"
         description="A documentation page, or a setting."
+        showCloseButton={false}
       >
-        <CommandInput placeholder="Type to search…" />
-        <CommandList>
+        <CommandInput placeholder="Type to search…"  />
+        <CommandList  className="no-scrollbar">
           <CommandEmpty>Nothing by that name.</CommandEmpty>
-          <CommandGroup heading="The site">
+          <CommandGroup  heading="The site">
             {navItems.map((item) => (
               <CommandItem
                 key={item.href}
                 value={`site ${item.label}`}
                 onSelect={() => run(() => router.push(item.href))}
               >
+                {/* Sorry guys, i know this code is bad, but i'm to lazy to make it better :) */}
+                {item.href.includes("docs") && <CircleDashed size={14} /> }
+                {item.href.includes("getting-started") && <SquareDashed  size={14} /> }
+                {item.href.includes("/showcase") && <TriangleDashed size={14} /> }
+                {item.href.includes("/faq") && <Hexagon size={14} /> }
+                {item.href.includes("/changelog") && <Box size={14} /> }
+                {item.href.includes("/blog") && <MessageCircleDashed size={14} /> }
                 {item.label}
               </CommandItem>
             ))}
@@ -117,7 +126,7 @@ export function CommandMenu({
                   value={`${group.name} ${page.name}`}
                   onSelect={() => run(() => router.push(page.url))}
                 >
-                  {page.name}
+                 <CircleDashed size={14} />  {page.name}
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -125,10 +134,10 @@ export function CommandMenu({
           <CommandSeparator />
           <CommandGroup heading="Theme">
             <CommandItem onSelect={() => run(() => setTheme("light"))}>
-              Light
+              Light <SunDim size={14} />
             </CommandItem>
             <CommandItem onSelect={() => run(() => setTheme("dark"))}>
-              Dark
+              Dark <MoonStar size={14} />
             </CommandItem>
             <CommandItem onSelect={() => run(() => setTheme("system"))}>
               Follow the system

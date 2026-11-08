@@ -12,7 +12,7 @@ export function SiteHeader() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-grid bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-      <div className="container-wrapper px-6">
+      <div className=" px-6">
         <div className="flex h-(--header-height) items-center **:data-[slot=separator]:h-4!">
           <MobileNav
             tree={pageTree}

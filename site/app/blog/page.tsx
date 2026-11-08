@@ -31,8 +31,8 @@ export default function BlogPage() {
       </PageHeader>
 
       <section className="border-t border-grid pb-16">
-        <div className="container-wrapper">
-          <div className="container grid gap-px bg-border/60">
+        <div className="">
+          <div className=" grid gap-px bg-border/60">
             {posts.map((post) => (
               <article
                 key={post.slug}

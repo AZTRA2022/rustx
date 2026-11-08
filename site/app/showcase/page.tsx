@@ -92,8 +92,8 @@ export default function ShowcasePage() {
       </PageHeader>
 
       <section className="border-t border-grid pb-16">
-        <div className="container-wrapper">
-          <div className="container grid gap-px bg-border/60 lg:grid-cols-2">
+        <div className="">
+          <div className=" grid gap-px bg-border/60 lg:grid-cols-2">
             {APPLICATIONS.map((application) => (
               <article
                 key={application.nom}

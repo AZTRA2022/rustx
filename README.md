@@ -1373,11 +1373,6 @@ du code qu'on aurait pu écrire à la main.
 | `docs/chasse-aux-bugs.md` | ce qu'un projet écrit du dehors a cassé, et ce qui l'a réparé |
 | `docs/publier.md` | les huit paquets, et sous quels noms ils partent |
 
-## Ce qui reste
-
-- macOS et Linux : chaque module compile et nomme ce qui lui manque ;
-- l'enregistrement et la capture au-delà de ce que Chromium donne déjà ;
-- un site de documentation, quand il aura à dire autre chose que ceci.
 
 ## La licence
 

@@ -150,7 +150,34 @@ impl Downstream {
         }
     }
 
-    fn held(&mut self) -> Option<&mut downstream::Server> {
+    /// The server downstream, restarting it first if it died.
+    ///
+    /// `rust-analyzer` can die without the window closing — out of
+    /// memory, a panic on reloading a workspace, a kill to free a
+    /// machine — and answering nothing forever after that is what a
+    /// developer sees as the LSP "faltering": completion, hovers and
+    /// definitions silently stop, with no sign of why. A dead child is
+    /// restarted instead, and every file already open is told again —
+    /// the fresh process otherwise knows nothing until the next
+    /// keystroke sends a `didChange` it has no file to apply it to.
+    fn held(
+        &mut self,
+        shadows: &std::collections::HashMap<String, shadow::Shadow>,
+    ) -> Option<&mut downstream::Server> {
+        if let Self::Held(server) = self
+            && !server.alive()
+        {
+            if server.restart() {
+                for shadow in shadows.values() {
+                    server.tell(
+                        "textDocument/didOpen",
+                        &shadow::told(shadow, "textDocument/didOpen"),
+                    );
+                }
+            } else {
+                *self = Self::None;
+            }
+        }
         match self {
             Self::Held(server) => Some(server),
             _ => None,
@@ -225,7 +252,13 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
                 // the generated file at all.
                 let answer = match offer(&method, &message, &sources) {
                     Some(items) => items,
-                    None => assist(&method, &message, &shadows, &sources, downstream.held()),
+                    None => assist(
+                        &method,
+                        &message,
+                        &shadows,
+                        &sources,
+                        downstream.held(&shadows),
+                    ),
                 };
                 rpc::write(
                     output,
@@ -261,7 +294,7 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
                     } else {
                         "textDocument/didOpen"
                     };
-                    if let Some(server) = downstream.held() {
+                    if let Some(server) = downstream.held(&shadows) {
                         server.tell(telling, &shadow::told(&fresh, telling));
                     }
                     shadows.insert(uri.clone(), fresh);
