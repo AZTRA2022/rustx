@@ -51,6 +51,11 @@ pub struct Server {
     next_id: i64,
     /// The project it was started in, if it was told one.
     root: Option<String>,
+    /// The manifests named in the handshake, so a restart can name them
+    /// again. Lost, a restarted `rust-analyzer` analyses nothing and
+    /// answers every question with silence — indistinguishable from the
+    /// death that `restart` was supposed to recover from.
+    linked: Vec<std::path::PathBuf>,
     /// Everything written to it, which is what a test reads back and
     /// what makes a session legible when one goes wrong.
     sent: String,
@@ -79,6 +84,7 @@ impl Server {
             command: None,
             next_id: 0,
             root: None,
+            linked: Vec::new(),
             sent: String::new(),
         }
     }
@@ -137,6 +143,7 @@ impl Server {
         ));
 
         server.root = root.map(str::to_string);
+        server.linked = linked.to_vec();
         // The handshake is the one question worth waiting for: a server
         // that has just been started has a process to create and a
         // manifest to read, and a keystroke is not waiting on this one.
@@ -201,6 +208,21 @@ impl Server {
         self.root.as_deref()
     }
 
+    /// Whether the child is still running.
+    ///
+    /// A server over plain streams — a test, or a client with no
+    /// process to watch — has no child to ask and is always alive as
+    /// far as this is concerned; whether it still answers is for `ask`
+    /// to find out. A server with a child reports what the operating
+    /// system reports, which is how a death between two keystrokes is
+    /// told apart from a question that is merely slow.
+    pub fn alive(&mut self) -> bool {
+        match self.child.as_mut() {
+            Some(child) => matches!(child.try_wait(), Ok(None)),
+            None => true,
+        }
+    }
+
     /// Say something that has no answer.
     pub fn tell(&mut self, method: &str, params: &str) {
         self.write(&format!(
@@ -212,7 +234,11 @@ impl Server {
     /// Start the child again, after it died.
     ///
     /// A server over plain streams cannot be restarted — there is no
-    /// command to run — and says so by answering `false`.
+    /// command to run — and says so by answering `false`. The project
+    /// root and the manifests named at the first handshake are named
+    /// again, not dropped: a restart that forgot them would come back
+    /// up analysing nothing, which answers every question with the same
+    /// silence as the death it was meant to recover from.
     pub fn restart(&mut self) -> bool {
         let Some((command, arguments)) = self.command.clone() else {
             return false;
@@ -222,7 +248,9 @@ impl Server {
             let _ = child.wait();
         }
         let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
-        match Self::start_with(&command, &arguments) {
+        let root = self.root.clone();
+        let linked = self.linked.clone();
+        match Self::started(&command, &arguments, root.as_deref(), &linked) {
             Some(fresh) => {
                 *self = fresh;
                 true
