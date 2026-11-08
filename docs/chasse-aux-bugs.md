@@ -72,6 +72,7 @@ rendu ». Les trois étaient justes, et les numéros 14 à 17 en viennent.
 | 35 | bloquant | `rustx-compiler` | une expression de balise qui tient des instructions n'était pas émise en bloc | corrigé |
 | 36 | bloquant | `rustx-compiler` | un nom qu'un `let` lie était réécrit comme une lecture | corrigé |
 | 37 | important | `rustx-engine` | `value` posé en attribut seul : un champ que la page vide restait plein | corrigé |
+| 42 | bloquant | `rustx-lsp` | `rust-analyzer` mort laissait la complétion éteinte pour le reste de la session | corrigé |
 
 ---
 
@@ -909,121 +910,28 @@ README le dit maintenant à l'endroit où l'on choisit Tailwind, et trois
 lois du labo le mesurent dans la fenêtre : la couleur du fond, celle du
 texte, et la police effective.
 
----
+**42. `rust-analyzer` qui meurt faisait tomber la complétion pour de
+bon.** `Server` avait déjà un `restart()`, testé, qu'aucun code de
+production n'appelait : rien ne regardait jamais si le processus tenu
+était encore là. Un `rust-analyzer` tué — mémoire épuisée, panique sur
+un rechargement d'espace de travail, un développeur qui libère sa
+machine — laissait `rustx-lsp` continuer à poser ses questions à un
+tube fermé, dont chaque réponse est un `None` : le `match` qui suit
+traite ça comme « rien à dire », pas comme « plus personne pour
+répondre ». Résultat vu de l'éditeur : complétion, survol et
+définition s'arrêtent en plein milieu d'une session, sans message,
+sans redémarrage, jusqu'à la fermeture de la fenêtre.
 
-## Ce qu'une nuit à faire tourner le labo pour de vrai a trouvé — 2026-11-08
-
-Neuf bugs, dont cinq lus directement dans `labo-rustx/BUG.md`, et
-quatre trouvés en poussant le labo plus loin que ses propres
-scénarios : des graphiques, un routeur appelé depuis un futur, une
-fenêtre qui ne voulait pas fermer.
-
-**42. Un commentaire avant une écriture annulait l'écriture.**
-`battements.get().push(...)`, précédé d'un commentaire sur la ligne
-d'avant — ou d'un bloc `/* … */`, ou d'un commentaire en fin de la
-ligne précédente — ne passait plus par le magasin. `is_statement` ne
-remontait que sur les espaces et les saisissait pour un opérateur, pas
-pour un point-virgule ou une accolade laissés plus loin derrière le
-commentaire. `back_over_space_and_comments` lit maintenant les trois
-formes avant de décider ce qui précède, et distingue un `//` dans une
-chaîne (`"https://…"`) d'un vrai commentaire.
-
-**43. `style="width: 50%"` traversait la frontière en chaîne.** Trois
-barres de progression et la carte qui les tenait disparaissaient avec
-React #62 : une chaîne n'est pas un objet de style valide pour React,
-qui attend `{ width: "50%" }`. `style_object` découpe maintenant la
-chaîne sur `;` puis sur le premier `:`, met chaque propriété en
-camelCase — sauf les `--variables` — et c'est ce qui traverse pour
-l'attribut `style`.
-
-**44. Un nom de composant qui collisionnait avec une bibliothèque
-faisait tomber tout l'écran, en silence.** `LineChart`, `BarChart` et
-`Tooltip`, écrits sans le préfixe `recharts::`, se résolvaient vers
-`lucide-react` — qui a des icônes du même nom — plutôt que vers la
-bibliothèque de graphiques : React #130, et la carte entière
-disparaissait sans un mot. La forme `recharts::LineChart` lève
-l'ambiguïté ; et surtout, `draw()` entoure maintenant le rendu d'un
-`try`/`catch` qui dit lequel des composants a jeté et pourquoi, plutôt
-que de laisser tout le cadran mourir sans trace.
-
-**45. `router::replace` depuis un bloc `async` ne faisait rien.** Le
-routeur était tenu par du thread-local, et le futur d'un composant ne
-s'exécute pas forcément sur le thread qui a ouvert la page :
-`route_avec_query` restait sur `/depots` après avoir demandé
-`/depots?q=tokio`. Le routeur est maintenant une copie partagée par
-tout le processus (`Elsewhere`, derrière un `OnceLock<RwLock<_>>`), et
-`navigate`/`replace` se reposent eux-mêmes sur le thread de la page
-quand ils sont appelés d'ailleurs.
-
-**46. `rustx dev` reconstruisait sans fin.** `labo-rustx/BUG.md` : « ...
-rebuild en permanence le projet sans qu'aucun fichier n'ait même été
-modifié. » Les pages engendrées par la macro recevaient une date de
-modification neuve à chaque build, même sans changement — `include!`
-les relit, et cargo les croyait toujours à reconstruire. Toutes les
-écritures du compilateur (pages, entrée esbuild, bundle, feuille
-Tailwind) comparent maintenant le contenu avant d'écrire, et ne
-touchent le disque que si quelque chose a réellement changé.
-
-**47. Une fenêtre encore ouverte faisait échouer la construction de
-l'autre projet — à moitié corrigé.** Le même rapport, en détail :
-« Access is denied. (os error 5) » au build de `cef-dll-sys`, qui
-supprime et recopie `libcef.dll` à chaque fois. Une fenêtre du labo
-oubliée ouverte tenait le fichier, et comme labo et framework
-partagent `target-dir`, une fenêtre de l'un bloquait une
-reconstruction de l'autre — un bug « très susceptible d'advenir sur
-des projets une fois les crates publiés », disait le rapport, à
-raison. `build::held()` regarde si une DLL critique est tenue avant de
-lancer cargo et le dit en clair, dans `rustx build` et `rustx run` ;
-`rustx dev` ferme d'abord sa propre fenêtre plutôt que d'attendre
-l'erreur.
-
-**Ce qui n'est pas corrigé** : exactement ce que le rapport décrivait
-en premier, `cargo run` ou `cargo build` **tapé directement**, sans
-passer par `rustx`. Rejoué sur une vraie fenêtre ouverte, un `cargo
-build` nu dans `labo-rustx` affiche encore mot pour mot « Error:
-Access is denied. (os error 5) », sans nom de fichier ni de fenêtre —
-parce que ce chemin ne traverse jamais le code de `rustx-cli` : cargo
-appelle le script de construction de `cef-dll-sys` directement, et
-rien n'intercepte l'échec d'un script de construction d'une
-dépendance transitive depuis l'extérieur de cargo. L'écrire en
-`build.rs` du projet irait contre la règle même du framework
-(« no build.rs, no plumbing ») et serait de toute façon trop tard :
-`cef-dll-sys` construit avant le projet qui le demande, pas après. Le
-seul vrai correctif est le changement d'habitude — `rustx build` /
-`rustx run` plutôt que la commande cargo nue — documenté dans le
-dépannage.
-
-**48. `rustx new` écrivait `version = "0.1"`.** Sous la règle de cargo
-pour le 0.x, une exigence `0.1` n'accepte pas 0.2.0 : tout projet neuf
-recevait silencieusement le framework de la version précédente, refus
-compris, déjà corrigés des mois plus tôt. La version demandée est
-maintenant lue dans la version de cette ligne de commande elle-même
-(`env!("CARGO_PKG_VERSION")`), et non recopiée à la main dans une
-chaîne qui vieillit mal.
-
-**49. `rustx new` ne laissait rien à `npm install`.** `labo-rustx/BUG.md`
-le demandait : « make sure that all files needed for npm lib
-installation are added ». La documentation commence par `npm install
-recharts`, et sans `package.json` un vieux `npm` refuse net, un récent
-en écrit un de son cru — nommé d'après le dossier, en `1.0.0`, sans
-`private`. Le fichier manquant apparaissait un pas trop tard et sous un
-autre nom que celui du projet. `rustx new` écrit maintenant un
-`package.json` minimal, prêt pour la première bibliothèque.
-
-**50. Une mort de `rust-analyzer` rendait le LSP aveugle pour le reste
-de la session.** Signalé mot pour mot dans `labo-rustx/BUG.md` : « rust
-analyser s'arrête subitement dans mon VSCode et fait flancher notre LSP
-avec lui. » Une question qui ne trouve plus de réponse après la mort du
-serveur en aval ne distinguait pas une simple lenteur d'un canal fermé
-pour de bon — et dans les deux cas rendait la main vide, pour toujours,
-jusqu'au rechargement de la fenêtre de l'éditeur. Un canal **fermé**
-(et non simplement lent) relance maintenant le serveur une fois et
-repose la question qui l'a trouvé parti.
-
-Restent ouverts, dans le même rapport : les panneaux d'installation et
-les métadonnées du logiciel par système, les fonctionnalités système
-pour macOS et Linux, et l'autocomplétion/auto-import des crates
-installées dans un `.rsx` — les trois demandent soit une machine que
-celle-ci n'est pas, soit un travail du serveur de langage qui dépasse
-une nuit. Voir `manques-du-framework.md`.
+Pire : `restart()` lui-même oubliait la racine et les `linkedProjects`
+donnés à la poignée de main — il repartait par `start_with`, qui les
+passe toujours à `None` et `&[]`. Un `rust-analyzer` relancé analysait
+donc un espace de travail vide et répondait silence à tout, ce qui est
+exactement indiscernable d'un processus mort. Corrigé par les deux
+bouts : `Server` retient maintenant les manifestes `linked` à côté de
+`root`, et `restart()` les redonne à la poignée de main suivante.
+`alive()` (`Child::try_wait`) dit si le processus tenu répond encore à
+l'OS ; `Downstream::held` l'interroge avant de poser une question, et
+sur un processus mort redémarre puis redit chaque fichier déjà ouvert
+— sans ça, le `rust-analyzer` tout neuf ne sait rien jusqu'à la
+prochaine frappe.
 

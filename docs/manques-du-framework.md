@@ -48,18 +48,7 @@ framework promettait de tuer).
 | 28 | cassé | `rustx-compiler` | une fonction ordinaire à côté d'une page n'atteignait pas ses valeurs | **corrigé** |
 | 29 | manque | `rustx-compiler` | une `async fn` ne peut pas atteindre une valeur de page (refus explicite) | ouvert |
 | 30 | coûte | `rustx-compiler` | un `.await` de composant qui emprunte un local est refusé par rustc dans un fichier généré | documenté, pas refusé |
-| 35 | cassé | `rustx-compiler` | un commentaire avant une écriture annulait l'écriture | **corrigé** |
-| 36 | cassé | `rustx-dom` / `rustx-engine` | `style="…"` traversait la frontière React en chaîne, pas en objet | **corrigé** |
-| 37 | manque | `rustx-engine` | une collision de nom avec une bibliothèque JS faisait tomber tout l'écran sans un mot | **le silence est corrigé** ; la collision reste un piège à documenter |
-| 38 | cassé | `rustx-engine` | `router::replace`/`navigate` depuis un `async` sur un autre thread ne faisaient rien | **corrigé** |
-| 39 | coûte | `rustx-compiler` | `rustx dev` reconstruisait le projet sans qu'aucun fichier n'ait changé | **corrigé** |
-| 40 | cassé | `rustx-cli` / `rustx-engine` | une fenêtre encore ouverte faisait échouer la construction (os error 5) | **à moitié corrigé** — `rustx build`/`run`/`dev` seulement, pas `cargo build`/`run` nu |
-| 41 | cassé | `rustx-cli` | `rustx new` écrivait `version = "0.1"`, obsolète dès 0.2.0 | **corrigé** |
-| 42 | manque | `rustx-cli` | `rustx new` ne laissait rien à la première `npm install` | **corrigé** |
-| 43 | coûte | `rustx-lsp` | une mort de `rust-analyzer` rendait le LSP aveugle jusqu'au rechargement | **corrigé** |
-| 44 | manque | installation | pas de panneaux d'installation ni de métadonnées (auteur, version…) par OS | ouvert |
-| 45 | manque | `rustx-os` | raccourcis globaux, barre système et contrôle de fenêtre non écrits sur Linux et macOS | ouvert — le reste (presse-papiers, notifications, démarrage auto, instance unique, caméras, dialogue de fichiers) est réel sur les deux |
-| 46 | manque | `rustx-lsp` | pas d'autocomplétion ni d'auto-import des crates installées dans un `.rsx` | ouvert |
+| 35 | manque | `rustx-lsp` | la complétion ne propose pas un nom seul ni n'ajoute son `use` | ouvert |
 
 ## Ce qui est cassé
 
@@ -495,6 +484,24 @@ minimal, à l'endroit où l'on installe Tailwind. Ce qui reste ouvert :
 `rustx new` pourrait écrire cette feuille, ce qui ferait du framework
 l'auteur d'un thème — un choix à faire, pas un oubli.
 
+## 35. Pas d'import automatique dans la complétion — **ouvert**
+
+Signalé par l'utilisateur : taper `read(` ne propose pas
+`std::fs::read`, et n'ajoute pas le `use` qui irait avec — ce que
+`rust-analyzer` fait d'ordinaire dans un `.rs` qu'on édite seul. Dans
+un `.rsx`, il faut écrire le chemin en entier (`std::fs::read`,
+`rustx::dialog`) ; la complétion normale reprend sur ce qui suit le
+dernier `::`, puisque c'est le cas que #22/#33 couvrent déjà.
+
+Piste non vérifiée, à mesurer avant de corriger : la poignée de main
+que `rustx-lsp` envoie à `rust-analyzer` déclare des capacités de
+client vides (`"capabilities":{}`), et un `textDocument/completion`
+qui propose un nom hors de portée revient normalement avec des
+`additionalTextEdits` posant le `use` — à une ligne du fichier généré
+qui n'a aucun équivalent dans le `.rsx`. Les deux peuvent expliquer
+l'absence : soit `rust-analyzer` ne propose rien de hors-portée sans
+capacité déclarée pour le recevoir, soit il le propose et ce serveur
+n'a pas encore de ligne où le poser dans la page.
 ## 35. Un commentaire avant une écriture — **corrigé**
 
 `is_statement` ne remontait que sur les espaces entre ce qui précède
