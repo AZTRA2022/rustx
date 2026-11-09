@@ -1,83 +1,107 @@
-import type { Metadata } from "next"
+import type { Metadata } from "next";
 
 import {
   PageHeader,
   PageHeaderDescription,
   PageHeaderHeading,
-} from "@/components/page-header"
+} from "@/components/page-header";
+import promise1 from "@/assets/promise-1.webp";
+import promise2 from "@/assets/promise-2.webp";
+import promise3 from "@/assets/promise-3.webp";
+import promise4 from "@/assets/promise-4.webp";
+import promise5 from "@/assets/promise-5.webp";
+import promise6 from "@/assets/promise-6.webp";
+import promise7 from "@/assets/promise-7.webp";
+import promise8 from "@/assets/promise-8.webp";
+import Image, { StaticImageData } from "next/image";
+import {
+  ArrowBigUpDash,
+  SquareArrowOutUpLeft,
+  SquareArrowOutUpRight,
+  SquareArrowRight,
+} from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Showcase",
   description:
     "The applications of the repository: each exists to prove one thing, and says which.",
-}
+};
 
 type Vitrine = {
-  nom: string
-  chemin: string
-  quoi: string
-  preuve: string
-  mots: string[]
-}
+  name: string;
+  description: string;
+  inpired_by: { name: string; url: string };
+  what: string;
+  related: string[];
+  image: StaticImageData;
+};
 
 const APPLICATIONS: Vitrine[] = [
   {
-    nom: "hybrid",
-    chemin: "apps/hybrid",
-    quoi: "A page where Rust and JavaScript share a single DOM: a recharts chart whose points are a `let mut` of the file, inside a shadcn `Card` installed by `npx shadcn add`.",
-    preuve:
-      "Its `main` is `async` and waits before there is a window, with no `#[tokio::main]` beside it; and an input field placed inside a React subtree gives the same event as a tag that the engine mounts itself.",
-    mots: ["recharts", "shadcn", "async fn main", "loading.rsx"],
+    name: "AI Agent Manager",
+    description: "A software for deploy manage your AI agents.",
+    inpired_by: { name: "Design Grid", url: "https://tiktok.com/@designgrid" },
+    what: "Recharts JS, TailwindCSS, Geist Font, Lucide React, Supabase, LLM-Studio/Anthropic/OpenRouter API. Reqwest, Axum,Serde... All those are the dependencies has been used for build this app",
+    related: ["Recharts", "Shadcn", "async fn main", "+ features"],
+    image: promise1,
   },
   {
-    nom: "catalogue",
-    chemin: "apps/catalogue",
-    quoi: "A list, a button and an area to drop files on — the interface is `app/page.rsx` and nowhere else.",
-    preuve:
-      "What a web page receives when a file is dropped on it is an object without a path; what `rustx::dropped` gives is the real path, the one you can reopen tomorrow.",
-    mots: ["dropped::on_files", "effect", "a single page"],
+    name: "R Intelligent Data",
+    description: "A full GUI for Databases Management",
+    inpired_by: { name: "Design Grid", url: "https://tiktok.com/@designgrid" },
+    what: " The power of shadcn tables & other components joined to Rust Git2 crate + Docker CLI + Kubernetes client, a controller runtime, a custom resource derive, and various tooling required for building applications or controllers that interact with Kubernetes.",
+    related: ["Drag&Drop", "DevOps", "Shadcn UI", "Database", "Scale Up"],
+    image: promise2,
   },
   {
-    nom: "counter",
-    chemin: "apps/counter",
-    quoi: "The counter from the design document, written in `.rsx`: a home page, and the counter itself at `/counter`.",
-    preuve:
-      "A single `let mut n = 0;` gives two counters side by side, and the rows of a keyed list each keep their own count through a reordering — a cell's identity is its place in the tree.",
-    mots: ["let mut", "component cells", "keyed lists"],
+    name: "Vault-Storage Secure",
+    description: "Hyper Secret data storage",
+    inpired_by: { name: "Design Grid", url: "https://tiktok.com/@designgrid" },
+    what: "Cyber deck Font, TailwindCSS, QrCode crate. They were joined to give birth to this wonderfull projet. Btw his code is available on our public repo !",
+    related: ["Encryption", "HyperFrames", "Algorithms"],
+    image: promise3,
   },
   {
-    nom: "monitor",
-    chemin: "apps/monitor",
-    quoi: "A monitor fed by a background thread: `let mut ticks = 0;` at the top of the page is a value that two components read.",
-    preuve:
-      "The thread that pushes it is a `task` that the panel keeps, so leaving the page stops it without a cleanup written anywhere; and a button opens a second window on the `/pause` route.",
-    mots: ["task", "alive.post", "window::open"],
+    name: "Monitor",
+    description: "Remote Ressource App for Agents.",
+    inpired_by: { name: "Design Grid", url: "https://tiktok.com/@designgrid" },
+    what: "This is a remote hardware tracking desktop app, implemented by Claude Code to follow all the agents usages: CPU,GPU,RAM,ROM,NETWORK,TOKENS+ and alert a human on Email/Whatsapp .",
+    related: ["Tasks", "Ressources", "Optimisation"],
+    image: promise4,
   },
   {
-    nom: "zoo",
-    chemin: "apps/zoo",
-    quoi: "Many libraries, one page: the lucide-react icons, a markdown render whose content is its children, and Radix tabs that keep a state of their own around a state that rustx keeps.",
-    preuve:
-      "This application exists to find what the boundary cannot yet do — an `onValueChange` whose closure stays in Rust while what crosses is a function that calls it. What does not work is written, not hidden.",
-    mots: ["lucide-react", "react-markdown", "radix-ui", "callbacks"],
+    name: "MultiTask Hub",
+    description: "Tracks & Solve orchestration problems.",
+    inpired_by: { name: "Design Grid", url: "https://tiktok.com/@designgrid" },
+    what: "This application exists to solve any problem that you can encouter while scaling many projects at the same time. Was built with SeaOrm-CLI -> Supabase, Git2 crate, std, Shadcn, Tailwind v4, Reqwest crate... ",
+    related: ["Systemm", "Routes", "Advanced", "Orchestration"],
+    image: promise5,
   },
   {
-    nom: "capture",
-    chemin: "apps/capture",
-    quoi: "Two screens, a layout that outlives both of them, and a flow that closes itself: the list of devices at `/`, the preview of one of them at `/device/[id]`.",
-    preuve:
-      "Nothing here mounts or unmounts a screen: opening a device is `navigate`, going back is `back`. The preview's stream is a kept value, so leaving the screen closes it, and the thread of the bar belongs to the layout, so it keeps going while the screens change under it.",
-    mots: ["layout.rsx", "[id]", "keep", "navigate / back"],
+    name: "Utility Hub",
+    description: "Management App for Tech & Fin Startups. ",
+    inpired_by: { name: "Utility Hub", url: "https://utility-app.xyz" },
+    what: "An Application tought for growing up business that allow the team to follow each path of the Startup: Tech ( Git,Slack like Chat, Webhooks,Email/Whatsapp/In-App notifications, Smart & AI powered Automations, Driver,...) | Financial: [ Html to Email or Whatsapp Invoice/quote/receipt, ...] -> [The Client], Auto & Omniscient AI ...Dependencies: Convex crate, OpenRouter, Recharts, Git2 crate, Lucide React, Shadcn...",
+    related: ["Finance", "Tech", "AI Powered", "OpenRouter"],
+    image: promise6,
   },
   {
-    nom: "labo-rustx",
-    chemin: "a separate repository",
-    quoi: "A GitHub repository browser, written from the outside: nested routes, parameters, a command palette, search with *debounce* on a real HTTPS API, concurrent tasks, recharts graphs, a TipTap editor, native clipboard and dialogs.",
-    preuve:
-      "Nothing in it was written to please the framework: every line is what a developer writes first. This is where the `docs/manques-du-framework.md` log comes from. Its window is frameless, and the top bar is its own.",
-    mots: ["frameless()", "reqwest", "TipTap", "not_found"],
+    name: "Nemo Design",
+    description: "3D Agents powered App.",
+    inpired_by: { name: "Dribbble", url: "https://dribbble.com/" },
+    what: "A desktop application build for edit 3D models , Blender like app, ameliorated by AI agents, like Opus/Kimi/Grok/Astra to perform designing operations. Used: ThreeJS, Shadcn, Ffmpeg, Rodio, OpenRouter, Chrono Crate....",
+    related: ["ThreeJS", "Reqwest", "Ffmpeg", "OpenRouter"],
+    image: promise7,
   },
-]
+  {
+    name: "Altlassian Raw",
+    description: "Tiny video editor app ffmpeg powered by.",
+    inpired_by: { name: "Dribbble", url: "https://dribbble.com/" },
+    what: "A tiny video editor for small, fast cuts, resize, colorize, AI edits, subtitling. This app was made with Ffmpeg, joined to some React UI components",
+    related: ["ThreeJS", "Shadcn", "Ffmpeg", "OpenRouter"],
+    image: promise8,
+  },
+];
 
 export default function ShowcasePage() {
   return (
@@ -96,23 +120,37 @@ export default function ShowcasePage() {
           <div className=" grid gap-px bg-border/60 lg:grid-cols-2">
             {APPLICATIONS.map((application) => (
               <article
-                key={application.nom}
+                key={application.name}
                 className="flex flex-col gap-4 bg-background p-6 lg:p-8"
               >
-                <header className="flex flex-col gap-1">
-                  <h2 className="font-mono text-lg font-semibold tracking-tight">
-                    {application.nom}
-                  </h2>
-                  <p className="font-mono text-xs text-muted-foreground">
-                    {application.chemin}
+                <header className="flex flex-col   ">
+                  <div className="flex flex-row gap-4 items-center">
+                    <h2 className="font-mono text-lg font-semibold tracking-tight">
+                      {application.name}
+                    </h2>
+                    <p className="text-sm text-muted-foreground">
+                      {" "}
+                      {application.description}{" "}
+                    </p>
+                  </div>
+                  <p className="text-sm text-muted-foreground flex flex-row items-center gap-1">
+                    {" "}
+                    Inpired by
+                    <a
+                      href={application.inpired_by.url}
+                      className="hover:text-white flex flex-row items-center gap-1"
+                    >
+                      {application.inpired_by.name}
+                      <SquareArrowOutUpRight size={12} />
+                    </a>
                   </p>
                 </header>
-                <p className="text-sm leading-relaxed">{application.quoi}</p>
+                <Image alt={application.name} src={application.image} />
                 <p className="border-l-2 border-border pl-4 text-sm leading-relaxed text-muted-foreground">
-                  {application.preuve}
+                  {application.what}
                 </p>
                 <ul className="mt-auto flex flex-wrap gap-1.5 pt-2">
-                  {application.mots.map((mot) => (
+                  {application.related.map((mot) => (
                     <li
                       key={mot}
                       className="rounded-full border border-border bg-surface px-2.5 py-0.5 font-mono text-[0.7rem] text-muted-foreground"
@@ -127,5 +165,5 @@ export default function ShowcasePage() {
         </div>
       </section>
     </div>
-  )
+  );
 }

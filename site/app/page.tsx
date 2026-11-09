@@ -10,9 +10,9 @@ import {
   PageHeaderHeading,
 } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
-import windows_logo from "@/assets/windows.png"
-import linux_logo from "@/assets/linux.jpeg"
-import apple_logo from "@/assets/apple.png"
+import windows_logo from "@/assets/windows.webp"
+import linux_logo from "@/assets/linux.webp"
+import apple_logo from "@/assets/apple.webp"
 import Image from "next/image"
 
 const EXEMPLE = `let mut order = vec!["a".to_string(), "b".to_string(), "c".to_string()];

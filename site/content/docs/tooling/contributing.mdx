@@ -7,16 +7,16 @@ The repository is a cargo workspace, and each part has a boundary that can be he
 
 ## The eight crates
 
-| | |
-|---|---|
-| `rustx` | the facade: the only crate an application declares. Published as `rustx-app` |
-| `rustx-macros` | `#[rustx::main]` and `#[derive(ToValue)]`. Published as `rustx-macro` |
+|                  |                                                                                              |
+| ---------------- | -------------------------------------------------------------------------------------------- |
+| `rustx`          | the facade: the only crate an application declares. Published as `rustx-app`                 |
+| `rustx-macros`   | `#[rustx::main]` and `#[derive(ToValue)]`. Published as `rustx-macro`                        |
 | `rustx-compiler` | the `.rsx` read, rewritten and emitted as Rust; the route table; esbuild and Tailwind called |
-| `rustx-dom` | `Element`, `Event`, `Value`, the state, the routes — what depends on no system |
-| `rustx-engine` | CEF, the frames, the rendering, the bridge between the two processes, the router, the tasks |
-| `rustx-os` | what speaks to the system: window, clipboard, dialogs, tray, shortcuts, devices |
-| `rustx-cli` | `rustx new`, `rustx dev`, `rustx build` |
-| `rustx-lsp` | the language server |
+| `rustx-dom`      | `Element`, `Event`, `Value`, the state, the routes — what depends on no system               |
+| `rustx-engine`   | CEF, the frames, the rendering, the bridge between the two processes, the router, the tasks  |
+| `rustx-os`       | what speaks to the system: window, clipboard, dialogs, tray, shortcuts, devices              |
+| `rustx-cli`      | `rustx new`, `rustx dev`, `rustx build`                                                      |
+| `rustx-lsp`      | the language server                                                                          |
 
 `apps/` holds the proof applications — `counter`, `catalogue`,
 `hybrid`, `monitor`, `capture`, `zoo` — which exist to be opened
@@ -55,8 +55,12 @@ The harnesses say so themselves when they recognize the log
 ("Failed to create shared context").
 
 <Callout type="warn" title="An elevated terminal">
-Chromium de-elevates itself since M156: launched from an administrator terminal, the process relaunches non-elevated and the first one fails with
-`ContentMainInitialize failed with exit code 38`. The harnesses pass `--do-not-de-elevate`; an application launched by hand from such a terminal must pass it too, or be launched from an ordinary terminal. The engine recognizes the case and says so in the failure.
+  Chromium de-elevates itself since M156: launched from an administrator
+  terminal, the process relaunches non-elevated and the first one fails with
+  `ContentMainInitialize failed with exit code 38`. The harnesses pass
+  `--do-not-de-elevate`; an application launched by hand from such a terminal
+  must pass it too, or be launched from an ordinary terminal. The engine
+  recognizes the case and says so in the failure.
 </Callout>
 
 ## How the tests open a window
@@ -83,7 +87,7 @@ The two ends of the bridge: what leaves, what arrives, and what nobody is listen
 This is the most bounded job in the repository, and the most useful today: one file per capability in `crates/rustx-os/src/<os>/`, the same function names as the facade, and an `AVAILABLE` constant. The current refusal already names the file to write.
 
 ```text
-rustx: « tray » n'est pas écrit pour linux — le fichier à écrire est
+rustx: « tray » isn't written for linux — the file to write is:
 crates/rustx-os/src/linux/tray.rs
 ```
 

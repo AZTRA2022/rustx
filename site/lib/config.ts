@@ -1,5 +1,5 @@
 export const siteConfig = {
-  name: "rustx",
+  name: "Rustx",
   url: process.env.NEXT_PUBLIC_APP_URL ?? "https://rustx.dev",
   description:
     "Native software, written in Rust, drawn by a browser engine. .rsx pages, a state in let mut, and npm libraries from tags.",
