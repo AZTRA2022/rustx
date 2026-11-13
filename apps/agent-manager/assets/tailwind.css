@@ -17,6 +17,10 @@
   --border: #1c2030;
   --input: #1c2030;
   --ring: #6366f1;
+  /* shadcn's `destructive` variant asks for this one by name, and a
+     token nothing declares is a button with no background at all. */
+  --destructive: #7f1d2e;
+  --destructive-foreground: #fee2e2;
   --radius: 0.6rem;
 }
 
@@ -36,6 +40,8 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
