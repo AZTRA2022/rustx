@@ -29,10 +29,12 @@
 //! desktop distribution already has (`xclip`/`wl-copy`,
 //! `notify-send`, a `.desktop` file, a Unix socket, `zenity`/
 //! `kdialog`, `/sys/class/video4linux`), not by a library this crate
-//! would have to add and this machine cannot run. Global shortcuts,
-//! the tray and window control still refuse on Linux: each needs
-//! either a desktop portal over D-Bus or a connection to the display
-//! server, which is a larger piece of work than a file at a time. On
+//! would have to add and this machine cannot run. Window control is
+//! real on Linux too, on X11, through `x11rb` — compile-checked from
+//! this machine and never run, which `linux/window.rs` says at its
+//! top. Global shortcuts and the tray still refuse on Linux: each
+//! needs a desktop portal or a `StatusNotifierItem` over D-Bus, which
+//! is a larger piece of work than a file at a time. On
 //! macOS, the same five capabilities plus file dialogs are real, by
 //! the same idea applied to what macOS itself ships
 //! (`pbcopy`/`pbpaste`, `osascript`, a `LaunchAgent` plist, a Unix
@@ -50,13 +52,15 @@
 //! `#[cfg(unix)]`, with a stand-in beside it for this machine's own
 //! check to compile against.
 //!
-//! # One dependency
+//! # One dependency per platform
 //!
 //! `windows`, Microsoft's own bindings, and only in this crate. The
 //! design document asks for an existing crate wherever there is a good
 //! one (§7.6), and hand-writing the COM vtables of Media Foundation is
-//! precisely the work this project has no reason to redo. Nothing above
-//! this crate hears about it.
+//! precisely the work this project has no reason to redo. On Linux,
+//! `x11rb`, for the same reason applied to the X11 protocol — and
+//! because its connection is pure Rust, linking neither `libX11` nor
+//! `libxcb`. Nothing above this crate hears about either.
 
 pub mod autostart;
 pub mod clipboard;

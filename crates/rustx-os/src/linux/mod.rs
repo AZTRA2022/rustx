@@ -5,10 +5,12 @@
 //! `clipboard.rs`, `notify.rs`, `autostart.rs`, `instance.rs`,
 //! `dialog.rs` and the camera list in `devices.rs` are real — each by
 //! a program or a file every desktop distribution already carries.
-//! `shortcut.rs`, `tray.rs` and `window.rs` still refuse, each naming
-//! what has to be written and why it is not a file-at-a-time job (a
-//! desktop portal over D-Bus, or a connection to the display server
-//! this crate does not hold).
+//! `window.rs` is real on X11 (and on Wayland through XWayland), by
+//! this crate's own connection to the display server — compile-checked
+//! only, never run; its own doc says what that means. `shortcut.rs`
+//! and `tray.rs` still refuse, each naming what has to be written and
+//! why it is not a file-at-a-time job (a desktop portal or a
+//! `StatusNotifierItem` over D-Bus).
 
 pub mod autostart;
 pub mod clipboard;

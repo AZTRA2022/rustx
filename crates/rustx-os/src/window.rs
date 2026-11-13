@@ -15,9 +15,10 @@
 //! # La poignée
 //!
 //! Une fenêtre est désignée par la poignée que le système lui a donnée
-//! — un `HWND` sous Windows — portée ici comme un entier. Ce crate ne
-//! la crée jamais : c'est le moteur qui l'a, et c'est le moteur qui la
-//! passe.
+//! — un `HWND` sous Windows, un `XID` X11 sous Linux, un pointeur de
+//! `NSView` sous macOS : ce que `BrowserHost::window_handle()` rend sur
+//! chacune — portée ici comme un entier. Ce crate ne la crée jamais :
+//! c'est le moteur qui l'a, et c'est le moteur qui la passe.
 
 use crate::error::OsError;
 
