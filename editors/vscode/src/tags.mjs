@@ -3,18 +3,7 @@
 // Plain JavaScript rather than TypeScript, so the rule can be tested
 // without a build and without VS Code: everything here is a function of
 // the text in front of the cursor.
-//
-// The hard part is not JSX, it is the Rust around it. `Vec<u32>` ends in
-// a `>` and `HashMap<K, V>` ends in two, and an editor that answered
-// them with `</u32>` would be worse than one that answered nothing. So
-// three things have to hold, and all of them are about the shape of what
-// was written rather than about a list of names:
-//
-//   - the `<` is not glued to a word, which is what `Vec<` is and what
-//     `<div` never is;
-//   - what follows the `<` is a name with no space in front of it, which
-//     rules out `a < b > c`;
-//   - a turbofish `::<` and a `<<` are not tags.
+
 
 /** The characters a name may be made of, after its first. */
 const WITHIN = /^[A-Za-z0-9_$.:-]$/;

@@ -1,19 +1,19 @@
-import Link from "next/link"
+import Link from "next/link";
 
-import { siteConfig } from "@/lib/config"
-import { highlightCode } from "@/lib/highlight-code"
-import { CopyButton } from "@/components/copy-button"
+import { siteConfig } from "@/lib/config";
+import { highlightCode } from "@/lib/highlight-code";
+import { CopyButton } from "@/components/copy-button";
 import {
   PageActions,
   PageHeader,
   PageHeaderDescription,
   PageHeaderHeading,
-} from "@/components/page-header"
-import { Button } from "@/components/ui/button"
-import windows_logo from "@/assets/windows.webp"
-import linux_logo from "@/assets/linux.webp"
-import apple_logo from "@/assets/apple.webp"
-import Image from "next/image"
+} from "@/components/page-header";
+import { Button } from "@/components/ui/button";
+import windows_logo from "@/assets/windows.webp";
+import linux_logo from "@/assets/linux.webp";
+import apple_logo from "@/assets/apple.webp";
+import Image from "next/image";
 
 const EXEMPLE = `let mut order = vec!["a".to_string(), "b".to_string(), "c".to_string()];
 
@@ -35,13 +35,13 @@ fn Page() -> Element {
 fn Counter() -> Element {
     let mut n = 0;
     return <button onClick={move |_| n += 1}>{n}</button>;
-}`
+}`;
 
 const INSTALLER = `cargo install rustx-cli
 
 rustx new my-app
 cd my-app
-rustx dev`
+rustx dev`;
 
 const ARGUMENTS = [
   {
@@ -64,52 +64,61 @@ const ARGUMENTS = [
     texte:
       "A package.json, an npm install, and a capitalized tag is resolved at runtime. React, recharts, shadcn, Tailwind — with no prefix to write.",
   },
-]
+];
 
 const OS = [
   {
-    os:"Linux",
-    version:"0.2.0",
-    logo:linux_logo
+    os: "Linux",
+    version: "0.2.0",
+    logo: linux_logo,
   },
   {
-    os:"Windows",
-    version:"0.2.0",
-    logo:windows_logo
+    os: "Windows",
+    version: "0.2.0",
+    logo: windows_logo,
   },
   {
-    os:"MacOS",
-    version:"0.2.0",
-    logo:apple_logo
-  }
-]
+    os: "MacOS",
+    version: "0.2.0",
+    logo: apple_logo,
+  },
+];
 export default async function HomePage() {
   const [example, install] = await Promise.all([
     highlightCode(EXEMPLE, "rust"),
     highlightCode(INSTALLER, "bash"),
-  ])
+  ]);
 
   return (
     <div className="flex flex-1 flex-col">
       <PageHeader>
         <div className="flex flex-row gap-2">
-          {
-          OS.map((os) => (
-            <span className="flex flex-row rounded-full border border-border bg-surface px-3 gap-2 py-1 font-mono text-xs text-muted-foreground">
-              <Image alt={os.os} src={os.logo} height={14} width={14} className="rounded-full" />
+          {OS.map((os) => (
+            <span
+              className="flex flex-row rounded-full border border-border bg-surface px-3 gap-2 py-1 font-mono text-xs text-muted-foreground"
+              key={os.os}
+            >
+              <Image
+                alt={os.os}
+                src={os.logo}
+                height={14}
+                width={14}
+                className="rounded-full"
+              />
               {os.version} {os.os}
-        </span>
-          ))
-        }
+            </span>
+          ))}
         </div>
         <PageHeaderHeading>
-          Native software, written in <span className="text-orange-500">Rust</span>, drawn by a browser engine.
+          Native software, written in{" "}
+          <span className="text-orange-500">Rust</span>, drawn by a browser
+          engine.
         </PageHeaderHeading>
         <PageHeaderDescription>
-          Pages in <code className="font-mono">.rsx</code> — the syntax of
-          JSX, the language of Rust —, a state made of{" "}
-          <code className="font-mono">let mut</code>, routes by folders, and
-          npm libraries usable from tags. There is no JavaScript to write.
+          Pages in <code className="font-mono">.rsx</code> — the syntax of JSX,
+          the language of Rust —, a state made of{" "}
+          <code className="font-mono">let mut</code>, routes by folders, and npm
+          libraries usable from tags. There is no JavaScript to write.
         </PageHeaderDescription>
         <PageActions>
           <Button asChild size="sm">
@@ -210,9 +219,8 @@ export default async function HomePage() {
             <p className="max-w-2xl text-sm text-muted-foreground">
               A page cannot read the clipboard when it wants to, nor open a
               dialog that returns a path, nor place an icon next to the clock.
-              This is what{" "}
-              <code className="font-mono">rustx-os</code> does, and it is
-              written in a page like the rest: each module answers{" "}
+              This is what <code className="font-mono">rustx-os</code> does, and
+              it is written in a page like the rest: each module answers{" "}
               <code className="font-mono">supported()</code> before anything is
               asked of it, and each thing registered with the system is a token
               that removes it when released.
@@ -226,5 +234,5 @@ export default async function HomePage() {
         </div>
       </section>
     </div>
-  )
+  );
 }

@@ -1,27 +1,4 @@
 // Reindenting a `.rsx`, and nothing else.
-//
-// Format Document on a `.rsx` cannot be rustfmt: half the file is tags,
-// which are not Rust. And it must not be Prettier either — a formatter
-// that decides where to cut lines decides what the code looks like, and
-// that is a separate piece of work with a separate risk. This one only
-// moves the spaces at the front of a line. The lines are the same lines
-// in the same order, so the worst it can do is indent something oddly.
-//
-// Two things make it work on real files.
-//
-// The first is that `<` means two things. `<Card>` opens a level;
-// `Vec<u32>`, `Vec::<u32>`, `a < b` and `::<T>` open nothing, and a
-// formatter that confused them would push everything under a
-// declaration rightwards for ever. The rule is the shape of what is
-// written, never a list of names — the same rule the `>` key uses to
-// close a tag.
-//
-// The second is that a level is not a count. `let data = (0..n)` then
-// `.map(|at| { … })`: the body of that closure is indented from the
-// `.map` line, not from the `let`. So each thing left open remembers
-// the line that opened it, and a line is one step in from the innermost
-// of them. Counting brackets instead gets this wrong, and gets it wrong
-// in the files people actually have.
 
 /** Is this character part of a word? */
 function isWord(letter) {
@@ -135,12 +112,7 @@ function opensATag(code, at, inChildren) {
  *
  * A method chain is written one step in — `let data = (0..n)`, then
  * `.map(…)`, then `.collect();` — and that step is not a bracket, so
- * nothing left open knows about it. It belongs to the line, which is
- * why it is added when the line is placed.
- *
- * Read on the line as it was written and never on the blanked version:
- * blanking turns `"a".to_string(),` into `.to_string(),`, and taking
- * that for a chain pushed every string argument one step too far in.
+ * nothing left open knows about it. 
  */
 function isAContinuation(line) {
   return /^\s*[.?]/.test(line);
@@ -148,14 +120,6 @@ function isAContinuation(line) {
 
 /**
  * One line, placed, and applied to the list of things still open.
- *
- * Each frame carries the level of the line that opened it, so a line is
- * one step in from the innermost frame. A line that begins by closing
- * something is placed after those closes; any other line is placed
- * where the previous line left it, which is what keeps a `>` glued
- * after the last attribute among the attributes.
- *
- * Returns where this line is printed. `open` is left as the next line
  * finds it.
  */
 function placeLine(open, code, line) {
