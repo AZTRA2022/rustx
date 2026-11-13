@@ -1100,8 +1100,27 @@ fn read_patched(source: &str, span: Span, reads: &[Edit]) -> String {
 /// An annotation spread over several lines is left alone: this text is
 /// inserted somewhere the declaration is not, and a newline inserted
 /// there would move every line below it away from the position map.
+///
+/// And so is the initializer, for exactly the same reason — which is
+/// why it is put on one line first. A declaration written over several
+/// lines
+///
+/// ```ignore
+/// let mut agents: Vec<Agent> = vec![
+///     Agent { name: "scout".to_string() },
+/// ];
+/// ```
+///
+/// is relocated to wherever the value is reached, once per use, and it
+/// brought its newlines with it: a page whose `keep` read that value
+/// four times grew by sixteen lines, and every `rustc` diagnostic
+/// below the declaration was reported sixteen lines further down than
+/// the developer wrote it. Newlines between tokens mean nothing to
+/// Rust, so collapsing them changes no program.
 fn opening(source: &str, promoted: &crate::promote::Promoted) -> String {
     let initializer = &source[promoted.initializer.start..promoted.initializer.end];
+    let flattened = one_line(initializer);
+    let initializer: &str = flattened.as_deref().unwrap_or(initializer);
     match promoted.annotation {
         Some(span) => {
             let declared = &source[span.start..span.end];
@@ -1113,6 +1132,141 @@ fn opening(source: &str, promoted: &crate::promote::Promoted) -> String {
         }
         None => format!("|| {initializer}"),
     }
+}
+
+/// The same Rust on one line, or `None` when it cannot be.
+///
+/// Only whitespace between tokens is touched. A newline inside a string
+/// is part of the string's value, and a `//` comment swallows whatever
+/// follows it on the line, so either one is a refusal rather than a
+/// guess: the caller keeps the text as written and accepts the drift,
+/// which is what it did for every initializer before this existed.
+fn one_line(text: &str) -> Option<String> {
+    if !text.contains('\n') {
+        return None;
+    }
+
+    #[derive(PartialEq)]
+    enum In {
+        Code,
+        Str,
+        Char,
+        Raw(usize),
+        Block(usize),
+    }
+
+    let bytes = text.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(text.len());
+    let mut state = In::Code;
+    let mut at = 0;
+    while at < bytes.len() {
+        let byte = bytes[at];
+        match state {
+            In::Code => match byte {
+                b'"' => {
+                    // A raw string, whose hashes say where it ends, and
+                    // which is allowed to hold a newline — so one that
+                    // does is a refusal like any other literal.
+                    let hashes = count_back(&out, b'#');
+                    let raw = hashes > 0
+                        && out
+                            .get(..out.len() - hashes)
+                            .is_some_and(|before| before.last() == Some(&b'r'));
+                    state = if raw { In::Raw(hashes) } else { In::Str };
+                    out.push(b'"');
+                }
+                b'\'' => {
+                    // A lifetime is not a character literal: `&'a str`.
+                    let lifetime = bytes
+                        .get(at + 1)
+                        .is_some_and(|next| next.is_ascii_alphabetic() || *next == b'_')
+                        && bytes.get(at + 2) != Some(&b'\'');
+                    if !lifetime {
+                        state = In::Char;
+                    }
+                    out.push(b'\'');
+                }
+                b'/' if bytes.get(at + 1) == Some(&b'/') => return None,
+                b'/' if bytes.get(at + 1) == Some(&b'*') => {
+                    state = In::Block(1);
+                    out.extend_from_slice(b"/*");
+                    at += 2;
+                    continue;
+                }
+                b'\n' | b'\r' | b'\t' => {
+                    if out.last() != Some(&b' ') && !out.is_empty() {
+                        out.push(b' ');
+                    }
+                }
+                _ => out.push(byte),
+            },
+            In::Str | In::Char => {
+                if byte == b'\n' {
+                    return None;
+                }
+                out.push(byte);
+                if byte == b'\\' {
+                    // An escaped quote does not close the literal.
+                    if let Some(next) = bytes.get(at + 1) {
+                        out.push(*next);
+                        at += 2;
+                        continue;
+                    }
+                }
+                if (state == In::Str && byte == b'"') || (state == In::Char && byte == b'\'') {
+                    state = In::Code;
+                }
+            }
+            In::Raw(hashes) => {
+                if byte == b'\n' {
+                    return None;
+                }
+                out.push(byte);
+                if byte == b'"' && count_forward(bytes, at + 1, b'#') >= hashes {
+                    state = In::Code;
+                }
+            }
+            In::Block(depth) => {
+                if byte == b'\n' || byte == b'\r' || byte == b'\t' {
+                    out.push(b' ');
+                } else {
+                    out.push(byte);
+                }
+                if byte == b'*' && bytes.get(at + 1) == Some(&b'/') {
+                    out.push(b'/');
+                    state = if depth == 1 { In::Code } else { In::Block(depth - 1) };
+                    at += 2;
+                    continue;
+                }
+                if byte == b'/' && bytes.get(at + 1) == Some(&b'*') {
+                    out.push(b'*');
+                    state = In::Block(depth + 1);
+                    at += 2;
+                    continue;
+                }
+            }
+        }
+        at += 1;
+    }
+
+    // An unterminated literal is not something to put on one line.
+    match state {
+        In::Code => String::from_utf8(out).ok(),
+        _ => None,
+    }
+}
+
+/// How many `wanted` the text ends with.
+fn count_back(text: &[u8], wanted: u8) -> usize {
+    text.iter().rev().take_while(|byte| **byte == wanted).count()
+}
+
+/// How many `wanted` start at `from`.
+fn count_forward(bytes: &[u8], from: usize, wanted: u8) -> usize {
+    bytes[from.min(bytes.len())..]
+        .iter()
+        .take_while(|byte| **byte == wanted)
+        .count()
 }
 
 /// The arguments of a `keep`, `effect` or `task`, with every use of a

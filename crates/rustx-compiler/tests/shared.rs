@@ -433,3 +433,51 @@ fn an_async_function_that_reaches_a_page_value_is_refused() {
         "the refusal should name the value and the function: {said}"
     );
 }
+
+#[test]
+fn a_value_declared_over_several_lines_moves_no_line_below_it() {
+    // A shared value is relocated to wherever it is reached, once per
+    // use, and a declaration written over several lines took its
+    // newlines with it: the page below grew by four lines for every
+    // read in the `keep`, and every `rustc` diagnostic under the
+    // declaration was reported that much further down than it was
+    // written.
+    let source = "let mut agents: Vec<String> = vec![\n    \
+         \"scout\".to_string(),\n    \
+         \"closer\".to_string(),\n\
+         ];\n\n\
+         fn Page() -> Element {\n    \
+         keep(async move {\n        \
+         let first = agents.len();\n        \
+         let again = agents.len();\n        \
+         let _ = first + again;\n    \
+         });\n    \
+         return <p>{agents.len()}</p>;\n}\n";
+    let built = transpile(source).expect("transpiles");
+    assert_eq!(
+        source.lines().count(),
+        built.rust.lines().count(),
+        "the generated file changed its line count:\n{}",
+        built.rust
+    );
+}
+
+#[test]
+fn a_declaration_holding_a_string_with_a_newline_in_it_is_left_as_written() {
+    // Collapsing whitespace between tokens changes no program.
+    // Collapsing a newline that is part of a string's value changes
+    // what the page says, so that one is refused and the text is kept
+    // as the developer wrote it — drift and all.
+    let source = "let mut banner = \"first\nsecond\".to_string();\n\n\
+         fn Page() -> Element {\n    \
+         keep(async move {\n        \
+         let _ = banner.len();\n    \
+         });\n    \
+         return <p>{banner.clone()}</p>;\n}\n";
+    let built = transpile(source).expect("transpiles");
+    assert!(
+        built.rust.contains("\"first\nsecond\""),
+        "the string was reflowed:\n{}",
+        built.rust
+    );
+}
