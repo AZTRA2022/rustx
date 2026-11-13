@@ -173,19 +173,85 @@ fn edits_for(source: &str, component: &Component) -> Vec<Edit> {
         }
     }
 
-    // Reads outside every handler — the ones the screen shows.
+    // Reads outside every handler — the ones the screen shows — and the
+    // writes beside them.
+    //
+    // A write outside every handler is a write in a plain function: the
+    // `send()` an `onClick` calls, with the work in it. It is rewritten
+    // exactly as a write inside a handler is, bounded by the function's
+    // body instead of the handler's braces, because that is where its
+    // right-hand side ends. Without this the write was left as the
+    // developer wrote it, against a binding this pass had just turned
+    // into a `Shared<T>` — and rustc answered "expected `Shared<bool>`,
+    // found `bool`", or "no method named `push` found for struct
+    // `Shared<T>`", about a generated file nobody had opened.
+    //
+    // The reads are gathered before a single write is rewritten, for the
+    // reason a handler gathers them first: `journal.push(brouillon)` is
+    // one statement with a write and a read in it, and two edits over
+    // the same bytes would each overwrite the other.
+    let handlers = handlers_of(component);
+    let elsewhere = |span: Span| {
+        handlers.iter().any(|handler| contains(*handler, span))
+            // A `keep`, an `effect` and a `task` are each rewritten
+            // whole, so a use inside one belongs to that rewrite.
+            || component
+                .calls
+                .iter()
+                .any(|call| contains(call.span, span))
+    };
+
+    let mut reads: Vec<(&str, Edit)> = Vec::new();
     for promoted in &component.promoted {
         for read in &promoted.reads {
-            if handlers_of(component)
-                .iter()
-                .any(|handler| contains(*handler, *read))
-            {
+            if elsewhere(*read) {
                 continue;
             }
-            edits.push(Edit {
-                span: *read,
-                text: format!("{}.get()", promoted.name),
-            });
+            reads.push((
+                promoted.name.as_str(),
+                Edit {
+                    span: *read,
+                    text: format!("{}.get()", promoted.name),
+                },
+            ));
+        }
+    }
+
+    for promoted in &component.promoted {
+        for mutation in &promoted.mutations {
+            if elsewhere(mutation.span) {
+                continue;
+            }
+            let inside: Vec<Edit> = reads
+                .iter()
+                .map(|(_, read)| Edit {
+                    span: read.span,
+                    text: read.text.clone(),
+                })
+                .collect();
+            let edit = rewrite_mutation(source, &promoted.name, mutation, component.body, &inside);
+            // A read the write copied into its own replacement must not
+            // also be edited on its own: two edits over the same bytes
+            // each overwrite the other.
+            reads.retain(|(_, read)| !contains(edit.span, read.span));
+            edits.push(edit);
+        }
+    }
+
+    // What is left is read on its own, and a read that opens a `let` and
+    // has something called on it needs the clone bound first — see
+    // `hoisted`. Decided here, after the writes have taken theirs, so no
+    // binding is left behind for a read that no longer exists.
+    for (name, read) in reads {
+        match hoisted(source, name, read.span) {
+            Some((hoist, bound)) => {
+                edits.push(hoist);
+                edits.push(Edit {
+                    span: read.span,
+                    text: bound,
+                });
+            }
+            None => edits.push(read),
         }
     }
 
@@ -589,14 +655,17 @@ fn rewrite_handler(source: &str, component: &Component, handler: Span) -> Option
     // has to be applied to that copy. `n = n + 1` is one statement with
     // both: applying two edits over the same bytes would have each
     // overwrite the other and produce something that is not Rust.
-    let mut reads: Vec<Edit> = Vec::new();
+    let mut reads: Vec<(&str, Edit)> = Vec::new();
     for promoted in &component.promoted {
         for read in &promoted.reads {
             if contains(handler, *read) {
-                reads.push(Edit {
-                    span: *read,
-                    text: format!("{}.get()", promoted.name),
-                });
+                reads.push((
+                    promoted.name.as_str(),
+                    Edit {
+                        span: *read,
+                        text: format!("{}.get()", promoted.name),
+                    },
+                ));
             }
         }
     }
@@ -608,8 +677,15 @@ fn rewrite_handler(source: &str, component: &Component, handler: Span) -> Option
                 continue;
             }
             touched = true;
-            let edit = rewrite_mutation(source, promoted.name.as_str(), mutation, handler, &reads);
-            reads.retain(|read| !contains(edit.span, read.span));
+            let inside: Vec<Edit> = reads
+                .iter()
+                .map(|(_, read)| Edit {
+                    span: read.span,
+                    text: read.text.clone(),
+                })
+                .collect();
+            let edit = rewrite_mutation(source, promoted.name.as_str(), mutation, handler, &inside);
+            reads.retain(|(_, read)| !contains(edit.span, read.span));
             inner_edits.push(edit);
         }
         if !touched && promoted.reads.iter().any(|read| contains(handler, *read)) {
@@ -619,7 +695,21 @@ fn rewrite_handler(source: &str, component: &Component, handler: Span) -> Option
             captured.push(promoted.name.as_str());
         }
     }
-    inner_edits.append(&mut reads);
+    // A handler body is a block like any other, so a `let` in one that
+    // borrows out of a page value needs the clone bound first, exactly
+    // as it does out in the function — see `hoisted`.
+    for (name, read) in reads {
+        match hoisted(source, name, read.span) {
+            Some((hoist, bound)) => {
+                inner_edits.push(hoist);
+                inner_edits.push(Edit {
+                    span: read.span,
+                    text: bound,
+                });
+            }
+            None => inner_edits.push(read),
+        }
+    }
 
     // And the captures of a format string written inside the handler,
     // which are reads too — just ones written in prose.
@@ -654,6 +744,96 @@ fn rewrite_handler(source: &str, component: &Component, handler: Span) -> Option
         span: handler,
         text: format!("{{{{ {clones}move {params}{body} }}}}"),
     })
+}
+
+/// What a read becomes when it opens a `let`, and what has to be bound
+/// before that `let` for it to compile.
+///
+/// `get()` hands back the value, not a borrow of it, so a read is a
+/// temporary — and `let agent = agents.get(0);` becomes
+/// `let agent = agents.get().get(0);`, which borrows a temporary that
+/// dies at the end of that very statement. rustc's answer, "temporary
+/// value dropped while borrowed", named a generated file, and the only
+/// `let` binding it could suggest was one the developer could not write
+/// because the line it named was not theirs.
+///
+/// So the compiler writes it: the clone is bound first, under a name
+/// nobody can spell, and the `let` reads that binding instead. Both on
+/// the one line the `let` already occupied, because plan 2's position
+/// map rests on the line count.
+///
+/// Only when the read *opens* the initializer and something is called on
+/// it. Anywhere else it is an owned value used as an owned value, which
+/// has always been fine; and opening the initializer is what makes
+/// hoisting it change nothing — the expression was going to be evaluated
+/// first in any case.
+fn hoisted(source: &str, name: &str, read: Span) -> Option<(Edit, String)> {
+    let bytes = source.as_bytes();
+    // Something is called on the value, or read out of it. A read with
+    // nothing after it is the value itself and needs no binding.
+    if bytes.get(read.end) != Some(&b'.') {
+        return None;
+    }
+
+    // Back over the whitespace to the `=` this initializer hangs off.
+    let mut at = read.start;
+    while at > 0 && bytes[at - 1].is_ascii_whitespace() && bytes[at - 1] != b'\n' {
+        at -= 1;
+    }
+    if at == 0 || bytes[at - 1] != b'=' {
+        return None;
+    }
+    // `==`, `>=`, `<=`, `!=`: a comparison, not a binding.
+    let equals = at - 1;
+    if equals > 0 && matches!(bytes[equals - 1], b'=' | b'!' | b'<' | b'>') {
+        return None;
+    }
+
+    // And back over the pattern this `=` binds, as far as the statement
+    // it belongs to begins — a `;`, a brace, a newline — and then the
+    // first word of what was walked over has to be `let`. Anything else
+    // (`self.field = …`, a struct literal's `field: value`) is not a
+    // binding and gets nothing.
+    let mut at = equals;
+    while at > 0 && is_pattern_byte(bytes[at - 1]) {
+        at -= 1;
+    }
+    let head = &source[at..equals];
+    if !head.trim_start().starts_with("let ") {
+        return None;
+    }
+    let at = at + (head.len() - head.trim_start().len());
+    // The `let` has to be on the line the read is on: a hoist onto
+    // another line would move every line below it away from plan 2's
+    // position map.
+    if source[at..read.start].contains('\n') {
+        return None;
+    }
+
+    let bound = format!("__r{}", read.start);
+    Some((
+        Edit {
+            span: Span { start: at, end: at },
+            text: format!("let {bound} = {name}.get(); "),
+        },
+        bound,
+    ))
+}
+
+/// A byte that may appear in the pattern and type of a `let`.
+///
+/// `mut rows`, `row: Option<&Row>`, `[first, ..]`. A bracket is left
+/// out on purpose — `(`, `)`, `{`, `}` and `;` all end the walk, so it
+/// stops at whatever statement came before instead of running into a
+/// call's arguments. A destructuring `let (a, b) = …` therefore gets no
+/// binding, which is the conservative half of the answer: the read is
+/// left exactly as it was before.
+fn is_pattern_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric()
+        || matches!(
+            byte,
+            b'_' | b':' | b'<' | b'>' | b',' | b'&' | b'\'' | b'[' | b']' | b' ' | b'\t'
+        )
 }
 
 fn rewrite_mutation(

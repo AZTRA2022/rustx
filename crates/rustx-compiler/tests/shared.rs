@@ -307,6 +307,112 @@ fn a_plain_function_beside_a_page_reaches_its_values() {
     );
 }
 
+/// A helper that *writes* a page value.
+///
+/// The read half of this has worked since the test above. The write half
+/// did not, and the shape it broke on is the most ordinary one there is:
+/// an event handler that calls `send()`, and `send()` doing the work. A
+/// write was only ever rewritten inside a handler's own braces, so a
+/// write in a plain function was left exactly as written — against a
+/// binding that is now a `Shared<T>`. rustc then answered "expected
+/// `Shared<bool>`, found `bool`" and "no method named `push` found for
+/// struct `Shared<T>`" about a file in `target/`, naming the line of a
+/// generated page the developer has never opened.
+#[test]
+fn a_plain_function_beside_a_page_writes_its_values() {
+    let source = "let mut envoi = false;\nlet mut brouillon = String::new();\n\
+         let mut journal: Vec<String> = Vec::new();\n\n\
+         fn envoyer() {\n    \
+         journal.push(brouillon.clone());\n    \
+         brouillon = String::new();\n    \
+         envoi = true;\n}\n\n\
+         fn Page() -> Element {\n    \
+         return <button onClick={move |_| envoyer()}>{envoi}</button>;\n}\n";
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("journal.update(|__v| { __v.push(brouillon.get().clone()); })"),
+        "a method write becomes an update, with the read inside it: {rust}"
+    );
+    assert!(
+        rust.contains("brouillon.set(String::new())"),
+        "an assignment becomes a set: {rust}"
+    );
+    assert!(
+        rust.contains("envoi.set(true)"),
+        "and so does the one after it: {rust}"
+    );
+    assert!(
+        !rust.contains("envoi = true"),
+        "the raw assignment survived: {rust}"
+    );
+}
+
+/// `let row = rows.get(0);` — a borrow out of a page value.
+///
+/// `get()` hands back the value and not a borrow of it, so the read is a
+/// temporary: the `let` borrowed something that died at the end of its
+/// own statement, and rustc said so about a generated file. The clone is
+/// bound first now, so the borrow has something to outlive.
+#[test]
+fn a_let_that_borrows_out_of_a_page_value_gets_the_clone_bound_first() {
+    let source = "let mut lignes: Vec<String> = Vec::new();\n\n\
+         fn Page() -> Element {\n    \
+         let ligne = lignes.first();\n    \
+         return <p>{ligne.cloned().unwrap_or_default()}</p>;\n}\n";
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("= lignes.get();"),
+        "the clone should be bound before the let: {rust}"
+    );
+    assert!(
+        !rust.contains("lignes.get().first()"),
+        "the borrow of a temporary survived: {rust}"
+    );
+    assert_eq!(
+        rust.lines().count(),
+        source.lines().count(),
+        "the hoist must stay on the line it was written on: {rust}"
+    );
+}
+
+/// And a read that is the whole value is left exactly as it was: there
+/// is no temporary to outlive, and a binding would be noise.
+#[test]
+fn a_read_that_is_the_value_itself_is_not_bound_to_anything() {
+    let source = "let mut n = 0;\n\n\
+         fn Page() -> Element {\n    \
+         let m = n;\n    \
+         return <p>{m}</p>;\n}\n";
+    let rust = rewrite_one(source);
+    assert!(rust.contains("let m = n.get();"), "got {rust}");
+    assert!(!rust.contains("__r"), "nothing should be hoisted: {rust}");
+}
+
+/// The same rewrite must not reach a component's own render.
+///
+/// A component body is not a place to write state from — the write
+/// would run on every render — and the one write that legitimately sits
+/// outside a handler there is already handled by `keep`, `effect` and
+/// `task`, each rewritten whole. Two edits over the same bytes produce
+/// something that is not Rust, which is what this guards.
+#[test]
+fn a_write_inside_a_kept_call_is_still_that_calls_own_rewrite() {
+    let source = "let mut vus = 0;\n\n\
+         fn Page() -> Element {\n    \
+         effect((), || { vus += 1; });\n    \
+         return <p>{vus}</p>;\n}\n";
+    let rust = rewrite_one(source);
+    assert!(
+        rust.contains("effect_at"),
+        "the call should still be rewritten whole: {rust}"
+    );
+    assert_eq!(
+        rust.matches(".update(").count(),
+        1,
+        "the write should be rewritten exactly once: {rust}"
+    );
+}
+
 #[test]
 fn an_async_function_that_reaches_a_page_value_is_refused() {
     // It cannot work and must not look as though it does: a page value
