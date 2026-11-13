@@ -72,3 +72,37 @@ fn a_map_without_columns_still_reads() {
     // taken at face value.
     assert_eq!(map.to_generated_position(12, 4), Some((12, 4)));
 }
+
+/// A handler written over several lines.
+///
+/// The region puts back every newline its expression swallowed — but
+/// the expression is copied out of the `.rsx` byte for byte, so a
+/// handler written over five lines brings four of those newlines with
+/// it and they were counted twice. Every line below drifted by four,
+/// and every `rustc` error with them: the developer was pointed at a
+/// line four short of the one they had broken, further off with each
+/// multi-line handler above it.
+#[test]
+fn a_handler_written_over_several_lines_moves_no_line_below_it() {
+    let source = "fn Page() -> Element {\n\
+                  \x20   let mut n = 0;\n\
+                  \x20   return <button onClick={move |_| {\n\
+                  \x20       if n > 2 {\n\
+                  \x20           n = 0;\n\
+                  \x20       }\n\
+                  \x20   }}>{n}</button>;\n\
+                  }\n\
+                  \n\
+                  fn apres() -> usize { 7 }\n";
+    let rust = transpile(source).expect("transpilable").rust;
+    assert_eq!(
+        rust.lines().count(),
+        source.lines().count(),
+        "the generated file gained or lost lines:\n{rust}"
+    );
+    assert_eq!(
+        rust.lines().position(|line| line.starts_with("fn apres")),
+        source.lines().position(|line| line.starts_with("fn apres")),
+        "what comes after the region moved:\n{rust}"
+    );
+}

@@ -78,14 +78,25 @@ pub fn transpile(source: &str) -> Result<Transpiled, CompileError> {
         // has in the `.rsx` — which is what makes a `rustc` error land
         // where the developer is looking instead of drifting further away
         // with every region above it.
+        //
+        // Only the ones it actually swallowed, though. A `{…}` is copied
+        // out of the `.rsx` byte for byte — that is the contract — so a
+        // handler written over five lines brings its four newlines into
+        // the emitted expression, and putting all five back again counted
+        // them twice. Every line below a multi-line handler drifted by as
+        // many lines as the handler had, and so did every `rustc` error
+        // under it, which is the one thing this padding exists to stop.
         rust.push_str(&code);
+        let produced = code.matches('\n').count();
         let swallowed = source[span.start..span.end].matches('\n').count();
         regions.push(crate::map::Region {
             first_line: rsx_line,
             column,
             last_line: rsx_line + swallowed,
         });
-        for _ in 0..swallowed {
+        // The region still spans `swallowed` lines of each file — what is
+        // put back is only what the expression did not already carry.
+        for _ in produced..swallowed {
             rust.push('\n');
         }
         generated_line += swallowed;
