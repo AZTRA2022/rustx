@@ -260,6 +260,17 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
                         downstream.held(&shadows),
                     ),
                 };
+                // `completionItem/resolve` carries no document at all —
+                // only whatever `data` the item already has — so the
+                // page it came from has to travel on the item itself.
+                let answer = if method == "textDocument/completion" {
+                    match json::field(&message, "uri") {
+                        Some(uri) => json::tag_items(&answer, &uri),
+                        None => answer,
+                    }
+                } else {
+                    answer
+                };
                 rpc::write(
                     output,
                     &format!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{answer}}}"),
