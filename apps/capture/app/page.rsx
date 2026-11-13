@@ -3,7 +3,6 @@
 // a page is the application's, by the name it was written with.
 let mut selected = String::new();
 let mut closed_streams = 0;
-*
 
 fn Page() -> Element {
     // A component is called the way Rust calls a function. Each call is
