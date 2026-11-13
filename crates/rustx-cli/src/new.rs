@@ -124,6 +124,21 @@ fn wanted_version() -> String {
 /// `"1.0.0"`, with no `"private"`. That file shows up a step late and
 /// looks like something `rustx new` forgot, when the fix is one file
 /// written on the day the project is born.
+///
+/// `esbuild` is declared here too, under `devDependencies` — not because
+/// a developer is meant to know it exists, but because the README says
+/// the opposite: "`npm install`, and that's it — the framework builds
+/// the bundle with esbuild." Without this line that sentence is false:
+/// `bundle::build` refuses every library in `node_modules` until
+/// `esbuild` is one of them, and nothing a developer installed shows up
+/// on the page, silently, because the tool that would have said why is
+/// the one that is missing.
+///
+/// `allowScripts` goes with it, pinned to the same version. Esbuild
+/// fetches its own platform binary through a postinstall script, and a
+/// modern `npm` holds every postinstall script back until it is
+/// approved — one more silent way for `esbuild.cmd` to exist and still
+/// have nothing to run.
 fn package_json(name: &str) -> String {
     let npm_name = name.to_lowercase();
     format!(
@@ -131,7 +146,13 @@ fn package_json(name: &str) -> String {
          \x20   \"name\": \"{npm_name}\",\n\
          \x20   \"private\": true,\n\
          \x20   \"version\": \"0.1.0\",\n\
-         \x20   \"dependencies\": {{}}\n\
+         \x20   \"dependencies\": {{}},\n\
+         \x20   \"devDependencies\": {{\n\
+         \x20       \"esbuild\": \"0.28.2\"\n\
+         \x20   }},\n\
+         \x20   \"allowScripts\": {{\n\
+         \x20       \"esbuild@0.28.2\": true\n\
+         \x20   }}\n\
          }}\n"
     )
 }

@@ -230,6 +230,44 @@ fn a_new_project_can_already_receive_an_npm_install() {
     let _ = fs::remove_dir_all(&into);
 }
 
+/// The README says `npm install`, and that's it — the framework builds
+/// the bundle with esbuild. Without `esbuild` declared here, that is
+/// false: `bundle::build` refuses every library until `esbuild` is in
+/// `node_modules`, and nothing a developer just installed reaches the
+/// page, with no message that names why.
+#[test]
+fn a_new_project_already_has_esbuild_to_build_with() {
+    let into = somewhere();
+    new::write("mon-app", &into).expect("a project");
+    let manifest = fs::read_to_string(into.join("mon-app").join("package.json"))
+        .expect("a package.json ready for npm install");
+    assert!(
+        manifest.contains("\"esbuild\""),
+        "a plain `npm install` must already provide what the bundler needs: {manifest}"
+    );
+    let _: () = assert_is_valid_json(&manifest);
+    let _ = fs::remove_dir_all(&into);
+}
+
+/// `esbuild` downloads its own platform binary through a postinstall
+/// script, and a modern `npm` holds every postinstall script back until
+/// it is approved — so `esbuild.cmd` can exist in `node_modules/.bin`
+/// and still have no binary to run, with nothing in this project's own
+/// error messages that says why.
+#[test]
+fn a_new_project_already_approves_esbuilds_own_install_script() {
+    let into = somewhere();
+    new::write("mon-app", &into).expect("a project");
+    let manifest = fs::read_to_string(into.join("mon-app").join("package.json"))
+        .expect("a package.json ready for npm install");
+    assert!(
+        manifest.contains("\"allowScripts\""),
+        "esbuild's postinstall script must already be approved: {manifest}"
+    );
+    let _: () = assert_is_valid_json(&manifest);
+    let _ = fs::remove_dir_all(&into);
+}
+
 /// Not a parser brought in for one test: a `package.json` with a
 /// trailing comma or an unclosed brace fails every `npm install` with
 /// an error that does not name this command at all.
