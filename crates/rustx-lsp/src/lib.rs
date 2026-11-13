@@ -225,8 +225,18 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
                 // inside an expression.
                 let completion = ",\"completionProvider\":{\"triggerCharacters\":\
                                   [\"<\",\" \",\"/\",\"{\",\".\",\":\"]}";
+                // `resolveProvider` only when there is a server behind
+                // this one to resolve with: a developer with no
+                // `rust-analyzer` must never be promised an import
+                // edit nobody will ever supply.
+                let completion_with_resolve = ",\"completionProvider\":{\"triggerCharacters\":\
+                                  [\"<\",\" \",\"/\",\"{\",\".\",\":\"],\
+                                  \"resolveProvider\":true}";
                 let assistance = if downstream.exists() {
-                    format!("{completion},\"hoverProvider\":true,\"definitionProvider\":true")
+                    format!(
+                        "{completion_with_resolve},\"hoverProvider\":true,\
+                         \"definitionProvider\":true"
+                    )
                 } else {
                     completion.to_string()
                 };

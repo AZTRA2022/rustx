@@ -137,6 +137,26 @@ fn resolve_request(item: &str, id: usize) -> String {
 }
 
 #[test]
+fn resolve_is_promised_only_with_a_downstream_server() {
+    let with = conversation(
+        &["{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}"],
+        Some(canned(&[])),
+    );
+    assert!(with[0].contains("\"resolveProvider\":true"), "got {}", with[0]);
+
+    let without = conversation(
+        &["{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}"],
+        None,
+    );
+    assert!(
+        !without[0].contains("resolveProvider"),
+        "a developer with no rust-analyzer must not be promised an import nobody will \
+         ever supply: {}",
+        without[0]
+    );
+}
+
+#[test]
 fn a_resolve_with_no_tag_answers_the_item_unchanged() {
     let said = conversation(
         &[resolve_request(r#"{"label":"read"}"#, 30).as_str()],
