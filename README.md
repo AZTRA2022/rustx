@@ -336,6 +336,29 @@ travail quand la valeur surveillée change. `task(TRAVAIL)` démarre un
 fil dont le jeton est une cellule du composant : quitter l'écran
 l'arrête, sans un seul nettoyage écrit à la main.
 
+### The same component, several times
+
+A `for` loop is a statement in Rust — it has no value, so it cannot sit
+inside `{…}` the way an `if` or a `match` can. The same component shown
+several times is an iterator, mapped to elements and collected, exactly
+as React asks for a `key` on each one so state stays with the item
+rather than with its position in the list:
+
+```rust
+let mut names = vec!["Alice".to_string(), "Bob".to_string()];
+
+return <ul>
+    {names.iter().map(|name| <li key={name.clone()}>{Compteur(name.clone())}</li>).collect::<Vec<_>>()}
+</ul>;
+```
+
+`(0..=5).map(|i| <h1 key={i.to_string()}>{i}</h1>).collect::<Vec<_>>()`
+is the same shape for a range instead of a `Vec`. Each `{Compteur(…)}`
+is its own instance, with its own state, by the place it is written —
+which for a list is its `key`, not its index: `order.rotate_right(1)`
+moves the keys and the state each one holds together, the component at
+position 0 is simply a different one after the rotation.
+
 ## Les routes
 
 Les routes sont le dossier `app/` :

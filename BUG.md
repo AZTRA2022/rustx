@@ -5,7 +5,7 @@
 - [CLOSED] `rustx dev` rebuild en permanence le projet sans qu'aucun fichier n'ait meme été modifié: already fixed (`Watched::new` is given the bundler's own `SERVED` file name so the bundle it writes on every build is never mistaken for a change). See `crates/rustx-cli/src/dev.rs` and `crates/rustx-cli/src/watch.rs`.
 
 - le font family ne s'applique pas , c'est le font par defaut qui est là.
-- comment rendre plusieurs fois un meme composant dans la boucle for: `for i in 0..=5 ... { <h1> {i} </h1> }`
+- [CLOSED] comment rendre plusieurs fois un meme composant dans la boucle for: a `for` loop is a Rust statement, not an expression, so it was never going to fit inside `{…}` — the already-working, already-tested way is `.map(|item| <Tag key={...}>{...}</Tag>).collect::<Vec<_>>()`, demonstrated by `apps/counter/app/counter/page.rsx` and proven by `reordering_a_keyed_list_carries_each_items_state_with_it`. Documented now under "The same component, several times" in `README.md`.
 - implementer les features OS pour tous les autres OS (fenetre, clipboard, devices,notifs,autostart,bg start,...etc), en se servant de references ou code fonctionnel sur des forum dont la fonction du code est sure et robuste. 
 
 - [CLOSED] OS error 5 (`Access is denied`) when building against the shared CEF target dir: already guarded by `build::held()` in `crates/rustx-cli/src/build.rs`, covered by `the_target_directory_a_project_configured_is_the_one_that_is_looked_at` in `crates/rustx-cli/tests/held.rs`. Only reproduces through raw `cargo build`/`cargo run`, which bypass the guard — `rustx new` already prints `rustx dev` as the next step, so the supported path is protected.
