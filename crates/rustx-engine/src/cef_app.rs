@@ -286,15 +286,83 @@ pub(crate) fn open_window(spec: &WindowSpec) {
         Some(&window_info),
         Some(&mut client),
         Some(&CefString::from(spec.url.as_str())),
-        Some(&BrowserSettings::default()),
+        Some(&browser_settings()),
         None,
         None,
     );
 }
 
+/// `BrowserSettings` with this platform's own generic fonts named.
+///
+/// Left at `BrowserSettings::default()`, every one of these fields is
+/// empty — and Chromium's own fallback for an empty one is "Times New
+/// Roman", on every platform, for `serif` and `sans-serif` alike. A
+/// page that asks for `font-family: system-ui, sans-serif` gets that
+/// the moment `system-ui` is not a name this build resolves, which is
+/// the whole bug report: not that the page's style is lost, but that
+/// nothing here ever said what "sans-serif" means on this machine.
+fn browser_settings() -> BrowserSettings {
+    let mut settings = BrowserSettings::default();
+    let fonts = platform_fonts();
+    settings.standard_font_family = CefString::from(fonts.sans_serif);
+    settings.sans_serif_font_family = CefString::from(fonts.sans_serif);
+    settings.serif_font_family = CefString::from(fonts.serif);
+    settings.fixed_font_family = CefString::from(fonts.fixed);
+    settings
+}
+
+struct PlatformFonts {
+    sans_serif: &'static str,
+    serif: &'static str,
+    fixed: &'static str,
+}
+
+#[cfg(target_os = "windows")]
+fn platform_fonts() -> PlatformFonts {
+    PlatformFonts {
+        sans_serif: "Segoe UI",
+        serif: "Georgia",
+        fixed: "Consolas",
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn platform_fonts() -> PlatformFonts {
+    PlatformFonts {
+        sans_serif: "Helvetica Neue",
+        serif: "Times New Roman",
+        fixed: "Menlo",
+    }
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn platform_fonts() -> PlatformFonts {
+    PlatformFonts {
+        sans_serif: "DejaVu Sans",
+        serif: "DejaVu Serif",
+        fixed: "DejaVu Sans Mono",
+    }
+}
+
 #[cfg(test)]
 mod laws {
-    use super::{SOFTWARE_SWITCHES, SOFTWARE_VALUES};
+    use super::{platform_fonts, SOFTWARE_SWITCHES, SOFTWARE_VALUES};
+
+    /// `BrowserSettings::default()`'s own fallback for every one of
+    /// these, on every platform, is "Times New Roman" — a page that
+    /// never named a font at all gets that, silently, which is the
+    /// whole bug report.
+    #[test]
+    fn this_platform_names_a_real_font_for_each_generic_family() {
+        let fonts = platform_fonts();
+        assert!(!fonts.sans_serif.is_empty());
+        assert!(!fonts.serif.is_empty());
+        assert!(!fonts.fixed.is_empty());
+        assert_ne!(
+            fonts.sans_serif, "Times New Roman",
+            "the sans-serif default must not be CEF's own serif fallback"
+        );
+    }
 
     /// The switch that undid the other three.
     ///
