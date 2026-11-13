@@ -544,9 +544,53 @@ pub fn document_for(manifest_dir: &Path, title: &str) -> Result<PathBuf, Error> 
     ));
     let path = directory.join("index.html");
     std::fs::create_dir_all(&directory).map_err(|_| Error::IndexNotFound(path.clone()))?;
-    std::fs::write(&path, default_document(title))
-        .map_err(|_| Error::IndexNotFound(path.clone()))?;
+    std::fs::write(
+        &path,
+        default_document(title, &manifest_dir.join("assets")),
+    )
+    .map_err(|_| Error::IndexNotFound(path.clone()))?;
     Ok(path)
+}
+
+/// A directory as a URL a document can resolve relative paths against.
+///
+/// `C:\Users\me\app\assets` becomes `file:///C:/Users/me/app/assets/`.
+/// The trailing slash is what makes it a directory rather than a file
+/// to replace: without it, `rustx-bundle.js` would be looked for beside
+/// `assets`, not inside it.
+fn directory_url(directory: &Path) -> String {
+    let mut url = String::from("file:///");
+    for byte in directory.to_string_lossy().as_bytes() {
+        match byte {
+            b'\\' => url.push('/'),
+            // The characters a path is allowed to hold and a URL reads
+            // as something else. A space is the one that actually
+            // happens — `C:\Users\Jean Pierre\…` — and a document that
+            // stopped at the space looked for a bundle in a folder
+            // nobody has.
+            b'%' => url.push_str("%25"),
+            b' ' => url.push_str("%20"),
+            b'#' => url.push_str("%23"),
+            b'?' => url.push_str("%3F"),
+            b'\'' => url.push_str("%27"),
+            b'"' => url.push_str("%22"),
+            // Anything outside plain ASCII goes in as the UTF-8 bytes
+            // it is, percent by percent: a path through `Développeur`
+            // is a path, and pushing its bytes as `char`s would have
+            // written mojibake into the URL.
+            0x00..=0x20 | 0x7f..=0xff => url.push_str(&format!("%{byte:02X}")),
+            _ => url.push(*byte as char),
+        }
+    }
+    // An absolute Unix path already began with the separator, so the
+    // `file:///` above would have given it four.
+    while url.starts_with("file:////") {
+        url.replace_range(7..8, "");
+    }
+    if !url.ends_with('/') {
+        url.push('/');
+    }
+    url
 }
 
 /// Enough to tell two applications apart without naming their paths in
@@ -559,10 +603,25 @@ fn hash_of(path: &Path) -> u64 {
 }
 
 /// The document an application that wrote none is given.
-fn default_document(title: &str) -> String {
+///
+/// With a `<base>` pointing at the application's own `assets`, because
+/// this document is not written there — it goes in a directory of its
+/// own under the system's temporary files, so that two applications
+/// running at once are never handed the same file. Nothing else is in
+/// that directory, so every relative URL in the page resolved to
+/// nothing: the one the framework itself writes, `rustx-bundle.js`,
+/// loaded in an application that had an `assets/index.html` and silently
+/// did not in an application that had none. A page whose libraries never
+/// arrived says `the page asked for \`LineChart\`, and nothing has it`,
+/// which is true and tells the developer to go and look in the wrong
+/// place. The `<base>` is what makes the generated document resolve
+/// paths the way a document written beside the assets would.
+fn default_document(title: &str, assets: &Path) -> String {
     let title = title.replace('<', "&lt;").replace('&', "&amp;");
+    let base = directory_url(assets);
     format!(
         "<!doctype html>\n<html>\n  <head>\n    <meta charset=\"utf-8\" />\n    \
+         <base href=\"{base}\" />\n    \
          <title>{title}</title>\n    <style>\n      \
          :root {{ color-scheme: light dark; }}\n      \
          body {{ font-family: system-ui, sans-serif; margin: 0; }}\n    \
