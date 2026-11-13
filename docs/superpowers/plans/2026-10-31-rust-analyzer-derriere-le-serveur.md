@@ -38,11 +38,11 @@
 - Produces: `PositionMap::to_generated_position(line: usize, column: usize) -> Option<(usize, usize)>` et `PositionMap::to_rsx_position(line: usize, column: usize) -> Option<(usize, usize)>`, en coordonnées à partir de 1. `None` veut dire « cette position n'a pas d'équivalent » — à l'intérieur d'une région JSX, ou sur une ligne que la réécriture a reconstruite. Une ligne que rien n'a touchée garde ses colonnes, et c'est le cas courant.
 - Le texte de la carte gagne les colonnes sans casser ce qui la lit : `generated:rsx` reste une ligne valide, `generated:rsx:from:to` est la forme longue, et `from_text` lit les deux.
 
-- [ ] **Step 1** : les tests — `a_line_nothing_touched_keeps_its_columns`, `a_position_inside_a_jsx_region_has_no_equivalent`, `a_rewritten_line_has_no_equivalent`, `a_map_written_and_read_back_is_the_same_map`, `an_old_map_without_columns_still_reads`.
-- [ ] **Step 2** : rouge (`cargo test -p rustx-compiler --test map`).
-- [ ] **Step 3** : les deux conversions et la forme longue du texte.
-- [ ] **Step 4** : vert.
-- [ ] **Step 5** : commit `feat(compiler): the position map knows about columns`.
+- [x] **Step 1** : les tests — `a_line_nothing_touched_keeps_its_columns`, `a_position_inside_a_jsx_region_has_no_equivalent`, `a_rewritten_line_has_no_equivalent`, `a_map_written_and_read_back_is_the_same_map`, `an_old_map_without_columns_still_reads`.
+- [x] **Step 2** : rouge (`cargo test -p rustx-compiler --test map`).
+- [x] **Step 3** : les deux conversions et la forme longue du texte.
+- [x] **Step 4** : vert.
+- [x] **Step 5** : commit `feat(compiler): the position map knows about columns`.
 
 ---
 
