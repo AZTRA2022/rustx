@@ -12,6 +12,19 @@ fn report() -> &'static Report {
 }
 
 #[test]
+fn the_bodys_own_stylesheet_reaches_the_document() {
+    // Plain CSS this file wrote itself, nothing rustx emitted: a guard
+    // against the window ever losing its own `<style>` the way
+    // `apps/capture` lost its whole `index.html` to a bad merge.
+    assert_eq!(
+        report().get("body_font"),
+        "system-ui, sans-serif",
+        "full output:\n{}",
+        report().raw()
+    );
+}
+
+#[test]
 fn the_counter_of_the_design_document_counts() {
     assert_eq!(
         report().get("after_three_clicks"),

@@ -42,6 +42,11 @@
       // own frames from a timer when that happens; so does this.
       const rustx_soon = (then) => setTimeout(then, 16);
       if (rustx_scenario() === "page") {
+        // The effective font of the document, read before anything
+        // else touches the page: `body { font-family: system-ui,
+        // sans-serif }` is plain CSS this file wrote itself, nothing
+        // rustx emitted.
+        rustx_report("body_font", getComputedStyle(document.body).fontFamily);
         // The counter is a screen of its own; the landing page is at /.
         rustx_navigate("/counter");
         const ready = () => document.querySelector("#first button");
