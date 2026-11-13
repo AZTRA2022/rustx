@@ -41,12 +41,12 @@ const CODE_PAGE: u16 = 0x04B0;
 /// The icon is checked before the file is opened for writing: a half
 /// stamped binary is worse than an unstamped one.
 pub fn stamp(exe: &Path, about: &About, icon: Option<&Path>) -> Result<(), String> {
-    let icon = match icon {
+    let group = match icon {
         Some(path) => Some(group_of(path)?),
         None => None,
     };
     let version = version_info(about);
-    write_them(exe, &version, icon.as_ref())
+    write_them(exe, &version, group.as_ref(), about, icon)
 }
 
 /// An `.ico`, read into the images and the directory Windows wants.
@@ -245,7 +245,13 @@ fn numbers_of(version: &str) -> (u16, u16, u16, u16) {
 }
 
 #[cfg(windows)]
-fn write_them(exe: &Path, version: &[u8], icon: Option<&Group>) -> Result<(), String> {
+fn write_them(
+    exe: &Path,
+    version: &[u8],
+    icon: Option<&Group>,
+    _about: &About,
+    _icon_path: Option<&Path>,
+) -> Result<(), String> {
     use std::ffi::c_void;
     use std::os::windows::ffi::OsStrExt;
 
@@ -322,12 +328,196 @@ fn write_them(exe: &Path, version: &[u8], icon: Option<&Group>) -> Result<(), St
     Ok(())
 }
 
-#[cfg(not(windows))]
-fn write_them(_exe: &Path, _version: &[u8], _icon: Option<&Group>) -> Result<(), String> {
+/// Linux: a `.desktop` entry beside the binary. Written here rather
+/// than inside it, the same reason the version resource above is
+/// written into the `.exe` rather than its own file next to it: it is
+/// where the desktop a developer builds for already looks.
+#[cfg(target_os = "linux")]
+fn write_them(
+    exe: &Path,
+    _version: &[u8],
+    _icon: Option<&Group>,
+    about: &About,
+    icon_path: Option<&Path>,
+) -> Result<(), String> {
+    let path = exe.with_extension("desktop");
+    std::fs::write(&path, desktop_entry(exe, about, icon_path))
+        .map_err(|error| format!("{} could not be written: {error}", path.display()))
+}
+
+/// macOS: a minimal `.app` bundle around a copy of `exe`. Beside it,
+/// not instead of it — `exe` is still the file `rustx dev`'s own
+/// restart loop and `build::produced` look for, so a bundle gone wrong
+/// cannot turn a successful build into a missing binary.
+///
+/// Written from Apple's documented bundle layout and never run on a
+/// real Mac: compiled on this machine, not verified on that one. The
+/// icon is not converted — `.ico` is not `.icns`, and a wrong guess at
+/// that conversion would be worse than an app with the system's own
+/// default icon.
+#[cfg(target_os = "macos")]
+fn write_them(
+    exe: &Path,
+    _version: &[u8],
+    _icon: Option<&Group>,
+    about: &About,
+    _icon_path: Option<&Path>,
+) -> Result<(), String> {
+    write_app_bundle(exe, about)
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+fn write_them(
+    _exe: &Path,
+    _version: &[u8],
+    _icon: Option<&Group>,
+    _about: &About,
+    _icon_path: Option<&Path>,
+) -> Result<(), String> {
     // Elsewhere the logo and the name live in a bundle or a desktop
     // entry, not inside the binary. The build still produced one, so
     // this is not a failure — it is a thing that does not apply.
     Ok(())
+}
+
+/// The text of a `.desktop` entry — not gated on Linux, so a test on
+/// any machine can read exactly what one says.
+fn desktop_entry(exe: &Path, about: &About, icon: Option<&Path>) -> String {
+    let name = if about.name.is_empty() {
+        exe.file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("App")
+            .to_string()
+    } else {
+        single_line(&about.name)
+    };
+
+    let mut text = String::new();
+    text.push_str("[Desktop Entry]\n");
+    text.push_str("Type=Application\n");
+    text.push_str(&format!("Name={name}\n"));
+    if !about.description.is_empty() {
+        text.push_str(&format!("Comment={}\n", single_line(&about.description)));
+    }
+    text.push_str(&format!("Exec={}\n", exe.display()));
+    if let Some(icon) = icon {
+        text.push_str(&format!("Icon={}\n", icon.display()));
+    }
+    text.push_str("Terminal=false\n");
+    if !about.version.is_empty() {
+        text.push_str(&format!("X-AppVersion={}\n", single_line(&about.version)));
+    }
+    if !about.publisher.is_empty() {
+        text.push_str(&format!(
+            "X-AppPublisher={}\n",
+            single_line(&about.publisher)
+        ));
+    }
+    text
+}
+
+/// A `.desktop` value may not hold a bare newline — one from a
+/// multi-line description would end the file at the key that follows
+/// it, silently dropping everything after.
+fn single_line(text: &str) -> String {
+    text.replace('\n', " ")
+}
+
+/// Build the bundle folder and copy `exe` into it. Not gated on macOS,
+/// so a test on any machine can make one and read it back; only
+/// `write_them` decides whether this ever runs for real.
+fn write_app_bundle(exe: &Path, about: &About) -> Result<(), String> {
+    let Some(parent) = exe.parent() else {
+        return Ok(());
+    };
+    let name = if about.name.is_empty() {
+        exe.file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("App")
+            .to_string()
+    } else {
+        about.name.clone()
+    };
+    let binary_name = exe
+        .file_name()
+        .and_then(|found| found.to_str())
+        .unwrap_or("app")
+        .to_string();
+
+    let macos_dir = parent.join(format!("{name}.app/Contents/MacOS"));
+    std::fs::create_dir_all(&macos_dir)
+        .map_err(|error| format!("{} could not be made: {error}", macos_dir.display()))?;
+
+    let copied = macos_dir.join(&binary_name);
+    std::fs::copy(exe, &copied)
+        .map_err(|error| format!("{} could not be copied into the bundle: {error}", copied.display()))?;
+
+    let plist_path = macos_dir
+        .parent()
+        .expect("Contents/MacOS has a Contents parent")
+        .join("Info.plist");
+    std::fs::write(&plist_path, info_plist(about, &binary_name))
+        .map_err(|error| format!("{} could not be written: {error}", plist_path.display()))
+}
+
+/// The text of `Info.plist` — the whole case for "install panels show
+/// the software's own name, version and publisher" on macOS, the same
+/// fields the Windows version resource above carries.
+fn info_plist(about: &About, binary_name: &str) -> String {
+    let version = if about.version.is_empty() {
+        "0.0.0"
+    } else {
+        about.version.as_str()
+    };
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+         <plist version=\"1.0\">\n<dict>\n\
+         \x20   <key>CFBundleName</key>\n\
+         \x20   <string>{}</string>\n\
+         \x20   <key>CFBundleExecutable</key>\n\
+         \x20   <string>{}</string>\n\
+         \x20   <key>CFBundleShortVersionString</key>\n\
+         \x20   <string>{}</string>\n\
+         \x20   <key>CFBundleVersion</key>\n\
+         \x20   <string>{}</string>\n\
+         \x20   <key>CFBundlePackageType</key>\n\
+         \x20   <string>APPL</string>\n\
+         \x20   <key>NSHumanReadableCopyright</key>\n\
+         \x20   <string>{}</string>\n\
+         </dict>\n</plist>\n",
+        xml_escape(&plist_name(about, binary_name)),
+        xml_escape(binary_name),
+        xml_escape(version),
+        xml_escape(version),
+        xml_escape(&about.publisher),
+    )
+}
+
+fn plist_name(about: &About, binary_name: &str) -> String {
+    if about.name.is_empty() {
+        binary_name.to_string()
+    } else {
+        about.name.clone()
+    }
+}
+
+/// The five characters a plist's XML may not hold bare — a publisher
+/// or a name written with an `&` or a `"` would otherwise end the
+/// string, or the file, at the character that broke it.
+fn xml_escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for letter in text.chars() {
+        match letter {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            letter => out.push(letter),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -339,6 +529,97 @@ mod tests {
         assert_eq!(numbers_of("1.2.3"), (1, 2, 3, 0));
         assert_eq!(numbers_of("0.1.0-beta.2"), (0, 1, 0, 2));
         assert_eq!(numbers_of(""), (0, 0, 0, 0));
+    }
+
+    #[test]
+    fn a_desktop_entry_names_everything_about_says() {
+        let about = About {
+            name: "Mon app".to_string(),
+            version: "1.2.3".to_string(),
+            description: "Une description".to_string(),
+            publisher: "aztra".to_string(),
+        };
+        let text = desktop_entry(Path::new("/opt/mon-app/mon-app"), &about, Some(Path::new("/opt/mon-app/icon.png")));
+        assert!(text.starts_with("[Desktop Entry]\n"));
+        assert!(text.contains("Name=Mon app\n"));
+        assert!(text.contains("Comment=Une description\n"));
+        assert!(text.contains("Exec=/opt/mon-app/mon-app\n"));
+        assert!(text.contains("Icon=/opt/mon-app/icon.png\n"));
+        assert!(text.contains("X-AppVersion=1.2.3\n"));
+        assert!(text.contains("X-AppPublisher=aztra\n"));
+    }
+
+    #[test]
+    fn a_desktop_entry_falls_back_to_the_binarys_own_name() {
+        let about = About::default();
+        let text = desktop_entry(Path::new("/opt/mon-app/mon-app"), &about, None);
+        assert!(text.contains("Name=mon-app\n"), "got {text}");
+        assert!(!text.contains("Icon="), "no icon was given: {text}");
+    }
+
+    #[test]
+    fn a_newline_in_a_description_does_not_truncate_the_entry() {
+        let mut about = About::default();
+        about.description = "Une ligne\nUne autre".to_string();
+        let text = desktop_entry(Path::new("/opt/mon-app/mon-app"), &about, None);
+        assert!(
+            text.contains("Comment=Une ligne Une autre\n"),
+            "a bare newline would end the file at the next key: {text}"
+        );
+    }
+
+    #[test]
+    fn a_bundle_is_made_with_a_copy_of_the_binary_and_a_plist() {
+        let room = std::env::temp_dir().join(format!(
+            "rustx-resources-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|since| since.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&room).expect("a room to build in");
+        let exe = room.join("mon-app");
+        std::fs::write(&exe, b"not really a binary").expect("a fake binary");
+
+        let about = About {
+            name: "Mon app".to_string(),
+            version: "1.2.3".to_string(),
+            description: String::new(),
+            publisher: "aztra".to_string(),
+        };
+        write_app_bundle(&exe, &about).expect("a bundle");
+
+        let bundled = room.join("Mon app.app/Contents/MacOS/mon-app");
+        assert!(bundled.is_file(), "the binary was not copied into the bundle");
+        assert_eq!(
+            std::fs::read(&bundled).unwrap(),
+            b"not really a binary",
+            "the bundle must hold the real binary, not something else"
+        );
+
+        let plist = std::fs::read_to_string(room.join("Mon app.app/Contents/Info.plist"))
+            .expect("an Info.plist");
+        assert!(plist.contains("<string>Mon app</string>"), "got {plist}");
+        assert!(plist.contains("<string>1.2.3</string>"), "got {plist}");
+        assert!(plist.contains("<string>aztra</string>"), "got {plist}");
+
+        let _ = std::fs::remove_dir_all(&room);
+    }
+
+    #[test]
+    fn an_ampersand_or_a_quote_does_not_break_the_plists_xml() {
+        let about = About {
+            name: "A & B \"app\"".to_string(),
+            version: String::new(),
+            description: String::new(),
+            publisher: String::new(),
+        };
+        let plist = info_plist(&about, "mon-app");
+        assert!(
+            plist.contains("<string>A &amp; B &quot;app&quot;</string>"),
+            "got {plist}"
+        );
     }
 
     #[test]
