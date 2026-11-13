@@ -33,7 +33,7 @@ wrap_life_span_handler! {
                 .and_then(|browser| browser.host())
                 .map(|host| host.window_handle());
             if let Some(handle) = handle {
-                crate::window::dress(handle.0.cast());
+                crate::window::dress(crate::window::native(handle));
             }
         }
 

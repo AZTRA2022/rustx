@@ -532,7 +532,7 @@ pub(crate) fn created(browser: &cef::Browser) {
         use cef::ImplBrowserHost;
         browser.host().map(|host| host.window_handle())
     } {
-        wear(handle.0.cast(), dressing);
+        wear(native(handle), dressing);
     }
 }
 
@@ -690,10 +690,34 @@ fn obey(word: &str, from: Option<&cef::Browser>) {
         );
         return;
     };
-    let pane = rustx_os::window::Pane::from_handle(handle.0.cast());
+    let pane = rustx_os::window::Pane::from_handle(native(handle));
     if let Err(refused) = order.given(pane) {
         eprintln!("rustx: « {word} » a été refusé : {refused}");
     }
+}
+
+/// La poignée que CEF rend, telle que `rustx-os` la prend.
+///
+/// Trois types pour une même chose : un `HWND` sous Windows, un `XID`
+/// X11 (un entier, pas un pointeur) sous Linux, un pointeur de `NSView`
+/// sous macOS. `Pane` les porte tous comme un entier ; seul le passage
+/// d'ici à là change de forme.
+#[cfg(windows)]
+pub(crate) fn native(handle: cef::sys::cef_window_handle_t) -> *mut std::ffi::c_void {
+    handle.0.cast()
+}
+
+/// Sous Linux : un `XID`, porté dans un entier de la taille d'un
+/// pointeur — `Pane::from_handle` le relit comme l'entier qu'il est.
+#[cfg(target_os = "linux")]
+pub(crate) fn native(handle: cef::sys::cef_window_handle_t) -> *mut std::ffi::c_void {
+    handle as usize as *mut std::ffi::c_void
+}
+
+/// Sous macOS : déjà un pointeur, celui de la `NSView` du navigateur.
+#[cfg(target_os = "macos")]
+pub(crate) fn native(handle: cef::sys::cef_window_handle_t) -> *mut std::ffi::c_void {
+    handle
 }
 
 /// Mettre la fenêtre dans l'habit qu'on lui a demandé en l'ouvrant.
