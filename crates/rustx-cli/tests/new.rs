@@ -10,14 +10,23 @@ use std::path::PathBuf;
 
 use rustx_cli::{arguments, new};
 
+/// A fresh, empty directory nobody else in this run can have.
+///
+/// A timestamp alone collided: two tests on two threads can read the
+/// same nanosecond on this clock, and one test's `mon-app` then shows
+/// up inside another's "must be empty" directory. The counter is the
+/// one thing in this process nothing else can also read.
 fn somewhere() -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static TURN: AtomicU64 = AtomicU64::new(0);
     let path = std::env::temp_dir().join(format!(
-        "rustx-new-{}-{}",
+        "rustx-new-{}-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|since| since.as_nanos())
-            .unwrap_or(0)
+            .unwrap_or(0),
+        TURN.fetch_add(1, Ordering::Relaxed)
     ));
     fs::create_dir_all(&path).expect("a directory to write into");
     path
