@@ -1,6 +1,6 @@
 {
-  "name": "rustx",
-  "displayName": "rustx",
+  "name": "rustx-framework-extension",
+  "displayName": "Rustx Framework Extension",
   "description": "What an editor needs to know about a .rsx: its colours, its pairs, and where the mistakes are.",
   "version": "0.2.0",
   "license": "MIT",

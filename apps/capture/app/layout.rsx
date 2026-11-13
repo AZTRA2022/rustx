@@ -5,6 +5,7 @@ let mut ticks = 0;
 let mut layout_starts = 0;
 
 fn Layout(children: Element) -> Element {
+
     task(move |alive| {
         let _ = alive.post(|| layout_starts += 1);
         while alive.get() {

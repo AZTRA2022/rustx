@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils"
 import { Icons } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import Image from "next/image"
-import logo from '@/assets/icon.png'
+import logo from '@/assets/icon.webp'
 
 export function MainNav({
   items,

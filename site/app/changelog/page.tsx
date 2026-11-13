@@ -1,26 +1,26 @@
-import type { Metadata } from "next"
-import Link from "next/link"
+import type { Metadata } from "next";
+import Link from "next/link";
 
 import {
   PageHeader,
   PageHeaderDescription,
   PageHeaderHeading,
-} from "@/components/page-header"
+} from "@/components/page-header";
 
 export const metadata: Metadata = {
   title: "Changelog",
   description:
     "What changed in each rustx release, newest first. Taken from the repository's logs and history.",
-}
+};
 
-type Item = { text: string; href?: string }
-type Group = { title: string; items: Item[] }
+type Item = { text: string; href?: string };
+type Group = { title: string; items: Item[] };
 type Release = {
-  version: string
-  date: string
-  summary: string
-  groups: Group[]
-}
+  version: string;
+  date: string;
+  summary: string;
+  groups: Group[];
+};
 
 const RELEASES: Release[] = [
   {
@@ -123,7 +123,7 @@ const RELEASES: Release[] = [
             text: "A non-English comment no longer makes the compiler panic.",
           },
           {
-            text: "About a dozen rewrites that emitted wrong Rust were fixed, each with the test that found it: a write inside a `match` arm swallowing the arms after it, a lost type annotation on a page value, a method that mutates and returns a value, a `format!(\"{x}\")` capture, a plain function next to a page that could not reach its values, a name bound by `let` rewritten as a read.",
+            text: 'About a dozen rewrites that emitted wrong Rust were fixed, each with the test that found it: a write inside a `match` arm swallowing the arms after it, a lost type annotation on a page value, a method that mutates and returns a value, a `format!("{x}")` capture, a plain function next to a page that could not reach its values, a name bound by `let` rewritten as a read.',
           },
           {
             text: "A `let mut` that is written and never read no longer produces invalid Rust. A `let mut` inside an `async` block is a local, not a cell.",
@@ -207,7 +207,7 @@ const RELEASES: Release[] = [
       },
     ],
   },
-]
+];
 
 /** `code` spans in the data, rendered as code. */
 function Text({ children }: { children: string }) {
@@ -223,10 +223,10 @@ function Text({ children }: { children: string }) {
           </code>
         ) : (
           part
-        )
+        ),
       )}
     </>
-  )
+  );
 }
 
 export default function ChangelogPage() {
@@ -238,7 +238,10 @@ export default function ChangelogPage() {
           What changed in each release, newest first. It is written from the
           repository&apos;s two logs, the bug hunt and the list of gaps, and
           from its history. What is still open is on the{" "}
-          <Link href="/docs/whats-left" className="underline underline-offset-4">
+          <Link
+            href="/docs/whats-left"
+            className="underline underline-offset-4"
+          >
             what&apos;s left
           </Link>{" "}
           page.
@@ -294,5 +297,5 @@ export default function ChangelogPage() {
         </div>
       </section>
     </div>
-  )
+  );
 }

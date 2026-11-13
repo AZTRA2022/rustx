@@ -1,12 +1,12 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import Link from "next/link"
-import { usePathname } from "next/navigation"
+import * as React from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
-import { DOCS_SIDEBAR_SCROLL_STORAGE_KEY } from "@/lib/docs-sidebar-scroll"
-import { getPagesFromFolder } from "@/lib/page-tree"
-import type { source } from "@/lib/source"
+import { DOCS_SIDEBAR_SCROLL_STORAGE_KEY } from "@/lib/docs-sidebar-scroll";
+import { getPagesFromFolder } from "@/lib/page-tree";
+import type { source } from "@/lib/source";
 import {
   Sidebar,
   SidebarContent,
@@ -16,16 +16,16 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from "@/components/ui/sidebar"
-import { BoxIcon } from "lucide-react"
+} from "@/components/ui/sidebar";
+import { BoxIcon } from "lucide-react";
 
 function readScrollState() {
   try {
     return JSON.parse(
-      sessionStorage.getItem(DOCS_SIDEBAR_SCROLL_STORAGE_KEY) ?? ""
-    ) as { pathname: string; scrollTop: number }
+      sessionStorage.getItem(DOCS_SIDEBAR_SCROLL_STORAGE_KEY) ?? "",
+    ) as { pathname: string; scrollTop: number };
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -36,65 +36,65 @@ function saveScrollState(container: HTMLElement) {
       JSON.stringify({
         pathname: location.pathname,
         scrollTop: container.scrollTop,
-      })
-    )
+      }),
+    );
   } catch {}
 }
 
 function getActiveItem(container: HTMLElement) {
-  const items = container.querySelectorAll<HTMLElement>('[data-active="true"]')
-  let active: HTMLElement | null = null
-  let activePathLength = -1
-  let activeDistance = Infinity
-  const containerRect = container.getBoundingClientRect()
-  const containerCenter = containerRect.top + container.clientHeight / 2
+  const items = container.querySelectorAll<HTMLElement>('[data-active="true"]');
+  let active: HTMLElement | null = null;
+  let activePathLength = -1;
+  let activeDistance = Infinity;
+  const containerRect = container.getBoundingClientRect();
+  const containerCenter = containerRect.top + container.clientHeight / 2;
 
   for (const item of items) {
-    const link = item.querySelector<HTMLAnchorElement>("a[href]")
-    const href = item.getAttribute("href") ?? link?.getAttribute("href")
-    const pathLength = href?.length ?? 0
-    const itemRect = item.getBoundingClientRect()
+    const link = item.querySelector<HTMLAnchorElement>("a[href]");
+    const href = item.getAttribute("href") ?? link?.getAttribute("href");
+    const pathLength = href?.length ?? 0;
+    const itemRect = item.getBoundingClientRect();
     const distance = Math.abs(
-      itemRect.top + itemRect.height / 2 - containerCenter
-    )
+      itemRect.top + itemRect.height / 2 - containerCenter,
+    );
 
     if (
       pathLength > activePathLength ||
       (pathLength === activePathLength && distance < activeDistance)
     ) {
-      active = item
-      activePathLength = pathLength
-      activeDistance = distance
+      active = item;
+      activePathLength = pathLength;
+      activeDistance = distance;
     }
   }
 
-  return active
+  return active;
 }
 
 export function DocsSidebar({
   tree,
   ...props
 }: React.ComponentProps<typeof Sidebar> & { tree: typeof source.pageTree }) {
-  const pathname = usePathname()
-  const contentRef = React.useRef<HTMLDivElement>(null)
+  const pathname = usePathname();
+  const contentRef = React.useRef<HTMLDivElement>(null);
 
   React.useLayoutEffect(() => {
-    const container = contentRef.current
+    const container = contentRef.current;
 
     if (!container) {
-      return
+      return;
     }
 
-    const scrollState = readScrollState()
+    const scrollState = readScrollState();
 
     if (scrollState?.pathname === pathname) {
-      container.scrollTop = scrollState.scrollTop
+      container.scrollTop = scrollState.scrollTop;
     } else {
-      const active = getActiveItem(container)
+      const active = getActiveItem(container);
 
       if (active) {
-        const containerRect = container.getBoundingClientRect()
-        const activeRect = active.getBoundingClientRect()
+        const containerRect = container.getBoundingClientRect();
+        const activeRect = active.getBoundingClientRect();
 
         if (
           activeRect.top < containerRect.top ||
@@ -103,25 +103,25 @@ export function DocsSidebar({
           container.scrollTop +=
             activeRect.top -
             containerRect.top -
-            (container.clientHeight - activeRect.height) / 2
+            (container.clientHeight - activeRect.height) / 2;
         }
       }
     }
 
-    saveScrollState(container)
-  }, [pathname])
+    saveScrollState(container);
+  }, [pathname]);
 
   React.useEffect(() => {
-    const container = contentRef.current
+    const container = contentRef.current;
 
     if (!container) {
-      return
+      return;
     }
 
-    const onScroll = () => saveScrollState(container)
-    container.addEventListener("scroll", onScroll, { passive: true })
-    return () => container.removeEventListener("scroll", onScroll)
-  }, [])
+    const onScroll = () => saveScrollState(container);
+    container.addEventListener("scroll", onScroll, { passive: true });
+    return () => container.removeEventListener("scroll", onScroll);
+  }, []);
 
   return (
     <Sidebar
@@ -153,23 +153,23 @@ export function DocsSidebar({
                   </SidebarMenu>
                 </SidebarGroupContent>
               </SidebarGroup>
-            )
+            );
           }
 
           // A separator has no children: it has nothing to draw.
           if (item.type !== "folder") {
-            return null
+            return null;
           }
 
           return (
             <SidebarGroup key={item.$id ?? index}>
               <SidebarGroupLabel className="font-medium text-bold gap-2 text-md text-muted-foreground">
-               <BoxIcon  />  {item.name } 
+                <BoxIcon /> {item.name}
               </SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu className="gap-0.5">
                   {getPagesFromFolder(item).map((page) => (
-                    <SidebarMenuItem key={page.url}>
+                    <SidebarMenuItem key={page.url} className="ml-4">
                       <SidebarMenuButton
                         asChild
                         isActive={page.url === pathname}
@@ -177,7 +177,7 @@ export function DocsSidebar({
                       >
                         <Link href={page.url}>
                           <span className="absolute inset-0 flex w-(--sidebar-menu-width) bg-transparent" />
-                          {page.name} 
+                          {page.name}
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -185,9 +185,9 @@ export function DocsSidebar({
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
-          )
+          );
         })}
       </SidebarContent>
     </Sidebar>
-  )
+  );
 }

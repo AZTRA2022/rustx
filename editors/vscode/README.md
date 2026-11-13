@@ -1,70 +1,43 @@
-# rustx for VS Code
+# RustX Extension for VS Code
 
-Ouvrir un `.rsx` et voir ce qu'on écrit : du Rust coloré, des balises qui
-sont des balises, et les erreurs du compilateur soulignées à la ligne où
-elles ont été écrites, pendant la frappe.
+A complete development experience for RustX directly inside Visual Studio Code.
 
-## Ce qu'elle contient
+The RustX extension brings native language support to `.rsx` files, combining Rust syntax highlighting, intelligent code completion, real-time diagnostics, and seamless integration with the Rust development toolchain.
 
-- **Le langage `rsx`** — `.rsx`, ses commentaires (`//`, `/* */`), ses
-  paires, et l'indentation après une balise ouverte.
-- **La grammaire** — Rust, plus les balises : un nom de balise est un nom
-  de balise, un attribut est un attribut, et ce qui est entre `{}`
-  redevient du Rust. Quand la grammaire Rust de l'éditeur est là, elle
-  est utilisée ; sinon la grammaire se suffit à elle-même.
-- **Le serveur** (`rustx-lsp`) — il compile le fichier à chaque frappe et
-  publie ce que le compilateur a refusé, aux coordonnées du `.rsx`.
-  Ouvrir un fichier ne lance jamais `cargo`.
-- **La complétion dans le balisage** — elle vient du serveur lui-même et
-  n'attend personne : les balises HTML et SVG, les attributs, les
-  événements (insérés comme `onClick={move |_| }`), les clés d'un
-  `style={{ … }}`, les composants déclarés dans le fichier avec leurs
-  paramètres, et ceux que l'application a installés — `npx shadcn add
-  button` donne `<Button>`. Les listes sont celles du compilateur, donc
-  ce qui est proposé est ce qui est accepté. Rien à construire, rien à
-  installer.
+## Features
 
-- **La complétion, le survol et « aller à la définition » dans le Rust** —
-  ils viennent de `rust-analyzer`, que le serveur lance lui-même et
-  interroge sur le `.rs` que la construction génère déjà pour la page.
-  Le vocabulaire est donc celui de la caisse de l'application : ses
-  propres modules, `rustx`, toutes ses dépendances. Si `rust-analyzer`
-  n'est pas sur le `PATH`, `rustx.rustAnalyzer.path` dit où il est ;
-  s'il n'est pas là du tout, le balisage se complète quand même et le
-  soulignement continue.
+- **RSX Language Support** — Native `.rsx` file recognition, syntax highlighting, comment support (`//`, `/* */`), automatic indentation, bracket matching, and tag pairing.
 
-  **Pas encore l'import automatique.** `std::fs::read` se complète dès
-  le `::` tapé, mais taper `read(` tout court ne propose pas
-  `std::fs::read` et n'ajoute pas le `use` qui irait avec — ce que
-  `rust-analyzer` fait d'ordinaire dans un `.rs` édité seul. En
-  attendant, le chemin s'écrit en entier : `std::fs::read`,
-  `rustx::dialog`.
+- **Syntax Grammar** — A dedicated grammar combining Rust and RSX syntax. HTML-like elements, attributes, event handlers, and embedded Rust expressions are recognized independently, providing accurate syntax highlighting throughout the document.
 
-- **Et dans un `{…}` du balisage** — les vraies complétions, avec les
-  types. Une région JSX est émise sur une seule ligne de Rust, donc une
-  colonne dedans n'a pas d'équivalent : le serveur fabrique, pour cette
-  question-là, un fichier où l'expression sous le curseur est posée à sa
-  ligne et à sa colonne, entourée du vrai code de la page. Donc
-  `onClick={move |_| points.` propose ce que `points` a vraiment.
-  Demande que l'application ait été construite une fois, parce que
-  `rust-analyzer` lit un projet construit. Les premières secondes d'une
-  session, il charge encore l'espace de travail et ne répond rien : le
-  serveur repose alors la question, une fois, en patientant plus
-  longtemps — c'est pourquoi la toute première liste peut mettre
-  quelques secondes à venir.
+- **Real-time Diagnostics** — Powered by `rustx-lsp`, the extension compiles RSX files as you type and reports compiler errors directly at their original source locations. No Cargo invocation is required when opening a file.
 
-## Développement
+- **Intelligent RSX Completion** — Context-aware suggestions for HTML and SVG elements, attributes, event handlers, style properties, locally declared components, component parameters, and installed UI libraries. Component suggestions are derived directly from the compiler, ensuring that available completions reflect what RustX actually supports.
 
-```sh
-npm install
-npm test          # la grammaire, tokenisée par vscode-textmate
-```
+- **Rust Language Intelligence** — Integration with `rust-analyzer` for Rust code completion, hover information, and go-to-definition. The language server automatically manages communication with `rust-analyzer` using the generated Rust source, giving you access to your application's modules, RustX APIs, and dependencies.
 
-Le serveur se construit avec le reste du projet :
+- **Embedded Rust Completion** — Full Rust-aware completion inside RSX expressions, including type information and contextual suggestions. The extension reconstructs the expression under the cursor within its original application context, allowing `rust-analyzer` to provide accurate suggestions even inside markup.
 
-```sh
-cargo build -p rustx-lsp
-```
+- **Automatic Toolchain Integration** — The extension manages its language server and `rust-analyzer` integration automatically. If `rust-analyzer` is not available in your system PATH, you can specify its location through `rustx.rustAnalyzer.path`. RSX syntax support and compiler diagnostics remain available even without it.
 
-L'import automatique — un nom seul qui propose `std::fs::read` et pose
-le `use` — reste à faire ; voir `docs/manques-du-framework.md`, #35.
+## Requirements
+
+- Rust toolchain.
+- RustX CLI and compiler.
+- Rust analyser extension.
+- `rust-analyzer` for advanced Rust language intelligence.
+- At least one successful application build for full type-aware completion inside embedded Rust expressions.
+
+## Current Limitations
+
+**No automatic imports yet.**
+
+The extension supports path-based completion, such as `std::fs::read`, but does not currently provide automatic import insertion or unqualified symbol suggestions.
+
+**Initial workspace loading.**
+
+The first Rust completion request may take a few seconds while `rust-analyzer` initializes and loads the application workspace. The language server automatically retries the request to accommodate this initialization period.
+
+## Built for RustX
+
+The goal is simple: make `.rsx` development feel as natural as writing ordinary Rust, without sacrificing the flexibility of component-based interfaces.
