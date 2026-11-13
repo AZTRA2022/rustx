@@ -118,6 +118,47 @@ pub fn untag_item(item: &str) -> (String, Option<String>) {
     (format!("{before}{after}"), Some(uri))
 }
 
+/// Where the `{…}` or `[…]` value of the first field called `name`
+/// is, delimiters included — `None` when there is no such field, or
+/// its value is not that kind of delimiter.
+fn value_span(text: &str, name: &str, opening: char, closing: char) -> Option<(usize, usize)> {
+    let key = format!("\"{name}\"");
+    let at = text.find(&key)?;
+    let after_key = at + key.len();
+    let colon = text[after_key..].find(':')?;
+    let after_colon = after_key + colon + 1;
+    let value = text[after_colon..].trim_start();
+    if !value.starts_with(opening) {
+        return None;
+    }
+    let value_start = after_colon + (text[after_colon..].len() - value.len());
+    let close = matching(text, value_start, opening, closing)?;
+    Some((value_start, close + 1))
+}
+
+/// The raw text of the `{…}` value of the first field called `name`,
+/// such as `completionItem/resolve`'s own `params` — a `CompletionItem`
+/// with no envelope, the same shape this server already hands out.
+pub fn object_field<'a>(text: &'a str, name: &str) -> Option<&'a str> {
+    let (start, end) = value_span(text, name, '{', '}')?;
+    Some(&text[start..end])
+}
+
+/// The raw text of the `[…]` value of the first field called `name`.
+pub fn array_field<'a>(text: &'a str, name: &str) -> Option<&'a str> {
+    let (start, end) = value_span(text, name, '[', ']')?;
+    Some(&text[start..end])
+}
+
+/// `text` with the `{…}` or `[…]` value of `name` replaced by
+/// `replacement`, whole. `text` unchanged when there is no such field.
+pub fn replace_field(text: &str, name: &str, opening: char, closing: char, replacement: &str) -> String {
+    match value_span(text, name, opening, closing) {
+        Some((start, end)) => format!("{}{replacement}{}", &text[..start], &text[end..]),
+        None => text.to_string(),
+    }
+}
+
 /// The index of the delimiter that closes the one at `open_at`, which
 /// must itself be `opening`. Quoted text is skipped whole, the same way
 /// every other reader in this module does it.
@@ -153,7 +194,7 @@ fn matching(text: &str, open_at: usize, opening: char, closing: char) -> Option<
 /// Every top-level `{…}` of `text`, as `(start, end)` byte ranges —
 /// `end` just past the closing brace. A brace inside a quoted string,
 /// or nested one level down, is not a top-level one.
-fn objects_in(text: &str) -> Vec<(usize, usize)> {
+pub fn objects_in(text: &str) -> Vec<(usize, usize)> {
     let mut found = Vec::new();
     let mut depth = 0usize;
     let mut inside_text = false;

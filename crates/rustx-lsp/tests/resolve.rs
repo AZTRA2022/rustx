@@ -130,6 +130,93 @@ fn a_tags_own_completion_is_tagged_too() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+fn resolve_request(item: &str, id: usize) -> String {
+    format!(
+        "{{\"jsonrpc\":\"2.0\",\"id\":{id},\"method\":\"completionItem/resolve\",\"params\":{item}}}"
+    )
+}
+
+#[test]
+fn a_resolve_with_no_tag_answers_the_item_unchanged() {
+    let said = conversation(
+        &[resolve_request(r#"{"label":"read"}"#, 30).as_str()],
+        Some(canned(&[])),
+    );
+    let answer = said
+        .iter()
+        .find(|body| body.contains("\"id\":30"))
+        .unwrap_or_else(|| panic!("the resolve was not answered: {said:?}"));
+    assert!(answer.contains(r#""label":"read""#), "got {answer}");
+}
+
+#[test]
+fn a_resolve_whose_edit_lands_on_a_mapped_line_comes_back_translated() {
+    // Line 1 of the page (0-indexed line 0): ordinary Rust, untouched
+    // by any region or rewrite, so it keeps its columns.
+    let (root, uri) = a_page();
+    let tagged = json::tag_items(r#"[{"label":"read"}]"#, &uri);
+    let item = &tagged[1..tagged.len() - 1];
+    let resolved = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"label\":\"read\",\
+         \"additionalTextEdits\":[{\"range\":{\"start\":{\"line\":0,\"character\":0},\
+         \"end\":{\"line\":0,\"character\":0}},\"newText\":\"use std::fs::read;\\n\"}]}}";
+    let said = conversation(
+        &[opened(&uri).as_str(), resolve_request(item, 31).as_str()],
+        Some(canned(&[resolved])),
+    );
+    let answer = said
+        .iter()
+        .find(|body| body.contains("\"id\":31"))
+        .unwrap_or_else(|| panic!("the resolve was not answered: {said:?}"));
+    assert!(answer.contains("use std::fs::read"), "got {answer}");
+    assert!(
+        answer.contains("\"line\":0,\"character\":0"),
+        "an untouched line must keep its position: {answer}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_resolve_whose_edit_lands_inside_a_jsx_region_drops_that_edit() {
+    // Line 3 (0-indexed line 2), `return <p>{title}</p>;`: character 12
+    // is inside the `<p>`, which has no `.rsx` column of its own.
+    let (root, uri) = a_page();
+    let tagged = json::tag_items(r#"[{"label":"title"}]"#, &uri);
+    let item = &tagged[1..tagged.len() - 1];
+    let resolved = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"label\":\"title\",\
+         \"additionalTextEdits\":[{\"range\":{\"start\":{\"line\":2,\"character\":12},\
+         \"end\":{\"line\":2,\"character\":12}},\"newText\":\"wrong\"}]}}";
+    let said = conversation(
+        &[opened(&uri).as_str(), resolve_request(item, 32).as_str()],
+        Some(canned(&[resolved])),
+    );
+    let answer = said
+        .iter()
+        .find(|body| body.contains("\"id\":32"))
+        .unwrap_or_else(|| panic!("the resolve was not answered: {said:?}"));
+    assert!(
+        !answer.contains("wrong"),
+        "an edit with no .rsx equivalent must be dropped, not placed nearby: {answer}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_resolve_with_downstream_gone_answers_the_item_unchanged() {
+    let (root, uri) = a_page();
+    let tagged = json::tag_items(r#"[{"label":"read"}]"#, &uri);
+    let item = &tagged[1..tagged.len() - 1];
+    let said = conversation(
+        &[opened(&uri).as_str(), resolve_request(item, 33).as_str()],
+        None,
+    );
+    let answer = said
+        .iter()
+        .find(|body| body.contains("\"id\":33"))
+        .unwrap_or_else(|| panic!("the resolve was not answered: {said:?}"));
+    assert!(answer.contains(r#""label":"read""#), "got {answer}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn a_hover_is_never_tagged() {
     // Resolve exists only for completion; tagging a hover would be a

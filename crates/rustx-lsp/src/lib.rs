@@ -311,6 +311,19 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
                     shadows.insert(uri.clone(), fresh);
                 }
             }
+            // The item is `params` itself, with no envelope and no
+            // document attached to the question — the tag this server
+            // wrote onto it (Task 2) is the only way back to a shadow.
+            "completionItem/resolve" => {
+                let id = json::number(&message, "id").unwrap_or(0);
+                let item = json::object_field(&message, "params").unwrap_or("{}");
+                let (untagged, uri) = json::untag_item(item);
+                let answer = resolved(&untagged, uri.as_deref(), &shadows, downstream.held(&shadows));
+                rpc::write(
+                    output,
+                    &format!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{answer}}}"),
+                );
+            }
             "shutdown" => {
                 let id = json::number(&message, "id").unwrap_or(0);
                 rpc::write(
@@ -522,6 +535,76 @@ fn ask_about(
         &shadow::changed(&shadow.uri, &shadow.rust),
     );
     cut_result(answer.as_deref()?).map(str::to_string)
+}
+
+/// Answer `completionItem/resolve` about `item`, already untagged.
+///
+/// Unchanged whenever there is nowhere to ask: no tag at all (the
+/// markup's own items, or an item a client resolves twice), no shadow
+/// for the tagged URI, or no live server to ask.
+fn resolved(
+    item: &str,
+    uri: Option<&str>,
+    shadows: &std::collections::HashMap<String, shadow::Shadow>,
+    downstream: Option<&mut downstream::Server>,
+) -> String {
+    let (Some(uri), Some(server)) = (uri, downstream) else {
+        return item.to_string();
+    };
+    let Some(shadow) = shadows.get(uri) else {
+        return item.to_string();
+    };
+    let Some(answer) = server.ask("completionItem/resolve", item) else {
+        return item.to_string();
+    };
+    let result = cut_result(&answer).unwrap_or(item);
+    retarget_edits(result, &shadow.map)
+}
+
+/// Every `additionalTextEdits` entry of a resolved item, each range
+/// translated from the shadow's coordinates to the `.rsx`'s. An edit
+/// whose start or end has no equivalent there is dropped outright: a
+/// wrong position is worse than a missing one (Review Focus 1 of the
+/// plan this answers).
+fn retarget_edits(item: &str, map: &rustx_compiler::map::PositionMap) -> String {
+    let Some(edits) = json::array_field(item, "additionalTextEdits") else {
+        return item.to_string();
+    };
+    let inside = &edits[1..edits.len().saturating_sub(1)];
+    let kept: Vec<String> = json::objects_in(inside)
+        .into_iter()
+        .filter_map(|(start, end)| retargeted_edit(&inside[start..end], map))
+        .collect();
+    let rebuilt = format!("[{}]", kept.join(","));
+    json::replace_field(item, "additionalTextEdits", '[', ']', &rebuilt)
+}
+
+/// One `additionalTextEdits` entry, its range translated — `None` when
+/// either end has no `.rsx` equivalent at all.
+fn retargeted_edit(edit: &str, map: &rustx_compiler::map::PositionMap) -> Option<String> {
+    let range = json::object_field(edit, "range")?;
+    let start = json::object_field(range, "start")?;
+    let end = json::object_field(range, "end")?;
+    let (start_line, start_character) =
+        (json::number(start, "line")?, json::number(start, "character")?);
+    let (end_line, end_character) =
+        (json::number(end, "line")?, json::number(end, "character")?);
+    // LSP counts lines and characters from zero; the map, like a
+    // developer, counts both from one.
+    let (rsx_start_line, rsx_start_character) =
+        map.to_rsx_position(start_line as usize + 1, start_character as usize + 1)?;
+    let (rsx_end_line, rsx_end_character) =
+        map.to_rsx_position(end_line as usize + 1, end_character as usize + 1)?;
+    let new_text = json::field(edit, "newText").unwrap_or_default();
+    Some(format!(
+        "{{\"range\":{{\"start\":{{\"line\":{},\"character\":{}}},\"end\":{{\"line\":{},\
+         \"character\":{}}}}},\"newText\":\"{}\"}}",
+        rsx_start_line - 1,
+        rsx_start_character - 1,
+        rsx_end_line - 1,
+        rsx_end_character - 1,
+        json::escape(&new_text),
+    ))
 }
 
 /// The `result` of an answer, as text, braces and brackets balanced.
