@@ -1,0 +1,15 @@
+- les panneaux d'installation & metadata du logiciel ( author, version, ...) pour les differents OS.
+
+- [CLOSED] make sure that all files needed for npm lib installation are added while executing "rustx new": the generated `package.json` never declared `esbuild` or approved its own postinstall script, so `bundle::build` silently refused every installed library on every fresh project. Fixed in `crates/rustx-cli/src/new.rs::package_json()`, covered by `a_new_project_already_has_esbuild_to_build_with` and `a_new_project_already_approves_esbuilds_own_install_script` in `crates/rustx-cli/tests/new.rs`. Verified end to end against a fresh `rustx new` project built from the published crate.
+
+- [CLOSED] `rustx dev` rebuild en permanence le projet sans qu'aucun fichier n'ait meme été modifié: already fixed (`Watched::new` is given the bundler's own `SERVED` file name so the bundle it writes on every build is never mistaken for a change). See `crates/rustx-cli/src/dev.rs` and `crates/rustx-cli/src/watch.rs`.
+
+- le font family ne s'applique pas , c'est le font par defaut qui est là.
+- comment rendre plusieurs fois un meme composant dans la boucle for: `for i in 0..=5 ... { <h1> {i} </h1> }`
+- implementer les features OS pour tous les autres OS (fenetre, clipboard, devices,notifs,autostart,bg start,...etc), en se servant de references ou code fonctionnel sur des forum dont la fonction du code est sure et robuste. 
+
+- [CLOSED] OS error 5 (`Access is denied`) when building against the shared CEF target dir: already guarded by `build::held()` in `crates/rustx-cli/src/build.rs`, covered by `the_target_directory_a_project_configured_is_the_one_that_is_looked_at` in `crates/rustx-cli/tests/held.rs`. Only reproduces through raw `cargo build`/`cargo run`, which bypass the guard — `rustx new` already prints `rustx dev` as the next step, so the supported path is protected.
+
+- [CLOSED] rust-analyzer dying and taking the LSP down with it: already fixed (`Downstream::restart()` keeps `root`/`linkedProjects` and replays open files, `held()`/`alive()` detect a dead child). Covered by `a_question_that_finds_the_server_gone_restarts_it_and_asks_again` in `crates/rustx-lsp/tests/downstream.rs`.
+
+- [CLOSED] On a pas d'auto completion dans les .rsx quand il s'agit de lister les fonctions/methodes/composants des crates installés: `completionItem/resolve` was never advertised or forwarded, so `rust-analyzer`'s auto-import edit never reached the editor. Fixed per `docs/superpowers/plans/2026-11-13-completion-resolve-auto-import.md` (tagging, resolve forwarding, position retargeting via `PositionMap::to_rsx_position`, `resolveProvider` advertised only with a live server). Covered by `crates/rustx-lsp/tests/resolve.rs` and `crates/rustx-lsp/tests/json.rs`.
