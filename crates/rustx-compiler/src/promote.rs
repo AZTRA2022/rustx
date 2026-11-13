@@ -1711,15 +1711,76 @@ fn is_statement(bytes: &[u8], span: Span, handler: Span, tail_discarded: bool) -
             b'(' | b'[' => depth += 1,
             b')' | b']' => depth -= 1,
             b';' if depth == 0 => return true,
-            // The brace that closes the body it is the last expression
-            // of. Whether that counts is the caller's business.
-            b'}' if depth == 0 => return tail_discarded,
+            // A brace that closes the body this is the last expression
+            // of. Which body, though: the handler's own, or a block
+            // nested inside it.
+            //
+            // The handler's own is the caller's business. A nested one
+            // is decided by what follows it, because that is what says
+            // whether the block is a statement or a value:
+            //
+            //     items.push(Item { label: if short { a() } else { b.clone() } });
+            //
+            // `b.clone()` is the last expression of the `else`, and the
+            // `else` is the value of the field. Counting only brackets
+            // made that closing brace look like the handler's own, so
+            // `.clone()` was read as a write and rewritten to
+            // `b.update(|__v| { __v.clone(); })` -- which mutates
+            // nothing, hands back nothing, and sat nested inside the
+            // rewrite of the `push` around it, mangling it into
+            // something that did not parse.
+            b'}' if depth == 0 => {
+                if index + 1 >= handler.end {
+                    return tail_discarded;
+                }
+                match next_token(bytes, index + 1, handler.end) {
+                    // The block was a statement, so its last expression
+                    // is one too.
+                    Some(b';') => return true,
+                    // The block is itself the last expression of the
+                    // block around it: the same question, one level out.
+                    Some(b'}') => {}
+                    // Anything else -- a `,`, a `.`, a `)`, an operator
+                    // -- is the block feeding a value to something,
+                    // which makes this a read.
+                    Some(_) => return false,
+                    None => return tail_discarded,
+                }
+            }
             b'{' if depth == 0 => return false,
             _ => {}
         }
         index += 1;
     }
     tail_discarded
+}
+
+/// The next byte from `at` that is neither whitespace nor a comment.
+fn next_token(bytes: &[u8], at: usize, ceiling: usize) -> Option<u8> {
+    let mut at = at;
+    loop {
+        while at < ceiling && bytes[at].is_ascii_whitespace() {
+            at += 1;
+        }
+        if at >= ceiling {
+            return None;
+        }
+        if bytes[at] == b'/' && bytes.get(at + 1) == Some(&b'/') {
+            while at < ceiling && bytes[at] != b'\n' {
+                at += 1;
+            }
+            continue;
+        }
+        if bytes[at] == b'/' && bytes.get(at + 1) == Some(&b'*') {
+            at += 2;
+            while at + 1 < ceiling && &bytes[at..at + 2] != b"*/" {
+                at += 1;
+            }
+            at = (at + 2).min(ceiling);
+            continue;
+        }
+        return Some(bytes[at]);
+    }
 }
 
 /// Back from `at` over whitespace and comments, down to `floor`.

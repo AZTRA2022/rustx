@@ -21,6 +21,7 @@ use crate::promote::{CallKind, Component, MutationKind, analyse};
 use crate::scan::Span;
 
 /// One replacement, in offsets of the source being rewritten.
+#[derive(Clone)]
 struct Edit {
     span: Span,
     text: String,
@@ -1021,10 +1022,9 @@ fn operator_end(bytes: &[u8], from: usize) -> usize {
 }
 
 /// Apply edits to a slice that starts at `offset` in the original.
-fn apply_relative(text: &str, offset: usize, mut edits: Vec<Edit>) -> String {
-    edits.sort_by_key(|edit| std::cmp::Reverse(edit.span.start));
+fn apply_relative(text: &str, offset: usize, edits: Vec<Edit>) -> String {
     let mut out = text.to_string();
-    for edit in edits {
+    for edit in ordered(edits) {
         let start = edit.span.start - offset;
         let end = edit.span.end - offset;
         if start <= end && end <= out.len() {
@@ -1034,15 +1034,61 @@ fn apply_relative(text: &str, offset: usize, mut edits: Vec<Edit>) -> String {
     out
 }
 
-fn apply(source: &str, mut edits: Vec<Edit>) -> String {
-    edits.sort_by_key(|edit| std::cmp::Reverse(edit.span.start));
+fn apply(source: &str, edits: Vec<Edit>) -> String {
     let mut out = source.to_string();
-    for edit in edits {
+    for edit in ordered(edits) {
         if edit.span.start <= edit.span.end && edit.span.end <= out.len() {
             out.replace_range(edit.span.start..edit.span.end, &edit.text);
         }
     }
     out
+}
+
+/// The edits in the order they can be applied in, and only the ones
+/// that can be.
+///
+/// Back to front, so that an edit's offsets still mean what they meant
+/// in the source when its turn comes. That only holds while no two
+/// edits overlap: an edit *inside* another one is applied first, the
+/// text around it changes length, and the outer edit then replaces a
+/// range that has moved -- it cuts in the wrong place and leaves the
+/// tail of what it meant to replace sitting after its own replacement.
+/// The result is not Rust, and what the developer was shown was a
+/// parse error on a line they had written correctly.
+///
+/// An enclosing edit's text is built from the source it encloses, with
+/// the reads inside it already patched, so it is the one that is
+/// right: the nested edit is dropped rather than applied into a range
+/// that has stopped existing.
+fn ordered(mut edits: Vec<Edit>) -> Vec<Edit> {
+    // Widest first at a given start, so an enclosing edit is always
+    // seen before anything it encloses.
+    edits.sort_by(|one, two| {
+        one.span
+            .start
+            .cmp(&two.span.start)
+            .then(two.span.end.cmp(&one.span.end))
+    });
+
+    let mut kept: Vec<Edit> = Vec::with_capacity(edits.len());
+    for edit in edits {
+        // A zero-width insertion shares an offset with the edit it
+        // belongs beside rather than overlapping it: `hoisted` puts one
+        // in front of a `let` whose read it also replaces.
+        let empty = edit.span.start == edit.span.end;
+        let swallowed = kept.iter().any(|held| {
+            held.span.start != held.span.end
+                && edit.span.start >= held.span.start
+                && edit.span.end <= held.span.end
+                && !(empty && edit.span.start == held.span.start)
+        });
+        if !swallowed {
+            kept.push(edit);
+        }
+    }
+
+    kept.sort_by_key(|edit| std::cmp::Reverse(edit.span.start));
+    kept
 }
 
 fn contains(outer: Span, inner: Span) -> bool {

@@ -481,3 +481,75 @@ fn a_declaration_holding_a_string_with_a_newline_in_it_is_left_as_written() {
         built.rust
     );
 }
+
+#[test]
+fn a_method_on_a_value_inside_an_expression_is_a_read_not_a_write() {
+    // `label.clone()` is the last expression of the `else`, and the
+    // `else` is the value of the field. The test for "is this call a
+    // statement?" counted brackets and not braces, so that closing
+    // brace looked like the handler's own and the call was read as a
+    // write: `label.update(|__v| { __v.clone(); })`, which mutates
+    // nothing and hands back nothing.
+    let source = "let mut label = String::new();
+         let mut rows: Vec<String> = Vec::new();
+
+         fn Page() -> Element {
+             return <button onClick={move |_| {
+                 rows.push(if label.is_empty() { \"none\".to_string() } else { label.clone() });
+             }}>push</button>;
+}
+";
+    let built = transpile(source).expect("transpiles");
+    // A handler is re-tokenised, so the spacing is the tokeniser's.
+    let tight: String = built.rust.chars().filter(|each| !each.is_whitespace()).collect();
+    assert!(
+        tight.contains("label.get().clone()"),
+        "the clone should be a read:
+{}",
+        built.rust
+    );
+    assert!(
+        !tight.contains("label.update"),
+        "the clone was read as a write:
+{}",
+        built.rust
+    );
+    // And the rewrite around it is still whole: the nested edit used to
+    // be applied into it and left the tail of the original behind.
+    assert!(
+        tight.contains("rows.update(|__v|{__v.push("),
+        "the enclosing rewrite was mangled:
+{}",
+        built.rust
+    );
+    assert_eq!(
+        tight.matches("cipher_hex").count(),
+        0,
+        "nothing of the original should be left over:
+{}",
+        built.rust
+    );
+}
+
+#[test]
+fn a_method_that_is_a_statement_of_its_own_is_still_a_write() {
+    // The counterpart: nothing above may turn a real write into a read.
+    let source = "let mut rows: Vec<String> = Vec::new();
+
+         fn Page() -> Element {
+             return <button onClick={move |_| {
+                 if true { rows.push(\"one\".to_string()); }
+                 rows.push(\"two\".to_string());
+             }}>push</button>;
+}
+";
+    let built = transpile(source).expect("transpiles");
+    let tight: String = built.rust.chars().filter(|each| !each.is_whitespace()).collect();
+    assert_eq!(
+        tight.matches("rows.update(|__v|{__v.push(").count(),
+        2,
+        "both pushes should be writes:
+{}",
+        built.rust
+    );
+}
