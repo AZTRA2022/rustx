@@ -1,0 +1,17 @@
+{
+  "name": "vault-storage",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The JavaScript libraries this application uses: react-qrcode-logo, for the real QR code of the sealed blob. rustx writes the entry point and builds the bundle.",
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-qrcode-logo": "^2.10.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.23.1"
+  },
+  "allowScripts": {
+    "esbuild@0.23.1": true
+  }
+}

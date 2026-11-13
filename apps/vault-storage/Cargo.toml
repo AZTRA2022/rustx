@@ -1,0 +1,10 @@
+[package]
+name = "vault-storage"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Hyper secret data storage: a small vault, a toy cipher shown honestly as a toy, and a real QR code for what it holds."
+
+[dependencies]
+rustx = { package = "rustx-app", path = "../../crates/rustx" }

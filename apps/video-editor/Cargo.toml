@@ -1,0 +1,10 @@
+[package]
+name = "video-editor"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A tiny video editor's shell: a timeline of mock clips, trim, a color filter, subtitles, and a simulated render — no ffmpeg process actually runs."
+
+[dependencies]
+rustx = { package = "rustx-app", path = "../../crates/rustx" }

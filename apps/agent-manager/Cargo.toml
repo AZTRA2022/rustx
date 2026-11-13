@@ -1,0 +1,10 @@
+[package]
+name = "agent-manager"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A software for deploying and managing AI agents: a chart off npm, and a chat that calls a stubbed LLM function instead of a paid API."
+
+[dependencies]
+rustx = { package = "rustx-app", path = "../../crates/rustx" }

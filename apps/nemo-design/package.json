@@ -1,0 +1,19 @@
+{
+  "name": "nemo-design",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The JavaScript libraries this application uses: three, for the 3D viewport in components/Scene.tsx, and lucide-react for the control icons. rustx writes the entry point and builds the bundle.",
+  "dependencies": {
+    "lucide-react": "^1.66.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "three": "0.169.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.169.0",
+    "esbuild": "0.23.1"
+  },
+  "allowScripts": {
+    "esbuild@0.23.1": true
+  }
+}

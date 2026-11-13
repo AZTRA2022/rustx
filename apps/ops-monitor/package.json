@@ -1,0 +1,17 @@
+{
+  "name": "ops-monitor",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The JavaScript libraries this application uses: recharts, for the CPU history chart. rustx writes the entry point and builds the bundle.",
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "recharts": "2.12.7"
+  },
+  "devDependencies": {
+    "esbuild": "0.23.1"
+  },
+  "allowScripts": {
+    "esbuild@0.23.1": true
+  }
+}

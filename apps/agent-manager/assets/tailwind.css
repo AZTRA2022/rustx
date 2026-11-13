@@ -1,0 +1,51 @@
+@import "tailwindcss";
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: #0a0b10;
+  --foreground: #e7e9f2;
+  --card: #11131c;
+  --card-foreground: #e7e9f2;
+  --primary: #818cf8;
+  --primary-foreground: #0a0b10;
+  --secondary: #1c2030;
+  --secondary-foreground: #e7e9f2;
+  --muted: #11131c;
+  --muted-foreground: #9499b8;
+  --accent: #1c2030;
+  --accent-foreground: #e7e9f2;
+  --border: #1c2030;
+  --input: #1c2030;
+  --ring: #6366f1;
+  --radius: 0.6rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", ui-sans-serif, system-ui;
+}
+
+@layer base {
+  html, body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+  }
+}
