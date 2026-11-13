@@ -7,7 +7,7 @@
 //! one subtree.
 
 use rustx_dom::diff::{Patch, Path, diff};
-use rustx_dom::{Element, ForeignChild, ForeignNode, Value};
+use rustx_dom::{Element, ForeignChild, ForeignNode, Value, into_foreign_child};
 
 fn node(component: &str, series: &str) -> ForeignNode {
     ForeignNode {
@@ -117,6 +117,45 @@ fn a_foreign_node_that_leaves_the_tree_is_a_removal_of_its_container() {
         diff(&chart("a"), &Element::Empty).first(),
         Some(Patch::Replace { .. })
     ));
+}
+
+/// A list of rows, written inside a library's component.
+///
+/// `{items.iter().map(Row).collect::<Vec<_>>()}` is the only way Rust
+/// has of rendering the same component several times — `for` is a
+/// statement and cannot sit in `{…}` — and it is what the README tells
+/// a developer to write. Between a native tag's angle brackets it has
+/// always worked, through `IntoElement<IsList>`. Between a library
+/// component's it did not: `IntoForeignChild` knew an `Element` and
+/// knew a value, and a `Vec<Element>` is neither, so rustc answered
+/// "the trait bound `Element: ToValue` is not satisfied" about a
+/// generated file — for the one line the documentation recommends.
+#[test]
+fn a_list_of_elements_may_be_written_inside_a_library_component() {
+    let rows = vec![
+        Element::tag("li").child(Element::Text("one".to_string())).build(),
+        Element::tag("li").child(Element::Text("two".to_string())).build(),
+    ];
+    assert_eq!(
+        into_foreign_child(rows.clone()),
+        ForeignChild::Element(Box::new(Element::Fragment(rows))),
+    );
+}
+
+/// The same for `Option<Element>`, which is what a `.find(…).map(…)`
+/// leaves behind, and what `IntoElement` has always accepted beside a
+/// native tag.
+#[test]
+fn an_optional_element_may_be_written_inside_a_library_component() {
+    let row = Element::tag("li").build();
+    assert_eq!(
+        into_foreign_child(Some(row.clone())),
+        ForeignChild::Element(Box::new(row)),
+    );
+    assert_eq!(
+        into_foreign_child(None::<Element>),
+        ForeignChild::Element(Box::new(Element::Empty)),
+    );
 }
 
 #[test]

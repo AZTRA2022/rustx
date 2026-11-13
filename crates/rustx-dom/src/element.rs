@@ -220,6 +220,8 @@ pub trait IntoForeignChild<Marker> {
 /// Markers, disjoint and never named outside this file.
 pub struct ChildIsElement;
 pub struct ChildIsValue;
+pub struct ChildIsList;
+pub struct ChildIsOption;
 
 impl IntoForeignChild<ChildIsElement> for Element {
     fn into_foreign_child(self) -> ForeignChild {
@@ -235,6 +237,37 @@ impl IntoForeignChild<ChildIsElement> for Element {
 impl<T: crate::value::ToValue> IntoForeignChild<ChildIsValue> for T {
     fn into_foreign_child(self) -> ForeignChild {
         ForeignChild::Value(self.to_value())
+    }
+}
+
+/// The same component, several times, inside a library's component.
+///
+/// `for` is a Rust statement and cannot sit between braces, so the only
+/// way to render a list is
+/// `items.iter().map(|item| <Row key={…}/>).collect::<Vec<_>>()` — which
+/// is what the README recommends and what [`IntoElement`] has always
+/// accepted beside a native tag. Without this, the same line between a
+/// library component's tags was answered with "the trait bound
+/// `Element: ToValue` is not satisfied", in a file the developer never
+/// wrote: `Vec<Element>` was neither an `Element` nor a value, so
+/// neither implementation above applied.
+///
+/// A fragment rather than a new variant: the engine already describes
+/// `Element::Fragment` to React as an array, which is exactly what React
+/// takes a list of children to be, and each row keeps the `key` it was
+/// written with.
+impl IntoForeignChild<ChildIsList> for Vec<Element> {
+    fn into_foreign_child(self) -> ForeignChild {
+        ForeignChild::Element(Box::new(Element::Fragment(self)))
+    }
+}
+
+/// What a `.find(…).map(…)` leaves behind, accepted here for the reason
+/// [`IntoElement`] accepts it beside a native tag: nothing is what
+/// `None` shows, and React renders `Element::Empty` as nothing.
+impl IntoForeignChild<ChildIsOption> for Option<Element> {
+    fn into_foreign_child(self) -> ForeignChild {
+        ForeignChild::Element(Box::new(self.unwrap_or(Element::Empty)))
     }
 }
 
