@@ -38,3 +38,12 @@ features = [
 # au système qui le lance qu'un `$DISPLAY`.
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = "0.13"
+
+# La fenêtre, la barre de menus et les raccourcis, sous macOS :
+# `objc2` seul, déjà dans l'arbre parce que `cef` s'en sert sur macOS.
+# Ni `objc2-app-kit` ni `objc2-foundation` : les quelques classes
+# touchées le sont par `msg_send!`, et une famille de dépendances de
+# plus — dont ce poste ne peut même pas vérifier les noms de features —
+# n'est pas justifiée pour une vingtaine de sélecteurs.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"

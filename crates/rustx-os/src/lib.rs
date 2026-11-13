@@ -38,8 +38,11 @@
 //! macOS, the same five capabilities plus file dialogs are real, by
 //! the same idea applied to what macOS itself ships
 //! (`pbcopy`/`pbpaste`, `osascript`, a `LaunchAgent` plist, a Unix
-//! socket again, `system_profiler`); global shortcuts, the tray and
-//! window control need `AppKit`/Carbon there too and still refuse.
+//! socket again, `system_profiler`). Global shortcuts (Carbon), the
+//! tray and window control (`AppKit`) are written for macOS too — and
+//! have never been compiled for a Mac, let alone run: each file says
+//! so at its top, and none of the three is to be trusted before it has
+//! been.
 //! Every platform that cannot do a capability refuses in a sentence
 //! that names both the platform and the capability: a program that
 //! builds everywhere and silently does nothing on two of the three is
@@ -60,7 +63,9 @@
 //! precisely the work this project has no reason to redo. On Linux,
 //! `x11rb`, for the same reason applied to the X11 protocol — and
 //! because its connection is pure Rust, linking neither `libX11` nor
-//! `libxcb`. Nothing above this crate hears about either.
+//! `libxcb`. On macOS, `objc2` alone — already in the tree through
+//! `cef` — to send `AppKit` its messages. Nothing above this crate hears
+//! about any of them.
 
 pub mod autostart;
 pub mod clipboard;

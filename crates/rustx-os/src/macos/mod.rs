@@ -7,11 +7,13 @@
 //! a tool or a mechanism macOS already ships: `pbcopy`/`pbpaste`,
 //! `osascript`, a `LaunchAgent` plist, a Unix domain socket,
 //! `system_profiler`. `dialog.rs` is real too, by the same door —
-//! `osascript` saying `choose file`. `shortcut.rs`, `tray.rs` and
-//! `window.rs` still refuse, each naming what has to be written and
-//! why it needs `AppKit`/Carbon rather than a command this crate can
-//! shell out to.
+//! `osascript` saying `choose file`. `shortcut.rs` (Carbon's
+//! `RegisterEventHotKey`), `tray.rs` (`NSStatusItem`) and `window.rs`
+//! (`NSWindow`) are written, through `objc2` and `appkit.rs` — and
+//! have never been compiled for a Mac nor run; only type-checked on
+//! Windows against `objc2` built for GNUstep. Each says so at its top.
 
+mod appkit;
 pub mod autostart;
 pub mod clipboard;
 pub mod devices;
