@@ -34,7 +34,9 @@ use crate::window::{Dressing, Spread};
 pub const AVAILABLE: bool = true;
 
 #[allow(unused_imports)]
-pub use real::{close, drag, dress, on_top, pointer, spread, spread_of};
+pub use real::{
+    close, drag, drag_out, dress, frame_of, on_top, pointer, spread, spread_of,
+};
 
 // ─────────────── What is computed without a window ───────────────
 
@@ -406,6 +408,40 @@ mod real {
         schedule(Box::into_raw(state).cast());
     }
 
+    /// Where the window is on screen, in this crate's coordinates
+    /// (origin at the top left, y downwards) — what `capture.rs` needs
+    /// to aim `screencapture` at it.
+    ///
+    /// `NSWindow`'s own frame is in Cocoa's bottom-left-origin space, so
+    /// it is flipped against the primary screen the same way
+    /// `screen.rs` flips every rectangle it reports, and by the same
+    /// function, so the two cannot drift apart.
+    pub fn frame_of(pane: Pane) -> Result<crate::screen::Area, OsError> {
+        let window = window(pane)?;
+        // SAFETY: a property read on a live window, on the main thread.
+        let frame: Rect = unsafe { msg_send![&*window, frame] };
+        let primary = crate::screen::primary()?;
+        Ok(super::screen::flipped(
+            frame.origin.x,
+            frame.origin.y,
+            frame.size.width,
+            frame.size.height,
+            f64::from(primary.bounds.height),
+        ))
+    }
+
+    /// Refused: `beginDraggingSessionWithItems:event:source:` takes the
+    /// `NSEvent` of the mouse-down that began the drag, and a dragging
+    /// source object that answers for the session's whole life. The
+    /// event went to Chromium and is gone by the time this order
+    /// arrives — the same wall `drag` describes, and here there is
+    /// nothing to work around it with. See `window::drag_out`.
+    pub fn drag_out(_pane: Pane, _paths: &[std::path::PathBuf]) -> Result<(), OsError> {
+        Err(OsError::Unsupported(
+            "dragging files out of the window on macOS              (beginDraggingSessionWithItems:event:source: needs the original NSEvent, which              belongs to Chromium)",
+        ))
+    }
+
     pub fn close(pane: Pane) -> Result<(), OsError> {
         let window = window(pane)?;
         // `performClose:` and not `close`: the first is the close
@@ -456,7 +492,13 @@ mod real {
     pub fn drag(_pane: Pane) -> Result<(), OsError> {
         unreachable!("{ELSEWHERE}")
     }
+    pub fn drag_out(_pane: Pane, _paths: &[std::path::PathBuf]) -> Result<(), OsError> {
+        unreachable!("{ELSEWHERE}")
+    }
     pub fn close(_pane: Pane) -> Result<(), OsError> {
+        unreachable!("{ELSEWHERE}")
+    }
+    pub fn frame_of(_pane: Pane) -> Result<crate::screen::Area, OsError> {
         unreachable!("{ELSEWHERE}")
     }
     pub fn pointer() -> Result<(i32, i32), OsError> {

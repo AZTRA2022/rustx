@@ -457,6 +457,19 @@ pub fn drag(pane: Pane) -> Result<(), OsError> {
     Ok(())
 }
 
+/// Refusé : `DoDragDrop` prend la main sur la souris et ne rend la
+/// main qu'au lâcher, et il exige d'être appelé depuis le traitement
+/// du `WM_LBUTTONDOWN` qui a commencé le glissement. Cet appui est
+/// allé à Chromium ; quand l'ordre arrive ici, il est consommé, et
+/// Windows refuse — ou, pire, démarre un glissement que l'utilisateur
+/// n'a pas initié et qui suit sa souris sans qu'il tienne le bouton.
+/// Voir `window::drag_out`.
+pub fn drag_out(_pane: Pane, _paths: &[std::path::PathBuf]) -> Result<(), OsError> {
+    Err(OsError::Unsupported(
+        "dragging files out of the window (DoDragDrop must be called from the          WM_LBUTTONDOWN that started the drag, and that event belongs to Chromium)",
+    ))
+}
+
 pub fn close(pane: Pane) -> Result<(), OsError> {
     let window = handle(pane)?;
     use windows::Win32::UI::WindowsAndMessaging::WM_CLOSE;

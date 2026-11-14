@@ -139,6 +139,42 @@ pub fn drag(pane: Pane) -> Result<(), OsError> {
     crate::platform::window::drag(pane)
 }
 
+/// Commencer à faire glisser ces fichiers *hors* de la fenêtre, vers
+/// le système.
+///
+/// L'inverse de ce que `rustx-engine` appelle « dropped » : là, des
+/// fichiers tombent dans la fenêtre ; ici, l'utilisateur en attrape un
+/// dans la page et le lâche dans un dossier, dans une autre
+/// application, dans une pièce jointe.
+///
+/// # Refusé partout aujourd'hui, et ce qu'il faudrait
+///
+/// Aucune des trois plateformes ne laisse commencer un glissement
+/// depuis l'extérieur de la boucle d'événements de la fenêtre : le
+/// système exige *l'événement d'appui lui-même* (`DoDragDrop` sous
+/// Windows prend la main sur la souris et rend le résultat du lâcher ;
+/// `beginDraggingSessionWithItems:event:source:` sous macOS veut
+/// littéralement le `NSEvent` ; `XdndEnter` sous X11 suppose qu'on
+/// tient la prise de souris). Cet appui est arrivé dans Chromium et a
+/// traversé le pont pour venir ici : il est déjà consommé, et le
+/// reconstituer serait une invention.
+///
+/// C'est le même mur que [`drag`], où il a été contourné — on relit la
+/// position de la souris plutôt que de demander au système de déplacer
+/// la fenêtre. Ici il n'y a rien à contourner : un glissement de
+/// fichiers *est* un dialogue avec le système, et non un déplacement
+/// qu'on peut refaire à la main. La vraie réponse est un gestionnaire
+/// de glisser-déposer côté CEF, dans `rustx-engine`, là où l'événement
+/// vit — pas dans ce crate.
+pub fn drag_out(pane: Pane, paths: &[std::path::PathBuf]) -> Result<(), OsError> {
+    if paths.is_empty() {
+        return Err(OsError::Platform(
+            "a drag with no file in it is not a drag".to_string(),
+        ));
+    }
+    crate::platform::window::drag_out(pane, paths)
+}
+
 /// La fermer.
 pub fn close(pane: Pane) -> Result<(), OsError> {
     crate::platform::window::close(pane)

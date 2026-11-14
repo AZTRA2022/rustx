@@ -33,6 +33,13 @@ use crate::notify::What;
 
 pub const AVAILABLE: bool = true;
 
+/// No: AppleScript's `display notification` takes no buttons, and the
+/// framework that does — `UNNotificationAction` in
+/// `UserNotifications` — only delivers the choice to a *registered
+/// delegate of a bundled application*, which a binary run from a
+/// terminal is not. See `ask` below.
+pub const CAN_ASK: bool = false;
+
 /// The AppleScript line `osascript -e` is given.
 ///
 /// Separated from running it for the same reason as the Linux side's
@@ -94,4 +101,23 @@ mod tests {
         assert!(written.contains("\\\"quoted\\\" title"), "got {written}");
         assert!(written.contains("a \\\\backslash\\\\"), "got {written}");
     }
+}
+
+/// Refused, by naming what is missing rather than by substituting
+/// something else.
+///
+/// `display dialog` would put buttons on screen and would answer — and
+/// it is a modal window in front of everything, not a notification. An
+/// application that asked for a notification and got a dialog has had
+/// its user interrupted, which is the opposite of what it asked for.
+/// `UNNotificationAction` is the real answer, and it needs the
+/// application to be a bundle with a notification delegate registered
+/// before launch.
+pub fn ask(
+    _what: &What,
+    _actions: &[crate::notify::Action],
+) -> Result<Option<String>, OsError> {
+    Err(OsError::Unsupported(
+        "buttons in a notification on macOS (`display notification` takes none, and          UserNotifications delivers the choice only to a bundled application's registered          delegate)",
+    ))
 }

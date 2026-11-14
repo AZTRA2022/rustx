@@ -69,3 +69,58 @@ pub fn supported() -> bool {
 pub fn show(what: What) -> Result<(), OsError> {
     crate::platform::notify::show(&what)
 }
+
+/// Un bouton dans la notification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Action {
+    /// Ce que [`ask`] rendra si l'utilisateur le choisit.
+    pub id: String,
+    /// Ce qu'il lit sur le bouton.
+    pub label: String,
+}
+
+impl Action {
+    pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+        }
+    }
+}
+
+/// Si cette plateforme met des boutons dans une notification.
+///
+/// Demandé *avant* d'en offrir : une notification dont les boutons
+/// n'apparaissent pas est une notification que l'utilisateur ne peut
+/// pas refermer comme on le lui a dit.
+pub fn can_ask() -> bool {
+    crate::platform::notify::CAN_ASK
+}
+
+/// Montrer une notification avec des boutons, et attendre.
+///
+/// Rend l'identifiant du bouton choisi, ou `None` si l'utilisateur a
+/// fermé la notification ou l'a laissée expirer.
+///
+/// # Elle bloque, contrairement à [`show`]
+///
+/// C'est tout l'inverse de `show`, et c'est inévitable : une réponse est
+/// demandée. Le fil qui appelle attend donc que l'utilisateur agisse ou
+/// que le système laisse tomber la notification — ce qui peut être
+/// plusieurs dizaines de secondes, et jamais si son bureau garde les
+/// notifications jusqu'au clic. À appeler d'un fil qui peut attendre,
+/// pas de celui qui dessine.
+pub fn ask(what: What, actions: &[Action]) -> Result<Option<String>, OsError> {
+    if actions.is_empty() {
+        return Err(OsError::Platform(
+            "a notification with no button to choose is `show`, not `ask`".to_string(),
+        ));
+    }
+    if let Some(empty) = actions.iter().find(|action| action.id.is_empty()) {
+        return Err(OsError::Platform(format!(
+            "the button labelled `{}` has no id, and an id is what `ask` answers with",
+            empty.label
+        )));
+    }
+    crate::platform::notify::ask(&what, actions)
+}

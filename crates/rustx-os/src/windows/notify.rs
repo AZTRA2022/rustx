@@ -22,6 +22,12 @@ use super::tray::Icon;
 /// Windows en montre, et ce fichier les montre.
 pub const AVAILABLE: bool = true;
 
+/// Non : une bulle de barre système n'a pas de boutons. Voir le
+/// commentaire de `notify.rs` pour ce qu'il faudrait — un
+/// `AppUserModelID` enregistré et un toast WinRT — et pourquoi ce
+/// n'est pas une ligne à ajouter ici.
+pub const CAN_ASK: bool = false;
+
 pub fn show(what: &What) -> Result<(), OsError> {
     let held = kept()
         .lock()
@@ -47,4 +53,18 @@ pub fn show(what: &What) -> Result<(), OsError> {
 fn kept() -> &'static Mutex<Option<Icon>> {
     static HIDDEN: OnceLock<Mutex<Option<Icon>>> = OnceLock::new();
     HIDDEN.get_or_init(|| Mutex::new(None))
+}
+
+/// Refusé en nommant ce qui manque : ce n'est pas la bulle qui est
+/// incomplète, c'est qu'une bulle n'est pas un toast. Le jour où un
+/// `.exe` installé s'enregistre dans le menu Démarrer, `ask` passera
+/// par un toast WinRT et cette constante deviendra vraie sans que la
+/// page change.
+pub fn ask(
+    _what: &What,
+    _actions: &[crate::notify::Action],
+) -> Result<Option<String>, OsError> {
+    Err(OsError::Unsupported(
+        "buttons in a notification on Windows (a tray balloon has none; a WinRT toast does,          and needs an AppUserModelID registered in the Start menu)",
+    ))
 }

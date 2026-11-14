@@ -57,7 +57,9 @@ pub const AVAILABLE: bool = true;
 // vérifié : `lib.rs` ne choisit ce répertoire que sous
 // `cfg(target_os = "linux")`.
 #[allow(unused_imports)]
-pub use real::{close, drag, dress, on_top, pointer, spread, spread_of};
+pub use real::{
+    close, demand_attention, drag, drag_out, dress, on_top, pointer, spread, spread_of,
+};
 
 // ─────────────── Ce qui se calcule sans serveur ───────────────
 //
@@ -225,6 +227,7 @@ mod real {
             _NET_WM_STATE_MAXIMIZED_HORZ,
             _NET_WM_STATE_ABOVE,
             _NET_WM_STATE_HIDDEN,
+            _NET_WM_STATE_DEMANDS_ATTENTION,
             _NET_FRAME_EXTENTS,
             WM_STATE,
             WM_CHANGE_STATE,
@@ -527,6 +530,21 @@ mod real {
         flush(display)
     }
 
+    /// Marquer la fenêtre comme demandant l'attention : le gestionnaire
+    /// la signale (clignement, couleur dans la barre des tâches) et retire
+    /// la marque de lui-même quand elle prend le focus.
+    pub fn demand_attention(pane: Pane) -> Result<(), OsError> {
+        let (display, window) = target(pane)?;
+        state(
+            display,
+            window,
+            Change::Add,
+            display.atoms._NET_WM_STATE_DEMANDS_ATTENTION,
+            0,
+        )?;
+        flush(display)
+    }
+
     /// Si un déplacement est en cours : un seul à la fois, parce qu'un
     /// deuxième appui pendant le premier ne peut pas exister, et que deux
     /// fils qui déplacent la même fenêtre se la disputeraient.
@@ -666,6 +684,20 @@ mod real {
         }
     }
 
+    /// Refusé : XDND fait du client qui glisse le propriétaire de la
+    /// sélection `XdndSelection` et exige qu'il tienne la prise de
+    /// souris — celle que le serveur a donnée à la connexion de
+    /// Chromium au moment de l'appui, et qu'une autre connexion ne peut
+    /// ni emprunter ni rendre. C'est le même mur que `drag`, mais sans
+    /// contournement possible : on peut suivre la souris soi-même,
+    /// on ne peut pas tenir un dialogue XDND à la place de quelqu'un
+    /// d'autre. Voir `window::drag_out`.
+    pub fn drag_out(_pane: Pane, _paths: &[std::path::PathBuf]) -> Result<(), OsError> {
+        Err(OsError::Unsupported(
+            "dragging files out of the window on X11 (XDND requires owning XdndSelection and              holding the pointer grab, which belongs to Chromium's connection)",
+        ))
+    }
+
     pub fn close(pane: Pane) -> Result<(), OsError> {
         let (display, window) = target(pane)?;
         let atoms = &display.atoms;
@@ -744,7 +776,13 @@ mod real {
     pub fn drag(_pane: Pane) -> Result<(), OsError> {
         unreachable!("{ELSEWHERE}")
     }
+    pub fn drag_out(_pane: Pane, _paths: &[std::path::PathBuf]) -> Result<(), OsError> {
+        unreachable!("{ELSEWHERE}")
+    }
     pub fn close(_pane: Pane) -> Result<(), OsError> {
+        unreachable!("{ELSEWHERE}")
+    }
+    pub fn demand_attention(_pane: Pane) -> Result<(), OsError> {
         unreachable!("{ELSEWHERE}")
     }
     pub fn pointer() -> Result<(i32, i32), OsError> {

@@ -28,11 +28,6 @@ The RustX extension brings native language support to `.rsx` files, combining Ru
 - `rust-analyzer` for advanced Rust language intelligence.
 - At least one successful application build for full type-aware completion inside embedded Rust expressions.
 
-## Current Limitations
-
-**No automatic imports yet.**
-
-The extension supports path-based completion, such as `std::fs::read`, but does not currently provide automatic import insertion or unqualified symbol suggestions.
 
 **Initial workspace loading.**
 
