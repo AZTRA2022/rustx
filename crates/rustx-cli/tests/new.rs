@@ -345,6 +345,22 @@ fn a_new_project_can_already_receive_a_shadcn_component() {
         css.contains("--primary:") && css.contains("--muted-foreground:"),
         "`bg-primary` and `text-muted-foreground` are names of these: {css}"
     );
+    // And the font. `BUG.md` carried "the font family does not apply,
+    // it is the default one" for a long time: the engine's side of that
+    // was fixed in `14f8a27` (Chromium's fallback for an empty generic
+    // family is Times New Roman on every platform), but a fresh project
+    // still got Chromium's default sans, because this sheet declared no
+    // `--font-sans` and no rule that uses one -- while the Tailwind page
+    // of the documentation presented the system stack as what the theme
+    // block carries. A token alone is not a rule; both are asserted.
+    assert!(
+        css.contains("--font-sans:"),
+        "the theme block declares no font: {css}"
+    );
+    assert!(
+        css.contains("font-family: var(--font-sans)"),
+        "the token is declared and nothing uses it: {css}"
+    );
 
     let _ = fs::remove_dir_all(&into);
 }

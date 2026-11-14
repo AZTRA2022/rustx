@@ -425,6 +425,14 @@ fn tailwind_css() -> String {
      \x20 --radius-lg: var(--radius);\n\
      \x20 --radius-md: calc(var(--radius) - 2px);\n\
      \x20 --radius-sm: calc(var(--radius) - 4px);\n\
+     \x20 /* A desktop application\x27s font is the system\x27s own: it is\n\
+     \x20    already installed, and it is the one that is recognised.\n\
+     \x20    Declaring the token is not enough on its own -- the rule\n\
+     \x20    in `@layer base` below is what puts it on the document. */\n\
+     \x20 --font-sans: \"Segoe UI Variable Text\", \"Segoe UI\",\n\
+     \x20   ui-sans-serif, system-ui, -apple-system, sans-serif;\n\
+     \x20 --font-mono: ui-monospace, \"Cascadia Mono\", Consolas,\n\
+     \x20   \"Liberation Mono\", monospace;\n\
      }\n\n\
      :root {\n\
      \x20 --radius: 0.625rem;\n\
@@ -476,6 +484,7 @@ fn tailwind_css() -> String {
      \x20 body {\n\
      \x20   background-color: var(--background);\n\
      \x20   color: var(--foreground);\n\
+     \x20   font-family: var(--font-sans);\n\
      \x20 }\n\
      }\n"
     .to_string()
@@ -523,7 +532,7 @@ fn page() -> String {
      \x20       background: \"#0b0b10\",\n\
      \x20       color: \"#f4f4f5\",\n\
      \x20   }}>\n\
-     \x20       <h1 style={{ margin: \"0\", fontSize: \"34px\" }}>Bonjour.</h1>\n\
+     \x20       <h1 style={{ margin: \"0\", fontSize: \"34px\" }}>Hello.</h1>\n\
      \x20\n\
      \x20       <button\n\
      \x20           onClick={move |_| clicks += 1}\n\
@@ -536,7 +545,7 @@ fn page() -> String {
      \x20               fontSize: \"16px\",\n\
      \x20           }}\n\
      \x20       >\n\
-     \x20           Cliqué {clicks} fois\n\
+     \x20           Clicked {clicks} times\n\
      \x20       </button>\n\
      \x20   </main>;\n\
      }\n"
