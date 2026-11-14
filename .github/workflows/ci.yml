@@ -155,7 +155,7 @@ jobs:
       # asserts the extension cannot be made to throw, hang, or lose a
       # character of somebody's file.
       - name: Its tests pass
-        run: node --test test
+        run: npm test
         working-directory: editors/vscode
 
   site:

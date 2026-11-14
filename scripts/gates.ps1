@@ -287,7 +287,11 @@ $Gates = @(
         if ($types.Code -ne 0) { return @{ State = 'FAIL'; Note = 'tsc --noEmit failed' } }
         $built = Invoke-Gate 'node build.mjs'
         if ($built.Code -ne 0) { return @{ State = 'FAIL'; Note = 'build.mjs failed' } }
-        $tested = Invoke-Gate 'node --test test'
+        # The pattern, and not the directory: `node --test test` is read
+        # as a module path by Node 24 and fails before a test runs. TAP is
+        # asked for so that the counts below are parsed from a stable
+        # format rather than from the human reporter.
+        $tested = Invoke-Gate 'node --test --test-reporter=tap "test/**/*.test.mjs"'
         if ($tested.Code -ne 0) {
           $failed = ([regex]::Match($tested.Output, '(?m)^# fail (\d+)'))
           $note = if ($failed.Success) { "$($failed.Groups[1].Value) test(s) failed" } else { 'node --test failed' }

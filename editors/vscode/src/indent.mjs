@@ -242,7 +242,7 @@ function endOfTag(code, at) {
  * One line, placed, and applied to the list of things still open.
  * finds it.
  */
-function placeLine(open, counts, stamp, code, held, bonus) {
+function placeLine(open, levelsOpen, counts, stamp, code, held, bonus) {
   // Which frames this line opened is told by the stamp they carry, and
   // not by walking the stack to clear a flag: a file with twenty
   // thousand unclosed braces in it has a stack that deep on every line
@@ -251,13 +251,15 @@ function placeLine(open, counts, stamp, code, held, bonus) {
   // The innermost frame that is a level. Every bracket is a frame, so
   // that a close matches an open one for one, but only some of them
   // move the text.
+  // `levelsOpen` is the frames that are levels, innermost last, kept as
+  // a stack beside `open` rather than searched for. Walking `open` to
+  // find the innermost level, or filtering it to count them, is one
+  // pass over the whole stack per line -- and a file with twenty
+  // thousand unclosed braces in it then costs the file squared. That is
+  // what made 20,000 lines take five seconds instead of a tenth of one.
   const levelNow = () => {
-    for (let at = open.length - 1; at >= 0; at -= 1) {
-      if (open[at].level) {
-        return open[at].openedAt + 1;
-      }
-    }
-    return 0;
+    const inner = levelsOpen[levelsOpen.length - 1];
+    return inner === undefined ? 0 : inner.openedAt + 1;
   };
 
   let printAt = null;
@@ -276,16 +278,23 @@ function placeLine(open, counts, stamp, code, held, bonus) {
     place();
     opened += 1;
     counts[kind] = (counts[kind] ?? 0) + 1;
-    open.push({
+    const frame = {
       kind,
       level: opened === 1,
       openedAt: openedAt === null ? printAt : openedAt,
       stamp,
-    });
+    };
+    open.push(frame);
+    if (frame.level) {
+      levelsOpen.push(frame);
+    }
   };
   const pop = () => {
     const frame = open.pop();
     if (frame !== undefined) {
+      if (frame.level && levelsOpen[levelsOpen.length - 1] === frame) {
+        levelsOpen.pop();
+      }
       counts[frame.kind] = Math.max(0, (counts[frame.kind] ?? 0) - 1);
       if (isFresh(frame)) {
         opened = Math.max(0, opened - 1);
@@ -436,6 +445,8 @@ export function reindent(text, options) {
   const windows = text.includes("\r\n");
   const out = [];
   const open = [];
+  // The subset of `open` that moves the text, innermost last.
+  const levelsOpen = [];
   // How many frames of each kind are open, so that asking whether a
   // delimiter has anything to close is a lookup rather than a walk.
   const counts = Object.create(null);
@@ -451,7 +462,7 @@ export function reindent(text, options) {
     opened_a_level: false,
     unfinished: false,
   };
-  const levels = () => open.filter((frame) => frame.level).length;
+  const levels = () => levelsOpen.length;
 
   for (const line of (windows ? text.replace(/\r\n/g, "\n") : text).split("\n")) {
     const wasCommented = commented;
@@ -497,7 +508,7 @@ export function reindent(text, options) {
     const before = levels();
     const brackets = open.length;
     stamp += 1;
-    const at = placeLine(open, counts, stamp, code, together ? chain.level : null, bonus);
+    const at = placeLine(open, levelsOpen, counts, stamp, code, together ? chain.level : null, bonus);
     if (continues && !together) {
       chain.depth = brackets;
       chain.level = at;
