@@ -11,6 +11,13 @@ fn Layout(children: Element, slug: String) -> Element {
     let department = departments.iter().find(|held| held.slug == slug).cloned();
     let name = department.as_ref().map(|held| held.name.clone()).unwrap_or_else(|| "Unknown".to_string());
     let here = rustx::router::route();
+    // One copy per handler. Every `move` closure in the markup takes the
+    // route parameter whole, so the second of them is a use after move --
+    // the `.clone()` inside the closure is for the handler being `FnMut`
+    // and runs too late to help the capture.
+    let importing = slug.clone();
+    let exporting = slug.clone();
+    let hiring = slug.clone();
     let sheet = if here.ends_with("/call-times") {
         "Call Times"
     } else if here.ends_with("/kit") {
@@ -36,21 +43,21 @@ fn Layout(children: Element, slug: String) -> Element {
             <div className="ml-auto flex items-center gap-2">
                 <button
                     className="flex items-center gap-1.5 rounded-md border border-border bg-[#11151b] px-2.5 py-[6px] text-[11px] text-foreground hover:border-faint"
-                    onClick={move |_| import_crew(slug.clone())}
+                    onClick={move |_| import_crew(importing.clone())}
                 >
                     <Upload size={11} color="#c9d1d9" />
                     Import
                 </button>
                 <button
                     className="flex items-center gap-1.5 rounded-md border border-border bg-[#11151b] px-2.5 py-[6px] text-[11px] text-foreground hover:border-faint"
-                    onClick={move |_| export_crew(slug.clone())}
+                    onClick={move |_| export_crew(exporting.clone())}
                 >
                     <Download size={11} color="#c9d1d9" />
                     Export
                 </button>
                 <button
                     className="flex items-center gap-1.5 rounded-md bg-blue px-2.5 py-[6px] text-[11px] text-white hover:brightness-110"
-                    onClick={move |_| hire(slug.clone())}
+                    onClick={move |_| hire(hiring.clone())}
                 >
                     <Plus size={11} color="#ffffff" />
                     New Crew

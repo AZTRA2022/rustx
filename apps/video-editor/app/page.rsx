@@ -92,9 +92,11 @@ fn Editor() -> Element {
                 trim start ({format!("{:.1}s", clip.trim_start)})
                 <input type="range" min="0" max={clip.duration.to_string()} step="0.5" value={clip.trim_start.to_string()}
                     onInput={move |event| {
-                        if let Some(clip) = clips.get_mut(index) {
+                        let mut held = clips.clone();
+                        if let Some(clip) = held.get_mut(index) {
                             clip.trim_start = event.number().unwrap_or(0.0).min(clip.trim_end);
                         }
+                        clips = held;
                     }}
                     style={{ width: "100%" }} />
             </label>
@@ -102,9 +104,11 @@ fn Editor() -> Element {
                 trim end ({format!("{:.1}s", clip.trim_end)})
                 <input type="range" min="0" max={clip.duration.to_string()} step="0.5" value={clip.trim_end.to_string()}
                     onInput={move |event| {
-                        if let Some(clip) = clips.get_mut(index) {
+                        let mut held = clips.clone();
+                        if let Some(clip) = held.get_mut(index) {
                             clip.trim_end = event.number().unwrap_or(clip.duration).max(clip.trim_start);
                         }
+                        clips = held;
                     }}
                     style={{ width: "100%" }} />
             </label>
@@ -120,7 +124,9 @@ fn Editor() -> Element {
 
         <input id="subtitle" placeholder="subtitle for this clip" value={clip.subtitle.clone()}
             onInput={move |event| {
-                if let Some(clip) = clips.get_mut(index) { clip.subtitle = event.value; }
+                let mut held = clips.clone();
+                if let Some(clip) = held.get_mut(index) { clip.subtitle = event.value; }
+                clips = held;
             }}
             style={{ width: "100%", marginTop: "12px", padding: "7px", backgroundColor: "#0a0a0f", border: "1px solid #1c2030", color: "#eceef5", borderRadius: "6px" }} />
     </div>;
@@ -137,7 +143,9 @@ fn FilterButton(index: usize, name: String, active_name: String) -> Element {
     );
 
     return <button onClick={move |_| {
-        if let Some(clip) = clips.get_mut(index) { clip.filter = apply.clone(); }
+        let mut held = clips.clone();
+        if let Some(clip) = held.get_mut(index) { clip.filter = apply.clone(); }
+        clips = held;
     }} style={chip}>{name}</button>;
 }
 

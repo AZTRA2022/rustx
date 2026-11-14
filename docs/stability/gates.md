@@ -82,7 +82,9 @@ crates that do not touch it.
 
 ## The baseline, as measured
 
-### Gate results on this machine, at `1db1f48`
+### Gate results on this machine
+
+Measured at `1db1f48`, when the gates were written:
 
 ```
 SKIP  fmt      -- rustfmt is not usable on this toolchain; CI runs it
@@ -91,25 +93,54 @@ FAIL  package  -- no README.md in: rustx-dom, rustx-compiler, rustx-os,
 FAIL  editor   -- node --test failed
 ```
 
-Exit code 1, "Not shippable." Both failures are known and both are
-owned by another agent right now:
+Exit code 1, "Not shippable."
 
-- `package` — none of the eight crates has its own `README.md`.
-  `readme.workspace` resolves per manifest, so every crates.io page
-  would render empty, and `cargo package` only *warns*. The CLI and
-  distribution agent is writing them. **Since fixed in `551a1ea`:**
-  all eight files are present on disk. The gate itself has not been
-  re-run — the measurement below is the one taken at `1db1f48` and it
-  stays as written until a run replaces it.
-- `editor` — the one pre-existing failure in
-  `editors/vscode/test/indent.test.mjs`: the test that formats the
-  repository's own `.rsx` pages, which fails because `apps/` is being
-  rewritten underneath it. Verified earlier to fail identically with
-  the unmodified `indent.mjs`, so it is not a regression from the
-  hardening in `9826d97`. The LSP and editor agent is deciding what
-  that test should actually be — a test that depends on files another
-  part of the repository is free to rewrite is a test that will fail
-  again.
+Re-measured on 2026-11-14 after the six agents' work was committed
+(`723a6d0`), with `-Only fmt,editor,deps`:
+
+```
+FAIL  fmt    -- 376 file(s) differ; run cargo fmt --all
+PASS  deps   -- licences, bans, sources, advisories; 212 crates
+FAIL  editor -- node --test failed
+```
+
+And what each of those turned out to be:
+
+- `package` — the eight `README.md` files landed in `551a1ea`. The gate
+  itself has still not been re-run, so it is not a gate that passed.
+- `deps` — the ninth gate, and the dependency audit the mission asked
+  for, landed with `deny.toml`. It passes over 212 crates.
+- `fmt` — 376 files, up from 347 as the apps were rewritten. **Now
+  done**: `cargo fmt --all` in `659b3e2`, and `cargo fmt --all --check`
+  exits 0. It was held back while six agents were editing the tree;
+  with the tree committed and nobody else in it, the whole workspace
+  went through at once rather than in six pieces.
+- `editor` — **not what it was recorded as.** It was written down here
+  as the `indent.test.mjs` case failing because `apps/` was being
+  rewritten underneath it. It was not. `node --test test` is read as a
+  *module path* by Node 24 and fails before a single test runs, so the
+  gate had never executed one line of the extension's suite. The gate
+  now runs the pattern `package.json` already used. The suite then
+  reported one real failure: the indenter took 5,692ms on 20,000
+  unclosed braces against a 4,000ms budget, because two walks over the
+  open-bracket stack ran per line. Fixed in `9b8233c` -- 59ms, and 79
+  tests pass.
+
+  Worth stating plainly, because §6 is about exactly this: a gate that
+  cannot run is worse than no gate, since it reports a failure that
+  gets explained away. This one was explained away in this document.
+
+### What the first green workspace found
+
+`cargo check --workspace --all-targets` had not passed at any point in
+this session. Getting it to exit 0 turned up three defects, none of them
+in a test:
+
+| where | what |
+|---|---|
+| `rustx-compiler` | a handler that only **reads** a page value never got `let n = n.clone()`, so two reading handlers in one component were `use of moved value` in a generated file (`be00d15`) |
+| `rustx-compiler` | `clips.get_mut(i)` was rewritten to `clips.get().get_mut(i)` -- a change made to the copy `get` returns and dropped at the end of the statement. It compiled, it ran, and the screen never moved. Now refused, with the shape that works (`be00d15`) |
+| `rustx` facade | the twelve newest `rustx-os` capabilities had no short name, so `rustx::secret::fetch` did not exist while `rustx::clipboard::text` did. `apps/vault-storage` was written against the name that did not exist |
 
 ### clippy
 
@@ -201,19 +232,20 @@ cargo fmt --all --check  ->  347 files differ
 **The workspace has never been formatted.** Not partly — essentially
 every Rust file in it deviates.
 
-That is not a reformat to do right now. Six agents are editing this
-tree, and a 347-file whitespace commit landing underneath them would
-conflict with every one of them and bury their real changes. So the
-reformat was **delegated per owner**: each agent runs `cargo fmt` over
-its own crates only, as one separate commit of its own, as the last
-thing it does. The ownership is already disjoint, so the formatting
-lands in six non-overlapping pieces and nobody's fix gets buried in
-whitespace. `apps/` is a small case — `cargo fmt` does not touch
-`.rsx`, only each app's `main.rs`.
+That was not a reformat to do while six agents were editing the tree:
+a whitespace commit of that size landing underneath them would conflict
+with every one of them and bury their real changes. It was delegated
+per owner, and then the session that was running those agents ended.
+With their work committed (`723a6d0`) and nobody else in the tree, the
+whole workspace went through at once instead: **`659b3e2`, 376 files,
+whitespace only, and `cargo fmt --all --check` now exits 0.**
 
-Still no `rustfmt.toml`. Default rustfmt is what the 347 was measured
-against; adding a config now would change the target mid-reformat.
-Decide on one after the tree is formatted and uniform, if at all.
+`cargo check --workspace --all-targets` passes at that commit, which is
+the only claim a formatting commit can honestly make for itself.
+
+Still no `rustfmt.toml`. Default rustfmt is what the whole workspace is
+now formatted to; a configuration would move that target and cost
+another whole-tree commit. Decide on one deliberately, if at all.
 
 ### Resolved: the network
 
@@ -241,30 +273,33 @@ consequences were dispatched to the agents whose work they unblock:
 
 ## Deliberately not done yet
 
-**No `[workspace.lints]`, no deny-level lints.** Turning a clippy
-warning into an error, or adding a workspace lint table, changes what
-compiles for every one of the six agents editing this tree right now —
-their builds would start failing on code they did not write. The gate
-script already enforces `-D warnings` at the point of the gate, which
-gets the enforcement without the mid-flight breakage. Add the lint
-table once the agents land and the 17 diagnostics are cleared.
+**No `[workspace.lints]`, no deny-level lints.** This was deferred
+because six agents were editing the tree and a lint table would have
+broken their builds on code they did not write. That reason has
+expired; the remaining one is the order of work: the diagnostics get
+cleared first, and the table goes in once there is nothing for it to
+fail on. The gate script already enforces `-D warnings` at the point of
+the gate, so the enforcement exists either way.
 
 ## Next
 
-1. **Confirm every agent's `cargo fmt` commit landed**, and then
-   re-run `cargo fmt --all --check` expecting 0. If any files are left
-   over, they belong to no owner and are mine.
-2. Clear the 17 clippy diagnostics — each agent was told which of them
-   are in its own crates (`rustx-lsp` 7, `rustx-os` 6,
-   `rustx-compiler` 2 +1 example, `rustx-dom` 1).
-3. Measure `rustx` and `rustx-cli` with clippy; both link CEF and were
-   skipped to avoid build contention.
-4. Add `[workspace.lints]` and `clippy.toml` **after** 1–3 land. Doing
-   it sooner breaks six agents' builds on code they did not write.
-5. Run the workflow for real and fix what it finds — particularly
+1. ~~Confirm every agent's `cargo fmt` commit landed~~ — done
+   differently: the agents' session ended, their work was committed as
+   `723a6d0`, and the reformat went in as one commit, `659b3e2`.
+   `cargo fmt --all --check` exits 0.
+2. Clear the clippy diagnostics. The count of 17 was measured before
+   the apps and four crates were rewritten; re-measure before fixing.
+3. Measure `rustx-app` and `rustx-cli` with clippy; both link CEF and
+   were skipped to avoid build contention. The contention is over.
+4. Add `[workspace.lints]` and `clippy.toml` after 2–3.
+5. Re-run the `package` gate. The eight READMEs are on disk; the gate
+   has not confirmed it.
+6. Run the workflow for real and fix what it finds — particularly
    whether the `portable` jobs survive on `ubuntu-latest` and
-   `macos-latest`. The runtime agent has been warned that its macOS
-   and Linux halves are about to be compiled by their real compilers
-   for the first time and will probably fail.
-6. Dependency and security audit — **no longer blocked**, delegated,
-   see above.
+   `macos-latest`. `rustx-os`'s macOS and Linux halves have never been
+   compiled by their own compilers.
+7. The subsystem work the agents left open, each recorded in its own
+   document in this directory: the `unsafe` audit of `rustx-os` (107
+   sites without a stated invariant), `rustx-macros` having no tests at
+   all, the three French audit documents still unreconciled, and
+   `rustx new` verified end to end against the network.

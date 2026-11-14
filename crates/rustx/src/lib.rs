@@ -38,6 +38,9 @@ pub use rustx_dom;
 #[doc(hidden)]
 pub use rustx_engine;
 
+/// The rest of the runtime, for an application that wants more than
+/// time: `rustx::tokio::sync`, `rustx::tokio::select!`.
+pub use tokio;
 /// What an `await` waits on.
 ///
 /// `rustx::time::sleep(…)`, and everything tokio calls time. A page
@@ -45,23 +48,27 @@ pub use rustx_engine;
 /// `task(async { … })` blocks run on, and two tokios in one process
 /// would be two reactors with the timers in only one of them.
 pub use tokio::time;
-/// The rest of the runtime, for an application that wants more than
-/// time: `rustx::tokio::sync`, `rustx::tokio::select!`.
-pub use tokio;
 
 pub use rustx_dom::value::{ToValue, record};
 pub use rustx_dom::{
     AttributeValue, Element, Handler, IntoElement, Key, TagElement, Value, into_element, route,
     state, store, value,
 };
-/// What touches the machine rather than the page: the clipboard, file
-/// dialogs, the devices, the system tray, notifications. Each of them
-/// says, before it is asked for anything, whether this platform can do
-/// it.
-pub use rustx_os::{
-    autostart, clipboard, devices, dialog, instance, notify, shortcut, terminal, tray,
-};
 pub use rustx_os::OsError;
+/// What touches the machine rather than the page: the clipboard, file
+/// dialogs, the devices, the system tray, notifications, the keychain,
+/// the screens, the speaker. Each of them says, before it is asked for
+/// anything, whether this platform can do it.
+///
+/// Every system module is here under its own short name except three,
+/// which stay behind `rustx::os::` for a reason: `os::window`, because
+/// `rustx::window` is what the page commands; `os::blocking` and
+/// `os::patience`, which are for the code that calls these modules
+/// rather than for a page.
+pub use rustx_os::{
+    about, attention, audio, autostart, bluetooth, capture, clipboard, color, devices, dialog,
+    instance, net, notify, print, screen, secret, shell, shortcut, system, terminal, tray,
+};
 
 /// The layer that talks to the system, in full.
 ///
@@ -73,8 +80,8 @@ pub use rustx_os::OsError;
 pub use rustx_os as os;
 
 pub use rustx_engine::{
-    Document, DomError, NativeError, Node, PostError, Poster, foreign, mount, mount_at_id,
-    dropped, on_context_created, on_frame, poster, register_native, render, router, task, window,
+    Document, DomError, NativeError, Node, PostError, Poster, dropped, foreign, mount, mount_at_id,
+    on_context_created, on_frame, poster, register_native, render, router, task, window,
 };
 
 /// What can go wrong while an application starts.
@@ -400,9 +407,7 @@ impl App {
         rustx_engine::on_context_created(carry_state);
 
         if let Some(routes) = routes {
-            rustx_engine::on_context_created(move || {
-                start_router(routes, &host, &start, screens)
-            });
+            rustx_engine::on_context_created(move || start_router(routes, &host, &start, screens));
         }
         rustx_engine::on_context_created(move || {
             for (name, component) in &components {
@@ -613,11 +618,8 @@ pub fn document_for(manifest_dir: &Path, title: &str) -> Result<PathBuf, Error> 
     ));
     let path = directory.join("index.html");
     std::fs::create_dir_all(&directory).map_err(|_| Error::IndexNotFound(path.clone()))?;
-    std::fs::write(
-        &path,
-        default_document(title, &manifest_dir.join("assets")),
-    )
-    .map_err(|_| Error::IndexNotFound(path.clone()))?;
+    std::fs::write(&path, default_document(title, &manifest_dir.join("assets")))
+        .map_err(|_| Error::IndexNotFound(path.clone()))?;
     Ok(path)
 }
 
@@ -834,7 +836,10 @@ mod tests {
         // this must not do.
         assert!(css.contains("scrollbar-width"), "got {css}");
         assert!(css.contains("::-webkit-scrollbar"), "got {css}");
-        assert!(!css.contains("overflow:"), "this must not stop scrolling: {css}");
+        assert!(
+            !css.contains("overflow:"),
+            "this must not stop scrolling: {css}"
+        );
     }
 
     #[test]

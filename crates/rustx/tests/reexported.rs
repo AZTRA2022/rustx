@@ -77,3 +77,28 @@ fn the_tokio_a_developer_knows_is_all_there() {
     });
     assert_eq!(spawned, 42);
 }
+
+#[test]
+fn every_system_capability_has_a_short_name() {
+    // The twelve capabilities that landed in `rustx-os` were reachable
+    // only through `rustx::os::` while the nine older ones had a short
+    // name on the facade -- so `rustx::clipboard::text()` worked and
+    // `rustx::secret::fetch(…)` did not, which is not a distinction a
+    // developer can be expected to hold. `apps/vault-storage` was
+    // written against `rustx::secret` and did not compile.
+    //
+    // Naming each one is the whole test: this file does not compile if
+    // one of them is missing from the facade.
+    let _ = rustx::about::supported;
+    let _ = rustx::attention::flash;
+    let _ = rustx::audio::volume;
+    let _ = rustx::bluetooth::paired;
+    let _ = rustx::capture::desktop;
+    let _ = rustx::color::pick;
+    let _ = rustx::net::online;
+    let _ = rustx::print::printers;
+    let _ = rustx::screen::screens;
+    let _ = rustx::secret::fetch;
+    let _ = rustx::shell::reveal;
+    let _ = rustx::system::theme;
+}
