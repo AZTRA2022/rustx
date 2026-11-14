@@ -38,11 +38,14 @@ use crate::value::Value;
 /// Le nom sous lequel les chemins traversent.
 pub const WHAT: &str = "dropped";
 
+/// The hooks a page has posted, in the order they were posted.
+type Hooks = Vec<Box<dyn Fn(Vec<PathBuf>)>>;
+
 thread_local! {
     /// Ce qui a été lâché et que personne n'a encore lu.
     static WAITING: RefCell<Vec<PathBuf>> = const { RefCell::new(Vec::new()) };
     /// Les crochets, dans l'ordre où ils ont été posés.
-    static HOOKS: RefCell<Vec<Box<dyn Fn(Vec<PathBuf>)>>> = RefCell::new(Vec::new());
+    static HOOKS: RefCell<Hooks> = RefCell::new(Vec::new());
     /// Si le pont a déjà été branché sur ce fil.
     static LISTENING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }

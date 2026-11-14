@@ -60,7 +60,7 @@ pub(crate) fn rest(credits: &Credits) -> String {
 }
 
 pub fn show(pane: Pane, credits: &Credits) -> Result<(), OsError> {
-    let owner = (pane.0 != 0).then(|| HWND(pane.0 as *mut std::ffi::c_void));
+    let owner = (pane.0 != 0).then_some(HWND(pane.0 as *mut std::ffi::c_void));
     let first = wide(&titled(credits));
     let second = wide(&rest(credits));
     let icon = credits.icon.as_ref().and_then(|path| {

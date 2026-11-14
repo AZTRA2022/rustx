@@ -720,7 +720,7 @@ mod real {
     /// d'autre. Voir `window::drag_out`.
     pub fn drag_out(_pane: Pane, _paths: &[std::path::PathBuf]) -> Result<(), OsError> {
         Err(OsError::Unsupported(
-            "dragging files out of the window on X11 (XDND requires owning XdndSelection and              holding the pointer grab, which belongs to Chromium's connection)",
+            "dragging files out of the window on X11 (XDND requires owning XdndSelection and holding the pointer grab, which belongs to Chromium's connection)",
         ))
     }
 

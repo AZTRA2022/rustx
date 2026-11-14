@@ -80,7 +80,9 @@ pub fn text() -> Result<String, OsError> {
     let bytes = block.bytes();
     // UTF-16, and the terminating NUL is not part of the text.
     let wide: Vec<u16> = bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
         .take_while(|unit| *unit != 0)
         .collect();

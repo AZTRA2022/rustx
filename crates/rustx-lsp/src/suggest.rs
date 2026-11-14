@@ -237,24 +237,20 @@ pub fn attributes(tag: &str, typed: &str, page: &Page, already: &[String]) -> Ve
     // it passes on. First because they are the answer: `variant` and
     // `size` are what somebody opening a `<Button` is looking for, and
     // a list that began with `accept` and `accesskey` buried them.
-    if installed {
-        if let Some(application) = &page.application {
-            for prop in crate::libraries::props_for(application, tag) {
-                if !matches(&prop.name, typed)
-                    || already.iter().any(|written| written == &prop.name)
-                {
-                    continue;
-                }
-                let detail = if prop.kind.is_empty() {
-                    tag.to_string()
-                } else {
-                    prop.kind.clone()
-                };
-                found.push(
-                    Item::new(&prop.name, Kind::Property, &detail)
-                        .inserting(&format!("{}={{}}", prop.name)),
-                );
+    if installed && let Some(application) = &page.application {
+        for prop in crate::libraries::props_for(application, tag) {
+            if !matches(&prop.name, typed) || already.iter().any(|written| written == &prop.name) {
+                continue;
             }
+            let detail = if prop.kind.is_empty() {
+                tag.to_string()
+            } else {
+                prop.kind.clone()
+            };
+            found.push(
+                Item::new(&prop.name, Kind::Property, &detail)
+                    .inserting(&format!("{}={{}}", prop.name)),
+            );
         }
     }
 

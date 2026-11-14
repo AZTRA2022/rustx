@@ -94,7 +94,7 @@ fn Page(name: String) -> Element {
                     {Fact("Shell".to_string(), if shell_name.is_empty() { "reading…".to_string() } else { shell_name.clone() })}
                     {Fact("Rules watched".to_string(), format!("{} ({} armed)", alerts.len(), alerts.iter().filter(|alert| alert.on).count()))}
                     {Fact("Notifications raised".to_string(), raised.to_string())}
-                    // {facts.iter().map(|fact| Fact(fact.0.clone(), fact.1.clone())).collect::<Vec<_>>()}
+                    {facts.iter().map(|fact| Fact(fact.0.clone(), fact.1.clone())).collect::<Vec<_>>()}
                 </div>
 
                 <div className="mt-4 border-t border-linesoft pt-3.5">

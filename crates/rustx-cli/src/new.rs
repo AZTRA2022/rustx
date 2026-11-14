@@ -56,7 +56,7 @@ pub fn write(name: &str, into: &Path) -> Result<Vec<PathBuf>, String> {
 /// Every refusal here is a failure a developer would otherwise meet one
 /// step later and in worse words: cargo's own, npm's own, or Windows's
 /// — and by then there is a directory on disk with half a project in
-/// it. The promise of [`write`] is that nothing is written until the
+/// it. The promise of [`write()`] is that nothing is written until the
 /// name is known to be a name, so this function is where every known
 /// way for a name to be wrong is written down.
 pub fn refuse_a_bad_name(name: &str) -> Result<(), String> {

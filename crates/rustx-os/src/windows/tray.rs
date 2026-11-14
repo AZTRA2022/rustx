@@ -385,10 +385,10 @@ unsafe extern "system" fn answered(
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
                 // Les identifiants de menu commencent à 1 : zéro est ce
                 // que Windows rend quand on referme sans choisir.
-                if let Some(item) = items.get(number.wrapping_sub(1) as usize) {
-                    if !item.id.is_empty() {
-                        shared.chosen.push(item.id.clone());
-                    }
+                if let Some(item) = items.get(number.wrapping_sub(1) as usize)
+                    && !item.id.is_empty()
+                {
+                    shared.chosen.push(item.id.clone());
                 }
             });
             LRESULT(0)

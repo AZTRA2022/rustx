@@ -573,8 +573,10 @@ mod tests {
 
     #[test]
     fn a_newline_in_a_description_does_not_truncate_the_entry() {
-        let mut about = About::default();
-        about.description = "Une ligne\nUne autre".to_string();
+        let about = About {
+            description: "Une ligne\nUne autre".to_string(),
+            ..About::default()
+        };
         let text = desktop_entry(Path::new("/opt/mon-app/mon-app"), &about, None);
         assert!(
             text.contains("Comment=Une ligne Une autre\n"),

@@ -69,10 +69,10 @@ pub fn exports_for(application: &Path) -> Vec<Export> {
     let held = cache()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some((when, found)) = held.get(application) {
-        if *when == stamp {
-            return found.clone();
-        }
+    if let Some((when, found)) = held.get(application)
+        && *when == stamp
+    {
+        return found.clone();
     }
     drop(held);
 
@@ -84,8 +84,11 @@ pub fn exports_for(application: &Path) -> Vec<Export> {
     found
 }
 
-fn cache() -> &'static Mutex<HashMap<PathBuf, (Stamp, Vec<Export>)>> {
-    static CACHE: OnceLock<Mutex<HashMap<PathBuf, (Stamp, Vec<Export>)>>> = OnceLock::new();
+/// What was read for one application, and the stamp it was read at.
+type Exports = Mutex<HashMap<PathBuf, (Stamp, Vec<Export>)>>;
+
+fn cache() -> &'static Exports {
+    static CACHE: OnceLock<Exports> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -307,10 +310,10 @@ pub fn props_for(application: &Path, tag: &str) -> Vec<Prop> {
     let held = props_cache()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some((when, found)) = held.get(&asked) {
-        if *when == stamp {
-            return found.clone();
-        }
+    if let Some((when, found)) = held.get(&asked)
+        && *when == stamp
+    {
+        return found.clone();
     }
     drop(held);
 
@@ -322,8 +325,11 @@ pub fn props_for(application: &Path, tag: &str) -> Vec<Prop> {
     found
 }
 
-fn props_cache() -> &'static Mutex<HashMap<(PathBuf, String), (Stamp, Vec<Prop>)>> {
-    static CACHE: OnceLock<Mutex<HashMap<(PathBuf, String), (Stamp, Vec<Prop>)>>> = OnceLock::new();
+/// The same, for one tag of one application.
+type Props = Mutex<HashMap<(PathBuf, String), (Stamp, Vec<Prop>)>>;
+
+fn props_cache() -> &'static Props {
+    static CACHE: OnceLock<Props> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 

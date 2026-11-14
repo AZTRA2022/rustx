@@ -133,7 +133,7 @@ pub fn ask(what: &What, actions: &[crate::notify::Action]) -> Result<Option<Stri
         .output()
         .map_err(|error| {
             OsError::Platform(format!(
-                "`notify-send` could not be run ({error}) — it is in the `libnotify-bin`                  package"
+                "`notify-send` could not be run ({error}) — it is in the `libnotify-bin` package"
             ))
         })?;
     if !out.status.success() {
@@ -142,7 +142,7 @@ pub fn ask(what: &What, actions: &[crate::notify::Action]) -> Result<Option<Stri
         // `--wait`, et le dit comme toute option inconnue.
         if said.contains("--action") || said.contains("--wait") || said.contains("Unknown option") {
             return Err(OsError::Unsupported(
-                "buttons in a notification with this `notify-send` (--action and --wait came                  with libnotify 0.8)",
+                "buttons in a notification with this `notify-send` (--action and --wait came with libnotify 0.8)",
             ));
         }
         return Err(OsError::Platform(format!(

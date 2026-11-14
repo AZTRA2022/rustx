@@ -495,11 +495,21 @@ fn an_await_before_the_return_does_not_block_the_render() {
         "got {rust}"
     );
     assert!(rust.contains("fetch()"), "the expression was lost: {rust}");
-    // The await is inside an `async move` block, which is the only
-    // place it can be: the component itself stayed synchronous.
+    // The future is built on the render thread and handed over to be
+    // awaited elsewhere; the component itself stayed synchronous. With
+    // nothing written after the `.await` the future is handed over as
+    // it is -- `async move { __work.await }` is the same value as
+    // `__work`, and emitting the block earned a
+    // `clippy::redundant_async_block` in a file the developer cannot
+    // edit. The block comes back as soon as there is a tail to run on
+    // the answer, which the next test checks.
     assert!(
-        rust.contains("async move { __work.await }"),
-        "the await was not moved into a future: {rust}"
+        rust.contains("fetch() })"),
+        "the future was not handed over as it is: {rust}"
+    );
+    assert!(
+        !rust.contains("async move { __work.await }"),
+        "nothing follows the await, so the block is redundant: {rust}"
     );
     assert_eq!(
         rust.matches('\n').count(),

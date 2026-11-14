@@ -317,6 +317,14 @@ fn render(
     // call has to be written inside the module that can see them.
     for (at, layout) in layouts.iter().enumerate() {
         let relative = layout.strip_prefix(from).unwrap_or(layout);
+        // Two lints are allowed on every generated module, and both are
+        // about the generator rather than about the page: the layout of an
+        // `else` in machine-written text, and the number of arguments a
+        // component takes -- a component's props *are* its arguments, which
+        // is the design, not a smell. Written on the module the page is
+        // included into, so each allowance covers that page and nothing
+        // else.
+        //
         // What this layout takes after `children`, read out of the
         // params the matcher captured.
         let arguments: Vec<String> = layout_parameters
@@ -327,7 +335,7 @@ fn render(
             .map(|parameter| format!(", params.get(\"{parameter}\").to_string()"))
             .collect();
         out.push_str(&format!(
-            "mod layout_{at}_file {{\n    use super::*;\n    include!(\"{}\");\n\n\
+            "#[allow(clippy::suspicious_else_formatting, clippy::too_many_arguments)]\nmod layout_{at}_file {{\n    use super::*;\n    include!(\"{}\");\n\n\
              \x20   pub(super) fn frame(children: rustx_dom::Element, \
              params: &rustx_dom::route::Params) -> rustx_dom::Element {{\n\
              \x20       let _ = params;\n        Layout(children{})\n    }}\n\n\
@@ -347,7 +355,7 @@ fn render(
     for (at, loading) in loadings.iter().enumerate() {
         let relative = loading.strip_prefix(from).unwrap_or(loading);
         out.push_str(&format!(
-            "mod loading_{at}_file {{\n    use super::*;\n    include!(\"{}\");\n\n\
+            "#[allow(clippy::suspicious_else_formatting, clippy::too_many_arguments)]\nmod loading_{at}_file {{\n    use super::*;\n    include!(\"{}\");\n\n\
              \x20   pub(super) fn screen() -> rustx_dom::Element {{\n\
              \x20       Loading()\n    }}\n}}\n\n\
              fn loading_{at}() -> rustx_dom::Element {{\n\
@@ -361,7 +369,7 @@ fn render(
     for (at, failure) in failures.iter().enumerate() {
         let relative = failure.strip_prefix(from).unwrap_or(failure);
         out.push_str(&format!(
-            "mod error_{at}_file {{\n    use super::*;\n    include!(\"{}\");\n\n\
+            "#[allow(clippy::suspicious_else_formatting, clippy::too_many_arguments)]\nmod error_{at}_file {{\n    use super::*;\n    include!(\"{}\");\n\n\
              \x20   pub(super) fn screen(pourquoi: String) -> rustx_dom::Element {{\n\
              \x20       Error(pourquoi)\n    }}\n}}\n\n\
              fn error_{at}(pourquoi: String) -> rustx_dom::Element {{\n\
@@ -385,7 +393,7 @@ fn render(
         // a scenario may be the first thing that ever asks for it.
         let shown = shown_entries(&page.shown);
         out.push_str(&format!(
-            "mod page_{at} {{\n    use super::*;\n    include!(\"{}\");\n\n\
+            "#[allow(clippy::suspicious_else_formatting, clippy::too_many_arguments)]\nmod page_{at} {{\n    use super::*;\n    include!(\"{}\");\n\n\
              \x20   pub(super) fn screen(params: &rustx_dom::route::Params) \
              -> rustx_dom::Element {{\n\
              \x20       let _ = params;\n        Page({})\n    }}\n\n\

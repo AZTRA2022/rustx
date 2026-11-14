@@ -143,11 +143,10 @@ wrap_drag_handler! {
                 .unwrap_or_default();
 
             let carried = crate::dropped::carried(&names);
-            if !carried.is_empty() {
-                if let Some(frame) = browser.and_then(|browser| browser.main_frame()) {
+            if !carried.is_empty()
+                && let Some(frame) = browser.and_then(|browser| browser.main_frame()) {
                     crate::bridge::tell(&frame, crate::dropped::WHAT, &carried);
                 }
-            }
             0
         }
     }

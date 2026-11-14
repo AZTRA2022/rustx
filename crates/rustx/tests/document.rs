@@ -62,7 +62,7 @@ fn a_generated_document_resolves_relative_paths_against_the_applications_assets(
     let text = std::fs::read_to_string(&document).expect("readable");
     let at = text
         .find("<base href=\"")
-        .expect(&format!("no base in {text}"));
+        .unwrap_or_else(|| panic!("no base in {text}"));
     let href = &text[at + "<base href=\"".len()..];
     let href = &href[..href.find('"').expect("a closed attribute")];
     assert!(href.starts_with("file:///"), "got {href}");

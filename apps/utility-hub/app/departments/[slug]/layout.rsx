@@ -137,7 +137,7 @@ fn export_crew(slug: String) {
     };
     let ask = rustx::dialog::Ask::new("Export this department")
         .filter("Comma separated", ["csv"])
-        .named(&format!("{}.csv", department.slug));
+        .named(format!("{}.csv", department.slug));
     let Ok(path) = rustx::dialog::save(ask) else {
         note = "the export was cancelled".to_string();
         return;

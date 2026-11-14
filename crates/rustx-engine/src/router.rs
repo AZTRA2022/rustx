@@ -125,10 +125,10 @@ fn remember() {
             at: mounted.history.at,
         })
     });
-    if let Some(snapshot) = snapshot {
-        if let Ok(mut held) = elsewhere().write() {
-            *held = snapshot;
-        }
+    if let Some(snapshot) = snapshot
+        && let Ok(mut held) = elsewhere().write()
+    {
+        *held = snapshot;
     }
 }
 

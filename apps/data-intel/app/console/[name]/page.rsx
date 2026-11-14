@@ -267,12 +267,11 @@ fn sort_on(at: usize) {
 
 fn set_cell(slug: String, row_at: usize, cell_at: usize, value: String) {
     let mut all = tables.clone();
-    if let Some(table) = all.iter_mut().find(|table| table.slug == slug) {
-        if let Some(row) = table.rows.get_mut(row_at) {
-            if let Some(cell) = row.get_mut(cell_at) {
-                *cell = value;
-            }
-        }
+    if let Some(table) = all.iter_mut().find(|table| table.slug == slug)
+        && let Some(row) = table.rows.get_mut(row_at)
+        && let Some(cell) = row.get_mut(cell_at)
+    {
+        *cell = value;
     }
     tables = all;
 }
@@ -289,10 +288,10 @@ fn add_row(slug: String) {
 
 fn drop_row(slug: String, at: usize) {
     let mut all = tables.clone();
-    if let Some(table) = all.iter_mut().find(|table| table.slug == slug) {
-        if at < table.rows.len() {
-            table.rows.remove(at);
-        }
+    if let Some(table) = all.iter_mut().find(|table| table.slug == slug)
+        && at < table.rows.len()
+    {
+        table.rows.remove(at);
     }
     tables = all;
     status = format!("a row was removed from {slug}");
@@ -318,7 +317,7 @@ fn copy_it(table: Dataset) {
 fn export_it(table: Dataset) {
     let ask = rustx::dialog::Ask::new("Export this table")
         .filter("Comma separated", ["csv"])
-        .named(&format!("{}.csv", table.slug));
+        .named(format!("{}.csv", table.slug));
     let Ok(path) = rustx::dialog::save(ask) else {
         status = "the export was cancelled".to_string();
         return;

@@ -47,7 +47,7 @@ fn Page() -> Element {
 
             // A case passes unless its number says otherwise, which is
             // what gives each suite a score of its own.
-            let fails = (suite.done as usize + suite.name.len()) % 11 == 0;
+            let fails = (suite.done as usize + suite.name.len()).is_multiple_of(11);
             suite.done += 1;
             if !fails {
                 suite.passed += 1;

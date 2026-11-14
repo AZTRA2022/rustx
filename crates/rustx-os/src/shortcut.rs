@@ -97,12 +97,11 @@ fn virtual_key(name: &str) -> Option<u32> {
     }
 
     // `F1` à `F24`.
-    if let Some(number) = upper.strip_prefix('F') {
-        if let Ok(number) = number.parse::<u32>() {
-            if (1..=24).contains(&number) {
-                return Some(0x70 + number - 1);
-            }
-        }
+    if let Some(number) = upper.strip_prefix('F')
+        && let Ok(number) = number.parse::<u32>()
+        && (1..=24).contains(&number)
+    {
+        return Some(0x70 + number - 1);
     }
 
     Some(match upper.as_str() {

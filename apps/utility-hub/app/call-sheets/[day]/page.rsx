@@ -127,7 +127,7 @@ fn Missing(day: String) -> Element {
 fn save_sheet(sheet: CallSheet) {
     let ask = rustx::dialog::Ask::new("Export this call sheet")
         .filter("Plain text", ["txt"])
-        .named(&format!("{}.txt", sheet.slug));
+        .named(format!("{}.txt", sheet.slug));
     let Ok(path) = rustx::dialog::save(ask) else {
         note = "the export was cancelled".to_string();
         return;

@@ -120,3 +120,15 @@ fn a_mutable_borrow_of_a_plain_local_is_not_refused() {
     let source = "let mut clips: Vec<String> = Vec::new();\n\nfn C() -> Element {\n    return <button onClick={move |_| {\n        let mut held = clips.get();\n        if let Some(clip) = held.get_mut(0) { clip.clear(); }\n        clips.set(held);\n    }}>x</button>;\n}\n";
     analyse(source).expect("the way out has to compile");
 }
+
+#[test]
+fn a_write_through_a_mutable_borrow_in_a_helper_is_refused_too() {
+    // Where it was actually found. `apps/multitask-hub`'s `toggle_done`
+    // is a plain function beside the page, not a component, and a
+    // helper is promoted by a second pass of its own -- so the refusal
+    // had to be written twice. Every checkbox in that application
+    // changed a copy and threw it away.
+    let source = "let mut rows: Vec<String> = Vec::new();\n\nfn C() -> Element {\n    return <button onClick={move |_| clear(0)}>x</button>;\n}\n\nfn clear(at: usize) {\n    if let Some(row) = rows.get_mut(at) { row.clear(); }\n}\n";
+    let said = analyse(source).expect_err("a silent no-op must be refused");
+    assert!(format!("{said}").contains("get_mut"), "got {said}");
+}

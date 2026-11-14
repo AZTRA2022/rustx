@@ -435,7 +435,7 @@ mod real {
     /// nothing to work around it with. See `window::drag_out`.
     pub fn drag_out(_pane: Pane, _paths: &[std::path::PathBuf]) -> Result<(), OsError> {
         Err(OsError::Unsupported(
-            "dragging files out of the window on macOS              (beginDraggingSessionWithItems:event:source: needs the original NSEvent, which              belongs to Chromium)",
+            "dragging files out of the window on macOS (beginDraggingSessionWithItems:event:source: needs the original NSEvent, which belongs to Chromium)",
         ))
     }
 

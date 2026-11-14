@@ -866,3 +866,21 @@ fn an_if_else_of_two_writes_in_a_handler_is_still_two_writes() {
         built.rust
     );
 }
+
+#[test]
+fn a_read_in_the_last_child_of_a_tag_is_not_a_write() {
+    // A page value read inside a tag's `{…}`, with a sibling expression
+    // written before it, was taken for a statement: the `}` of the
+    // sibling looked like the end of the statement before, and the `}`
+    // of this child's own braces looked like the end of a statement
+    // block. The page was refused with "`facts` is written while `Page`
+    // is being drawn", about a line that only reads.
+    let source = "let mut facts: Vec<(String, String)> = Vec::new();\n\nfn Page() -> Element {\n    effect((), || {\n        facts = read_machine();\n    });\n\n    return <div>\n        <div className=\"x\">\n            {Fact(\"Kind\".to_string(), \"a\".to_string())}\n            {facts.iter().map(|fact| Fact(fact.0.clone(), fact.1.clone())).collect::<Vec<_>>()}\n        </div>\n    </div>;\n}\n\nfn Fact(name: String, value: String) -> Element {\n    return <span key={name.clone()}>{name}{value}</span>;\n}\n\nfn read_machine() -> Vec<(String, String)> {\n    Vec::new()\n}\n";
+    let rust = rustx_compiler::transpile::transpile(source)
+        .expect("a page that only reads is not a page that writes")
+        .rust;
+    assert!(
+        rust.contains("facts . get ()") || rust.contains("facts.get()"),
+        "the read still goes through the store: {rust}"
+    );
+}

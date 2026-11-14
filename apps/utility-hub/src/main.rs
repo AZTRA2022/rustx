@@ -399,7 +399,7 @@ pub fn footage() -> Vec<Clip> {
                     (index * 13 + take as usize * 7) % 60
                 ),
                 department: departments[index % departments.len()].to_string(),
-                graded: (index + take as usize) % 3 == 0,
+                graded: (index + take as usize).is_multiple_of(3),
             })
         })
         .collect()

@@ -196,10 +196,7 @@ fn matching(text: &str, open_at: usize, opening: char, closing: char) -> Option<
                 // below zero is a panic in a debug build and nonsense in
                 // a release one. Both of those are a language server
                 // that stops answering, so it is said out loud instead.
-                let Some(less) = depth.checked_sub(1) else {
-                    return None;
-                };
-                depth = less;
+                depth = depth.checked_sub(1)?;
                 if depth == 0 {
                     return Some(open_at + at);
                 }

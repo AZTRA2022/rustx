@@ -391,6 +391,30 @@ pub fn open() {
     rustx_dom::state::open_remote();
 }
 
+/// The script that drives the loop.
+///
+/// `requestAnimationFrame` is the compositor's own vsync signal, and it
+/// already runs on the thread that owns the DOM, so the frame loop rides on
+/// it rather than inventing a timer that would drift against the screen.
+///
+/// When the compositor produces no frames at all, it is never called
+/// back — and [`watch`] is the floor under that: the engine's own timer,
+/// on the renderer's thread, which no page and no throttling can reach.
+/// The next frame is scheduled in a `finally`: if `__rustx_frame` ever
+/// throws, the loop must limp on rather than stop for good.
+pub(crate) const DRIVER_SCRIPT: &str = "\n(function () {
+  window.__rustx_driving = (window.__rustx_driving || 0) + 1;
+  function frame() {
+    try {
+      __rustx_frame();
+    } finally {
+      requestAnimationFrame(frame);
+    }
+  }
+  requestAnimationFrame(frame);
+})();
+";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -428,27 +452,3 @@ mod tests {
         }
     }
 }
-
-/// The script that drives the loop.
-///
-/// `requestAnimationFrame` is the compositor's own vsync signal, and it
-/// already runs on the thread that owns the DOM, so the frame loop rides on
-/// it rather than inventing a timer that would drift against the screen.
-///
-/// When the compositor produces no frames at all, it is never called
-/// back — and [`watch`] is the floor under that: the engine's own timer,
-/// on the renderer's thread, which no page and no throttling can reach.
-/// The next frame is scheduled in a `finally`: if `__rustx_frame` ever
-/// throws, the loop must limp on rather than stop for good.
-pub(crate) const DRIVER_SCRIPT: &str = "\n(function () {
-  window.__rustx_driving = (window.__rustx_driving || 0) + 1;
-  function frame() {
-    try {
-      __rustx_frame();
-    } finally {
-      requestAnimationFrame(frame);
-    }
-  }
-  requestAnimationFrame(frame);
-})();
-";

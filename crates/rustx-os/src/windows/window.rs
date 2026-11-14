@@ -466,7 +466,7 @@ pub fn drag(pane: Pane) -> Result<(), OsError> {
 /// Voir `window::drag_out`.
 pub fn drag_out(_pane: Pane, _paths: &[std::path::PathBuf]) -> Result<(), OsError> {
     Err(OsError::Unsupported(
-        "dragging files out of the window (DoDragDrop must be called from the          WM_LBUTTONDOWN that started the drag, and that event belongs to Chromium)",
+        "dragging files out of the window (DoDragDrop must be called from the WM_LBUTTONDOWN that started the drag, and that event belongs to Chromium)",
     ))
 }
 

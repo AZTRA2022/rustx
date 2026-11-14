@@ -144,26 +144,58 @@ in a test:
 
 ### clippy
 
-17 unique diagnostics across the crates that do not pull CEF
-(`--workspace --exclude rustx --exclude rustx-cli --all-targets`):
+First measured on the CEF-free crates only, because six agents were
+building concurrently: **17 diagnostics**, all style-level. Measured
+again over the whole workspace, CEF crates and applications included,
+once the tree settled:
 
-| crate | diagnostics |
+| | diagnostics |
 |---|---|
-| `rustx-lsp` | 7 |
-| `rustx-os` | 6 |
-| `rustx-compiler` | 2 (+1 in the `judge` example) |
-| `rustx-dom` | 1 |
-| `rustx-macros` | 0 |
+| first full measurement | **143** |
+| in `apps/*/target/rustx-pages/*.rs`, which the compiler writes | 115 |
+| in code somebody wrote | 28 |
 
-All style-level, nothing that indicates a defect: nine collapsible
-`if`s, three "very complex type", a `match` that wants `if let`, a
-`chunks_exact` with a constant size, an unnecessary closure in
-`bool::then`, a `let…else` that wants `?`, and items declared after a
-test module.
+The 115 mattered more than the 28, because they are in files the
+developer cannot edit, and they are what `cargo clippy` says about
+*their* application. Two of them were the compiler's own text, and one
+line each:
 
-**Not yet measured:** `rustx` and `rustx-cli`. Both link CEF, and with
-six agents building concurrently the measurement was not worth the
-contention. Do it when the tree settles.
+- **88 × `noop_method_call`.** A keyed element emitted
+  `with_key(__key.clone(), …)` and `.key(__key.clone())`. When the key
+  is already a `&str` — `key={"row"}`, `key={name.as_str()}` —
+  `.clone()` on a reference is a call that does nothing, and `rustc`
+  itself says so. Writing `&__key` instead merely traded it for 98
+  `needless_borrow`; the emission now binds one owned string and hands
+  a `&str` to both calls, which is neither.
+- **~48 × `suspicious_else_formatting`**, which is a lint about where
+  the `else` sits on the line. Machine-written text has no business
+  being linted for its layout, so each generated module carries
+  `#[allow(clippy::suspicious_else_formatting)]` — on the module the
+  page is included into, so it covers that page and nothing else.
+
+What is left in a generated file (21) comes from the `.rsx` the
+developer wrote — a collapsible `if`, a `% 3 == 0` that wants
+`is_multiple_of` — and those are theirs to act on. The position map
+puts them on the line they wrote.
+
+The 28 in written code were cleared: 10 collapsible `if`s and the other
+mechanical ones by `cargo clippy --fix`, six "very complex type" by
+giving the type a name (`Listeners`, `Hooks`, `Exports`, `Props`), two
+`let…else` that wanted `?`, a `match` that wanted `if let`, a
+`Default::default()` followed by a field assignment, and one
+`should_implement_trait` on `rpc::Reader::next`, which is allowed with
+its reason written down: the end of that stream is a `Frame::Over` the
+server has to answer, not a `None` a `for` loop would swallow.
+
+**And nine error messages that were not sentences.** Found while
+reading the clippy output: a `\` at the end of a line inside a Rust
+string literal continues the string *and* strips the next line's
+indentation — but a literal newline does neither. Seven strings in
+`rustx-os` and two panic messages in `rustx-dom` had been written as if
+the continuation were there, so what a developer actually read was
+`"...--action and --wait came                  with libnotify 0.8"`.
+They are sentences now. Nothing tested them, because what a message
+says is not what a test asserts, which is its own finding.
 
 ### `unsafe`
 

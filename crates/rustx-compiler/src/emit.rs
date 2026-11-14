@@ -302,10 +302,18 @@ fn tag_expression(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, C
     };
     Ok(quote! {
         {
-            let __key = #key;
-            rustx_dom::state::with_key(__key.clone(), || {
+            let __key = (#key).to_string();
+            // One owned string, and a `&str` handed to both calls.
+            // `with_key` takes anything `Display` and `Key` is
+            // `From<T: Display>`, so the shape of this line decides which
+            // lint fires in a file the developer cannot edit: a key that
+            // was already a `&str` made `__key.clone()` a call that does
+            // nothing (`noop_method_call`, 88 of them across the
+            // workspace), and writing `&__key` instead traded that for
+            // 98 `needless_borrow`. A `&str` is neither.
+            rustx_dom::state::with_key(__key.as_str(), || {
                 rustx_dom::Element::tag(#name)
-                    .key(__key.clone())
+                    .key(__key.as_str())
                     #(#steps)*
                     #(.child(#children))*
                     .build()

@@ -322,12 +322,12 @@ impl<'a> Reader<'a> {
             let saved = self.at;
             if self.bytes[self.at..].starts_with(b"\\u") {
                 self.at += 2;
-                if let Some(second) = self.four_digits() {
-                    if (0xDC00..0xE000).contains(&second) {
-                        let code = 0x10000 + ((first - 0xD800) << 10) + (second - 0xDC00);
-                        if let Some(letter) = char::from_u32(code) {
-                            return Some(letter);
-                        }
+                if let Some(second) = self.four_digits()
+                    && (0xDC00..0xE000).contains(&second)
+                {
+                    let code = 0x10000 + ((first - 0xD800) << 10) + (second - 0xDC00);
+                    if let Some(letter) = char::from_u32(code) {
+                        return Some(letter);
                     }
                 }
             }

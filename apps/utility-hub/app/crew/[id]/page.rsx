@@ -175,7 +175,7 @@ fn ping(who: String) {
 fn save_card(person: Person) {
     let ask = rustx::dialog::Ask::new("Save this crew card")
         .filter("Comma separated", ["csv"])
-        .named(&format!("{}.csv", person.id));
+        .named(format!("{}.csv", person.id));
     let Ok(path) = rustx::dialog::save(ask) else {
         note = "the card was not saved".to_string();
         return;

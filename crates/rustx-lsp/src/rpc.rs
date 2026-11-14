@@ -94,6 +94,12 @@ impl<'a, R: BufRead + ?Sized> Frames<'a, R> {
 
     /// The next frame, reading from the stream when the buffer has no
     /// whole one.
+    ///
+    /// Named `next` and not an `Iterator`: the end of this stream is a
+    /// `Frame::Over` the server has to answer (it shuts down, and takes
+    /// `rust-analyzer` with it), not a `None` that a `for` loop would
+    /// swallow. An iterator would hide exactly the case that matters.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Frame {
         loop {
             match self.take() {

@@ -53,9 +53,60 @@ pub fn promote_state(source: &str) -> Result<String, CompileError> {
             // number.
             text: pad_to(String::new(), original),
         });
+        // And the doc comment that documented it, if there is one. The
+        // declaration is gone, so `///` above the blank it left is a doc
+        // comment on whatever comes next -- which is `fn Page`, three
+        // blank lines further down, and `rustc` warns about exactly that
+        // (`empty lines after doc comment`) in a file the developer
+        // cannot edit. Demoted to a plain comment, on the same bytes:
+        // `///` and `// ` are three characters either way, so no
+        // position moves.
+        for line in doc_lines_above(source, declaration.declaration.start) {
+            edits.push(Edit {
+                span: line,
+                text: String::from("// "),
+            });
+        }
     }
 
     Ok(apply(source, edits))
+}
+
+/// The `///` of each doc-comment line immediately above `at`, innermost
+/// first. Only the run that touches it: a doc comment two blank lines
+/// up documents something else.
+fn doc_lines_above(source: &str, at: usize) -> Vec<Span> {
+    let bytes = source.as_bytes();
+    let mut found = Vec::new();
+    let mut cursor = at;
+    loop {
+        // Back to the start of the line this is on, then to the line
+        // before it.
+        let start_of_line = source[..cursor].rfind('\n').map(|at| at + 1);
+        let Some(line_start) = start_of_line else {
+            return found;
+        };
+        if line_start == 0 {
+            return found;
+        }
+        let Some(previous_end) = source[..line_start - 1].rfind('\n').map(|at| at + 1) else {
+            return found;
+        };
+        let line = source[previous_end..line_start - 1].trim_start();
+        let indent = source[previous_end..line_start - 1].len() - line.len();
+        if !line.starts_with("///") {
+            return found;
+        }
+        let begins = previous_end + indent;
+        found.push(Span {
+            start: begins,
+            end: begins + 3,
+        });
+        cursor = begins;
+        if bytes.get(cursor).is_none() {
+            return found;
+        }
+    }
 }
 
 fn edits_for(source: &str, component: &Component) -> Vec<Edit> {
@@ -305,13 +356,26 @@ fn awaited_edits(source: &str, waited: &crate::promote::Awaited) -> Vec<Edit> {
     let tail = source[waited.suffix.start + ".await".len()..waited.suffix.end]
         .trim_end()
         .trim_end_matches(';');
+    // The binding and the block exist for the tail: a
+    // `.unwrap_or_default()` written after the `.await` runs on the
+    // answer, over there, so it needs a future to be awaited inside.
+    // With nothing written after the `.await` there is no tail to run
+    // and the expression already *is* the future the runtime wants --
+    // and `|| { let __work = e; async move { __work.await } }` is `|| e`
+    // twice over, which clippy says twice over
+    // (`redundant_async_block`, then `let_and_return`) about a file the
+    // developer cannot edit.
+    let binding = if tail.is_empty() { "" } else { "let __work = " };
     let opening = format!(
         "let Some({bound}){annotation} = rustx_engine::task::awaited( \
          {held}, {asked}, &rustx_engine::router::current(), \
-         || {{ let __work = "
+         || {{ {binding}"
     );
-    let closing =
-        format!("; async move {{ __work.await{tail} }} }}) else {{ return Element::Empty; }};");
+    let closing = if tail.is_empty() {
+        String::from(" }) else { return Element::Empty; };")
+    } else {
+        format!("; async move {{ __work.await{tail} }} }}) else {{ return Element::Empty; }};")
+    };
     vec![
         Edit {
             span: waited.prefix,

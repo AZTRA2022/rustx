@@ -170,24 +170,34 @@ fn add_task(project_index: usize) {
     if draft.trim().is_empty() {
         return;
     }
-    if let Some(project) = projects.get_mut(project_index) {
+    // The copy, the change, and the copy put back. A page value hands
+    // back a copy when it is read, so `projects.get_mut(…)` changed a
+    // copy that was dropped at the end of the statement: the task was
+    // never added, and nothing said so.
+    let mut all = projects.clone();
+    if let Some(project) = all.get_mut(project_index) {
         project.tasks.push(Task { title: draft.trim().to_string(), done: false, blocked: false });
     }
+    projects = all;
     draft = String::new();
 }
 
 fn toggle_done(project_index: usize, task_index: usize) {
-    if let Some(project) = projects.get_mut(project_index) {
-        if let Some(task) = project.tasks.get_mut(task_index) {
-            task.done = !task.done;
-        }
+    let mut all = projects.clone();
+    if let Some(project) = all.get_mut(project_index)
+        && let Some(task) = project.tasks.get_mut(task_index)
+    {
+        task.done = !task.done;
     }
+    projects = all;
 }
 
 fn toggle_blocked(project_index: usize, task_index: usize) {
-    if let Some(project) = projects.get_mut(project_index) {
-        if let Some(task) = project.tasks.get_mut(task_index) {
-            task.blocked = !task.blocked;
-        }
+    let mut all = projects.clone();
+    if let Some(project) = all.get_mut(project_index)
+        && let Some(task) = project.tasks.get_mut(task_index)
+    {
+        task.blocked = !task.blocked;
     }
+    projects = all;
 }

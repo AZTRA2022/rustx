@@ -62,6 +62,6 @@ fn kept() -> &'static Mutex<Option<Icon>> {
 /// page change.
 pub fn ask(_what: &What, _actions: &[crate::notify::Action]) -> Result<Option<String>, OsError> {
     Err(OsError::Unsupported(
-        "buttons in a notification on Windows (a tray balloon has none; a WinRT toast does,          and needs an AppUserModelID registered in the Start menu)",
+        "buttons in a notification on Windows (a tray balloon has none; a WinRT toast does, and needs an AppUserModelID registered in the Start menu)",
     ))
 }

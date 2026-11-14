@@ -143,15 +143,14 @@ fn Layout(children: Element) -> Element {
         // start with the user's profile behind it.
         if let Ok(Some(output)) =
             tokio::task::spawn_blocking(|| rustx::terminal::run(ADAPTER_SCRIPT, None).ok()).await
+            && output.worked()
         {
-            if output.worked() {
-                let line = output.out.trim().to_string();
-                if let Some((name, vram)) = line.split_once('|') {
-                    gpu_name = name.trim().to_string();
-                    gpu_vram = vram.trim().parse::<u64>().unwrap_or(0);
-                } else if !line.is_empty() {
-                    gpu_name = line;
-                }
+            let line = output.out.trim().to_string();
+            if let Some((name, vram)) = line.split_once('|') {
+                gpu_name = name.trim().to_string();
+                gpu_vram = vram.trim().parse::<u64>().unwrap_or(0);
+            } else if !line.is_empty() {
+                gpu_name = line;
             }
         }
 

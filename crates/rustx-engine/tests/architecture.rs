@@ -251,7 +251,8 @@ fn nested_components_see_one_shared_value_and_keep_their_own() {
 fn an_effect_on_two_values_runs_when_either_changes_and_not_otherwise() {
     let runs = Rc::new(Cell::new(0u32));
     let closed = Rc::new(Cell::new(0u32));
-    let handles: Rc<RefCell<Option<(State<u32>, State<u32>)>>> = Rc::default();
+    type Both = Rc<RefCell<Option<(State<u32>, State<u32>)>>>;
+    let handles: Both = Rc::default();
 
     /// What an effect that opens something hands back. Dropping it is
     /// the closing, which is the whole bargain of `effect`.

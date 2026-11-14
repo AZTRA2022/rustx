@@ -757,7 +757,8 @@ pub fn end_render() -> Result<(), String> {
     });
     if let Some((slot, _)) = shared {
         let complaint = format!(
-            "rustx: the state at {}:{}:{} was asked for twice in one render. \n             Two components are sharing it — wrap each call in `with_key` so \n             they get one each.",
+            "rustx: the state at {}:{}:{} was asked for twice in one render.
+Two components are sharing it — wrap each call in `with_key` so they get one each.",
             slot.file, slot.line, slot.column
         );
         REACHED_BEFORE.with(|before| before.borrow_mut().insert(instance, reached));
@@ -772,7 +773,8 @@ pub fn end_render() -> Result<(), String> {
             .find(|key| !reached.contains(key))
             .map(|(slot, _)| {
                 format!(
-                    "rustx: the value kept at {}:{}:{} was not reached by this render. \n                     A kept value has to be asked for on every render — move it out of \n                     the `if`, or give the branch a key with `with_key`.",
+                    "rustx: the value kept at {}:{}:{} was not reached by this render.
+A kept value has to be asked for on every render — move it out of the `if`, or give the branch a key with `with_key`.",
                     slot.file, slot.line, slot.column
                 )
             })

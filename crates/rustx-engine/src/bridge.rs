@@ -46,10 +46,13 @@ use crate::value::Value;
 /// avoir à connaître tous les noms que le moteur se dit à lui-même.
 pub const PREFIX: &str = "rustx.";
 
+/// What one name is listened to with: every hook posted for it, in the
+/// order they were posted.
+type Listeners = Vec<Box<dyn Fn(Vec<Value>)>>;
+
 thread_local! {
     /// Ce que le processus de rendu écoute, par nom.
-    static LISTENING: RefCell<HashMap<String, Vec<Box<dyn Fn(Vec<Value>)>>>> =
-        RefCell::new(HashMap::new());
+    static LISTENING: RefCell<HashMap<String, Listeners>> = RefCell::new(HashMap::new());
 }
 
 /// Dire quelque chose à la page. Appelé dans le processus navigateur.

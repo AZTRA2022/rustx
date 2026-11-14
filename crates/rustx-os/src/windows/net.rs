@@ -106,10 +106,10 @@ fn link() -> Link {
         // SAFETY: `at` est une entrée de la chaîne que Windows a écrite
         // dans ce tampon, et `Next` est son chaînage.
         let adapter = unsafe { &*at };
-        if adapter.OperStatus == IfOperStatusUp {
-            if let Some(link) = link_from_type(adapter.IfType) {
-                return link;
-            }
+        if adapter.OperStatus == IfOperStatusUp
+            && let Some(link) = link_from_type(adapter.IfType)
+        {
+            return link;
         }
         at = adapter.Next;
     }

@@ -268,14 +268,11 @@ pub fn shifted(answer: &str, line: usize, by: isize) -> String {
             .char_indices()
             .take_while(|(_, letter)| letter.is_ascii_digit())
             .count();
-        match rest[..digits].parse::<isize>() {
-            Ok(character) => {
-                out.push_str(&(character + by).max(0).to_string());
-                rest = &rest[digits..];
-            }
-            // Not a number where one was expected: left exactly as it
-            // came, because a wrong position is worse than none.
-            Err(_) => {}
+        // A non-number where one was expected is left exactly as it
+        // came, because a wrong position is worse than none.
+        if let Ok(character) = rest[..digits].parse::<isize>() {
+            out.push_str(&(character + by).max(0).to_string());
+            rest = &rest[digits..];
         }
     }
     out.push_str(rest);

@@ -552,6 +552,27 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
         if promoted.is_empty() {
             continue;
         }
+        // A write through a mutable borrow, in a helper rather than in a
+        // component. The same silent no-op, and the place it was
+        // actually found: `apps/multitask-hub`'s `toggle_done` and
+        // `toggle_blocked` were `projects.get_mut(i)`, so every tick of
+        // every checkbox in that application changed a copy and threw
+        // it away.
+        for held in &promoted {
+            let Some((read, method)) = promoted_mut_borrow(source, &held.name, body, &in_code)
+            else {
+                continue;
+            };
+            return Err(CompileError::flagged(
+                read,
+                format!(
+                    "`{name}.{method}(…)` borrows `{name}` to change it, and a value of the                      page is not reached that way: what is read here is a copy, so the                      change would be made to the copy and thrown away. Take the copy by                      name, change it, and put it back --                      `let mut held = {name}.clone();`, then `held.{method}(…)`, then                      `{name} = held;`.",
+                    name = held.name,
+                ),
+            )
+            .resolve(source));
+        }
+
         // Except when the runtime is the one who runs it. A page value
         // lives on the thread that draws, and an `async fn` is handed
         // to the runtime, which runs it wherever it likes: binding the
@@ -1950,6 +1971,20 @@ fn block_in_statement_position(
         match next_token_at(bytes, tail, handler.end) {
             None => return tail_discarded,
             Some((at, b'}')) => close = at,
+            // A `<` after the block is markup carrying on, so the block
+            // was a tag's expression and its value is what is drawn.
+            // Nothing in Rust follows a block with a `<`, which is what
+            // makes this safe to read as markup.
+            //
+            // This was a page refused for a line that only ever reads:
+            // `{facts.iter().map(…).collect::<Vec<_>>()}` as the last
+            // child of a tag, with a sibling expression before it, was
+            // read as a write to `facts` and answered with "`facts` is
+            // written while `Page` is being drawn". Found on
+            // `apps/ops-monitor/app/services/[name]/settings/page.rsx`,
+            // where the line had been commented out of the screen it
+            // belongs on rather than diagnosed.
+            Some((_, b'<')) => return false,
             Some(_) => return true,
         }
     }

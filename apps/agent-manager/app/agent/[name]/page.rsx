@@ -77,7 +77,7 @@ fn Page(name: String) -> Element {
             run_total += completed.round() as u64;
             run_escalated += escalated.round() as u64;
 
-            if run_ticks % 4 == 0 {
+            if run_ticks.is_multiple_of(4) {
                 let mut recent = run_recent.clone();
                 recent.insert(0, fresh_run(run_ticks));
                 recent.truncate(6);
@@ -411,7 +411,7 @@ fn fresh_run(ticks: u64) -> Run {
         intent: intents[which].to_string(),
         activity: "tool: orders.lookup".to_string(),
         latency: 380.0 + (ticks as f64 * 0.9).sin().abs() * 1500.0,
-        state: if ticks % 20 == 0 { "escalated".to_string() } else { "completed".to_string() },
+        state: if ticks.is_multiple_of(20) { "escalated".to_string() } else { "completed".to_string() },
     }
 }
 
@@ -434,7 +434,7 @@ fn thousands(value: u64) -> String {
     let digits = value.to_string();
     let mut out = String::new();
     for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index) % 3 == 0 {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
             out.push(',');
         }
         out.push(digit);

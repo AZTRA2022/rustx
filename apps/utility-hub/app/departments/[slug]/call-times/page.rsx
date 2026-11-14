@@ -87,7 +87,7 @@ fn minutes_of(clock: &str) -> i64 {
 }
 
 fn spell(minutes: i64) -> String {
-    let wrapped = ((minutes % 1440) + 1440) % 1440;
+    let wrapped = minutes.rem_euclid(1440);
     format!("{:02}:{:02}", wrapped / 60, wrapped % 60)
 }
 

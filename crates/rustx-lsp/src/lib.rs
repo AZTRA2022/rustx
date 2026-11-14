@@ -831,10 +831,7 @@ fn cut_result(answer: &str) -> Option<&str> {
             letter if letter == closing => {
                 // Below zero would be a panic in a debug build and a
                 // wrapped count in a release one; neither is an answer.
-                let Some(less) = depth.checked_sub(1) else {
-                    return None;
-                };
-                depth = less;
+                depth = depth.checked_sub(1)?;
                 if depth == 0 {
                     return Some(&rest[..=at]);
                 }
