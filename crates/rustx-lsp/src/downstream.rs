@@ -58,8 +58,23 @@ pub struct Server {
     linked: Vec<std::path::PathBuf>,
     /// Everything written to it, which is what a test reads back and
     /// what makes a session legible when one goes wrong.
+    ///
+    /// Bounded. Every keystroke sends the whole generated Rust of the
+    /// page downstream, so an unbounded record of that is a process that
+    /// grows by the size of the file for every character typed: twelve
+    /// hours of editing a four-hundred-line page came to hundreds of
+    /// megabytes of text nobody was ever going to read. The oldest is
+    /// dropped, because what a failure is diagnosed from is the end of
+    /// the conversation.
     sent: String,
 }
+
+/// How much of the conversation with the downstream server is kept.
+///
+/// A quarter of a megabyte: more than enough for the handshake and the
+/// last few exchanges, which is what anybody reads, and small enough
+/// that it is not a leak.
+const KEPT: usize = 256 * 1024;
 
 impl Server {
     /// A server over two streams, whatever they are.
@@ -71,7 +86,13 @@ impl Server {
         let (sender, answers) = mpsc::channel();
         std::thread::spawn(move || {
             let mut input = input;
-            while let Some(message) = rpc::read(&mut input) {
+            // One reader over the whole stream, and not one per message:
+            // a reader built for each message keeps a buffer of its own,
+            // and whatever it read past the end of that message would go
+            // with it. `rust-analyzer` answers two messages in one write
+            // often enough that this was a dropped answer every time.
+            let mut frames = rpc::Frames::over(&mut *input);
+            while let Some(message) = frames.message() {
                 if sender.send(message).is_err() {
                     return;
                 }
@@ -297,6 +318,14 @@ impl Server {
         traced(&format!("→ {body}"));
         self.sent
             .push_str(&format!("Content-Length: {}\r\n\r\n{body}", body.len()));
+        if self.sent.len() > KEPT {
+            // At a character boundary, or the `String` would not be one.
+            let mut from = self.sent.len() - KEPT;
+            while from < self.sent.len() && !self.sent.is_char_boundary(from) {
+                from += 1;
+            }
+            self.sent.drain(..from);
+        }
         rpc::write(&mut self.output, body);
         let _ = self.output.flush();
     }

@@ -14,6 +14,7 @@ use std::io::{BufRead, Write};
 
 pub mod crate_for_pages;
 pub mod diagnostics;
+pub mod documents;
 pub mod downstream;
 pub mod inside;
 pub mod json;
@@ -23,6 +24,25 @@ pub mod picked;
 pub mod rpc;
 pub mod shadow;
 pub mod suggest;
+pub mod wire;
+
+/// Do something that reads a half-typed page, and survive it.
+///
+/// Every one of these is reached from a keystroke, on text that is
+/// mid-edit and therefore not valid anything. The compiler is called on
+/// that text — to underline it, to write the shadow, to find the region
+/// around the cursor — and a compiler that panics on a half-written tag
+/// would take this process with it. A server that died once underlines
+/// nothing for the rest of the session, in every file, with no message
+/// saying why: the one failure a developer cannot work around and cannot
+/// diagnose.
+///
+/// So nothing a message handler computes is allowed to escape. `None`
+/// means "that could not be worked out", which every caller here
+/// already had to handle.
+pub fn safely<T>(what: impl FnOnce() -> T) -> Option<T> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(what)).ok()
+}
 
 /// Answer an editor until it says goodbye.
 ///
@@ -190,24 +210,57 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
     // The page each open document compiles to, by the document's URI.
     let mut shadows: std::collections::HashMap<String, shadow::Shadow> =
         std::collections::HashMap::new();
-    // And the text itself, as the editor last sent it. The markup half
-    // of completion reads this rather than the generated file: what is
-    // being completed is usually not valid Rust yet, and that is the
-    // normal state of a file somebody is typing in.
-    let mut sources: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    // And the text itself, as the editor last sent it — the one thing in
+    // this process that has to agree with the editor's window byte for
+    // byte. The markup half of completion reads this rather than the
+    // generated file: what is being completed is usually not valid Rust
+    // yet, and that is the normal state of a file somebody is typing in.
+    let mut documents = documents::Documents::new();
+    // A document whose text has moved on but whose underlines have not
+    // gone out yet, because more messages were already in the pipe. It
+    // is flushed before this loop blocks on the pipe again, and before
+    // any question that reads a shadow — so a burst of keystrokes costs
+    // one compile instead of twenty, and nothing is ever left unsaid.
+    let mut deferred: Option<String> = None;
 
-    while let Some(message) = rpc::read(input) {
-        let Some(method) = json::field(&message, "method") else {
+    let mut frames = rpc::Frames::over(input);
+    loop {
+        if !frames.waiting()
+            && let Some(uri) = deferred.take()
+        {
+            published(output, &uri, &documents, &mut shadows, &mut downstream);
+        }
+        let Some(body) = frames.message() else {
+            return;
+        };
+        // Parsed, rather than searched for a quoted name. A `.rsx` is
+        // allowed to contain the characters `"text":` and `"uri":`, and a
+        // reader that took the document's own for the message's handed
+        // the compiler a fragment of the page as the whole of it.
+        let Some(message) = wire::parse(&body) else {
             continue;
         };
+        let Some(method) = message.get("method").as_str().map(str::to_string) else {
+            continue;
+        };
+        let params = message.get("params");
+        let asked = message.get("id");
+        // An id may be a number or, by the specification, a string, and
+        // the answer must carry back the one that was sent: an editor
+        // matches on it, and waits for ever on a question it cannot
+        // match.
+        let id = match asked {
+            wire::Value::Text(text) => format!("\"{}\"", json::escape(text)),
+            other => other.as_i64().unwrap_or(0).to_string(),
+        };
+        let uri_of_document = params
+            .get("textDocument")
+            .get("uri")
+            .as_str()
+            .map(str::to_string);
+
         match method.as_str() {
             "initialize" => {
-                let id = json::number(&message, "id").unwrap_or(0);
-                // The project the editor has open, which is the one
-                // `rust-analyzer` has to be pointed at.
-                let root =
-                    json::field(&message, "rootUri").or_else(|| json::field(&message, "uri"));
-                let _ = &root;
                 // What is promised is what there is: an editor told a
                 // server provides completion asks it, and waits. The
                 // server itself starts at the first page opened, which
@@ -255,27 +308,36 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
             // the shadow, the question goes downstream, and what comes
             // back is told where it really is.
             "textDocument/completion" | "textDocument/hover" | "textDocument/definition" => {
-                let id = json::number(&message, "id").unwrap_or(0);
+                // A question about a text whose shadow has not been
+                // written yet would be answered about the text before
+                // it. Whatever was deferred goes out first.
+                if let Some(uri) = deferred.take() {
+                    published(output, &uri, &documents, &mut shadows, &mut downstream);
+                }
                 // The markup first: it needs nothing but the text, so
                 // it answers while `rust-analyzer` is still loading, and
                 // it answers for positions that have no counterpart in
                 // the generated file at all.
-                let answer = match offer(&method, &message, &sources) {
+                let answer = match safely(|| offer(&method, params, &documents)).flatten() {
                     Some(items) => items,
-                    None => assist(
-                        &method,
-                        &message,
-                        &shadows,
-                        &sources,
-                        downstream.held(&shadows),
-                    ),
+                    None => safely(|| {
+                        assist(
+                            &method,
+                            params,
+                            &shadows,
+                            &documents,
+                            downstream.held(&shadows),
+                        )
+                    })
+                    .unwrap_or_else(|| empty_for(&method).to_string()),
                 };
                 // `completionItem/resolve` carries no document at all —
                 // only whatever `data` the item already has — so the
                 // page it came from has to travel on the item itself.
                 let answer = if method == "textDocument/completion" {
-                    match json::field(&message, "uri") {
-                        Some(uri) => json::tag_items(&answer, &uri),
+                    match &uri_of_document {
+                        Some(uri) => safely(|| json::tag_items(&answer, uri))
+                            .unwrap_or_else(|| answer.clone()),
                         None => answer,
                     }
                 } else {
@@ -286,56 +348,112 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
                     &format!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{answer}}}"),
                 );
             }
-            // The whole text arrives on open and on every change, which
-            // is what `textDocumentSync: 1` asked for: a compiler reads
-            // a file from its first byte, and a list of edits would have
-            // to be applied before it could.
-            "textDocument/didOpen" | "textDocument/didChange" => {
-                let (Some(uri), Some(text)) =
-                    (json::field(&message, "uri"), json::field(&message, "text"))
-                else {
+            // The whole text arrives on open, and on every change too
+            // unless a client has decided otherwise: `textDocumentSync:
+            // 1` is what this server asks for, because a compiler reads
+            // a file from its first byte. A client that sends ranges
+            // anyway is applied correctly rather than misread.
+            "textDocument/didOpen" => {
+                let (Some(uri), Some(text)) = (
+                    uri_of_document,
+                    params.get("textDocument").get("text").as_str(),
+                ) else {
                     continue;
                 };
-                let found = diagnostics::of(&text);
-                rpc::write(output, &diagnostics::notification(&uri, &found));
-                sources.insert(uri.clone(), text.clone());
-
-                // The underlining goes out first: it is what a keystroke
-                // is waiting for, and the shadow is for the question
-                // after it.
-                if let Some(fresh) = shadow::of(&uri, &text) {
-                    // The first page opened is what says which
-                    // application is being worked on, so it is where the
-                    // server downstream starts.
-                    if let Some(page) = shadow::path_of(&uri) {
-                        downstream.ready_for(&page);
+                let version = params
+                    .get("textDocument")
+                    .get("version")
+                    .as_i64()
+                    .unwrap_or(0);
+                documents.opened(&uri, text.to_string(), version);
+                published(output, &uri, &documents, &mut shadows, &mut downstream);
+            }
+            "textDocument/didChange" => {
+                let Some(uri) = uri_of_document else {
+                    continue;
+                };
+                let version = params.get("textDocument").get("version").as_i64();
+                let changes = documents::changes_in(params);
+                if documents.changed(&uri, version, &changes) == documents::Applied::Ignored {
+                    continue;
+                }
+                // Somebody typing quickly puts several notifications in
+                // the pipe before the first has been answered, and every
+                // one but the last describes a text that is no longer on
+                // screen. The change itself is always applied; only the
+                // compiling waits for the end of the burst.
+                if frames.waiting() {
+                    // Anything deferred for another document still has
+                    // to go out: one page's burst must not hold another
+                    // page's underlines.
+                    if let Some(other) = deferred.take().filter(|other| *other != uri) {
+                        published(output, &other, &documents, &mut shadows, &mut downstream);
                     }
-                    let telling = if shadows.contains_key(&uri) {
-                        "textDocument/didChange"
-                    } else {
-                        "textDocument/didOpen"
-                    };
-                    if let Some(server) = downstream.held(&shadows) {
-                        server.tell(telling, &shadow::told(&fresh, telling));
-                    }
-                    shadows.insert(uri.clone(), fresh);
+                    deferred = Some(uri);
+                } else {
+                    published(output, &uri, &documents, &mut shadows, &mut downstream);
+                }
+            }
+            // The editor has closed the file. Everything held for it goes
+            // — and its underlines are withdrawn, because an editor keeps
+            // showing what a server published until the server says
+            // there is nothing, and a closed file that still has a red
+            // squiggle in the problems panel is a lie that survives
+            // until the window is reloaded.
+            "textDocument/didClose" => {
+                let Some(uri) = uri_of_document else {
+                    continue;
+                };
+                if deferred.as_deref() == Some(uri.as_str()) {
+                    deferred = None;
+                }
+                let was_open = documents.closed(&uri);
+                let shadow = shadows.remove(&uri);
+                if was_open {
+                    rpc::write(output, &diagnostics::notification(&uri, &[]));
+                }
+                // And the downstream server is told too, or it keeps a
+                // text nobody has open and answers about it.
+                if let Some(shadow) = shadow
+                    && let Some(server) = downstream.held(&shadows)
+                {
+                    server.tell(
+                        "textDocument/didClose",
+                        &format!(
+                            "{{\"textDocument\":{{\"uri\":\"{}\"}}}}",
+                            json::escape(&shadow.uri)
+                        ),
+                    );
                 }
             }
             // The item is `params` itself, with no envelope and no
             // document attached to the question — the tag this server
             // wrote onto it (Task 2) is the only way back to a shadow.
             "completionItem/resolve" => {
-                let id = json::number(&message, "id").unwrap_or(0);
-                let item = json::object_field(&message, "params").unwrap_or("{}");
-                let (untagged, uri) = json::untag_item(item);
-                let answer = resolved(&untagged, uri.as_deref(), &shadows, downstream.held(&shadows));
+                if let Some(uri) = deferred.take() {
+                    published(output, &uri, &documents, &mut shadows, &mut downstream);
+                }
+                // Forwarded as it was written, which is why this one is
+                // read out of the raw body: an item carries `data` that
+                // belongs to `rust-analyzer`, and it has to go back
+                // exactly as it came.
+                let item = json::object_field(&body, "params").unwrap_or("{}");
+                let answer = safely(|| {
+                    let (untagged, uri) = json::untag_item(item);
+                    resolved(
+                        &untagged,
+                        uri.as_deref(),
+                        &shadows,
+                        downstream.held(&shadows),
+                    )
+                })
+                .unwrap_or_else(|| item.to_string());
                 rpc::write(
                     output,
                     &format!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{answer}}}"),
                 );
             }
             "shutdown" => {
-                let id = json::number(&message, "id").unwrap_or(0);
                 rpc::write(
                     output,
                     &format!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":null}}"),
@@ -344,9 +462,71 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
             // The editor is closing this window. Anything after it is
             // not ours to answer.
             "exit" => return,
-            _ => {}
+            // Something this server does not do. A notification is
+            // ignored, which is what the specification asks for; a
+            // *request* is refused, because a request with no answer is
+            // an editor waiting on a spinner until it times out.
+            _ => {
+                if !asked.is_null() {
+                    rpc::write(
+                        output,
+                        &format!(
+                            "{{\"jsonrpc\":\"2.0\",\"id\":{id},\"error\":{{\"code\":-32601,\
+                             \"message\":\"rustx-lsp does not answer {}\"}}}}",
+                            json::escape(&method)
+                        ),
+                    );
+                }
+            }
         }
     }
+}
+
+/// Underline a document, and write the Rust that stands in for it.
+///
+/// The underlining goes out first: it is what a keystroke is waiting
+/// for, and the shadow is for the question after it. Both are wrapped,
+/// because both call the compiler on a text that is mid-edit and
+/// therefore not valid anything.
+fn published(
+    output: &mut impl Write,
+    uri: &str,
+    documents: &documents::Documents,
+    shadows: &mut std::collections::HashMap<String, shadow::Shadow>,
+    downstream: &mut Downstream,
+) {
+    let Some(text) = documents.text(uri) else {
+        return;
+    };
+    let found = safely(|| diagnostics::of(text)).unwrap_or_default();
+    rpc::write(output, &diagnostics::notification(uri, &found));
+
+    if let Some(fresh) = safely(|| shadow::of(uri, text)).flatten() {
+        // The first page opened is what says which application is being
+        // worked on, so it is where the server downstream starts.
+        if let Some(page) = shadow::path_of(uri) {
+            downstream.ready_for(&page);
+        }
+        let telling = if shadows.contains_key(uri) {
+            "textDocument/didChange"
+        } else {
+            "textDocument/didOpen"
+        };
+        if let Some(server) = downstream.held(shadows) {
+            server.tell(telling, &shadow::told(&fresh, telling));
+        }
+        shadows.insert(uri.to_string(), fresh);
+    }
+}
+
+/// What an answer is when there is nothing to say: `null` for a hover,
+/// an empty list for anything else.
+///
+/// Never an error. An editor told a question failed shows the developer
+/// a dialog, and "there is nothing to say about the inside of a tag" is
+/// not a failure.
+fn empty_for(method: &str) -> &'static str {
+    if method.ends_with("hover") { "null" } else { "[]" }
 }
 
 /// What the server offers out of its own head, or nothing when the
@@ -357,20 +537,26 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
 /// the developer's own Rust.
 fn offer(
     method: &str,
-    message: &str,
-    sources: &std::collections::HashMap<String, String>,
+    params: &wire::Value,
+    documents: &documents::Documents,
 ) -> Option<String> {
     // A hover or a definition on a tag name has nothing to say that the
     // tag itself does not: the markup half answers completion only.
     if method != "textDocument/completion" {
         return None;
     }
-    let uri = json::field(message, "uri")?;
-    let source = sources.get(&uri)?;
-    let line = json::number(message, "line")?.max(0) as usize + 1;
-    let character = json::number(message, "character")?.max(0) as usize + 1;
+    let uri = params.get("textDocument").get("uri").as_str()?;
+    let source = documents.text(uri)?;
+    let asked = documents::position_in(params.get("position"))?;
+    // LSP counts from zero and in UTF-16 units; everything inside this
+    // server counts from one and in characters, because that is how a
+    // developer and a compiler count. An emoji earlier on the line is
+    // two units and one character, and a position that was not
+    // converted landed in the wrong word.
+    let line = asked.line + 1;
+    let character = documents::character_in(source, asked.line, asked.character) + 1;
 
-    let page = match shadow::path_of(&uri) {
+    let page = match shadow::path_of(uri) {
         Some(path) => suggest::page_of(source, &path),
         None => suggest::Page {
             components: rustx_compiler::promote::component_signatures(source),
@@ -407,46 +593,41 @@ fn offer(
 /// nothing to say about the inside of a tag" is not a failure.
 fn assist(
     method: &str,
-    message: &str,
+    params: &wire::Value,
     shadows: &std::collections::HashMap<String, shadow::Shadow>,
-    sources: &std::collections::HashMap<String, String>,
+    documents: &documents::Documents,
     downstream: Option<&mut downstream::Server>,
 ) -> String {
-    let empty = if method.ends_with("hover") {
-        "null"
-    } else {
-        "[]"
-    };
-    let (Some(server), Some(uri)) = (downstream, json::field(message, "uri")) else {
+    let empty = empty_for(method);
+    let (Some(server), Some(uri)) = (downstream, params.get("textDocument").get("uri").as_str())
+    else {
         return empty.to_string();
     };
-    let Some(shadow) = shadows.get(&uri) else {
+    let Some(shadow) = shadows.get(uri) else {
+        return empty.to_string();
+    };
+    let Some(asked) = documents::position_in(params.get("position")) else {
         return empty.to_string();
     };
 
-    // LSP counts lines and characters from zero; the map counts both
-    // from one, because that is how a developer and a compiler count.
-    let (Some(line), Some(character)) = (
-        json::number(message, "line"),
-        json::number(message, "character"),
-    ) else {
-        return empty.to_string();
-    };
-    let (asked_line, asked_character) = (line.max(0) as usize + 1, character.max(0) as usize + 1);
+    // LSP counts lines from zero and characters in UTF-16 units; the map
+    // counts lines from one and characters in characters, because that
+    // is how a developer and a compiler count.
+    let source = documents.text(uri).unwrap_or("");
+    let asked_line = asked.line + 1;
+    let asked_character = documents::character_in(source, asked.line, asked.character) + 1;
 
     // A position inside a `{…}` has no column in the generated file,
     // because a whole region is emitted on one line. So the file is
     // rebuilt for this one question, with the expression at its own
     // line and column — and then the position needs no translation at
     // all.
-    let picked = sources
-        .get(&uri)
-        .and_then(|source| picked::file(source, &shadow.rust, asked_line, asked_character));
+    let picked = picked::file(source, &shadow.rust, asked_line, asked_character);
     if let Some(made) = picked {
         let answered = ask_about(server, method, shadow, &made, asked_line, asked_character);
         return answered
             .unwrap_or_else(|| empty.to_string())
-            .replace(&shadow.uri, &uri);
+            .replace(&shadow.uri, uri);
     }
 
     let (line, character) = match shadow
@@ -463,8 +644,7 @@ fn assist(
         // such a line is still the developer's own text, so the column
         // is found by matching what is in front of the cursor.
         None => {
-            let page = sources.get(&uri).map(String::as_str).unwrap_or("");
-            let page_line = page.lines().nth(asked_line - 1).unwrap_or("");
+            let page_line = source.lines().nth(asked_line - 1).unwrap_or("");
             let generated_line = shadow.rust.lines().nth(asked_line - 1).unwrap_or("");
             let Some(column) = picked::aligned(page_line, generated_line, asked_character) else {
                 // Nothing of the line survived the rewrite: a position
@@ -484,7 +664,7 @@ fn assist(
             // Back by the distance it went out, so a `textEdit` lands
             // on what was typed and not on what the rewrite put there.
             let by = asked_character as isize - column as isize;
-            return picked::shifted(&result.replace(&shadow.uri, &uri), asked_line - 1, by);
+            return picked::shifted(&result.replace(&shadow.uri, uri), asked_line - 1, by);
         }
     };
 
@@ -503,7 +683,7 @@ fn assist(
     // newlines its expression swallowed — so naming the page is the
     // whole translation.
     let result = cut_result(&answer).unwrap_or(empty);
-    result.replace(&shadow.uri, &uri)
+    result.replace(&shadow.uri, uri)
 }
 
 /// Ask `server` about `made` — a file built for this question — and put
@@ -654,7 +834,12 @@ fn cut_result(answer: &str) -> Option<&str> {
             '"' => inside_text = true,
             letter if letter == opening => depth += 1,
             letter if letter == closing => {
-                depth -= 1;
+                // Below zero would be a panic in a debug build and a
+                // wrapped count in a release one; neither is an answer.
+                let Some(less) = depth.checked_sub(1) else {
+                    return None;
+                };
+                depth = less;
                 if depth == 0 {
                     return Some(&rest[..=at]);
                 }

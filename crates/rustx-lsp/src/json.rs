@@ -180,7 +180,16 @@ fn matching(text: &str, open_at: usize, opening: char, closing: char) -> Option<
             '"' => inside_text = true,
             letter if letter == opening => depth += 1,
             letter if letter == closing => {
-                depth -= 1;
+                // A closing delimiter with nothing open. Not reachable
+                // from a well-formed value, which is why it used to be
+                // written as `depth -= 1` — and a `usize` that goes
+                // below zero is a panic in a debug build and nonsense in
+                // a release one. Both of those are a language server
+                // that stops answering, so it is said out loud instead.
+                let Some(less) = depth.checked_sub(1) else {
+                    return None;
+                };
+                depth = less;
                 if depth == 0 {
                     return Some(open_at + at);
                 }
@@ -219,7 +228,13 @@ pub fn objects_in(text: &str) -> Vec<(usize, usize)> {
                 depth += 1;
             }
             '}' => {
-                depth -= 1;
+                // A `}` with nothing open: the text is not a list of
+                // objects. What was found so far is kept and the rest is
+                // left alone, rather than counting below zero.
+                let Some(less) = depth.checked_sub(1) else {
+                    return found;
+                };
+                depth = less;
                 if depth == 0 {
                     found.push((start, at + 1));
                 }

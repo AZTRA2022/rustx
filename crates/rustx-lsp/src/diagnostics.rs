@@ -28,12 +28,29 @@ pub fn of(source: &str) -> Vec<Diagnostic> {
     let compiled = std::panic::catch_unwind(|| rustx_compiler::transpile::transpile(source));
     match compiled {
         Ok(Ok(_)) => Vec::new(),
-        Ok(Err(error)) => vec![Diagnostic {
-            line: error.line.saturating_sub(1) as u32,
-            column: error.column.saturating_sub(1) as u32,
-            length: word_at(source, error.line, error.column),
-            message: error.message,
-        }],
+        Ok(Err(error)) => {
+            let line = error.line.saturating_sub(1);
+            let from = error.column.saturating_sub(1);
+            let characters = word_at(source, error.line, error.column) as usize;
+            // The compiler counts characters and an editor counts UTF-16
+            // code units. They agree until a line holds an emoji or any
+            // other character outside the basic plane, and then every
+            // column after it is one short — so the underline was drawn
+            // one letter to the left of the word it was about, on
+            // exactly the lines nobody tests.
+            // Without its carriage return, so that a file with Windows
+            // endings counts the same columns as one without.
+            let line_text =
+                crate::documents::line_at(source, line).trim_end_matches('\r');
+            let column = crate::documents::chars_to_utf16(line_text, from);
+            let end = crate::documents::chars_to_utf16(line_text, from + characters);
+            vec![Diagnostic {
+                line: line as u32,
+                column: column as u32,
+                length: end.saturating_sub(column) as u32,
+                message: error.message,
+            }]
+        }
         Err(_) => Vec::new(),
     }
 }

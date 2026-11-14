@@ -17,16 +17,18 @@ fn framed(body: &str) -> String {
 #[test]
 fn a_message_is_read_with_its_length() {
     let mut input = Cursor::new(framed("{\"id\":1}").into_bytes());
-    assert_eq!(rpc::read(&mut input).as_deref(), Some("{\"id\":1}"));
-    assert_eq!(rpc::read(&mut input), None, "the stream is over");
+    let mut frames = rpc::Frames::over(&mut input);
+    assert_eq!(frames.message().as_deref(), Some("{\"id\":1}"));
+    assert_eq!(frames.message(), None, "the stream is over");
 }
 
 #[test]
 fn two_messages_in_one_stream_are_two_messages() {
     let stream = format!("{}{}", framed("{\"id\":1}"), framed("{\"id\":2}"));
     let mut input = Cursor::new(stream.into_bytes());
-    assert_eq!(rpc::read(&mut input).as_deref(), Some("{\"id\":1}"));
-    assert_eq!(rpc::read(&mut input).as_deref(), Some("{\"id\":2}"));
+    let mut frames = rpc::Frames::over(&mut input);
+    assert_eq!(frames.message().as_deref(), Some("{\"id\":1}"));
+    assert_eq!(frames.message().as_deref(), Some("{\"id\":2}"));
 }
 
 #[test]
@@ -36,7 +38,8 @@ fn a_body_with_a_multibyte_character_is_read_whole() {
     // and every message after it is garbage.
     let body = "{\"text\":\"écran — déjà\"}";
     let mut input = Cursor::new(framed(body).into_bytes());
-    assert_eq!(rpc::read(&mut input).as_deref(), Some(body));
+    let mut frames = rpc::Frames::over(&mut input);
+    assert_eq!(frames.message().as_deref(), Some(body));
 }
 
 #[test]

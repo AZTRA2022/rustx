@@ -173,7 +173,12 @@ fn end_of(source: &str, from: usize, cursor: usize) -> usize {
             '"' | '\'' => inside_text = Some(letter),
             '{' => depth += 1,
             '}' => {
-                depth -= 1;
+                // `depth` starts at one, so this cannot go below zero on
+                // a text that begins inside an expression — written
+                // without the subtraction all the same, because this
+                // runs on every keystroke and a panic here is a server
+                // that stops answering for the rest of the session.
+                depth = depth.saturating_sub(1);
                 if depth == 0 {
                     return at;
                 }
