@@ -102,6 +102,28 @@ return <Dialog open={open}>
 </Dialog>;
 ```
 
+A **list** of them crosses too, which is how a table body or a set of
+cards is written — the same `.map(…).collect()` as beside a plain tag,
+and the same `key` on each item:
+
+```rust
+return <Card>
+    <CardHeader><CardTitle>Agents</CardTitle></CardHeader>
+    <CardContent>
+        {agents.iter().map(|agent| <AgentRow key={agent.id.clone()} agent={agent.clone()} />)
+            .collect::<Vec<_>>()}
+    </CardContent>
+</Card>;
+```
+
+`Vec<Element>` arrives as an array, with every `key` intact, and
+`Option<Element>` as the element or nothing — so a child that is only
+sometimes there needs no placeholder:
+
+```rust
+{if failed { Some(<Badge variant="destructive">failed</Badge>) } else { None }}
+```
+
 What does not cross is a **function** child: React turns it into a
 *render prop*, and a rustx `Element` is a tree already built. A component that wants one is written in TypeScript.
 

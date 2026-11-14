@@ -22,6 +22,47 @@ return <button
 - a handler takes a closure: `onClick={move |_| …}`,
   `onInput={move |event| …}`.
 
+## What a value becomes
+
+On a lowercase tag there is no V8 object to build — the attribute goes
+onto a DOM node, and a DOM attribute is text. So `{…}` is converted
+with `to_string()`, and **anything that implements `Display` works**:
+
+```rust
+<progress value={done} max={total} />                 // integers
+<div data-ratio={done as f64 / total as f64} />       // a float
+<input placeholder={label.clone()} />                 // a String
+<li data-id={id} />                                   // whatever Displays
+```
+
+Three things do not go through `Display`:
+
+| written | becomes |
+|---|---|
+| `disabled` | the attribute, present, with no value |
+| `disabled={flag}` | present when `flag`, **removed** when not |
+| `onClick={…}` | a handler, never an attribute |
+| `style={{ … }}` | read at compile time — see [Style](#style) |
+
+A **boolean** attribute — `disabled`, `checked`, `readOnly`, `required`,
+`hidden`, `multiple`, `selected`, `open`, `muted`, `loop` and the rest —
+is presence, not text. HTML never looks at what one is set to:
+`disabled="false"` is still disabled, and the only way to say *not*
+disabled is for the attribute to be gone. So those take the `bool`
+itself and the attribute is added or removed; they are the one group
+that does not go through `Display`.
+
+A type that does not `Display` has to be made into text first, and the
+compiler says so where it was written:
+
+```rust
+<li data-when={moment.format("%H:%M").to_string()} />
+```
+
+A `Vec` or a struct belongs on a **capitalized** tag, where it crosses
+as a real value rather than as text — that is
+[props that cross](/docs/javascript-libraries/props-that-cross).
+
 ## What an event carries
 
 A short, fixed list, because a DOM node does not cross the boundary.
@@ -89,6 +130,49 @@ return <div style={{
 ```
 
 An unknown property name is refused by the compiler, with the closest name.
+
+### A style object holds strings, and only strings
+
+`style={{ … }}` is read **at compile time**: the object never exists at
+runtime, and what reaches the element is one CSS declaration string
+already built. That is what makes an unknown property a compile error
+instead of a line that silently does nothing — and it is also why every
+value in it has to be a quoted string.
+
+```rust
+style={{ width: "240px" }}      // yes
+style={{ width: 240 }}          // no — which unit?
+style={{ width: format!("{w}px") }}  // no — there is no runtime here
+```
+
+`width: 240` is refused because React adds `px` to some properties and
+not to others, and rustx will not guess which.
+
+### A style that changes
+
+Write the whole style as **one expression**. An expression that is not
+an object is passed through untouched, so it is an ordinary attribute
+and may be computed however you like:
+
+```rust
+return <div style={format!("width: {}%; opacity: {}", percent, fade)}>…</div>;
+```
+
+Or give the element a `className` and let the stylesheet decide — which
+is usually the better answer, because a class can be a transition, a
+media query and a hover state, and an inline style cannot:
+
+```rust
+return <div className={if done { "bar bar-done" } else { "bar" }}>…</div>;
+```
+
+For something genuinely continuous — a progress bar, a drag handle — a
+CSS variable keeps the rule in the stylesheet and lets Rust move only
+the number:
+
+```rust
+return <div className="bar" style={format!("--filled: {percent}%")}>…</div>;
+```
 
 ## Available handlers
 

@@ -100,3 +100,34 @@ fn a_style_object_inside_a_component_compiles() {
     assert!(rust.contains("padding: 20px 32px"), "got {rust}");
     assert_eq!(rust.lines().count(), source.lines().count());
 }
+
+#[test]
+fn a_style_built_with_format_is_passed_through() {
+    // The escape hatch for a computed style, and the one that is
+    // actually reached for. The braces of `{width}` are inside a string
+    // literal, so the scanner must not take them for the opening of a
+    // style object -- which is the test that distinguishes this from
+    // `style={computed}` above.
+    let source = "fn P() -> Element {\n    \
+         return <div style={format!(\"width: {width}px\")}>hi</div>;\n}\n";
+    let rust = transpile(source).expect("transpilable").rust;
+    assert!(rust.contains("format !") || rust.contains("format!"), "got {rust}");
+    assert!(rust.contains("width"), "got {rust}");
+    assert_eq!(rust.lines().count(), source.lines().count());
+}
+
+#[test]
+fn a_style_object_given_a_computed_value_is_refused_where_it_was_written() {
+    // And the refusal has to be about the value, because the fix is to
+    // write the whole style as one expression instead.
+    let source = "fn P() -> Element {\n    \
+         return <div style={{ width: format!(\"{w}px\") }}>hi</div>;\n}\n";
+    let refusal = transpile(source).expect_err("a style object takes literals only");
+    let said = format!("{refusal:?}");
+    // And it points at the thing that works, rather than telling them
+    // to quote the `format!` -- which is what it used to do.
+    assert!(
+        said.contains("one expression") || said.contains("className"),
+        "the refusal should say what to write instead: {said}"
+    );
+}
