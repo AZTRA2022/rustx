@@ -361,8 +361,14 @@ fn a_macro_with_a_brace_body_inside_an_async_block_is_left_alone() {
     // and not a closure, inside an argument the compiler rewrites.
     let source = "let mut n = 0;\n\nfn C() -> Element {\n    task(async move {\n        rustx::tokio::select! {\n            _ = tick() => { n += 1; }\n            _ = stop() => {}\n        }\n    });\n    return <p>{n}</p>;\n}";
     let rust = rewrite_one(source);
-    assert!(rust.contains("select!"), "the macro call was mangled: {rust}");
-    assert!(rust.contains("n.update("), "the write inside an arm was missed: {rust}");
+    assert!(
+        rust.contains("select!"),
+        "the macro call was mangled: {rust}"
+    );
+    assert!(
+        rust.contains("n.update("),
+        "the write inside an arm was missed: {rust}"
+    );
     assert_eq!(
         rust.matches('\n').count(),
         source.matches('\n').count(),
@@ -374,7 +380,10 @@ fn a_macro_with_a_brace_body_inside_an_async_block_is_left_alone() {
 fn a_derive_and_an_attribute_in_a_page_survive() {
     let source = "#[derive(Debug, Clone, PartialEq)]\npub struct Point {\n    pub at: f64,\n}\n\n#[allow(dead_code)]\nfn aside() -> u8 { 1 }\n\nfn C() -> Element {\n    return <p>ok</p>;\n}";
     let rust = rewrite_one(source);
-    assert!(rust.contains("#[derive(Debug, Clone, PartialEq)]"), "got {rust}");
+    assert!(
+        rust.contains("#[derive(Debug, Clone, PartialEq)]"),
+        "got {rust}"
+    );
     assert!(rust.contains("#[allow(dead_code)]"), "got {rust}");
 }
 
@@ -406,9 +415,18 @@ fn a_bare_async_block_in_a_component_is_a_task() {
     // did not.
     let source = "let mut n = 0;\n\nfn C() -> Element {\n    async move {\n        n += 1;\n    };\n    return <p>{n}</p>;\n}";
     let rust = rewrite_one(source);
-    assert!(rust.contains("spawn_future_until("), "the block was not spawned: {rust}");
-    assert!(rust.contains(".remote_until(&__cancel)"), "no handle was built for it: {rust}");
-    assert!(rust.contains("n.update("), "the write inside it was missed: {rust}");
+    assert!(
+        rust.contains("spawn_future_until("),
+        "the block was not spawned: {rust}"
+    );
+    assert!(
+        rust.contains(".remote_until(&__cancel)"),
+        "no handle was built for it: {rust}"
+    );
+    assert!(
+        rust.contains("n.update("),
+        "the write inside it was missed: {rust}"
+    );
     assert_eq!(
         rust.matches('\n').count(),
         source.matches('\n').count(),
@@ -445,11 +463,7 @@ fn task_around_an_async_block_still_means_the_same_thing() {
     // The explicit form keeps working, and spawns once -- not twice.
     let source = "let mut n = 0;\n\nfn C() -> Element {\n    task(async move {\n        n += 1;\n    });\n    return <p>{n}</p>;\n}";
     let rust = rewrite_one(source);
-    assert_eq!(
-        rust.matches("spawn_future_until(").count(),
-        1,
-        "got {rust}"
-    );
+    assert_eq!(rust.matches("spawn_future_until(").count(), 1, "got {rust}");
 }
 
 #[test]
@@ -468,14 +482,18 @@ fn an_await_before_the_return_does_not_block_the_render() {
     // for, it waits for beside the render: the first frame gets nothing
     // and draws nothing, the frame after the future lands gets the
     // value, and the window never stopped.
-    let source = "fn C() -> Element {\n    let greeting = fetch().await;\n    return <p>{greeting}</p>;\n}";
+    let source =
+        "fn C() -> Element {\n    let greeting = fetch().await;\n    return <p>{greeting}</p>;\n}";
     let rust = rewrite_one(source);
     assert!(
         rust.contains("rustx_engine::task::awaited("),
         "the await was left on the render thread: {rust}"
     );
     assert!(rust.contains("let Some(greeting)"), "got {rust}");
-    assert!(rust.contains("else { return Element::Empty; }"), "got {rust}");
+    assert!(
+        rust.contains("else { return Element::Empty; }"),
+        "got {rust}"
+    );
     assert!(rust.contains("fetch()"), "the expression was lost: {rust}");
     // The await is inside an `async move` block, which is the only
     // place it can be: the component itself stayed synchronous.
@@ -499,9 +517,13 @@ fn an_awaited_value_that_is_mutable_stays_mutable() {
 
 #[test]
 fn an_awaited_value_keeps_the_type_it_was_written_with() {
-    let source = "fn C() -> Element {\n    let name: String = ask().await;\n    return <p>{name}</p>;\n}";
+    let source =
+        "fn C() -> Element {\n    let name: String = ask().await;\n    return <p>{name}</p>;\n}";
     let rust = rewrite_one(source);
-    assert!(rust.contains("let Some(name): Option<String>"), "got {rust}");
+    assert!(
+        rust.contains("let Some(name): Option<String>"),
+        "got {rust}"
+    );
 }
 
 #[test]
@@ -510,7 +532,10 @@ fn an_awaited_expression_can_read_state() {
     // was written, so the read in it is rewritten like any other.
     let source = "let mut id = 0;\n\nfn C() -> Element {\n    let got = fetch(id).await;\n    return <p onClick={move |_| id += 1}>{got}</p>;\n}";
     let rust = rewrite_one(source);
-    assert!(rust.contains("fetch(id.get())"), "the read was missed: {rust}");
+    assert!(
+        rust.contains("fetch(id.get())"),
+        "the read was missed: {rust}"
+    );
     assert!(rust.contains("rustx_engine::task::awaited("), "got {rust}");
 }
 
@@ -578,10 +603,7 @@ fn C() -> Element {
     return <p onClick={move |_| n += 1}>{got}</p>;
 }";
     let error = rustx_compiler::transpile::transpile(source).expect_err("refused");
-    assert!(
-        error.message.contains("after an `.await`"),
-        "got {error:?}"
-    );
+    assert!(error.message.contains("after an `.await`"), "got {error:?}");
 }
 
 #[test]
@@ -719,7 +741,9 @@ fn an_assignment_in_a_match_arm_stops_at_the_arm_and_not_at_the_next_one() {
             };\n    \
         }}>x</button>;\n}\n";
 
-    let rust = transpile(source).expect("a match in a handler is ordinary Rust").rust;
+    let rust = transpile(source)
+        .expect("a match in a handler is ordinary Rust")
+        .rust;
     assert!(
         rust.contains("set"),
         "neither arm was rewritten into a write: {rust}"
@@ -840,7 +864,9 @@ fn a_local_of_the_async_block_belongs_to_the_future() {
             return <p>{terme}</p>;\n\
         }\n";
 
-    let rust = transpile(source).expect("a local of the block is not state").rust;
+    let rust = transpile(source)
+        .expect("a local of the block is not state")
+        .rust;
     assert!(
         rust.contains("let mut dernier_vu = String::new()"),
         "the block's own local was promoted: {rust}"
@@ -933,8 +959,14 @@ fn a_capture_of_something_else_is_left_alone() {
         return <button onClick={move |_| clics += 1}>{dit}</button>;\n}\n";
 
     let rust = transpile(source).expect("transpilable").rust;
-    assert!(!rust.contains("nom = nom.get()"), "a plain local was touched: {rust}");
-    assert!(rust.contains("clics = clics.get()"), "the state was not read: {rust}");
+    assert!(
+        !rust.contains("nom = nom.get()"),
+        "a plain local was touched: {rust}"
+    );
+    assert!(
+        rust.contains("clics = clics.get()"),
+        "the state was not read: {rust}"
+    );
 }
 
 #[test]
@@ -1161,10 +1193,43 @@ fn no_refusal_this_crate_can_produce_is_a_wall_of_spaces() {
             "a newline in a refusal: {:?}",
             error.message
         );
-        assert!(
-            !error.message.is_empty(),
-            "an empty refusal for {source:?}"
-        );
+        assert!(!error.message.is_empty(), "an empty refusal for {source:?}");
     }
     assert!(seen >= 8, "only {seen} of these sources were refused");
+}
+
+// ------------------------------------------------- read-only handlers
+
+#[test]
+fn a_handler_that_only_reads_a_page_value_still_owns_its_handle() {
+    // Two handlers, both of which only read. Each closure is `move`, so
+    // the first takes the handle whole and the second is a use after
+    // move -- a page that is accepted and then refused by rustc, in a
+    // generated file nobody opened. The handler rewrite was reached
+    // only from a *mutation*, so a handler that reads was left as it
+    // was written, without the clone that makes it own its handle.
+    let source = "let mut names: Vec<String> = Vec::new();\n\nfn C() -> Element {\n    return <div>\n        <button onClick={move |_| { show(names.len()); }}>a</button>\n        <button onClick={move |_| { show(names.len() + 1); }}>b</button>\n    </div>;\n}\n\nfn show(_n: usize) {}\n";
+    let rust = rewrite_one(source);
+    assert_eq!(
+        rust.matches("let names = names . clone ()").count(),
+        2,
+        "each handler needs its own handle: {rust}"
+    );
+    assert_eq!(
+        rust.matches("names . get () . len ()").count(),
+        2,
+        "both reads still go through the store: {rust}"
+    );
+}
+
+#[test]
+fn a_page_value_read_in_a_handler_and_on_the_screen_is_read_once_in_each() {
+    let source = "let mut n: usize = 0;\n\nfn C() -> Element {\n    return <button onClick={move |_| { show(n); }}>{n}</button>;\n}\n\nfn show(_n: usize) {}\n";
+    let rust = rewrite_one(source);
+    assert_eq!(rust.matches("n . get ()").count(), 2, "got {rust}");
+    assert_eq!(
+        rust.matches("let n = n . clone ()").count(),
+        1,
+        "got {rust}"
+    );
 }

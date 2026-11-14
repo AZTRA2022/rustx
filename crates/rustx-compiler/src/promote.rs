@@ -399,6 +399,41 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             }
         }
 
+        // A write through a mutable borrow of state: `clips.get_mut(i)`,
+        // `rows.iter_mut()`, `seen.entry(k)`. Nothing above reads those
+        // as writes -- they are not assignments, and they are not
+        // statements whose value is thrown away, because the borrow is
+        // bound by the `if let` or the `let` around it. So the read
+        // rewrite applied, and the generated file called `get_mut` on
+        // the copy `get()` hands back:
+        //
+        //     if let Some(clip) = clips.get().get_mut(index) { … }
+        //
+        // which compiles, borrows a temporary that is dropped at the end
+        // of the statement, and changes nothing. The page ran, the
+        // handler fired, and the screen never moved. A silent no-op is
+        // the one answer a compiler must not give, so it is refused
+        // where it is written, with the shape that does work.
+        for held in &promoted {
+            let Some((read, method)) = promoted_mut_borrow(source, &held.name, body, &in_code)
+            else {
+                continue;
+            };
+            return Err(CompileError::flagged(
+                read,
+                format!(
+                    "`{name}.{method}(…)` borrows `{name}` to change it, and a value \
+                     of the page is not reached that way: what is read here is a copy, \
+                     so the change would be made to the copy and thrown away. Take the \
+                     copy by name, change it, and put it back -- \
+                     `let mut held = {name}.clone();`, then `held.{method}(…)`, then \
+                     `{name} = held;`.",
+                    name = held.name,
+                ),
+            )
+            .resolve(source));
+        }
+
         // A read of state inside an `async` block. The cell is an `Rc`
         // on the render thread and the block runs on another, so there
         // is nothing to read from there — and leaving it would hand the
@@ -1475,8 +1510,7 @@ fn bound_by_a_let(source: &str, at: usize) -> bool {
             // `==`, `!=`, `<=`, `>=` are comparisons and not that, and
             // `=>` is a match arm.
             b'=' => {
-                let doubled = index > 0
-                    && matches!(bytes[index - 1], b'=' | b'!' | b'<' | b'>')
+                let doubled = index > 0 && matches!(bytes[index - 1], b'=' | b'!' | b'<' | b'>')
                     || bytes.get(index + 1) == Some(&b'=')
                     || bytes.get(index + 1) == Some(&b'>');
                 if !doubled {
@@ -1486,8 +1520,7 @@ fn bound_by_a_let(source: &str, at: usize) -> bool {
             // `let`, as a word and not the tail of `violet`.
             b't' if index >= 2 && &source[index - 2..=index] == "let" => {
                 let before = index.checked_sub(3).map(|at| bytes[at]);
-                let word =
-                    before.is_some_and(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
+                let word = before.is_some_and(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
                 if !word {
                     return true;
                 }
@@ -1624,6 +1657,65 @@ fn push_code(source: &str, span: Span, into: &mut Vec<Span>) {
 }
 
 /// Every occurrence of `name` inside this handler that writes to it.
+/// The methods that hand out a mutable borrow. A page value reached
+/// through one of them is a write the rewrite cannot see, and a copy it
+/// would silently throw away.
+const MUT_BORROWS: [&str; 10] = [
+    "get_mut",
+    "iter_mut",
+    "first_mut",
+    "last_mut",
+    "front_mut",
+    "back_mut",
+    "values_mut",
+    "as_mut",
+    "as_mut_slice",
+    "entry",
+];
+
+/// The first place a page value is borrowed mutably without the rewrite
+/// being able to see it as a write, with the method that did it.
+///
+/// A use that the mutation pass already claimed is not one of these: in
+/// statement position `rows.iter_mut().for_each(…)` is a `Method`
+/// mutation and becomes an `update`, which is correct. What is left is
+/// the borrow that is *bound* -- by an `if let`, a `let … else`, a
+/// `match`, a plain `let` -- and that is what used to compile into a
+/// change made to a temporary.
+fn promoted_mut_borrow(
+    source: &str,
+    name: &str,
+    body: Span,
+    in_code: &[Span],
+) -> Option<(usize, &'static str)> {
+    let bytes = source.as_bytes();
+    let mutations = mutations_in(source, name, body, in_code, false);
+    let inside: Vec<Span> = in_code
+        .iter()
+        .filter(|span| contains(body, **span))
+        .copied()
+        .collect();
+    for span in occurrences(source, name, &inside) {
+        if mutations.iter().any(|mutation| mutation.span == span) {
+            continue;
+        }
+        let after = skip_spaces(bytes, span.end);
+        if bytes.get(after) != Some(&b'.') {
+            continue;
+        }
+        let start = skip_spaces(bytes, after + 1);
+        let mut end = start;
+        while end < source.len() && is_word_byte(bytes[end]) {
+            end += 1;
+        }
+        let called = &source[start..end];
+        if let Some(method) = MUT_BORROWS.iter().find(|known| **known == called) {
+            return Some((span.start, method));
+        }
+    }
+    None
+}
+
 fn mutations_in(
     source: &str,
     name: &str,

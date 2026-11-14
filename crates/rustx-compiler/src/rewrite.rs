@@ -281,9 +281,7 @@ fn edits_for(source: &str, component: &Component) -> Vec<Edit> {
 fn awaited_edits(source: &str, waited: &crate::promote::Awaited) -> Vec<Edit> {
     let slot_at = |at: usize| {
         let (line, column) = line_and_column(source, at);
-        format!(
-            "rustx_dom::state::Slot {{ file: file!(), line: {line}u32, column: {column}u32 }}"
-        )
+        format!("rustx_dom::state::Slot {{ file: file!(), line: {line}u32, column: {column}u32 }}")
     };
     // Two places, because one slot holds one type: the cell the answer
     // lands in, and the memory of having asked.
@@ -312,9 +310,8 @@ fn awaited_edits(source: &str, waited: &crate::promote::Awaited) -> Vec<Edit> {
          {held}, {asked}, &rustx_engine::router::current(), \
          || {{ let __work = "
     );
-    let closing = format!(
-        "; async move {{ __work.await{tail} }} }}) else {{ return Element::Empty; }};"
-    );
+    let closing =
+        format!("; async move {{ __work.await{tail} }} }}) else {{ return Element::Empty; }};");
     vec![
         Edit {
             span: waited.prefix,
@@ -495,7 +492,6 @@ fn future_task(
     )
 }
 
-
 /// The arguments of a method call, as the text between its parentheses
 /// split at the commas that belong to it.
 ///
@@ -617,12 +613,36 @@ fn split_first_argument(arguments: &str) -> (&str, &str) {
 }
 
 /// The `{…}` of every handler that touches a promoted local.
+/// Every handler that touches a page value at all -- written, read, or
+/// named inside a format string.
+///
+/// A read counts, and that was the bug: this used to collect the
+/// handlers that hold a *mutation*, so a handler that only reads was
+/// never rewritten and never got the `let n = n.clone();` that makes it
+/// own its handle. One such handler compiled by luck; two did not, and
+/// the second was `use of moved value` in a file the developer has
+/// never opened:
+///
+/// ```text
+/// <button onClick={move |_| show(names.len())}>a</button>
+/// <button onClick={move |_| show(names.len() + 1)}>b</button>
+/// ```
+///
+/// Both of those are ordinary, and the page was accepted and then
+/// refused by rustc.
 fn handlers_of(component: &Component) -> Vec<Span> {
     let mut spans: Vec<Span> = component
         .promoted
         .iter()
-        .flat_map(|promoted| promoted.mutations.iter())
-        .filter_map(|mutation| component.handler_around(mutation.span))
+        .flat_map(|promoted| {
+            promoted
+                .mutations
+                .iter()
+                .map(|mutation| mutation.span)
+                .chain(promoted.reads.iter().copied())
+                .chain(promoted.captures.iter().copied())
+        })
+        .filter_map(|span| component.handler_around(span))
         .collect();
     spans.sort_by_key(|span| span.start);
     spans.dedup_by_key(|span| span.start);
@@ -1315,7 +1335,11 @@ fn one_line(text: &str) -> Option<String> {
                 }
                 if byte == b'*' && bytes.get(at + 1) == Some(&b'/') {
                     out.push(b'/');
-                    state = if depth == 1 { In::Code } else { In::Block(depth - 1) };
+                    state = if depth == 1 {
+                        In::Code
+                    } else {
+                        In::Block(depth - 1)
+                    };
                     at += 2;
                     continue;
                 }
@@ -1339,7 +1363,10 @@ fn one_line(text: &str) -> Option<String> {
 
 /// How many `wanted` the text ends with.
 fn count_back(text: &[u8], wanted: u8) -> usize {
-    text.iter().rev().take_while(|byte| **byte == wanted).count()
+    text.iter()
+        .rev()
+        .take_while(|byte| **byte == wanted)
+        .count()
 }
 
 /// How many `wanted` start at `from`.
