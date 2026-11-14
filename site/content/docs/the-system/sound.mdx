@@ -1,0 +1,146 @@
+---
+title: "Sound"
+description: "Which speakers and microphones exist, which one the system is using, and the volume."
+---
+
+A page cannot do this. `navigator.mediaDevices` lists devices, but only
+after the user has granted the microphone permission, and never their
+volume: the volume is the system's business, not the tab's. Software
+that records, that calls, or that plays music needs both.
+
+```rust
+use rustx::os::audio;
+
+for each in audio::endpoints(audio::Flow::Output)? {
+    println!("{}{}", each.name, if each.default { " (default)" } else { "" });
+}
+
+let level = audio::volume()?;             // { level: 0.0..=1.0, muted }
+audio::set_volume(0.3)?;
+audio::set_muted(true)?;
+```
+
+`audio` is reached through `rustx::os` — see
+[the system](/docs/the-system).
+
+## The endpoints
+
+```rust
+pub enum Flow { Output, Input }
+
+pub struct Endpoint {
+    /// What the system uses as its key: an `IMMDevice` id on Windows, a
+    /// PulseAudio sink/source name on Linux, the display name for want
+    /// of anything better on macOS.
+    pub id: String,
+    /// What the user reads.
+    pub name: String,
+    pub flow: Flow,
+    /// The one the system uses when nobody has chosen.
+    pub default: bool,
+}
+```
+
+| | |
+|---|---|
+| `endpoints(flow)` | the devices of that direction, **the default first** |
+| `default_endpoint(flow)` | the one the system is using. `NoSuchDevice` if there is none |
+
+```rust
+let mut chosen = String::new();
+
+fn Pick() -> Element {
+    let outputs = keep(rustx::os::audio::endpoints(rustx::os::audio::Flow::Output));
+
+    let options = outputs.with(|found| match found {
+        Ok(all) => all
+            .iter()
+            .map(|each| <option key={each.id.clone()} value={each.id.clone()}>
+                {each.name.clone()}
+            </option>)
+            .collect::<Vec<_>>(),
+        Err(_) => Vec::new(),
+    });
+
+    return <select value={chosen.clone()} onChange={move |event| chosen = event.value}>
+        {options}
+    </select>;
+}
+```
+
+The `keep` matters: enumerating audio devices talks to the system, and a
+list that changes when somebody plugs in a headset does not need asking
+for sixty times a second.
+
+<Callout type="warn" title="This does not choose the device">
+There is no `set_default_endpoint`. Listing them and knowing which one
+is default is all this module does; which device a stream actually comes
+out of is chosen by the system, or by the page when it passes a
+`deviceId` to `getUserMedia`. The `id` here is **not** the same
+identifier `getUserMedia` wants — for that one see
+[devices](/docs/the-system/devices).
+</Callout>
+
+## The volume is the device's, not the application's
+
+`volume` and `set_volume` read and write the volume of the **default
+output device** — the same slider as the speaker icon in the taskbar.
+Turning it down turns down the whole machine, and that is intended: it
+is what a video-conferencing application or a full-screen player
+commands.
+
+```rust
+pub struct Volume { pub level: f64, pub muted: bool }
+```
+
+The volume of this one application is a different thing, which none of
+the three systems exposes the same way, and it is not here.
+
+`set_volume` clamps outside `0..=1` rather than failing: a negative
+volume is a slider at the end of its travel, not an error to show the
+user.
+
+```rust
+let mut level = 0.5;
+
+fn Slider() -> Element {
+    effect((), move || {
+        if let Ok(now) = rustx::os::audio::volume() {
+            level = now.level;
+        }
+    });
+
+    return <input type="range" min="0" max="1" step="0.01"
+        value={level.to_string()}
+        onInput={move |event| {
+            level = event.number().unwrap_or(0.0);
+            let _ = rustx::os::audio::set_volume(level);
+        }} />;
+}
+```
+
+The initial read is in an `effect((), …)` because a component may not
+write state while it is being drawn. Nothing here notices somebody else
+moving the system slider; to follow that, poll it in a `task`.
+
+## What is not here
+
+No playback and no recording. rustx plays no sound and captures none:
+the page already has the Web Audio API, `<audio>`, `MediaRecorder` and
+`getUserMedia`, and those are the right tools. This module is for the
+two questions the page cannot answer — what exists, and how loud the
+machine is.
+
+## Platforms
+
+| | |
+|---|---|
+| **Windows** | written and run. Core Audio — `IMMDeviceEnumerator`, `IAudioEndpointVolume` — which is the API the sound panel and the taskbar icon use themselves, so the level read here is exactly the one the user sees move |
+| **Linux** | written, never run. PulseAudio through its command line |
+| **macOS** | written, never compiled for a Mac. `osascript`'s `output volume` |
+
+The test asserts what must be true of any machine's answer rather than
+pinning a device list: at most one default per direction, the default
+first, no empty ids, and every endpoint reporting the direction it was
+asked for. The percentage conversion the two Unix platforms need is
+pinned by its own test. See [platforms](/docs/the-system/platforms).

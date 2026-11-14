@@ -1,39 +1,100 @@
 ---
 title: "Platforms"
-description: "What is written, what refuses by saying so, and where the rest will be written."
+description: "What is written, what has actually been run, and the difference between the two."
 ---
 
-`rustx-os` is one folder per system inside — `windows/`,
-`linux/`, `other/` — and a capability is **one file per system**,
-with the same function names.
+`rustx-os` is one folder per operating system, and a capability is **one
+file per system** with the same function names in each. The module above
+them never asks which machine it is on.
 
 ```text
 crates/rustx-os/src/
-  clipboard.rs          the facade, and the documentation
-  windows/clipboard.rs  what is written
-  linux/clipboard.rs    what refuses by naming the file
-  other/clipboard.rs    macOS and the rest
+  clipboard.rs          the API a page sees: the types, the words, no platform
+  windows/clipboard.rs  Windows
+  linux/clipboard.rs    Linux
+  macos/clipboard.rs    macOS
+  other/mod.rs          everything else, which refuses
 ```
 
-## The state
+## Written is not run
+
+This is the distinction the rest of this page is built on, and it is the
+one that matters when you are deciding whether to ship on a platform.
 
 | | |
 |---|---|
-| **Windows** | written and measured, on real windows and real devices |
-| **Linux** | compiles; each call refuses by naming the platform and the file to write |
-| **macOS** | likewise |
+| **written** | the file exists and calls the platform's real API |
+| **compiled** | it type-checks for that target |
+| **run** | somebody executed it on that operating system and watched what happened |
 
-The tests compile **all three** on any machine: a target that does not compile is a broken target, whether or not it is run.
+The tests compile `linux/`, `macos/` and `other/` on whatever machine
+they run on, through three `mod *_also_compiles` declarations in
+`lib.rs`. That is worth having — a rename in the API above breaks here
+rather than on somebody else's machine three weeks later — and it is
+**much** weaker than it sounds: it type-checks those files against
+*this* machine's target, so it catches a changed signature and a syntax
+error, and nothing else.
 
-## A refusal that says where to write
+<Callout type="warn" title="Only Windows has ever been executed">
+Every line of `rustx-os` that has actually run has run on Windows. The
+Linux files were written on a Windows machine and have never run on
+Linux. The macOS files have never been compiled for an Apple target at
+all — `shortcut.rs`, `tray.rs` and `window.rs` there go through `objc2`,
+and were type-checked on Windows against `objc2` built for GNUstep,
+which is not the same library. Each of those files says so at its own
+top.
+
+Treat anything in the two right-hand columns below as "written, and
+waiting for its first run".
+</Callout>
+
+## Capability by capability
+
+**Windows** is written and run for every row. The other two columns say
+what the file does, not that anyone has seen it do it.
+
+| | Linux | macOS |
+|---|---|---|
+| `clipboard` | written — `wl-copy`/`xclip` | written — `pbcopy`/`pbpaste` |
+| `notify` | written — `notify-send` | written — `osascript` |
+| `autostart` | written — a `.desktop` file in `~/.config/autostart` | written — a `LaunchAgent` plist |
+| `instance` | written — a Unix domain socket | written — the same socket code |
+| `dialog` | written — `zenity`/`kdialog` | written — `osascript`'s `choose file` |
+| `devices` | written — `/sys/class/video4linux` | written — `system_profiler` |
+| `window` | written — X11 through `x11rb`, and Wayland through XWayland | written — `NSWindow`, never compiled for a Mac |
+| `shortcut` | **refuses.** Needs a desktop portal over D-Bus | written — Carbon's `RegisterEventHotKey`, never compiled for a Mac |
+| `tray` | **refuses.** Needs a `StatusNotifierItem` over D-Bus | written — `NSStatusItem`, never compiled for a Mac |
+| `about` | **refuses.** Linux has no system About panel: `GtkAboutDialog` is GTK's, and no desktop protocol defines one | written — the standard panel |
+| `attention`, `audio`, `bluetooth`, `capture`, `color`, `net`, `print`, `screen`, `secret`, `shell`, `system`, `terminal` | written | written |
+
+The two rows that say **refuses** are not oversights. A `.desktop` file
+or a call to `notify-send` is a file or a command, which is why the rows
+above them were cheap; a global shortcut and a tray icon each need a
+live D-Bus attachment that the process has to hold open, which is a
+larger piece of work than one file. They refuse by name rather than
+doing nothing.
+
+## What a refusal says
+
+`OsError::Unsupported` names the capability and the platform:
 
 ```text
-rustx: « tray » n'est pas écrit pour linux — le fichier à écrire est
-crates/rustx-os/src/linux/tray.rs
+the clipboard is not available on this platform (linux)
 ```
 
-Rather than doing nothing silently, or panicking. An application that wants to know
-**before** asks:
+A capability that is written but fails for a platform reason — a missing
+`zenity`, a D-Bus that is not there — comes back as
+`OsError::Platform`, which passes the platform's own words through.
+
+<Callout type="warn" title="Two things the refusal does not do">
+It does **not** name the file that would have to be written, which
+earlier versions of this page claimed it did. And several of the
+sentences inside `Platform(…)` are still written in French and are being
+translated. Match on the variant rather than on the prose.
+</Callout>
+
+An application that wants to know **before** it draws a button asks
+`supported()` — on the ten modules that have one:
 
 ```rust
 if !tray::supported() {
@@ -41,18 +102,36 @@ if !tray::supported() {
 }
 ```
 
-`supported()` is the answer of the platform itself — each
-`<os>/<capability>.rs` declares it — and not a list of system names
-kept up to date in the facade.
+`about`, `autostart`, `clipboard`, `dialog`, `instance`, `notify`,
+`shortcut`, `tray` and `window` have it, and it is the platform's own
+answer: each `<os>/<capability>.rs` declares an `AVAILABLE` constant.
+The twelve newest capabilities and `terminal` have **no** `supported()`;
+they answer with a `Result`, and the refusal is the answer.
 
 ## The window
 
-Everything that [the window](/docs/the-window) commands — frameless, the toggles, full screen, moving — is Windows today.
-This is the part most tied to the system in the whole framework: a window frame, a `WM_NCCALCSIZE` and Aero Snap have no portable equivalent.
+Everything [the window](/docs/the-window) commands — frameless, the
+toggles, full screen, moving — is written for Windows and for Linux
+(X11), and written but never compiled for macOS. Windows is the only one
+that has been seen to work. This is the part most tied to the system in
+the whole framework: a window frame, a `WM_NCCALCSIZE` and Aero Snap
+have no portable equivalent.
+
+## One dependency per platform
+
+| | |
+|---|---|
+| Windows | `windows`, Microsoft's own bindings, and only in this crate |
+| Linux | `x11rb`, whose connection is pure Rust and links neither `libX11` nor `libxcb` |
+| macOS | `objc2` alone, already in the tree through `cef` |
+
+Nothing above `rustx-os` hears about any of them.
 
 ## What needs an eye
 
-Some things cannot be checked by a test: is an icon really there, does a dialog open in the right place. They have an example to run:
+Some things cannot be checked by a test: whether an icon is really
+there, whether a dialog opens in the right place. Those have an example
+to run:
 
 ```sh
 cargo run -p rustx-os --example choose_a_file
@@ -63,6 +142,12 @@ cargo run -p rustx-os --example what_is_plugged_in
 
 ## Writing a platform
 
-The work is bounded, and that is intended: one file, the same function names, an `AVAILABLE` constant. Nothing about the engine or the compiler needs to be understood to write one.
+This is the most bounded job in the repository: one file, the same
+function names as the facade, and an `AVAILABLE` constant where the
+capability has one. Nothing about the engine or the compiler needs to be
+understood to write one.
 
-See [contributing](/docs/tooling/contributing).
+The most useful contribution today is not a new file but a **run**: take
+the Linux or macOS half of a capability that is already written, run it
+on that operating system, and report what happened. See
+[contributing](/docs/tooling/contributing).

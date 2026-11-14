@@ -1,0 +1,203 @@
+---
+title: "The machine's state"
+description: "Theme, battery, idle time, a locked session, locale, time zone, screen scale — and whether the network is reachable."
+---
+
+Reads, all of them. Nothing on this page changes the state of the
+machine. A page that wants to follow the dark theme, go quiet on
+battery, or pause what nobody is watching has to ask the system: the
+browser tells only part of it, and never the lock screen or the idle
+time.
+
+```rust
+use rustx::os::{net, system};
+
+let theme = system::theme()?;              // Light | Dark
+let power = system::power()?;              // plugged, level, charging, saver
+let alone = system::idle()? > std::time::Duration::from_secs(300);
+let where_ = system::locale()?;            // "en-GB", "fr-FR"
+let reach = net::network()?;               // Offline | Local | Online, and the link
+```
+
+Both modules are reached through `rustx::os` — see
+[the system](/docs/the-system).
+
+<Callout title="Nothing is guessed">
+Each read a platform cannot do is refused by naming the platform and the
+read. A "light" theme returned by default because the value could not be
+read is a lie the application then displays, so it is not done.
+</Callout>
+
+## The theme
+
+```rust
+match system::theme()? {
+    system::Theme::Dark => "dark",
+    system::Theme::Light => "",
+}
+```
+
+CSS already has `prefers-color-scheme`, and for styling that is the
+better tool — see [Tailwind](/docs/javascript-libraries/tailwind). This
+is for the decisions Rust makes: which icon file to load, what colour to
+hand a chart library, which theme to write into the settings file.
+
+### Following it live
+
+Being *told* about a change needs a different message loop on each
+platform — `WM_SETTINGCHANGE`, a distributed notification, a D-Bus
+signal. `ThemeWatch` re-reads on an interval instead: a second's lag on
+a theme change is invisible, and it is the same code everywhere.
+
+```rust
+let mut theme = String::new();
+
+fn Shell(children: Element) -> Element {
+    let watch = keep(rustx::os::system::ThemeWatch::start());
+
+    effect((), move || {
+        rustx::on_frame(move || {
+            let changed = watch.with(|started| {
+                started.as_ref().ok().and_then(|watch| watch.changed())
+            });
+            if let Some(now) = changed {
+                theme = match now {
+                    rustx::os::system::Theme::Dark => "dark".to_string(),
+                    rustx::os::system::Theme::Light => String::new(),
+                };
+            }
+        });
+    });
+
+    return <div className={theme.clone()}>{children}</div>;
+}
+```
+
+`changed()` hands back the new theme once and then `None` until it
+changes again — a value that is **taken**, like the rest of this layer's
+polled reads. `ThemeWatch::every(interval)` chooses the interval;
+`start()` is one second. Dropping it stops its thread and joins it.
+
+`ThemeWatch::start()` fails on a platform that cannot read the theme at
+all, which is why it is a `Result`.
+
+<Callout type="warn" title="on_frame cannot be unregistered">
+A frame callback stays for the life of the process, so this form belongs
+in a component that never leaves — the root `layout.rsx`. For a screen
+that comes and goes, poll in a `task` and `post` the change instead; see
+[keep, effect, task](/docs/getting-started/keep-effect-task).
+</Callout>
+
+## The power
+
+```rust
+pub struct Power {
+    /// On mains. `None` if the system does not say.
+    pub plugged: Option<bool>,
+    /// 0 to 100. `None` with no battery.
+    pub level: Option<u8>,
+    /// Charging. `None` with no battery.
+    pub charging: Option<bool>,
+    /// Battery-saver mode. `None` where the platform does not expose it.
+    pub saver: Option<bool>,
+}
+```
+
+Every field is an `Option` because a machine may genuinely not know. A
+desktop tower has no battery level, and "100%" would not be one.
+
+```rust
+let power = system::power()?;
+let frugal = power.saver == Some(true)
+    || (power.plugged == Some(false) && power.level.is_some_and(|left| left < 20));
+```
+
+That is the read worth making: an application that polls a server every
+second, decodes video, or keeps an animation running can do less of it
+on a laptop at 15%.
+
+## Idle, and locked
+
+```rust
+let since = system::idle()?;      // Duration since the last key or mouse move
+let away = system::locked()?;     // is the session locked
+```
+
+Neither is available to a web page at all. Together they are what a
+status — "available", "away" — should actually be set from, rather than
+from a timer the application keeps itself.
+
+## Locale, time zone, scale
+
+| | |
+|---|---|
+| `locale()` | a BCP 47 tag: `fr-FR`, `en-US` |
+| `timezone()` | an IANA name on Linux and macOS (`Europe/Paris`); on Windows, the name Windows uses (`Romance Standard Time`) |
+| `scale()` | the primary screen's scale factor: `1.0` at 96 dpi, `2.0` at 200% |
+
+The time zone is deliberately not normalised. Windows keeps its own
+names and a mapping table maintained here would go stale faster than the
+system does, so what you get is what the platform holds. A program that
+needs an IANA name on Windows should use a crate that tracks the CLDR
+mapping.
+
+`scale()` answers for the primary screen. For the scale of a *particular*
+monitor — a laptop at 200% with an external screen at 100% — read
+`screen::screens()` instead, which carries a `scale` per screen. See
+[screens and capture](/docs/the-system/screens-and-capture).
+
+## The network
+
+`navigator.onLine` says one thing and says it badly: it is true as soon
+as a network card is plugged in, unreachable router included. This is
+what the system actually knows, which it keeps for its own taskbar
+icons.
+
+```rust
+pub enum Reach { Offline, Local, Online }
+pub enum Link { Ethernet, WiFi, Cellular, Other, Unknown }
+
+pub struct Network { pub reach: Reach, pub link: Link }
+```
+
+| | |
+|---|---|
+| `net::network()` | both, now |
+| `net::online()` | the shortcut: is `reach` `Online` |
+| `reach.connected()` | anything at all, local or not |
+| `link.metered()` | probably paid for by the gigabyte |
+
+`Reach::Local` is the case a bare `onLine` cannot see: plugged in, no
+route out. A hotel hotspot before you have signed in to it is exactly
+that, and it is the failure that otherwise looks like a broken server.
+
+`Link::Unknown` is the system not saying, and is distinct from
+`Link::Other`, which is a known-but-different kind of link such as a
+VPN or a bridge. `metered()` is `false` for `Unknown`: billing somebody
+by default is worse than downloading too much.
+
+```rust
+let link = net::network()?;
+if link.link.metered() {
+    // the four-gigabyte sync waits for Wi-Fi
+}
+```
+
+**No request is made.** This is a read, and a fast one. Nothing here
+promises that a particular server answers — only a call to that server
+says that.
+
+## Platforms
+
+| | |
+|---|---|
+| **Windows** | written and run. `system` goes through `GetUserDefaultLocaleName`, `GetSystemPowerStatus` and the registry's `AppsUseLightTheme`; `net` through the Network List Manager, the same thing Windows consults for its own crossed-out-globe icon |
+| **Linux** | written, never run |
+| **macOS** | written, never compiled for a Mac |
+
+The tests for both modules pin no values — the machine running them is
+whoever's machine it is — and instead assert that every answer is either
+an answer or a refusal that says what. The helper that turns a POSIX
+locale into a BCP 47 tag, the one that reads a zone out of
+`/etc/localtime`, and the interface-name-to-link-kind table are each
+pinned by their own test. See [platforms](/docs/the-system/platforms).

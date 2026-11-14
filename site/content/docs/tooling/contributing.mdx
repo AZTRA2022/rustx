@@ -82,23 +82,37 @@ RUSTX_TRACE=1 cargo run -p counter
 
 The two ends of the bridge: what leaves, what arrives, and what nobody is listening to. This is the tool for anything that crosses between the window's process and the render process.
 
-## Writing a platform
+## Writing a platform, and running one
 
-This is the most bounded job in the repository, and the most useful today: one file per capability in `crates/rustx-os/src/<os>/`, the same function names as the facade, and an `AVAILABLE` constant. The current refusal already names the file to write.
+Writing one is the most bounded job in the repository: one file per
+capability in `crates/rustx-os/src/<os>/`, the same function names as
+the facade, and an `AVAILABLE` constant where the capability has one.
+Nothing about the engine or the compiler needs to be understood.
 
-```text
-rustx: « tray » isn't written for linux — the file to write is:
-crates/rustx-os/src/linux/tray.rs
-```
+But most of them are already written. Twenty-four capabilities exist for
+Linux and twenty-four for macOS, and the only evidence that any of them
+works is that they type-check on a Windows machine, through the three
+`mod *_also_compiles` declarations in `lib.rs`. That catches a changed
+signature. It does not catch a wrong flag passed to `zenity`, a D-Bus
+name that moved, or an `osascript` line that returns something else.
 
-Nothing about the engine or the compiler needs to be understood to write one. See
-[platforms](/docs/the-system/platforms).
+**So the most useful contribution today is a run.** Take a capability
+that is written for your operating system, run it there, and say what
+happened — it is worth more than a new file, and there is no substitute
+for it in this repository, which has one Windows machine and no others.
+
+See [platforms](/docs/the-system/platforms) for what is written where,
+and what has been executed.
 
 ## Code conventions
 
 - **Names say what the thing is**, and a function that refuses says what to do instead. An error message is documentation that is read at the worst moment: it names the file, the line, the output.
 - **Nothing in the framework names a library or a version**, with one exception, and it is explained where it sits: [Tailwind](/docs/javascript-libraries/tailwind).
-- **Each system capability answers `supported()`** before anything is asked of it, and it is the platform that answers.
+- **A capability that can be absent says so before it is asked.** Ten
+  modules do it with a `supported()` the platform itself answers;
+  the twelve newest answer with a `Result` whose refusal names the
+  platform and the capability. Either way, nothing silently does
+  nothing.
 
 ## The repository
 

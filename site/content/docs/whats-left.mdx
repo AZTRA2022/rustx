@@ -22,6 +22,7 @@ than silences.
 - **Completion and auto-import for an installed crate's own functions and components inside a `.rsx`.** `rustx-lsp` already relays `rust-analyzer` for the generated file; what a `.rsx` cannot yet do is list a crate's public items before the full path (`rustx::dialog::open`, `std::fs::read`) is typed out by hand, the way the Rust Analyzer extension does for ordinary `.rs` files. What exists today (`libraries.rs`, `suggest.rs`) covers the JavaScript libraries declared in `package.json`, not Rust crates.
 - **Half-closed: a component name that collides with a library's.** `LineChart` written without its library's name can resolve to the wrong one if two installed libraries both export something by that name — `recharts` and `lucide-react` both do. The silent failure this used to cause is fixed (see below); the collision itself is not yet flagged at build time.
 - **Half-closed: global shortcuts, the tray and window control on Linux and macOS.** The clipboard, notifications, autostart, a single instance, the camera list, and the file dialog are now real on both; these three still need a desktop portal over D-Bus (Linux) or `AppKit`/Carbon (macOS), which is a live attachment rather than a program to shell out to. See [What is not written](#what-is-not-written).
+- **Open, and the largest of them: nothing outside Windows has ever been run.** Twenty-four capabilities are written for Linux and twenty-four for macOS, and the evidence that any of them works is that they type-check on a Windows machine. That is a syntax check, not a test. The most useful contribution to this project today is not a new file: it is running one that exists, on the operating system it was written for, and saying what happened. See [platforms](/docs/the-system/platforms).
 
 ## What is not written
 
@@ -32,8 +33,16 @@ These are not defects: they are things that no application has yet demanded hard
 - **Dragging a file *out of* the application** to the explorer.
   The other direction works and gives the real paths; this one requires an object that the window's process must hold for the whole gesture.
 - **Closing to the system tray.** The icon does not keep the application alive: the message loop stops with the last window. The "minimize to the tray" behavior requires keeping a hidden window, and that is not written.
-- **Recording and capture** beyond what Chromium already gives — `MediaRecorder`, `getDisplayMedia`.
+- **Video recording** beyond what Chromium already gives — `MediaRecorder`, `getDisplayMedia`. A still image of the screen **is** written now: see [screens and capture](/docs/the-system/screens-and-capture).
 - **A theme written by the framework.** `rustx new` could write the complete style sheet, which would make the framework the author of a theme. This is a choice to make, not an oversight; in the meantime, the minimal block is [documented](/docs/javascript-libraries/tailwind) where Tailwind is installed.
+- **A URL scheme.** `myapp://…` is not registered, so a deep link from a browser has no way in. Owning a **file extension** is written — [`os::shell::associate`](/docs/the-system/the-file-manager) — and the path arrives as `argv[1]`, which [a single instance](/docs/the-system/a-single-instance) hands to the window that is already open.
+- **Printing the window's own contents.** Chromium has the preview and `BrowserHost::print()` opens it; nothing in rustx calls it. [`os::print`](/docs/the-system/printing) prints a **file**, which is a different job.
+- **Opening the system browser.** There is no `shell.openExternal`. This one is a consequence of the [security model](/docs/the-system/security) rather than an omission, and an application that needs it calls the platform itself.
+- **A native application menu or context menu.** Nothing in the crates draws one.
+- **Placing a second window.** `What` takes a size and the system chooses the corner. [`os::screen`](/docs/the-system/screens-and-capture) says where the monitors are, which is half of what placing a window needs; the other half is not there.
+- **A page cannot reach its own `Pane`.** `os::attention`'s `flash` and `progress` take one, and `rustx::window` never hands the page one, so a page cannot put progress on its own taskbar icon. `badge` takes no window and is callable from anywhere.
+- **A path parameter is not percent-decoded.** `/search/caf%C3%A9` reaches the page as `caf%C3%A9`. Only the query string is decoded, and `with_query` is the lossless way to carry text. See [parameters](/docs/the-router/parameters).
+- **The refusal does not name the file to write.** `OsError::Unsupported` names the capability and the platform and stops there, and several `OsError::Platform` sentences are still written in French. Both are being worked on.
 
 ## What the logs have closed
 

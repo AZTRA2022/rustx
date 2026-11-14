@@ -106,8 +106,60 @@ A `ref` and a `useEffect` are hook work: exactly the case where [a component of 
 
 `rustx-os` is used to know what is plugged in, and to name it. The identifier it returns is the one that `getUserMedia` expects, which is the whole point of putting them side by side.
 
+## Paired Bluetooth devices
+
+A different list, and a read-only one: what the user has already paired,
+and which of those is connected right now.
+
+```rust
+use rustx::os::bluetooth;
+
+for each in bluetooth::paired()? {
+    println!("{} {} {}", each.address, each.name,
+        if each.connected { "connected" } else { "" });
+}
+```
+
+```rust
+pub struct Paired {
+    /// `AA:BB:CC:DD:EE:FF`, upper case: the only stable key, and the
+    /// same on all three systems.
+    pub address: String,
+    /// What the user reads, or the address if the device gave no name.
+    pub name: String,
+    pub connected: bool,
+}
+```
+
+What an application does with this is name the headset, the controller
+or the scale in its own interface instead of showing a hexadecimal
+address.
+
+**An empty list is an answer.** A machine with no Bluetooth radio hands
+back an empty list rather than a refusal, because "no paired devices" is
+the right answer in both cases. This is the one place in the layer where
+"no hardware" and "no answer" are deliberately not told apart.
+
+<Callout type="warn" title="Reading only">
+No pairing, no connecting, no data. Pairing is a conversation between
+the user, the system and the device — a code confirmed on both sides —
+and the system's own panel runs it; an application that redoes it badly
+leaves the device unusable elsewhere. Exchanging data means GATT or
+RFCOMM, a protocol per device, which is a library and not a function.
+</Callout>
+
 ## Recording and capture
 
-Beyond what Chromium already gives — `MediaRecorder`,
-`getDisplayMedia` — nothing is written. This is noted in
-[what's left](/docs/whats-left).
+For a **video** stream, Chromium already gives you `MediaRecorder` and
+`getDisplayMedia`, and nothing in rustx wraps them.
+
+For a **still image** of the screen there is now
+[`rustx::os::capture`](/docs/the-system/screens-and-capture) — the whole
+desktop, a rectangle, or a window — which `getDisplayMedia` cannot do:
+it asks permission every time, returns a stream rather than an image,
+and cannot aim at a region.
+
+Audio playback and recording are not written either; the page's own Web
+Audio API is the tool. What rustx adds is the two questions the page
+cannot answer — which devices exist, and how loud the machine is. See
+[sound](/docs/the-system/sound).

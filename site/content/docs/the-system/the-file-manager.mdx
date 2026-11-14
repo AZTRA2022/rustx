@@ -1,0 +1,129 @@
+---
+title: "The file manager"
+description: "Show a file in its folder, put it in the recent documents, and own a file extension."
+---
+
+Three things a document application owes its system: "Show in folder"
+after an export, a place in the system's recent documents, and a
+double-click on a `.myformat` file that opens the right program.
+
+```rust
+use rustx::os::shell;
+
+shell::reveal(&exported)?;            // open the folder, file selected
+shell::remember_recent(&saved)?;      // add it to the recent documents
+```
+
+`shell` is reached through `rustx::os` — see
+[the system](/docs/the-system). It is not the same thing as
+[`terminal`](/docs/the-system/the-terminal), which runs a script; this
+one talks to the desktop's file manager.
+
+## Reveal
+
+```rust
+let mut said = String::new();
+
+fn Exported(path: std::path::PathBuf) -> Element {
+    return <div>
+        <button onClick={move |_| {
+            if let Err(why) = rustx::os::shell::reveal(&path) {
+                said = why.to_string();
+            }
+        }}>Show in folder</button>
+        {if said.is_empty() { <></> } else { <p>{said.clone()}</p> }}
+    </div>;
+}
+```
+
+It opens the folder **with the file selected**, which is what "show in
+folder" means and what opening the folder alone does not do. A file that
+does not exist is refused by name rather than opening an empty window.
+
+## Recent documents
+
+```rust
+shell::remember_recent(&saved)?;
+```
+
+Adds the file to the system's own recent list — the one the Start menu's
+jump list, the Dock and the desktop's "Recent" entry read. An
+application that opens documents should call this every time it saves or
+opens one; it costs nothing, and its absence is the kind of thing users
+notice without being able to name.
+
+There is no call to *read* the recent list back, and no call to clear
+it. The list belongs to the user.
+
+## Owning an extension
+
+```rust
+use rustx::os::shell::{self, Association};
+
+let mine = Association {
+    extension: "rxdoc".to_string(),               // no dot
+    id: "MyEditor.Document".to_string(),          // stable, yours
+    description: "MyEditor document".to_string(), // what the explorer shows
+    program: std::env::current_exe()?,            // gets the path as argv[1]
+};
+
+shell::associate(&mine)?;
+// and to undo it
+shell::dissociate(&mine)?;
+```
+
+| | |
+|---|---|
+| `extension` | without the dot. `".rxdoc"` is refused, and says to write it without |
+| `id` | an identifier of your own, letters digits and dots. A space is refused |
+| `description` | the type name the file manager displays |
+| `program` | the executable the path is handed to as its first argument |
+
+`Association::checked()` runs those rules, and `associate` runs it for
+you before touching anything.
+
+### For this user, and without administrator rights
+
+On Windows this writes under `HKCU\Software\Classes` — the user's own
+hive. An application that demands elevation to tick a box is an
+application that gets uninstalled.
+
+The consequence to know in advance is the same one as
+[autostart](/docs/the-system/start-with-the-session)'s: the registered
+path is the executable's path **now**. During development that is the
+binary in `target/debug/`, and a `cargo clean` leaves an association
+pointing nowhere. An application that moves rewrites its association.
+
+### And the other half, which is not written
+
+Registering the extension is only one side of a file association. The
+other side is receiving the path when the user double-clicks: that
+arrives as `argv[1]` in a **new** process, so an application that is
+already open needs [a single instance](/docs/the-system/a-single-instance)
+to hand the path over to the window that exists.
+
+```rust
+// in main, before the window
+let Ok(_only) = instance::Only::one("com.example.my-editor") else {
+    instance::hand_over("com.example.my-editor", &std::env::args().skip(1).collect::<Vec<_>>())?;
+    return Ok(());
+};
+```
+
+That combination works. What is **not** written is a URL scheme —
+`myapp://…` — so a deep link from a browser or another application has
+no path in. It is in [what's left](/docs/whats-left).
+
+## Platforms
+
+| | |
+|---|---|
+| **Windows** | written and run. Explorer for `reveal`, `shell32`'s recent documents, `HKCU\Software\Classes` for associations |
+| **Linux** | written, never run. The file manager is reached over D-Bus, and the recent list is `recently-used.xbel` |
+| **macOS** | written, never compiled for a Mac |
+
+`crates/rustx-os/tests/shell.rs` writes a real association, reads it
+back out of the registry with `reg query`, and undoes it. `reveal` is
+only tested in its refusal of a missing file: calling it for real would
+open Explorer in front of whoever is running the suite. See
+[platforms](/docs/the-system/platforms).

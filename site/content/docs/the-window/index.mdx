@@ -20,6 +20,7 @@ description: "What Config holds: the title, size, logo, document, and opening sc
 | `.mount("id", Component)` | a component that React will be able to mount |
 | `.on_context_created(…)` | work at the start of the page |
 | `.frameless()` | without the system frame: the page draws everything |
+| `.without_scrollbars()` | the window scrolls, and no scrollbar is drawn |
 
 ```rust
 use rustx::{App, Config};
@@ -72,6 +73,35 @@ will mount.
 ```
 
 `host("app")` says where the screens are mounted; `app` is the default.
+
+## A window that scrolls without a scrollbar
+
+```rust
+Config::new("Console").frameless().without_scrollbars()
+```
+
+Nothing stops scrolling. The wheel, the trackpad, the arrow keys, Page
+Down, a drag against the edge and `scrollIntoView` all work exactly as
+before. The bar itself is not painted, and it **takes no width** — so a
+panel that was eight pixels narrower than its neighbour because one of
+them overflowed lines up again.
+
+This is the look a desktop application usually wants and the one a
+browser does not. A document on the web says how far down it goes with a
+scrollbar; an application says it with its own design — a fading edge, a
+thumb drawn in the page, a list that is obviously a list. The web's
+default is the right default, which is why this is asked for rather than
+assumed.
+
+It applies to the whole window: every element in it, and inside a React
+subtree too. It is one stylesheet, put in after the application's own
+and marked `!important`, because calling this is a more deliberate
+statement than any rule a component library happened to ship — a
+`::-webkit-scrollbar { width: 8px }` three levels down in somebody's CSS
+does not quietly put the bar back.
+
+An application that wants bars in one panel and not elsewhere does not
+call this, and styles that panel itself.
 
 ## What the page can read
 

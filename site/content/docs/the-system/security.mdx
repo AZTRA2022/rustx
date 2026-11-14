@@ -89,9 +89,20 @@ This list is as important as the one above.
 5. Do not run the application as administrator. Chromium 156 refuses it
    anyway, see [packaging](/docs/tooling/packaging).
 
-## Not written
+## Storing a token
 
-There is no secure storage module, no keychain access and no sign-in helper.
-See [what's left](/docs/whats-left). Until they exist, an application that
-stores a token calls the platform's credential store itself, with a crate of its
-choice.
+There **is** a secure-storage module now:
+[`rustx::os::secret`](/docs/the-system/secrets) puts a token in the
+system's own credential store — Credential Manager, the Keychain, the
+Secret Service — encrypted with the user's session. That is where a
+token the user signed in for belongs, and not in a file beside the
+executable.
+
+What is still not written is a **sign-in helper**: no OAuth flow, no
+loopback listener, no hand-off to the system browser. rustx has no
+function that opens the system browser at all, by design — opening one
+is a navigation, and navigations are what the rule above refuses. An
+application that signs in does the flow itself, with a crate of its
+choice, and puts the result in `secret`.
+
+See [what's left](/docs/whats-left).

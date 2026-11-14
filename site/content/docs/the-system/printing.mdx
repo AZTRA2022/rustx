@@ -1,0 +1,111 @@
+---
+title: "Printing"
+description: "Send a file to the printer, with the system's dialog or without it, and list the printers."
+---
+
+```rust
+use rustx::os::print;
+
+print::dialog(&invoice)?;        // the system's print dialog, and wait for the user
+print::silently(&label)?;        // straight to the default printer
+let all = print::printers()?;    // the default first
+```
+
+`print` is reached through `rustx::os` — see
+[the system](/docs/the-system).
+
+## It prints a file, not the page
+
+A **file**: a PDF, an image, a text file. The system hands it to
+whichever application it associates with that kind of file and that
+application prints it. This is what a program that has produced a
+document and wants it on paper needs.
+
+It is **not** the printing of the window's own contents. That belongs to
+Chromium, which has its own preview, its own page layout and its own CSS
+page breaks, and `BrowserHost::print()` opens it. Calling that is the
+engine's job, not this crate's: `rustx-os` knows nothing about the DOM,
+and that boundary holds here as everywhere else in the layer.
+
+<Callout type="warn" title="There is no call that prints the window">
+Neither `rustx::window` nor `rustx::os::print` exposes Chromium's print
+preview today. A page that wants to print what it is showing has to
+produce a file — a PDF written by Rust — and print that. This is a gap,
+and it is in [what's left](/docs/whats-left).
+</Callout>
+
+## The dialog, or the queue
+
+| | |
+|---|---|
+| `dialog(path)` | opens the preview and the printer choice, and waits for the user to decide |
+| `silently(path)` | sends it to the default printer, asking nothing |
+
+`silently` is what a point-of-sale or a label printer wants, and what a
+word processor never wants. Both return as soon as the **system** has
+taken the job: what happens between the queue and the printer after that
+is not followed from here, and no call reports it.
+
+A path that does not exist, or that is a directory, is refused by name
+before anything is sent.
+
+## The printers
+
+```rust
+pub struct Printer {
+    /// Its name for the system, which is also the one the user reads:
+    /// all three systems have only one.
+    pub name: String,
+    /// The one that receives a job nobody addressed.
+    pub default: bool,
+}
+```
+
+`printers()` puts the default first, so an application that wants to say
+*where* the document is about to go can show `printers()?[0].name` without
+searching.
+
+```rust
+let mut said = String::new();
+
+fn Print(document: std::path::PathBuf) -> Element {
+    let where_to = keep(rustx::os::print::printers());
+
+    let name = where_to.with(|found| match found {
+        Ok(all) => all.first().map(|each| each.name.clone()).unwrap_or_default(),
+        Err(_) => String::new(),
+    });
+
+    return <div>
+        <button onClick={move |_| {
+            said = match rustx::os::print::silently(&document) {
+                Ok(()) => format!("sent to {name}"),
+                Err(why) => why.to_string(),
+            };
+        }}>Print</button>
+        <p>{said.clone()}</p>
+    </div>;
+}
+```
+
+## What is not here
+
+No paper size, no orientation, no copies, no duplex, no tray selection,
+and no way to address a printer other than the default from
+`silently`. Those are per-platform print settings structures, and none
+is exposed. `dialog` is the way to let the user choose any of them.
+
+## Platforms
+
+| | |
+|---|---|
+| **Windows** | written and run. The Shell's `print` verb for the job, `EnumPrintersW` for the list |
+| **Linux** | written, never run |
+| **macOS** | written, never compiled for a Mac |
+
+The tests cover the refusals — a file that is not there, a directory
+instead of a document — and assert that the printer list is consistent
+(at most one default, the default first, no empty names) on whatever
+machine runs them. **Nothing in the suite prints**, so the Windows path
+from the Shell verb to actual paper has been exercised by hand, not by
+the suite. See [platforms](/docs/the-system/platforms).

@@ -32,6 +32,7 @@ fn main() -> Result<(), rustx::Error> {
 | `Config::new(title)` | the title, and the application's name | required |
 | `.size(width, height)` | the window, in pixels | 1024 by 768 |
 | `.frameless()` | no system frame. The page draws everything | system frame |
+| `.without_scrollbars()` | the window still scrolls; no scrollbar is painted, and it takes no width. See [the window](/docs/the-window) | scrollbars |
 | `.index(path)` | a document other than `assets/index.html` | `assets/index.html`, or a generated one |
 | `.icon(path)` | the window's `.ico`, relative to the project | `assets/icon.ico` if it exists |
 | `.version(text)` | what `rustx_about()` returns | empty |

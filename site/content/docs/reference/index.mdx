@@ -94,23 +94,57 @@ See [the Rust bridge](/docs/javascript-libraries/rust-bridge).
 
 ## System modules
 
-Every one has `supported() -> bool`. Errors are `OsError`, except `dialog`, which
-has `DialogError` with `Cancelled` as a normal case.
+Errors are `OsError`, except `dialog`, which has `DialogError` with
+`Cancelled` as a normal case.
+
+### On the facade, under a short name
+
+`rustx::clipboard::text()`, and nothing to import.
 
 | | |
 |---|---|
-| `clipboard` | `text()`, `set_text(&str)`, `image()`, `set_image(&Image)`, `custom(format)`, `set_custom(format, &[u8])`. See [the clipboard](/docs/the-system/the-clipboard) |
-| `dialog` | `open(Ask)`, `save(Ask)`, `folder(Ask)`. See [file dialogs](/docs/the-system/file-dialogs) |
-| `notify` | `show(notify::What)`. See [notifications and the tray](/docs/the-system/notifications-and-the-tray) |
-| `tray` | `Icon::new(&Path, &str)`, `.menu(&[Item])`, `.clicked()`, `.notify(&What)` |
-| `shortcut` | `Shortcut::listen("Ctrl+Shift+R")`, `.pressed()`. See [global shortcuts](/docs/the-system/global-shortcuts) |
-| `instance` | `Only::one(name)`, `hand_over(name, &[String])`, `handed_over()`. See [a single instance](/docs/the-system/a-single-instance) |
-| `autostart` | `set(on, name)`, `is_on(name)`. See [start with the session](/docs/the-system/start-with-the-session) |
+| `clipboard` | `text()`, `set_text(&str)`, `image()`, `set_image(&Image)`, `custom(format)`, `set_custom(format, &[u8])`, `supported()`. See [the clipboard](/docs/the-system/the-clipboard) |
+| `dialog` | `open(Ask)`, `save(Ask)`, `folder(Ask)`, `supported()`. See [file dialogs](/docs/the-system/file-dialogs) |
+| `notify` | `show(notify::What)`, `supported()`. See [notifications and the tray](/docs/the-system/notifications-and-the-tray) |
+| `tray` | `Icon::new(&Path, &str)`, `.menu(&[Item])`, `.clicked()`, `.notify(&What)`, `shown()`, `readable(path)`, `supported()` |
+| `shortcut` | `Shortcut::listen("Ctrl+Shift+R")`, `.pressed() -> u64`, `.keys() -> &str`, `supported()`. See [global shortcuts](/docs/the-system/global-shortcuts) |
+| `instance` | `Only::one(name)`, `.name()`, `hand_over(name, &[String])`, `handed_over()`, `BETWEEN`, `supported()`. See [a single instance](/docs/the-system/a-single-instance) |
+| `autostart` | `set(on, name)`, `is_on(name)`, `supported()`. See [start with the session](/docs/the-system/start-with-the-session) |
 | `devices` | `devices()`, `devices_of(kind)`, `device(id)`, `explain()`. See [devices](/docs/the-system/devices) |
-| `dropped` | `on_files(hook)`, `files()`. See [dropped files](/docs/the-system/dropped-files) |
+| `terminal` | `shell() -> Shell`, `run(script, at) -> Output`, `open(dir)`. See [the terminal](/docs/the-system/the-terminal) |
+| `dropped` | `on_files(hook)`, `files()`, `WHAT`. From the engine, not `rustx-os`. See [dropped files](/docs/the-system/dropped-files) |
 
-A platform that has not written a module returns an error that names the file to
-write. See [platforms](/docs/the-system/platforms).
+### Through `rustx::os`
+
+`rustx::os::audio::volume()`. Same crate, same error type, longer path —
+`rustx::window` is the page's own window and `rustx::os::window` is the
+window as the system knows it, so the two cannot share a name.
+
+| | |
+|---|---|
+| `os::about` | `Credits::new(name, version)`, `.copyright()`, `.icon()`, `show(pane, &credits)`, `supported()` |
+| `os::attention` | `flash(pane)`, `progress(pane, Option<f64>)`, `badge(Option<u32>)` |
+| `os::audio` | `endpoints(Flow)`, `default_endpoint(Flow)`, `volume()`, `set_volume(f64)`, `set_muted(bool)`. See [sound](/docs/the-system/sound) |
+| `os::bluetooth` | `paired() -> Vec<Paired>` |
+| `os::capture` | `desktop()`, `area(Area)`, `window(pane)` — each an `Image` |
+| `os::color` | `pick(Option<Rgb>) -> Option<Rgb>`, `Rgb::hex()`, `Rgb::from_hex(&str)` |
+| `os::net` | `network() -> Network`, `online() -> bool`, `Reach::connected()`, `Link::metered()` |
+| `os::print` | `dialog(path)`, `silently(path)`, `printers() -> Vec<Printer>`. See [printing](/docs/the-system/printing) |
+| `os::screen` | `screens()`, `primary()`, `holding(x, y)`, `Area::between(…)`, `Area::holds(x, y)` |
+| `os::secret` | `store(service, account, secret)`, `fetch(…) -> Option<String>`, `forget(…)`. See [secrets](/docs/the-system/secrets) |
+| `os::shell` | `reveal(path)`, `remember_recent(path)`, `associate(&Association)`, `dissociate(&Association)`, `Association::checked()` |
+| `os::system` | `theme()`, `power()`, `idle()`, `locked()`, `locale()`, `timezone()`, `scale()`, `ThemeWatch::start()` / `::every(d)` / `.changed()`. See [the machine's state](/docs/the-system/the-machine) |
+| `os::window` | `Pane`, `Dressing`, `Spread`, `Switchable`, `switch`, `dress`, `spread`, `spread_of`, `on_top`, `drag`, `drag_out`, `close`, `pointer()`, `supported()` |
+
+Only the ten modules with a `supported()` above have one. The twelve in
+the second table other than `os::about` and `os::window` answer with a
+`Result`, and the refusal is the answer.
+
+A platform that has not written a capability returns
+`OsError::Unsupported`, which names the capability and the platform — but
+**not** the file that would have to be written. See
+[platforms](/docs/the-system/platforms) for what each platform does, and
+for which of it has ever been executed.
 
 ## Values and elements
 

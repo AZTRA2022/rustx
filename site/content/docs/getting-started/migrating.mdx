@@ -49,12 +49,25 @@ returns plain values (null, boolean, number, string, list, object).
 | launch at login | `setLoginItemSettings` | the autostart plugin | [`autostart`](/docs/the-system/start-with-the-session) |
 | dropped file paths | `webUtils.getPathForFile` | the drag-drop event | [`dropped`](/docs/the-system/dropped-files) |
 | camera, microphone, screens | `getUserMedia`, `desktopCapturer` | the web view's | [`devices`](/docs/the-system/devices), then `getUserMedia` as on the web |
+| audio devices, system volume | `systemPreferences` and native modules | a plugin | [`os::audio`](/docs/the-system/sound) |
+| a screenshot | `desktopCapturer.getSources` | a plugin | [`os::capture`](/docs/the-system/screens-and-capture) |
+| the list of displays | `screen.getAllDisplays` | `available_monitors` | [`os::screen`](/docs/the-system/screens-and-capture) |
+| the OS theme, battery, idle, locale | `nativeTheme`, `powerMonitor`, `app.getLocale` | the os plugin | [`os::system`](/docs/the-system/the-machine) |
+| online, and the kind of link | `net.isOnline` | — | [`os::net`](/docs/the-system/the-machine) |
+| running a shell command | `child_process` | the shell plugin | [`terminal`](/docs/the-system/the-terminal) |
+| printing a file | `webContents.print` | — | [`os::print`](/docs/the-system/printing) — a **file**, not the page |
+| show in folder, recent documents | `shell.showItemInFolder`, `app.addRecentDocument` | the opener plugin | [`os::shell`](/docs/the-system/the-file-manager) |
+| taskbar progress, flash, badge | `setProgressBar`, `flashFrame`, `setBadgeCount` | a plugin | [`os::attention`](/docs/the-system/the-taskbar) |
+| paired Bluetooth devices | the Web Bluetooth API | a plugin | [`os::bluetooth`](/docs/the-system/devices) |
+| a colour picker | `<input type="color">` | — | [`os::color`](/docs/the-system/file-dialogs) — the system's, with its eyedropper |
+| secure storage | `safeStorage` | the stronghold plugin or a keyring | [`os::secret`](/docs/the-system/secrets) |
+| file associations | `app.setAsDefaultProtocolClient` | the deep-link plugin | [`os::shell::associate`](/docs/the-system/the-file-manager) for an extension. A URL scheme is **not written** |
 | the app's data folder | `app.getPath("userData")` | the path API | none. See [app data](/docs/the-system/app-data) |
+| opening the system browser | `shell.openExternal` | the opener plugin | not written, and deliberately: see [security](/docs/the-system/security) |
 | application menu, context menu | `Menu` | the menu API | not written |
 | auto-update | `autoUpdater` | the updater plugin | not written |
 | installer, signing | electron-builder and others | `tauri build` | not written. See [packaging](/docs/tooling/packaging) |
-| deep links, file associations | `setAsDefaultProtocolClient` | the deep-link plugin | not written |
-| secure storage | `safeStorage` | the stronghold plugin or a keyring | not written |
+| printing the window's own contents | `webContents.print` | the web view's | not written. Chromium has the preview; nothing exposes it |
 
 "Not written" means that nothing in the framework's crates does it. You can still
 call the platform from your own Rust with a crate of your choice.

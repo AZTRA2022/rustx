@@ -70,8 +70,8 @@ for any file in `assets/`.
 What to do instead depends on the secret:
 
 - a key that belongs to the **user**, such as a token they typed or received at
-  sign-in, is stored on their machine. There is no secure storage module yet,
-  see [what's left](/docs/whats-left);
+  sign-in, is stored on their machine, in the system's own credential
+  store: [`rustx::os::secret`](/docs/the-system/secrets);
 - a key that belongs to **you** and must stay secret belongs on a server you
   control. The application calls that server and not the third party;
 - a key that is safe to publish, such as a public client id, may be a `const`.

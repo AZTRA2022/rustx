@@ -107,6 +107,51 @@ fn Open() -> Element {
 }
 ```
 
+## The colour picker
+
+The system's own, which is a different thing from
+`<input type="color">`. That one is drawn by Chromium, and it has
+neither the eyedropper nor the swatches the user has saved in their
+system picker.
+
+```rust
+use rustx::os::color::{self, Rgb};
+
+let start = Rgb { r: 0x7f, g: 0x5a, b: 0xf0 };
+
+match color::pick(Some(start))? {
+    Some(chosen) => println!("{}", chosen.hex()),   // "#7f5af0"
+    None => {}                                      // cancelled, which is normal
+}
+```
+
+| | |
+|---|---|
+| `color::pick(initial)` | opens it. `Ok(None)` when the user cancels |
+| `Rgb { r, g, b }` | eight bits a channel |
+| `rgb.hex()` | `#rrggbb` |
+| `Rgb::from_hex(text)` | from `#rrggbb` or `rrggbb`. `None` for anything else, including the three-digit `#08f` short form |
+
+Like the file dialogs, it is modal and it waits for the answer, so it is
+called from a thread that can wait — a handler is fine; a long job is
+not.
+
+`color` is reached through `rustx::os` and not under a short name on the
+facade:
+
+```rust
+<button onClick={move |_| {
+    if let Ok(Some(chosen)) = rustx::os::color::pick(None) {
+        tint = chosen.hex();
+    }
+}}>Pick a colour…</button>
+```
+
+On Windows this is `ChooseColorW`, opened fully expanded — the palette
+alone offers only forty-eight colours — and it has **no** eyedropper,
+because that dialog never had one. macOS's colour panel has its own.
+Linux goes through `zenity` or `kdialog`.
+
 ## Files dropped on the window
 
 A file dropped on the window arrives with its path, without a dialog:
