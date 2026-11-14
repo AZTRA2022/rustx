@@ -29,7 +29,7 @@ fn the_route_a_window_opens_on_travels_in_the_fragment() {
     assert_eq!(
         window::page_in("file:///C:/app/assets/index.html#/device/7").as_deref(),
         Some("/device/7"),
-        "c'est par là qu'une deuxième fenêtre apprend sa route"
+        "this is how a second window learns its own route"
     );
 }
 

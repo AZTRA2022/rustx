@@ -543,3 +543,136 @@ fn modules_of(manifest: &Path) -> Vec<String> {
     }
     found
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `main` cannot be `async` in Rust, so the attribute takes the
+    /// `async` off the signature and puts the body on the framework's
+    /// runtime instead.
+    ///
+    /// Taken off **before** anything can go wrong, which is the whole
+    /// point: a page the compiler refuses used to re-emit the signature
+    /// exactly as written, so the developer got their own error *and*
+    /// `error[E0752]: main function is not allowed to be async`, which
+    /// is about nothing they did and points at `src/main.rs`. Item 21 of
+    /// `docs/manques-du-framework.md`.
+    #[test]
+    fn the_async_comes_off_the_signature() {
+        let signature: TokenStream2 = "async fn main()".parse().expect("parses");
+        let (kept, waits) = without_async(signature);
+        assert!(waits, "the `async` was not noticed");
+        assert!(
+            !kept.to_string().contains("async"),
+            "the `async` is still there: {kept}"
+        );
+        assert!(kept.to_string().contains("main"), "{kept}");
+    }
+
+    #[test]
+    fn a_main_that_does_not_wait_is_left_as_it_was() {
+        let signature: TokenStream2 = "fn main()".parse().expect("parses");
+        let (kept, waits) = without_async(signature);
+        assert!(!waits);
+        assert_eq!(kept.to_string(), "fn main ()");
+    }
+
+    /// Only the function's own `async`. One written inside the
+    /// parameters — a closure type, a bound — belongs to somebody else.
+    #[test]
+    fn an_async_inside_the_parameters_is_not_the_functions_own() {
+        let signature: TokenStream2 = "fn main(work: fn() -> impl Future)"
+            .parse()
+            .expect("parses");
+        let (_, waits) = without_async(signature);
+        assert!(!waits, "a parameter's tokens were read as the function's");
+    }
+
+    #[test]
+    fn a_function_is_split_into_its_signature_and_its_body() {
+        let item: TokenStream2 = "fn main() { let x = 1; }".parse().expect("parses");
+        let (signature, body) = split_body(item).expect("a function has a body");
+        assert_eq!(signature.to_string(), "fn main ()");
+        assert!(body.stream().to_string().contains("let x"));
+    }
+
+    /// Something that is not a function has no body to take off, and
+    /// saying so is better than taking the last token off whatever it
+    /// was.
+    #[test]
+    fn something_that_is_not_a_function_is_not_split() {
+        let item: TokenStream2 = "struct Window;".parse().expect("parses");
+        assert!(split_body(item).is_none());
+    }
+
+    #[test]
+    fn the_name_of_the_struct_is_read_past_its_visibility() {
+        let tokens: Vec<TokenTree> = "pub struct Point { at: f64 }"
+            .parse::<TokenStream2>()
+            .expect("parses")
+            .into_iter()
+            .collect();
+        assert_eq!(type_name(&tokens).as_deref(), Some("Point"));
+    }
+
+    /// The fields a `ToValue` is written from, with the name each one
+    /// crosses the JavaScript boundary under.
+    #[test]
+    fn every_field_is_read_with_the_name_it_crosses_under() {
+        let body: TokenStream2 = "at: f64, value: f64".parse().expect("parses");
+        assert_eq!(
+            fields_of(body),
+            vec![
+                ("at".to_string(), "at".to_string()),
+                ("value".to_string(), "value".to_string()),
+            ]
+        );
+    }
+
+    /// A type may hold commas of its own, and a field's visibility is
+    /// not its name.
+    #[test]
+    fn a_type_with_commas_in_it_is_still_one_field() {
+        let body: TokenStream2 = "pub rows: Vec<(usize, String)>, pub(crate) total: usize"
+            .parse()
+            .expect("parses");
+        assert_eq!(
+            fields_of(body),
+            vec![
+                ("rows".to_string(), "rows".to_string()),
+                ("total".to_string(), "total".to_string()),
+            ]
+        );
+    }
+
+    /// `#[rustx(rename = "data-key")]`: a field whose JavaScript name is
+    /// not a Rust identifier says so.
+    #[test]
+    fn a_renamed_field_crosses_under_the_name_it_was_given() {
+        let body: TokenStream2 = "#[rustx(rename = \"data-key\")] key: String, value: f64"
+            .parse()
+            .expect("parses");
+        assert_eq!(
+            fields_of(body),
+            vec![
+                ("key".to_string(), "data-key".to_string()),
+                ("value".to_string(), "value".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_attribute_that_renames_nothing_renames_nothing() {
+        let attribute: TokenStream2 = "rustx(skip)".parse().expect("parses");
+        assert_eq!(rename_in(attribute), None);
+    }
+
+    /// An `include!` path is written with forward slashes whatever the
+    /// platform's separator is: `rustc` reads the path, not the shell.
+    #[test]
+    fn a_path_for_an_include_is_written_with_forward_slashes() {
+        let path = Path::new("target").join("rustx-pages").join("pages.rs");
+        assert_eq!(slashed(&path), "target/rustx-pages/pages.rs");
+    }
+}

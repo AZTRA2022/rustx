@@ -1483,15 +1483,13 @@ fn bound_by_a_let(source: &str, at: usize) -> bool {
                     return false;
                 }
             }
-            b't' => {
-                // `let`, as a word and not the tail of `violet`.
-                if index >= 2 && &source[index - 2..=index] == "let" {
-                    let before = index.checked_sub(3).map(|at| bytes[at]);
-                    let word = before
-                        .is_some_and(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
-                    if !word {
-                        return true;
-                    }
+            // `let`, as a word and not the tail of `violet`.
+            b't' if index >= 2 && &source[index - 2..=index] == "let" => {
+                let before = index.checked_sub(3).map(|at| bytes[at]);
+                let word =
+                    before.is_some_and(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
+                if !word {
+                    return true;
                 }
             }
             _ => {}
@@ -1792,50 +1790,76 @@ fn block_in_statement_position(
 ) -> bool {
     let bytes = source.as_bytes();
     let floor = handler.start;
-    let Some(mut open) = brace_back(bytes, close, floor) else {
-        return tail_discarded;
-    };
+    let mut close = close;
 
-    // One pass out per enclosing block, so this cannot spin: `open`
-    // strictly decreases, and `statement_start` never returns more.
+    // One pass per block out. Each pass moves `close` strictly outwards,
+    // so this terminates; the count is a belt as well as braces.
     for _ in 0..64 {
+        // The handler's own closing brace. Whether its tail counts is
+        // the caller's convention, which is what `tail_discarded` says.
+        if close + 1 >= handler.end {
+            return tail_discarded;
+        }
+        let Some(open) = brace_back(bytes, close, floor) else {
+            return tail_discarded;
+        };
         let start = statement_start(source, floor, open);
         let head = source[start.min(open)..open].trim();
 
-        if head.is_empty() {
-            return true;
-        }
-        // A match arm. Its value is the match's, so the question moves
-        // out to the braces holding the arms.
-        if head.ends_with("=>") {
-            match enclosing_brace(bytes, open, floor) {
-                Some(outer) => {
-                    open = outer;
-                    continue;
-                }
-                None => return tail_discarded,
-            }
-        }
-        // A closure body. Whether its tail counts is its caller's
-        // business, and `tail_discarded` is what the caller said.
+        // A closure body. Its caller decides, and `tail_discarded` is
+        // what the caller said.
         if head.ends_with('|') {
             return tail_discarded;
         }
-        // The head of a construct whose block is a block of statements.
-        // `if let Some(x) = y {` is one of them, which is why this comes
-        // before the test for a binding.
-        if first_word(head).is_some_and(|word| {
-            matches!(
-                word,
-                "if" | "match" | "while" | "loop" | "for" | "unsafe" | "else"
-            )
-        }) {
-            return true;
+        // A match arm: its value *is* the match's value, always. So the
+        // question moves to the match's own block.
+        if head.ends_with("=>") {
+            let Some(arms) = enclosing_brace(bytes, open, floor) else {
+                return tail_discarded;
+            };
+            let Ok(after) = skip_braces(source, arms) else {
+                return tail_discarded;
+            };
+            close = after - 1;
+            continue;
         }
-        // `let x =`, `x =`, `self.field =`: the block is the value.
-        // Anything else — an argument, an element, an operand — is a
-        // value too, and so is a `return`.
-        return false;
+        // `let x =`, `x =`, `return`, `f(`, `a +`: the block is a value,
+        // so its tail expression is one.
+        let a_construct = head.is_empty()
+            || first_word(head).is_some_and(|word| {
+                matches!(
+                    word,
+                    "if" | "match" | "while" | "loop" | "for" | "unsafe" | "else"
+                )
+            });
+        if !a_construct {
+            return false;
+        }
+
+        // The block belongs to a construct that *begins* a statement at
+        // the level it is on. That is not the end of the question: the
+        // level itself may be an expression. `{if n.is_empty() { … }
+        // else { … }}` written in markup is a tag's expression, and the
+        // `if` in it begins the only statement of a block whose value is
+        // drawn on the screen.
+        //
+        // So: if anything follows the construct, its value is thrown
+        // away and this is a statement. If nothing does — the next token
+        // is the closing brace of the block around it — then the
+        // construct hands its value outwards, and the same question is
+        // asked one level out.
+        //
+        // "Follows the construct", not "follows the block": an `else` is
+        // the same `if` carrying on, and the chain's value is handed out
+        // at its end. `{if ready { status.clone() } else { … }}` written
+        // in a tag is one expression, and reading the `else` as the next
+        // statement made the `.clone()` a write.
+        let tail = end_of_chain(source, close + 1, handler.end);
+        match next_token_at(bytes, tail, handler.end) {
+            None => return tail_discarded,
+            Some((at, b'}')) => close = at,
+            Some(_) => return true,
+        }
     }
     tail_discarded
 }
@@ -1869,11 +1893,11 @@ fn statement_start(source: &str, floor: usize, at: usize) -> usize {
         } else {
             crate::scan::skip_comment(bytes, index)
         };
-        if let Some(after) = skipped {
-            if after > index {
-                index = after;
-                continue;
-            }
+        if let Some(after) = skipped
+            && after > index
+        {
+            index = after;
+            continue;
         }
 
         match bytes[index] {
@@ -1881,6 +1905,21 @@ fn statement_start(source: &str, floor: usize, at: usize) -> usize {
             b'}' => {
                 if levels.len() > 1 {
                     levels.pop();
+                }
+                // A block ends a statement without a `;` — `if c { … }`
+                // and `match x { … }` both do. But only when nothing
+                // carries on from it: an `else`, a `.`, a `?`, a `,` or
+                // an operator all mean the expression is still going.
+                //
+                // Without this, the head of `match rows.len()` came out
+                // as `if … { … } match rows.len()`, whose first word is
+                // `if` — the right answer for the wrong statement, which
+                // is the kind of accident that holds until it does not.
+                if ends_a_statement(bytes, index + 1)
+                    && let Some(level) = levels.last_mut()
+                    && level.1 == brackets
+                {
+                    level.0 = index + 1;
                 }
             }
             b'(' | b'[' => brackets += 1,
@@ -1897,6 +1936,116 @@ fn statement_start(source: &str, floor: usize, at: usize) -> usize {
         index += 1;
     }
     levels.last().map_or(floor, |level| level.0)
+}
+
+/// Where an `if … {…} else if … {…} else {…}` chain ends.
+///
+/// Given the offset just past one of its blocks, this is the offset just
+/// past the last one. An `if` without an `else` ends where it was, so
+/// the answer is `after` and the caller is none the wiser.
+fn end_of_chain(source: &str, after: usize, ceiling: usize) -> usize {
+    let bytes = source.as_bytes();
+    let mut after = after;
+    // Each round steps past one more block, and there are no infinite
+    // `else` chains; the bound is a guard against a malformed file.
+    for _ in 0..64 {
+        let Some((at, _)) = next_token_at(bytes, after, ceiling) else {
+            return after;
+        };
+        let mut end = at;
+        while end < bytes.len() && is_word_byte(bytes[end]) {
+            end += 1;
+        }
+        if &bytes[at..end] != b"else" {
+            return after;
+        }
+        // `else { … }`, or `else if … { … }` — either way the next `{`
+        // opens the block. A condition cannot hold a bare `{`: Rust
+        // demands parentheses around a struct literal written in one.
+        let Some(brace) = (end..ceiling.min(bytes.len())).find(|at| bytes[*at] == b'{') else {
+            return after;
+        };
+        let Ok(past) = skip_braces(source, brace) else {
+            return after;
+        };
+        after = past;
+    }
+    after
+}
+
+/// Does the block that ends at `after` end the statement it is in?
+///
+/// Read off what follows it, which is where Rust puts the answer: an
+/// `else` continues the `if`, a `.` or a `?` carries on the expression,
+/// and a `,`, a `)` or an operator means the block was handed to
+/// something. A word, a `#` or another `{` means the next statement has
+/// begun.
+fn ends_a_statement(bytes: &[u8], after: usize) -> bool {
+    let Some((at, byte)) = next_token_at(bytes, after, bytes.len()) else {
+        // Nothing follows: the block was the last thing in whatever
+        // holds it, and the question of what came after does not arise.
+        return false;
+    };
+    if matches!(
+        byte,
+        b'.' | b'?'
+            | b','
+            | b')'
+            | b']'
+            | b'}'
+            | b';'
+            | b'='
+            | b'+'
+            | b'-'
+            | b'*'
+            | b'/'
+            | b'%'
+            | b'&'
+            | b'|'
+            | b'^'
+            | b'<'
+            | b'>'
+            | b'!'
+            | b':'
+    ) {
+        return false;
+    }
+    // `} else {` is one `if`, not two statements.
+    let mut end = at;
+    while end < bytes.len() && is_word_byte(bytes[end]) {
+        end += 1;
+    }
+    &bytes[at..end] != b"else"
+}
+
+/// The next byte from `at` that is neither whitespace nor a comment,
+/// with where it is.
+fn next_token_at(bytes: &[u8], at: usize, ceiling: usize) -> Option<(usize, u8)> {
+    let ceiling = ceiling.min(bytes.len());
+    let mut at = at;
+    loop {
+        while at < ceiling && bytes[at].is_ascii_whitespace() {
+            at += 1;
+        }
+        if at >= ceiling {
+            return None;
+        }
+        if bytes[at] == b'/' && bytes.get(at + 1) == Some(&b'/') {
+            while at < ceiling && bytes[at] != b'\n' {
+                at += 1;
+            }
+            continue;
+        }
+        if bytes[at] == b'/' && bytes.get(at + 1) == Some(&b'*') {
+            at += 2;
+            while at + 1 < ceiling && &bytes[at..at + 2] != b"*/" {
+                at += 1;
+            }
+            at = (at + 2).min(ceiling);
+            continue;
+        }
+        return Some((at, bytes[at]));
+    }
 }
 
 /// The first word of this text, when it begins with one.
@@ -1949,35 +2098,6 @@ fn enclosing_brace(bytes: &[u8], at: usize, floor: usize) -> Option<usize> {
         }
     }
     None
-}
-
-/// The next byte from `at` that is neither whitespace nor a comment.
-#[allow(dead_code)]
-fn next_token(bytes: &[u8], at: usize, ceiling: usize) -> Option<u8> {
-    let mut at = at;
-    loop {
-        while at < ceiling && bytes[at].is_ascii_whitespace() {
-            at += 1;
-        }
-        if at >= ceiling {
-            return None;
-        }
-        if bytes[at] == b'/' && bytes.get(at + 1) == Some(&b'/') {
-            while at < ceiling && bytes[at] != b'\n' {
-                at += 1;
-            }
-            continue;
-        }
-        if bytes[at] == b'/' && bytes.get(at + 1) == Some(&b'*') {
-            at += 2;
-            while at + 1 < ceiling && &bytes[at..at + 2] != b"*/" {
-                at += 1;
-            }
-            at = (at + 2).min(ceiling);
-            continue;
-        }
-        return Some(bytes[at]);
-    }
 }
 
 /// Back from `at` over whitespace and comments, down to `floor`.

@@ -1,197 +1,143 @@
-// R Intelligent Data — the table browser.
+// The landing page.
 //
-// Tables live in memory as plain Rust — `Vec<Table>` — and the only
-// two ways data gets in are real ones: dropping a `.csv` file on the
-// window (its real path, read from disk, via `rustx::dropped`) or the
-// system's own "open file" dialog (`rustx::dialog`). The grid is
-// shadcn/ui's `Table` on Tailwind v4, and the row-count chart is
-// `recharts`, off npm — not hand-rolled look-alikes.
+// The headline is not a font: the design is set in a dot-matrix face
+// and there is none on this machine, so the two lines are laid out
+// cell by cell from the 5×7 table in `src/main.rs` — one round dot per
+// lit cell.
+//
+// The field under the rule is the same idea with the dots scattered:
+// three hundred and forty of them along two filaments, every position
+// computed once in `nebula()` so the page is the same page on every
+// render rather than a different sky each frame.
 
-#[derive(rustx::ToValue, Clone)]
-struct Bar {
-    table: String,
-    rows: f64,
-}
-
-#[derive(Clone)]
-struct Table_ {
-    name: String,
-    columns: Vec<String>,
-    rows: Vec<Vec<String>>,
-}
-
-let mut tables: Vec<Table_> = vec![
-    Table_ {
-        name: "users".to_string(),
-        columns: vec!["id".to_string(), "name".to_string(), "plan".to_string()],
-        rows: vec![
-            vec!["1".to_string(), "Ada".to_string(), "pro".to_string()],
-            vec!["2".to_string(), "Grace".to_string(), "free".to_string()],
-            vec!["3".to_string(), "Linus".to_string(), "pro".to_string()],
-        ],
-    },
-    Table_ {
-        name: "orders".to_string(),
-        columns: vec!["id".to_string(), "user_id".to_string(), "total".to_string()],
-        rows: vec![
-            vec!["101".to_string(), "1".to_string(), "42.00".to_string()],
-            vec!["102".to_string(), "3".to_string(), "19.90".to_string()],
-        ],
-    },
-];
-let mut selected: usize = 0;
-let mut status = String::new();
+let mut tables: Vec<Dataset> = Vec::new();
+let mut imported: u32 = 0;
 
 fn Page() -> Element {
-    effect((), || {
-        rustx::dropped::on_files(move |paths| {
-            for path in paths {
-                if path.extension().map(|extension| extension.to_ascii_lowercase()) == Some("csv".into()) {
-                    import_csv(&path);
-                }
-            }
-        });
-    });
+    let rows: usize = tables.iter().map(|table| table.rows.len()).sum();
 
-    return <div className="mx-auto max-w-6xl px-6 py-8">
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[260px_1fr]">
-            {Sidebar()}
-            <div className="flex flex-col gap-5">
-                {Overview()}
-                {Main()}
+    return <div key="home" id="screen-home">
+        <div className="border-b border-border px-6 pb-12 pt-16">
+            <div className="mx-auto w-fit">
+                {Line("The Intelligence layer".to_string(), 0, 7)}
+                <div className="h-[18px]"></div>
+                {Line("for your data".to_string(), 1, 7)}
             </div>
+
+            <p className="mx-auto mt-10 max-w-[430px] text-center text-[11px] leading-[1.9] text-muted-foreground">
+                Our layer aggregates signals, removes noise, and delivers only what is actionable
+                at scale and in real time.
+            </p>
+
+            <div className="mt-8 flex items-center justify-center gap-3">
+                <button
+                    className="slab rounded-[5px] px-6 py-[9px] text-[12px]"
+                    onClick={move |_| rustx::router::navigate("/console".to_string())}
+                >
+                    Get started
+                </button>
+                <button
+                    className="glossy rounded-[5px] px-6 py-[9px] text-[12px]"
+                    onClick={move |_| rustx::router::navigate("/architecture".to_string())}
+                >
+                    Learn more
+                </button>
+            </div>
+        </div>
+
+        {Field(rows)}
+
+        <div className="mx-auto grid max-w-[1000px] grid-cols-3 gap-4 px-6 py-12">
+            {Card(
+                "AGGREGATE".to_string(),
+                "Every signal that reaches the layer lands in one place, keyed the same way, whatever it came from.".to_string(),
+                "/architecture".to_string(),
+            )}
+            {Card(
+                "REMOVE NOISE".to_string(),
+                "A row that tells you nothing is a row you pay to store twice. The layer keeps what cleared the floor.".to_string(),
+                "/platform".to_string(),
+            )}
+            {Card(
+                "DELIVER".to_string(),
+                "What is left is a table, and a table is something a person can open. The console is at /console.".to_string(),
+                "/console".to_string(),
+            )}
         </div>
     </div>;
 }
 
-fn Sidebar() -> Element {
-    return <Card className="border-border bg-card">
-        <CardHeader>
-            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">{tables.len()} table(s)</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-            <ul id="tables" className="flex flex-col gap-1">
-                {tables.iter().enumerate().map(|(index, table)| TableTab(index, table.name.clone(), table.rows.len())).collect::<Vec<_>>()}
-            </ul>
+// ---- the dot-matrix headline -----------------------------------------
 
-            <Button variant="outline" id="import" className="mt-2" onClick={move |_| {
-                let Ok(paths) = rustx::dialog::open(
-                    rustx::dialog::Ask::new("Import a CSV table").filter("CSV", ["csv"]),
-                ) else { return; };
-                if let Some(path) = paths.first() {
-                    import_csv(path);
-                }
-            }}>
-                import CSV…
-            </Button>
-            <p className="text-[11px] text-muted-foreground">or drop a .csv file on this window</p>
-            <p id="status" className="text-xs text-emerald-400">{status.clone()}</p>
-        </CardContent>
-    </Card>;
+/// One line of the headline. `cell` is the pitch; the dot itself is
+/// a touch smaller, which is what makes it read as a matrix rather
+/// than as a block.
+fn Line(text: String, line: usize, cell: usize) -> Element {
+    let frame = format!(
+        "position:relative;height:{}px;width:{}px",
+        7 * cell,
+        line_width(&text) * cell
+    );
+    let cells = lit_cells(&text);
+
+    return <div key={line.to_string()} style={frame}>
+        {cells
+            .iter()
+            .map(|at| Dot(format!("{line}-{}-{}", at.0, at.1), at.0, at.1, cell))
+            .collect::<Vec<_>>()}
+    </div>;
 }
 
-fn TableTab(index: usize, name: String, rows: usize) -> Element {
-    let active = selected == index;
-    return <li key={index.to_string()}
-        onClick={move |_| selected = index}
-        className={format!("flex cursor-pointer items-center justify-between rounded-md px-2.5 py-1.5 {}", if active { "bg-accent" } else { "" })}>
-        <span>{name.clone()}</span>
-        <span className="text-muted-foreground">{rows}</span>
-    </li>;
+fn Dot(name: String, column: usize, row: usize, cell: usize) -> Element {
+    let size = cell.saturating_sub(2).max(2);
+    let paint = format!(
+        "position:absolute;left:{}px;top:{}px;width:{size}px;height:{size}px;border-radius:50%;background:#e8e8e8",
+        column * cell + 1,
+        row * cell + 1
+    );
+    return <span key={name} style={paint}></span>;
 }
 
-fn Overview() -> Element {
-    let data: Vec<Bar> = tables.iter().map(|table| Bar { table: table.name.clone(), rows: table.rows.len() as f64 }).collect();
+// ---- the particle field ----------------------------------------------
 
-    return <Card className="border-border bg-card">
-        <CardHeader>
-            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">rows per table</CardTitle>
-        </CardHeader>
-        <CardContent>
-            <recharts::BarChart width={660} height={160} data={data}>
-                <recharts::XAxis dataKey="table" stroke="#52525b" />
-                <recharts::YAxis stroke="#52525b" allowDecimals={false} />
-                <recharts::Bar dataKey="rows" fill="#6366f1" />
-            </recharts::BarChart>
-        </CardContent>
-    </Card>;
+fn Field(rows: usize) -> Element {
+    return <div className="relative h-[330px] overflow-hidden border-b border-border bg-black">
+        {nebula()
+            .iter()
+            .enumerate()
+            .map(|(index, dot)| Speck(index, dot.0, dot.1, dot.2, dot.3, dot.4))
+            .collect::<Vec<_>>()}
+        <span className="absolute left-6 top-5 text-[9px] tracking-[0.18em] text-faint">
+            SIGNAL FIELD · LIVE
+        </span>
+        <span className="absolute bottom-5 right-6 text-[9px] tracking-[0.18em] text-faint">
+            {format!("{} ROWS UNDER MANAGEMENT · {} TABLES", rows, tables.len())}
+        </span>
+    </div>;
 }
 
-fn Main() -> Element {
-    if tables.is_empty() {
-        return <Card className="border-border bg-card"><CardContent>no tables yet.</CardContent></Card>;
-    }
-    let index = selected.min(tables.len() - 1);
-    let table = tables[index].clone();
-    let route_name = table.name.clone();
-
-    return <Card className="border-border bg-card">
-        <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-base">{table.name.clone()}</CardTitle>
-            <div className="flex gap-2">
-                <Button variant="ghost" className="h-8 px-3 text-xs" onClick={move |_| rustx::router::navigate(format!("/table/{}", route_name))}>
-                    open →
-                </Button>
-                <Button variant="destructive" className="h-8 px-3 text-xs" onClick={move |_| {
-                    tables.remove(index);
-                    if selected > 0 { selected -= 1; }
-                }}>
-                    drop table
-                </Button>
-            </div>
-        </CardHeader>
-        <CardContent>
-            <Table>
-                <TableHeader>
-                    <TableRow>
-                        {table.columns.iter().map(|column| <TableHead key={column.clone()}>{column.clone()}</TableHead>).collect::<Vec<_>>()}
-                        <TableHead></TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {table.rows.iter().enumerate().map(|(row_index, row)| DataRow(index, row_index, row.clone())).collect::<Vec<_>>()}
-                </TableBody>
-            </Table>
-        </CardContent>
-    </Card>;
+fn Speck(index: usize, left: f64, top: f64, size: f64, bright: f64, warm: bool) -> Element {
+    let colour = if warm { "217,138,74" } else { "214,226,238" };
+    let paint = format!(
+        "position:absolute;left:{left:.2}%;top:{top:.2}%;width:{size:.1}px;height:{size:.1}px;border-radius:50%;background:rgba({colour},{:.2});box-shadow:0 0 {:.0}px rgba({colour},{:.2})",
+        bright / 100.0,
+        size * 2.4,
+        bright / 240.0
+    );
+    return <span key={index.to_string()} style={paint}></span>;
 }
 
-fn DataRow(table_index: usize, row_index: usize, row: Vec<String>) -> Element {
-    return <TableRow key={row_index.to_string()}>
-        {row.iter().map(|cell| <TableCell>{cell.clone()}</TableCell>).collect::<Vec<_>>()}
-        <TableCell className="text-right">
-            <Button variant="ghost" className="h-7 px-2 text-xs" onClick={move |_| {
-                if let Some(table) = tables.get_mut(table_index) {
-                    if row_index < table.rows.len() {
-                        table.rows.remove(row_index);
-                    }
-                }
-            }}>remove</Button>
-        </TableCell>
-    </TableRow>;
-}
+// ---- the three cards under it ----------------------------------------
 
-/// Reads a real file from a real path and turns its header row into
-/// columns, the rest into rows. No network, no driver: just `std::fs`.
-fn import_csv(path: &std::path::Path) {
-    let Ok(content) = std::fs::read_to_string(path) else {
-        status = format!("could not read {}", path.display());
-        return;
-    };
-    let mut lines = content.lines();
-    let Some(header) = lines.next() else {
-        status = "empty file".to_string();
-        return;
-    };
-    let columns: Vec<String> = header.split(',').map(|cell| cell.trim().to_string()).collect();
-    let rows: Vec<Vec<String>> = lines
-        .filter(|line| !line.trim().is_empty())
-        .map(|line| line.split(',').map(|cell| cell.trim().to_string()).collect())
-        .collect();
-
-    let name = path.file_stem().map(|stem| stem.to_string_lossy().to_string()).unwrap_or_else(|| "imported".to_string());
-    let row_count = rows.len();
-    tables.push(Table_ { name: name.clone(), columns, rows });
-    selected = tables.len() - 1;
-    status = format!("imported {} ({} rows)", name, row_count);
+fn Card(name: String, text: String, route: String) -> Element {
+    let going = route.clone();
+    return <button
+        key={name.clone()}
+        className="rounded-[6px] border border-border bg-card p-5 text-left hover:border-[#3a3a3a]"
+        onClick={move |_| rustx::router::navigate(going.clone())}
+    >
+        <span className="block text-[10px] tracking-[0.16em] text-faint">{name}</span>
+        <span className="mt-3 block text-[12px] leading-[1.75] text-foreground">{text}</span>
+        <span className="mt-4 block text-[10px] tracking-[0.12em] text-muted-foreground">READ ON →</span>
+    </button>;
 }

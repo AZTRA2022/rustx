@@ -98,6 +98,11 @@ pub fn run(script: &str, at: Option<&Path>) -> Result<Output, OsError> {
     if let Some(directory) = at {
         in_a_directory(directory)?;
     }
+    // The one call in this crate whose waiting was already documented,
+    // and the reason the rest of them now say so too: a developer who
+    // has not read the paragraph above sees a window that stopped
+    // responding, not a call that is still running.
+    crate::blocking::waiting("a script in the shell");
     crate::platform::terminal::run(script, at)
 }
 

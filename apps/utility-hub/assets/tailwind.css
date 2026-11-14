@@ -1,57 +1,78 @@
+/* Reelhouse. A production office at night: four panes of near-black,
+   hairline rules between them, one blue that means "this one", and
+   three badge colours for what a person is allowed to do.
+   Tailwind 4 is configured in CSS; `@theme` below is the configuration. */
 @import "tailwindcss";
-@custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: #0a0c10;
-  --foreground: #e8eaf0;
-  --card: #11141c;
-  --card-foreground: #e8eaf0;
-  --primary: #6366f1;
+  --background: #0b0e12;
+  --rail: #0d1015;
+  --pane: #0e1218;
+  --foreground: #c9d1d9;
+  --muted: #7d8894;
+  --faint: #5a6572;
+  --border: #1a1f27;
+  --blue: #2f6fed;
+  --blue-soft: #1b2b48;
+
+  --card: #0e1218;
+  --card-foreground: #c9d1d9;
+  --primary: #2f6fed;
   --primary-foreground: #ffffff;
-  --secondary: #1c2230;
-  --secondary-foreground: #e8eaf0;
-  --muted: #11141c;
-  --muted-foreground: #8a90ab;
-  --accent: #1c2230;
-  --accent-foreground: #e8eaf0;
-  --border: #1c2230;
-  --input: #1c2230;
-  --ring: #6366f1;
-  /* shadcn's `destructive` variant asks for this one by name, and a
-     token nothing declares is a button with no background at all. */
+  --secondary: #171c24;
+  --secondary-foreground: #c9d1d9;
+  --muted-foreground: #7d8894;
+  --accent: #171c24;
+  --accent-foreground: #c9d1d9;
+  --input: #1a1f27;
+  --ring: #2f6fed;
   --destructive: #7f1d2e;
   --destructive-foreground: #fee2e2;
-  --radius: 0.6rem;
+  --radius: 0.4rem;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-rail: var(--rail);
+  --color-pane: var(--pane);
   --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-border: var(--border);
+  --color-blue: var(--blue);
+  --color-bluesoft: var(--blue-soft);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
-  --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --radius-lg: var(--radius);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-sm: calc(var(--radius) - 4px);
-  --font-sans: "Segoe UI Variable Text", "Segoe UI", ui-sans-serif, system-ui;
+  --radius-md: calc(var(--radius) - 1px);
+  --radius-sm: calc(var(--radius) - 2px);
+  --font-sans: "Inter", "Segoe UI Variable Text", "Segoe UI", ui-sans-serif,
+    system-ui;
 }
 
 @layer base {
-  html, body {
+  html,
+  body {
     background-color: var(--background);
     color: var(--foreground);
     font-family: var(--font-sans);
+    font-size: 13px;
+    margin: 0;
+    overflow: hidden;
+  }
+
+  table {
+    border-collapse: collapse;
   }
 }

@@ -81,7 +81,7 @@ pub fn idle() -> Result<std::time::Duration, OsError> {
     // SAFETY: `cbSize` rempli, ce que cette API exige.
     if !unsafe { GetLastInputInfo(&mut last) }.as_bool() {
         return Err(OsError::Platform(
-            "Windows n'a pas dit quand a eu lieu la dernière saisie".to_string(),
+            "Windows did not say when the last input happened".to_string(),
         ));
     }
     // SAFETY: sans argument.
@@ -121,7 +121,7 @@ pub fn locale() -> Result<String, OsError> {
     let written = unsafe { GetUserDefaultLocaleName(&mut name) };
     if written <= 1 {
         return Err(OsError::Platform(
-            "Windows n'a pas rendu la langue de l'utilisateur".to_string(),
+            "Windows did not answer with the user's language".to_string(),
         ));
     }
     Ok(String::from_utf16_lossy(&name[..written as usize - 1]))
@@ -133,7 +133,7 @@ pub fn timezone() -> Result<String, OsError> {
     let answer = unsafe { GetDynamicTimeZoneInformation(&mut zone) };
     if answer == u32::MAX {
         return Err(OsError::Platform(
-            "Windows n'a pas rendu le fuseau horaire".to_string(),
+            "Windows did not answer with the time zone".to_string(),
         ));
     }
     let key = &zone.TimeZoneKeyName;

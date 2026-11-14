@@ -34,7 +34,7 @@ pub fn set(on: bool, name: &str) -> Result<(), OsError> {
     let done = if on {
         let exe = std::env::current_exe().map_err(|error| {
             OsError::File(format!(
-                "le chemin de cet exécutable n'a pas pu être lu : {error}"
+                "the path of this executable could not be read: {error}"
             ))
         })?;
         // Entre guillemets : un chemin avec un espace, sinon, est lu

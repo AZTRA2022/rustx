@@ -43,13 +43,13 @@ fn main() {
 
     if let Err(why) = tray.notify(&What::new(
         "rustx",
-        "L'icône est posée. Clic droit pour le menu.",
+        "The icon is in place. Right-click for the menu.",
     )) {
         println!("la notification a été refusée : {why}");
     }
 
-    println!("l'icône est dans la barre ({} posée(s))", rustx_os::tray::shown());
-    println!("clic droit pour le menu ; « Quitter » pour finir.");
+    println!("the icon is in the tray ({} placed)", rustx_os::tray::shown());
+    println!("right-click for the menu; \"Quit\" to finish.");
 
     let until = Instant::now() + Duration::from_secs(60);
     while Instant::now() < until {

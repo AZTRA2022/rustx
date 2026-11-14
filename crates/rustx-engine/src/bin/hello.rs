@@ -282,6 +282,64 @@ fn inner_framing(children: Element, _params: &rustx_dom::route::Params) -> Eleme
     inner(children)
 }
 
+// The screens of the `nested` scenario, which proves one thing the
+// `router` scenario above cannot: what happens to the **DOM** of a
+// nested layout when the application leaves it.
+//
+// The shape is the one a real application has and the one above does
+// not. `inner_fragment` returns a *fragment* — a sidebar beside its
+// children, with no element of its own around the two — which is what a
+// layout written as `<>…{children}</>` compiles to and what any layout
+// that puts something beside its page looks like. A fragment has no DOM
+// node of its own, so removing the subtree used to mean removing
+// nothing at all: everything the layout and its last page had put on
+// the page stayed in the document, underneath the new screen, once per
+// navigation, for as long as the window was open.
+
+/// A nested layout with no element of its own: a sidebar, then the page.
+fn inner_fragment(children: Element, _params: &rustx_dom::route::Params) -> Element {
+    Element::Fragment(vec![
+        Element::tag("aside")
+            .attribute("id", AttributeValue::Text("inner-aside".into()))
+            .child(Element::Text("beside".into()))
+            .build(),
+        children,
+    ])
+}
+
+/// The screen under that nested layout.
+fn deep(_params: &rustx_dom::route::Params) -> Element {
+    Element::tag("p")
+        .attribute("id", AttributeValue::Text("deep".into()))
+        .child(Element::Text("deep".into()))
+        .build()
+}
+
+/// And a screen outside it, which is where the application goes.
+fn flat(_params: &rustx_dom::route::Params) -> Element {
+    Element::tag("p")
+        .attribute("id", AttributeValue::Text("flat".into()))
+        .child(Element::Text("flat".into()))
+        .build()
+}
+
+static NESTED_ROUTES: &[rustx_dom::route::Route] = &[
+    rustx_dom::route::Route {
+        pattern: "/deep",
+        render: deep,
+        layouts: &[bar_framing, inner_fragment],
+        loading: None,
+        failed: None,
+    },
+    rustx_dom::route::Route {
+        pattern: "/flat",
+        render: flat,
+        layouts: &[bar_framing],
+        loading: None,
+        failed: None,
+    },
+];
+
 static ROUTES: &[rustx_dom::route::Route] = &[
     rustx_dom::route::Route {
         pattern: "/",
@@ -302,6 +360,14 @@ static ROUTES: &[rustx_dom::route::Route] = &[
 fn install_router_natives() {
     register_native("rustx_start_router", |_args| {
         rustx_engine::router::start(ROUTES, "screens", "/", missing)?;
+        Ok(Value::Null)
+    });
+
+    // The `nested` scenario's own table, under a host of its own. One
+    // router per thread, and a scenario is a process, so the two never
+    // meet.
+    register_native("rustx_start_nested", |_args| {
+        rustx_engine::router::start(NESTED_ROUTES, "nested", "/deep", missing)?;
         Ok(Value::Null)
     });
 

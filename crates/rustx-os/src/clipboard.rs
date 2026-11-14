@@ -16,6 +16,8 @@
 //! manager, an editor, the shell — the open is retried for 200 ms
 //! before it refuses.
 
+use crate::error::OsError;
+
 /// An image, as the clipboard and the screen both keep one: four bytes
 /// a pixel, blue first, rows top to bottom.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,24 +38,48 @@ pub fn supported() -> bool {
     crate::platform::clipboard::AVAILABLE
 }
 
+/// How the clipboard names itself in the warning a call made on the
+/// thread that draws gets. The open is retried for 200 ms, so a
+/// handler that asks while a password manager is holding it stops the
+/// window for a fifth of a second — see [`crate::blocking`].
+const WAITS: &str = "the clipboard";
+
 /// What the clipboard holds as text, or an empty string when it holds
 /// none.
-pub use crate::platform::clipboard::text;
+pub fn text() -> Result<String, OsError> {
+    crate::blocking::waiting(WAITS);
+    crate::platform::clipboard::text()
+}
 
 /// Put text on the clipboard, replacing whatever was there.
-pub use crate::platform::clipboard::set_text;
+pub fn set_text(text: &str) -> Result<(), OsError> {
+    crate::blocking::waiting(WAITS);
+    crate::platform::clipboard::set_text(text)
+}
 
 /// The image on the clipboard, if what is there is an image.
-pub use crate::platform::clipboard::image;
+pub fn image() -> Result<Image, OsError> {
+    crate::blocking::waiting(WAITS);
+    crate::platform::clipboard::image()
+}
 
 /// Put an image on the clipboard, replacing whatever was there.
-pub use crate::platform::clipboard::set_image;
+pub fn set_image(image: &Image) -> Result<(), OsError> {
+    crate::blocking::waiting(WAITS);
+    crate::platform::clipboard::set_image(image)
+}
 
 /// Bytes under a name a project invents, for its own objects.
-pub use crate::platform::clipboard::set_custom;
+pub fn set_custom(format: &str, bytes: &[u8]) -> Result<(), OsError> {
+    crate::blocking::waiting(WAITS);
+    crate::platform::clipboard::set_custom(format, bytes)
+}
 
 /// Read back what `set_custom` wrote under that name.
-pub use crate::platform::clipboard::custom;
+pub fn custom(format: &str) -> Result<Vec<u8>, OsError> {
+    crate::blocking::waiting(WAITS);
+    crate::platform::clipboard::custom(format)
+}
 
 /// How long a platform retries opening the clipboard, and how long it
 /// waits between tries.

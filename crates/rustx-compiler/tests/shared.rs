@@ -690,3 +690,171 @@ fn a_semicolon_in_a_string_does_not_begin_a_statement() {
         built.rust
     );
 }
+
+/// A page value read in the `else` of an `if` **written inside the
+/// markup**.
+///
+/// The `{…}` of a tag holds an expression, so everything in it is a
+/// value — but the braces look exactly like a block's, and the `if`
+/// inside them looks exactly like an `if` statement. Reading the head of
+/// the statement and stopping at the first construct keyword was
+/// therefore not enough: `if status.is_empty() { … } else { … }` begins
+/// a statement *at the brace level it is in*, and that brace level is a
+/// tag's expression, whose value is used.
+///
+/// Found on `apps/data-intel/app/console/page.rsx`, which was refused
+/// with "`status` is written while `Page` is being drawn" for a line
+/// that only reads.
+#[test]
+fn a_page_value_read_in_an_if_inside_the_markup_is_not_a_write() {
+    let source = "let mut status: String = String::new();\n\
+         \n\
+         fn Page() -> Element {\n    \
+         return <p>{if status.is_empty() {\n        \
+         \"nothing yet\".to_string()\n    \
+         } else {\n        \
+         status.clone()\n    \
+         }}</p>;\n\
+         }\n";
+    let built = transpile(source).expect("a page that only reads is not refused");
+    let tight: String = built
+        .rust
+        .chars()
+        .filter(|each| !each.is_whitespace())
+        .collect();
+    assert!(
+        tight.contains("status.get().clone()"),
+        "the read should be a read:\n{}",
+        built.rust
+    );
+    assert!(
+        !tight.contains("status.update"),
+        "the read was taken for a write:\n{}",
+        built.rust
+    );
+}
+
+/// The counterpart one level deeper: a construct that is the last thing
+/// in a block whose own value is used.
+#[test]
+fn a_page_value_read_in_a_match_inside_the_markup_is_not_a_write() {
+    let source = "let mut rows: Vec<String> = Vec::new();\n\
+         \n\
+         fn Page() -> Element {\n    \
+         return <p>{match rows.len() {\n        \
+         0 => \"none\".to_string(),\n        \
+         _ => {\n            \
+         rows.join(\", \")\n        \
+         }\n    \
+         }}</p>;\n\
+         }\n";
+    let built = transpile(source).expect("a page that only reads is not refused");
+    assert!(
+        !built.rust.contains("rows.update"),
+        "a read in a match arm inside the markup was taken for a write:\n{}",
+        built.rust
+    );
+}
+
+/// And a real write that ends an `if` which is itself the last statement
+/// of a handler is still a write.
+#[test]
+fn a_write_ending_the_last_construct_of_a_handler_is_still_a_write() {
+    let source = "let mut rows: Vec<String> = Vec::new();\n\
+         \n\
+         fn Page() -> Element {\n    \
+         return <button onClick={move |_| {\n        \
+         if rows.is_empty() { rows.push(\"first\".to_string()) }\n    \
+         }}>push</button>;\n\
+         }\n";
+    let built = transpile(source).expect("transpiles");
+    let tight: String = built
+        .rust
+        .chars()
+        .filter(|each| !each.is_whitespace())
+        .collect();
+    assert!(
+        tight.contains("rows.update(|__v|{__v.push("),
+        "the push should still be a write:\n{}",
+        built.rust
+    );
+}
+
+/// A page value read in the `if` half of an `if/else` written inside the
+/// markup.
+///
+/// The counterpart of the test above, and a second defect: the test for
+/// "is the construct the last thing in its block?" looked at the token
+/// after the **block**, and the token after the `if`'s block is `else`.
+/// An `else` is the same `if` carrying on, not the next statement, so
+/// `{if ready { status.clone() } else { … }}` had the `.clone()` read as
+/// a write. Found on `apps/data-intel/app/contact/page.rsx`.
+#[test]
+fn a_page_value_read_in_the_if_half_inside_the_markup_is_not_a_write() {
+    let source = "let mut status: String = String::new();\n\
+         \n\
+         fn Page() -> Element {\n    \
+         let ready = true;\n    \
+         return <p>{if ready { status.clone() } else { \"not yet\".to_string() }}</p>;\n\
+         }\n";
+    let built = transpile(source).expect("a page that only reads is not refused");
+    let tight: String = built
+        .rust
+        .chars()
+        .filter(|each| !each.is_whitespace())
+        .collect();
+    assert!(
+        tight.contains("status.get().clone()"),
+        "the read should be a read:\n{}",
+        built.rust
+    );
+    assert!(
+        !tight.contains("status.update"),
+        "the read was taken for a write:\n{}",
+        built.rust
+    );
+}
+
+/// And an `else if` chain, which is the same question one link longer.
+#[test]
+fn a_page_value_read_in_an_else_if_chain_inside_the_markup_is_not_a_write() {
+    let source = "let mut status: String = String::new();\n\
+         \n\
+         fn Page() -> Element {\n    \
+         let n = 2;\n    \
+         return <p>{if n == 0 { status.clone() } else if n == 1 { status.to_uppercase() } \
+         else { String::new() }}</p>;\n\
+         }\n";
+    let built = transpile(source).expect("a page that only reads is not refused");
+    assert!(
+        !built.rust.contains("status.update"),
+        "a read in an else-if chain was taken for a write:\n{}",
+        built.rust
+    );
+}
+
+/// The counterpart: an `if/else` of two writes, written as a statement
+/// of a handler, is still two writes.
+#[test]
+fn an_if_else_of_two_writes_in_a_handler_is_still_two_writes() {
+    let source = "let mut rows: Vec<String> = Vec::new();\n\
+         \n\
+         fn Page() -> Element {\n    \
+         let ready = true;\n    \
+         return <button onClick={move |_| {\n        \
+         if ready { rows.push(\"yes\".to_string()) } else { rows.push(\"no\".to_string()) }\n    \
+         }}>push</button>;\n\
+         }\n";
+    let built = transpile(source).expect("transpiles");
+    let tight: String = built
+        .rust
+        .chars()
+        .filter(|each| !each.is_whitespace())
+        .collect();
+    assert_eq!(
+        tight.matches("rows.update(|__v|{__v.push(").count(),
+        2,
+        "both pushes should be writes:\n{}",
+        built.rust
+    );
+}

@@ -128,10 +128,10 @@ pub fn told(message: &ProcessMessage) -> bool {
     // d'eux a le droit d'en poser un autre sans bloquer sur l'emprunt.
     let hooks = LISTENING.with(|listening| listening.borrow_mut().remove(&name));
     let Some(hooks) = hooks else {
-        traced(&format!("page : {name} arrivé, mais personne ne l'écoute"));
+        traced(&format!("page: {name} arrived, and nobody is listening"));
         return false;
     };
-    traced(&format!("page : {name} arrivé, {} crochet(s)", hooks.len()));
+    traced(&format!("page: {name} arrived, {} listener(s)", hooks.len()));
     for hook in &hooks {
         hook(values.clone());
     }

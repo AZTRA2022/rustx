@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Cryostasis</title>
+    <!-- The whole stylesheet of this application. There is no Tailwind
+         here: this app's npm dependency is `react-qrcode-logo` and
+         nothing else, and a build step nobody can run offline would be
+         a worse answer than a sheet that is read in one sitting.
+
+         The look is the design's: white paper, a one-pixel grid under
+         everything, a monospace face throughout, one blue that means
+         "do this", and small outlined labels that read as instrument
+         markings. -->
+    <style>
+      :root {
+        --ink: #0a0a0a;
+        --paper: #ffffff;
+        --rule: #e4e4e4;
+        --rule-soft: #efefef;
+        --muted: #767676;
+        --faint: #9a9a9a;
+        --blue: #1f9cf0;
+        --blue-deep: #0d7fcc;
+        --mono: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace,
+          SFMono-Regular, monospace;
+      }
+
+      html,
+      body {
+        margin: 0;
+        background-color: var(--paper);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 13px;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      button {
+        font: inherit;
+        cursor: pointer;
+      }
+
+      input,
+      textarea {
+        font: inherit;
+        color: inherit;
+      }
+
+      /* ---- the frame ---------------------------------------------- */
+
+      .shell {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        gap: 28px;
+        height: 54px;
+        padding: 0 22px;
+        border-bottom: 1px solid var(--rule);
+        background: var(--paper);
+        position: relative;
+        z-index: 3;
+      }
+
+      .mark {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        background: none;
+        border: none;
+        padding: 0;
+      }
+
+      .nav {
+        display: flex;
+        align-items: center;
+        gap: 26px;
+        margin: 0 auto;
+      }
+
+      .nav-item {
+        background: none;
+        border: none;
+        padding: 4px 0;
+        color: var(--muted);
+        font-size: 13px;
+        border-bottom: 1px solid transparent;
+      }
+
+      .nav-item:hover {
+        color: var(--ink);
+      }
+
+      .nav-item.on {
+        color: var(--ink);
+        border-bottom-color: var(--ink);
+      }
+
+      .cta {
+        background: var(--blue);
+        color: #fff;
+        border: none;
+        border-radius: 3px;
+        padding: 8px 16px;
+        font-size: 13px;
+      }
+
+      .cta:hover {
+        background: var(--blue-deep);
+      }
+
+      .ghost {
+        background: var(--paper);
+        color: var(--ink);
+        border: 1px solid var(--ink);
+        border-radius: 3px;
+        padding: 8px 16px;
+        font-size: 13px;
+      }
+
+      .ghost:hover {
+        background: #f4f4f4;
+      }
+
+      .small {
+        padding: 5px 11px;
+        font-size: 11px;
+      }
+
+      /* ---- the gridded field under the hero ----------------------- */
+
+      .field {
+        position: relative;
+        flex: 1;
+        overflow: hidden;
+        background-image: linear-gradient(
+            to right,
+            var(--rule-soft) 1px,
+            transparent 1px
+          ),
+          linear-gradient(to bottom, var(--rule-soft) 1px, transparent 1px);
+        background-size: 34px 34px;
+      }
+
+      .plain {
+        position: relative;
+        flex: 1;
+        padding: 34px 22px 60px;
+        max-width: 1020px;
+        width: 100%;
+        margin: 0 auto;
+      }
+
+      .tick {
+        position: absolute;
+        color: #d2d2d2;
+        font-size: 13px;
+        line-height: 1;
+        user-select: none;
+      }
+
+      .tag {
+        position: absolute;
+        border: 1px solid var(--rule);
+        background: var(--paper);
+        color: var(--faint);
+        font-size: 8px;
+        letter-spacing: 0.08em;
+        padding: 2px 5px;
+        line-height: 1.35;
+        white-space: pre;
+      }
+
+      .corner {
+        position: absolute;
+        width: 14px;
+        height: 14px;
+        border: 1px solid var(--ink);
+      }
+
+      /* ---- the headline ------------------------------------------- */
+
+      .pixelline {
+        position: relative;
+      }
+
+      .pixel {
+        position: absolute;
+        background: var(--ink);
+      }
+
+      /* ---- the cube ------------------------------------------------ */
+
+      .cube-stage {
+        position: absolute;
+        perspective: 900px;
+      }
+
+      .cube {
+        position: relative;
+        transform-style: preserve-3d;
+        animation: turn 26s linear infinite;
+      }
+
+      .cube > span {
+        position: absolute;
+        inset: 0;
+        border: 1px solid rgba(255, 255, 255, 0.75);
+        background: linear-gradient(
+          140deg,
+          rgba(255, 255, 255, 0.82),
+          rgba(214, 232, 255, 0.52) 38%,
+          rgba(255, 226, 246, 0.42) 62%,
+          rgba(225, 255, 236, 0.6)
+        );
+        box-shadow: inset 0 0 40px rgba(255, 255, 255, 0.9);
+      }
+
+      @keyframes turn {
+        from {
+          transform: rotateX(-18deg) rotateY(0deg);
+        }
+        to {
+          transform: rotateX(-18deg) rotateY(360deg);
+        }
+      }
+
+      .halo {
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(46px);
+        opacity: 0.55;
+        background: conic-gradient(
+          from 20deg,
+          #ffd9ec,
+          #d9f0ff,
+          #e6ffe9,
+          #fff3d1,
+          #ffd9ec
+        );
+      }
+
+      .shadow {
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(18px);
+        background: rgba(0, 0, 0, 0.1);
+      }
+
+      /* ---- panels and type ---------------------------------------- */
+
+      .panel {
+        border: 1px solid var(--rule);
+        background: var(--paper);
+        padding: 16px;
+      }
+
+      .panel-dark {
+        border: 1px solid var(--ink);
+        background: var(--ink);
+        color: #f2f2f2;
+        padding: 16px;
+      }
+
+      .label {
+        font-size: 9px;
+        letter-spacing: 0.14em;
+        color: var(--faint);
+      }
+
+      .lead {
+        font-size: 14px;
+        line-height: 1.65;
+        color: #2a2a2a;
+      }
+
+      .h1 {
+        font-size: 26px;
+        letter-spacing: -0.01em;
+        margin: 0;
+      }
+
+      .h2 {
+        font-size: 17px;
+        margin: 0;
+      }
+
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .grid2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+
+      .grid3 {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+      }
+
+      .grid4 {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+      }
+
+      .field-input {
+        width: 100%;
+        border: 1px solid var(--rule);
+        background: #fafafa;
+        padding: 8px 10px;
+        font-size: 12px;
+        outline: none;
+      }
+
+      .field-input:focus {
+        border-color: var(--ink);
+        background: var(--paper);
+      }
+
+      .readout {
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .blob {
+        font-size: 10px;
+        line-height: 1.6;
+        word-break: break-all;
+        color: #3a3a3a;
+        background: #fafafa;
+        border: 1px solid var(--rule);
+        padding: 9px;
+        max-height: 108px;
+        overflow: auto;
+      }
+
+      .list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border: 1px solid var(--rule);
+        padding: 9px 11px;
+        background: var(--paper);
+      }
+
+      .item:hover {
+        border-color: var(--ink);
+      }
+
+      .chip {
+        border: 1px solid var(--rule);
+        padding: 2px 6px;
+        font-size: 9px;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }
+
+      .chip.on {
+        border-color: var(--blue);
+        color: var(--blue-deep);
+      }
+
+      a,
+      .link {
+        color: var(--blue-deep);
+      }
+
+      .footer {
+        border-top: 1px solid var(--rule);
+        padding: 14px 22px;
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        font-size: 11px;
+        color: var(--faint);
+        background: var(--paper);
+      }
+
+      .footer button {
+        background: none;
+        border: none;
+        color: var(--faint);
+        font-size: 11px;
+        padding: 0;
+      }
+
+      .footer button:hover {
+        color: var(--ink);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      // A probe, and only when one is asked for: `--scenario=routes`
+      // walks every screen by pressing the buttons a person would
+      // press, and says what each one drew. A normal launch logs
+      // nothing.
+      (() => {
+        if (typeof rustx_scenario !== "function") return;
+        if (rustx_scenario() !== "routes") return;
+
+        const screen = () => {
+          const all = [...document.querySelectorAll("[id^='screen-']")].map((node) => node.id);
+          return all.length ? all.join("+") : "none";
+        };
+
+        const press = (label) => {
+          const wanted = label.toLowerCase();
+          for (const button of document.querySelectorAll("button")) {
+            const said = (button.textContent || "").trim().toLowerCase();
+            if (said === wanted || said.startsWith(wanted)) {
+              button.click();
+              return true;
+            }
+          }
+          return false;
+        };
+
+        const walk = [
+          "Product",
+          "Security",
+          "Pricing",
+          "Docs",
+          "Quickstart",
+          "The cipher",
+          "Vault",
+          "Let's Talk",
+          "How it works",
+          "CRYOSTASIS",
+          "Secure Now",
+          "CRYOSTASIS",
+          "How It Works",
+          "Docs",
+          "Proof of custody",
+        ];
+
+        let at = 0;
+        const step = () => {
+          if (at >= walk.length) {
+            console.log("routes done=" + at);
+            return;
+          }
+          const label = walk[at];
+          const went = press(label);
+          at += 1;
+          setTimeout(() => {
+            console.log(
+              "route step=" + at +
+              " pressed=[" + label + "]" +
+              " found=" + went +
+              " screen=" + screen() +
+              " text=" + document.body.textContent.trim().length
+            );
+            step();
+          }, 650);
+        };
+        setTimeout(step, 2000);
+      })();
+    </script>
+  </body>
+</html>

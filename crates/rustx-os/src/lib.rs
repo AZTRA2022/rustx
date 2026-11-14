@@ -71,6 +71,7 @@ pub mod about;
 pub mod attention;
 pub mod audio;
 pub mod autostart;
+pub mod blocking;
 pub mod bluetooth;
 pub mod capture;
 pub mod clipboard;

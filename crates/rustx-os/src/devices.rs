@@ -56,6 +56,7 @@ pub fn devices() -> Vec<Device> {
 /// An empty list is an answer: a machine with no webcam is an ordinary
 /// machine, not a failure, so nothing here returns an error.
 pub fn devices_of(kind: Kind) -> Vec<Device> {
+    crate::blocking::waiting("the list of devices");
     crate::platform::devices::devices_of(kind)
 }
 

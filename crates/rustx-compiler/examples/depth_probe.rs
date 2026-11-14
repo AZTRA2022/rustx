@@ -47,7 +47,7 @@ fn survey() {
             (deepest_nesting(&source), page)
         })
         .collect();
-    deepest.sort_by(|a, b| b.0.cmp(&a.0));
+    deepest.sort_by_key(|(depth, _)| std::cmp::Reverse(*depth));
     for (depth, page) in deepest.iter().take(10) {
         println!("{depth:4}  {}", page.display());
     }

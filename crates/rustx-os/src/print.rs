@@ -30,12 +30,14 @@ use crate::error::OsError;
 /// Ouvrir le dialogue d'impression du système pour ce fichier.
 pub fn dialog(path: &Path) -> Result<(), OsError> {
     existing(path)?;
+    crate::blocking::waiting("the print dialog");
     crate::platform::print::print(path, true)
 }
 
 /// L'envoyer à l'imprimante par défaut, sans rien demander.
 pub fn silently(path: &Path) -> Result<(), OsError> {
     existing(path)?;
+    crate::blocking::waiting("the printer");
     crate::platform::print::print(path, false)
 }
 
@@ -44,6 +46,7 @@ pub fn silently(path: &Path) -> Result<(), OsError> {
 /// Pour une application qui veut dire *où* son document va partir avant
 /// de l'y envoyer.
 pub fn printers() -> Result<Vec<Printer>, OsError> {
+    crate::blocking::waiting("the list of printers");
     let mut all = crate::platform::print::printers()?;
     all.sort_by_key(|printer| !printer.default);
     Ok(all)

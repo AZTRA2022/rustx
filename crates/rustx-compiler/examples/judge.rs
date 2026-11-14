@@ -54,11 +54,11 @@ fn main() {
                 let said = refusal.in_file(path).to_string();
                 println!("{file}: REFUSED");
                 println!("  {said}");
-                if let Some((line, column)) = coordinates(&said) {
-                    if let Some(text) = source.lines().nth(line.saturating_sub(1)) {
-                        println!("  {line:>4} | {text}");
-                        println!("       | {}^", " ".repeat(column.saturating_sub(1)));
-                    }
+                if let Some((line, column)) = coordinates(&said)
+                    && let Some(text) = source.lines().nth(line.saturating_sub(1))
+                {
+                    println!("  {line:>4} | {text}");
+                    println!("       | {}^", " ".repeat(column.saturating_sub(1)));
                 }
             }
         }

@@ -111,6 +111,45 @@ pub(crate) fn element_at<'a>(tree: &'a Element, path: &Path) -> Option<&'a Eleme
 }
 
 impl MountedNode {
+    /// Every DOM node this subtree put in the document, taken as high up
+    /// as it can be taken.
+    ///
+    /// Its own node when it has one, and then nothing below — everything
+    /// below is *inside* that node, so detaching it detaches all of it.
+    /// When it has none, which is what a fragment and an `Empty` are, the
+    /// nodes of its children instead.
+    ///
+    /// That second case is the whole reason this exists. Removing a
+    /// subtree used to mean `node.dom.remove()`, which for a fragment is
+    /// `None.remove()` — nothing. So a fragment that left the tree left
+    /// every element it had put on the page behind, still in the
+    /// document, with nothing in the bookkeeping pointing at it any
+    /// more. A layout is exactly that shape: its page is one of its
+    /// children, and leaving a nested layout therefore left the last
+    /// page it had shown on screen underneath the new one, once per
+    /// navigation, for as long as the window was open.
+    pub(crate) fn attached(&self, into: &mut Vec<Node>) {
+        if let Some(dom) = &self.dom {
+            into.push(dom.clone());
+            return;
+        }
+        for child in &self.children {
+            child.attached(into);
+        }
+    }
+
+    /// The first DOM node of this subtree, if it has any.
+    ///
+    /// What `insertBefore` needs when the sibling that should follow a
+    /// new child is a fragment: the fragment has no node of its own, and
+    /// skipping it would put the new child after everything the fragment
+    /// holds instead of before it.
+    pub(crate) fn first_attached(&self) -> Option<Node> {
+        let mut attached = Vec::new();
+        self.attached(&mut attached);
+        attached.into_iter().next()
+    }
+
     /// Every boundary in this subtree, deepest last — the containers
     /// React has to be told about before any of them is detached.
     pub(crate) fn boundaries(&self, into: &mut Vec<(String, Node)>) {

@@ -75,6 +75,7 @@ pub fn show(pane: Pane, credits: &Credits) -> Result<(), OsError> {
             "an About panel with no application name is an empty box".to_string(),
         ));
     }
+    crate::blocking::waiting("the About panel");
     crate::platform::about::show(pane, credits)
 }
 

@@ -162,7 +162,7 @@ fn made<T: Interface>(class: windows::core::GUID) -> Result<T, DialogError> {
 fn path_of(item: &IShellItem) -> Result<PathBuf, DialogError> {
     let wide = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }.map_err(refused)?;
     let path = unsafe { wide.to_string() }
-        .map_err(|_| DialogError::Platform("un chemin que Windows n'a pas écrit en UTF-16 valide".to_string()))?;
+        .map_err(|_| DialogError::Platform("a path Windows did not write as valid UTF-16".to_string()))?;
     unsafe { windows::Win32::System::Com::CoTaskMemFree(Some(wide.0 as *const _)) };
     Ok(PathBuf::from(path))
 }

@@ -37,6 +37,7 @@ pub struct Paired {
 
 /// Les appareils appairés. Une liste vide est une réponse.
 pub fn paired() -> Result<Vec<Paired>, OsError> {
+    crate::blocking::waiting("the list of paired devices");
     crate::platform::bluetooth::paired()
 }
 

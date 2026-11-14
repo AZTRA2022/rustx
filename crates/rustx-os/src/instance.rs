@@ -70,6 +70,7 @@ impl std::fmt::Debug for Only {
 /// personne ne tient ce nom — ce qui veut dire que la première instance
 /// est partie entre-temps, et que celle-ci devrait rester.
 pub fn hand_over(name: &str, arguments: &[String]) -> Result<(), OsError> {
+    crate::blocking::waiting("the first instance of this application");
     crate::platform::instance::hand_over(name, arguments)
 }
 

@@ -45,11 +45,11 @@ fn what_was_told_reaches_the_one_who_listens() {
 
     let message = bridge::saying("test.un", &[Value::String("é".to_string())])
         .expect("un message de Chromium");
-    assert!(bridge::told(&message), "le message était pour nous");
+    assert!(bridge::told(&message), "the message was for us");
     assert_eq!(
         *heard.borrow(),
         vec![vec![Value::String("é".to_string())]],
-        "ce qui a été dit n'est pas arrivé"
+        "what was said never arrived"
     );
 }
 

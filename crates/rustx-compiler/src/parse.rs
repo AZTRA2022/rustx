@@ -185,17 +185,17 @@ impl Cursor<'_> {
     /// Text up to the next tag or `{`. A `<` that does not open a tag —
     /// "10 < 20" — is text like any other character.
     ///
-    /// Un commentaire n'en fait pas partie. Il commence une ligne —
-    /// `// …` au milieu d'une phrase est la phrase, et une adresse en
-    /// contient un — ou il est entre `/*` et `*/`, ou qu'il soit. Ce
-    /// qui l'entoure reste du texte, et ce qui est dedans n'arrive
-    /// jamais a l'ecran : c'est la ce que le labo a vu, une ligne de
-    /// commentaire ecrite en toutes lettres dans sa barre.
+    /// A comment is not part of it. It begins a line — `// …` in the
+    /// middle of a sentence *is* the sentence, and a web address holds
+    /// one — or it sits between `/*` and `*/`, wherever that is. What
+    /// surrounds it stays text, and what is inside it never reaches the
+    /// screen: that is what the laboratory saw, a line of comment
+    /// written out in full in its own title bar.
     fn text(&mut self) -> Option<String> {
         let mut kept = String::new();
         let mut from = self.index;
-        // Vrai tant que cette ligne-ci n'a montre que des espaces :
-        // c'est la seule condition pour qu'un `//` soit un commentaire.
+        // True for as long as this line has shown nothing but spaces,
+        // which is the one condition for a `//` to be a comment.
         let mut starting = true;
         while self.index < self.end {
             let byte = self.bytes()[self.index];
@@ -212,16 +212,16 @@ impl Cursor<'_> {
                 && byte == b'/'
                 && self.bytes().get(self.index + 1) == Some(&b'/');
             let a_block_comment = byte == b'/' && self.bytes().get(self.index + 1) == Some(&b'*');
-            if a_line_comment || a_block_comment {
-                if let Some(after) = comment_at(self.bytes(), self.index, self.end) {
-                    kept.push_str(&self.source[from..self.index]);
-                    self.index = after;
-                    from = self.index;
-                    // Un commentaire de ligne s'arrete avant le saut de
-                    // ligne : la ligne suivante recommence.
-                    starting = !a_block_comment;
-                    continue;
-                }
+            if (a_line_comment || a_block_comment)
+                && let Some(after) = comment_at(self.bytes(), self.index, self.end)
+            {
+                kept.push_str(&self.source[from..self.index]);
+                self.index = after;
+                from = self.index;
+                // A line comment stops before the newline, which it
+                // leaves: the next line starts afresh.
+                starting = !a_block_comment;
+                continue;
             }
             if byte == b'\n' {
                 starting = true;

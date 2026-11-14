@@ -24,10 +24,10 @@ fn a_second_instance_is_refused_by_name() {
         return;
     }
     let name = a_name();
-    let first = Only::one(&name).expect("personne ne tient ce nom");
+    let first = Only::one(&name).expect("nobody is holding that name");
     let second = Only::one(&name);
     let said = second
-        .expect_err("deux fois le même nom")
+        .expect_err("the same name twice")
         .to_string();
     assert!(said.contains(&name), "le refus nomme l'application : {said}");
     drop(first);
@@ -44,7 +44,7 @@ fn dropping_the_token_lets_the_next_one_in() {
     }
     // Rendu : sans cela, un logiciel qui s'arrête mal resterait « déjà
     // lancé » jusqu'au redémarrage de la machine.
-    assert!(Only::one(&name).is_ok(), "le nom n'a pas été rendu");
+    assert!(Only::one(&name).is_ok(), "the name was not answered with");
 }
 
 #[test]
@@ -64,7 +64,7 @@ fn what_a_second_instance_hands_over_arrives() {
     // ce qui est le même chemin de bout en bout — la fenêtre trouvée
     // par son nom, le message, la file.
     instance::hand_over(&name, &["C:\\Travail\\été.txt".to_string()])
-        .expect("la première instance est là");
+        .expect("the first instance is there");
 
     // Remis au fil de la fenêtre, donc pas forcément dans la
     // microseconde : attendu, mais pas longtemps.
@@ -78,7 +78,7 @@ fn what_a_second_instance_hands_over_arrives() {
     assert_eq!(handed, vec!["C:\\Travail\\été.txt".to_string()]);
     assert!(
         instance::handed_over().is_empty(),
-        "lu une fois : deux lectures ouvriraient deux fois le fichier"
+        "read once: two reads would open the file twice"
     );
     drop(first);
 }
@@ -90,7 +90,7 @@ fn handing_over_to_nobody_says_so() {
     }
     let refused = instance::hand_over("rustx-test-personne-ne-tourne", &[]);
     let said = refused
-        .expect_err("personne ne tient ce nom")
+        .expect_err("nobody is holding that name")
         .to_string();
     assert!(
         said.contains("rustx-test-personne-ne-tourne"),

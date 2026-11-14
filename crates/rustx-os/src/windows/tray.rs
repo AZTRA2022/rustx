@@ -104,12 +104,12 @@ impl Icon {
             .name("rustx-tray".to_string())
             .spawn(move || live(theirs, icon, tooltip, say))
             .map_err(|error| {
-                OsError::Platform(format!("le fil de l'icône n'a pas démarré : {error}"))
+                OsError::Platform(format!("the icon thread did not start: {error}"))
             })?;
 
         let window = heard
             .recv()
-            .map_err(|_| OsError::Platform("le fil de l'icône s'est arrêté aussitôt".to_string()))?
+            .map_err(|_| OsError::Platform("the icon thread stopped immediately".to_string()))?
             ?;
 
         Ok(Self {
@@ -133,11 +133,11 @@ impl Icon {
             .name("rustx-notify".to_string())
             .spawn(move || live(theirs, Vec::new(), String::new(), say))
             .map_err(|error| {
-                OsError::Platform(format!("le fil de la notification n'a pas démarré : {error}"))
+                OsError::Platform(format!("the notification thread did not start: {error}"))
             })?;
         let window = heard
             .recv()
-            .map_err(|_| OsError::Platform("le fil de la notification s'est arrêté".to_string()))??;
+            .map_err(|_| OsError::Platform("the notification thread stopped".to_string()))??;
         Ok(Self {
             shared,
             window,
@@ -239,7 +239,7 @@ fn live(
     let data = described(window, loaded, &tooltip);
     if !unsafe { Shell_NotifyIconW(NIM_ADD, &data) }.as_bool() {
         let _ = say.send(Err(OsError::Platform(
-            "Windows a refusé de poser l'icône dans la barre système".to_string(),
+            "Windows refused to put the icon in the system tray".to_string(),
         )));
         unsafe {
             let _ = DestroyWindow(window);
@@ -329,7 +329,7 @@ fn made_window(shared: &Arc<Shared>) -> Result<(HWND, Held), OsError> {
     }
     .map_err(|error| {
         OsError::Platform(format!(
-            "la fenêtre invisible de l'icône n'a pas été créée : {}",
+            "the icon's invisible window was not created: {}",
             error.message()
         ))
     })?;

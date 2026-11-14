@@ -1,0 +1,1 @@
+runner-gateway · 4 cores at 5% · 5.3 of 7.4 GB resident · adapter Intel(R) HD Graphics 4600 at 0% · link ETHERNET · 147 samples

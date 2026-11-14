@@ -180,8 +180,17 @@ fn put(format: u32, bytes: &[u8]) -> Result<(), OsError> {
     let _open = open()?;
     unsafe { EmptyClipboard() }.map_err(|error| OsError::Platform(error.message()))?;
 
+    // SAFETY: an allocation of a size this process chose. `GMEM_MOVEABLE`
+    // is what `SetClipboardData` requires of a block it is given.
     let block = unsafe { GlobalAlloc(GMEM_MOVEABLE, bytes.len()) }
         .map_err(|error| OsError::Platform(error.message()))?;
+    // SAFETY: `block` is the handle just allocated and not yet handed
+    // to anybody. It is locked, written with exactly as many bytes as
+    // it was allocated for — `bytes.len()`, from a slice this process
+    // owns, and the two regions cannot overlap because one is a fresh
+    // allocation — and unlocked again before it leaves this block. A
+    // lock that failed frees the handle rather than writing through a
+    // null pointer.
     unsafe {
         let at = GlobalLock(block);
         if at.is_null() {
@@ -214,23 +223,42 @@ struct Block {
 impl Block {
     fn locked(handle: HANDLE) -> Result<Self, OsError> {
         let handle = HGLOBAL(handle.0);
+        // SAFETY: `handle` came from `GetClipboardData` on a clipboard
+        // this call holds open (`Held` is alive at every call site), so
+        // it is a live movable memory handle and `GlobalLock` is the
+        // documented way to get at what it holds. The lock is released
+        // by this type's `Drop` and nowhere else, so the count is
+        // balanced however the caller leaves.
         let at = unsafe { GlobalLock(handle) } as *mut u8;
         if at.is_null() {
             return Err(OsError::Platform(
                 "Windows would not lock what the clipboard holds".to_string(),
             ));
         }
+        // SAFETY: the same live handle, asked how big it is. The answer
+        // is allowed to be larger than what was originally requested,
+        // which is why `set_custom` writes its own length in front of
+        // its bytes.
         let size = unsafe { GlobalSize(handle) };
         Ok(Self { handle, at, size })
     }
 
     fn bytes(&self) -> &[u8] {
+        // SAFETY: `at` is non-null (checked above) and points at `size`
+        // bytes of the locked block — that is what `GlobalLock` and
+        // `GlobalSize` answered about the same handle. The block stays
+        // locked for as long as `self` lives, and the borrow cannot
+        // outlive `self`, so the memory cannot move or be freed while
+        // this slice exists. Nothing writes through `at` while a
+        // `&[u8]` of it is out: `Block` is only ever read from.
         unsafe { std::slice::from_raw_parts(self.at, self.size) }
     }
 }
 
 impl Drop for Block {
     fn drop(&mut self) {
+        // SAFETY: the handle this type locked in `locked`, unlocked
+        // exactly once because only `Drop` unlocks it.
         unsafe {
             let _ = GlobalUnlock(self.handle);
         }
@@ -244,8 +272,27 @@ impl Drop for Block {
 /// read wrong. So the rows are turned over on the way in and on the
 /// way out, and every other program sees an ordinary bitmap.
 fn written_dib(image: &Image) -> Result<Vec<u8>, OsError> {
-    let stride = image.width as usize * 4;
-    let expected = stride * image.height as usize;
+    // An image with no pixels is refused by name. It used to reach
+    // `chunks_exact(0)`, which panics — so `set_image` of an empty
+    // `Image` brought the application down from inside a library call,
+    // over a value that looks perfectly ordinary in a debugger.
+    if image.width == 0 || image.height == 0 {
+        return Err(OsError::Platform(format!(
+            "an image of {}×{} has no pixels, and the clipboard takes a picture",
+            image.width, image.height
+        )));
+    }
+    // Checked, because the multiplication of two `u32`s widened to
+    // `usize` overflows on a 32-bit target and wraps in release — which
+    // would make `expected` a small number that a short `bgra` matches.
+    let stride = (image.width as usize).checked_mul(4);
+    let expected = stride.and_then(|stride| stride.checked_mul(image.height as usize));
+    let (Some(stride), Some(expected)) = (stride, expected) else {
+        return Err(OsError::Platform(format!(
+            "an image of {}×{} is more bytes than this machine can address",
+            image.width, image.height
+        )));
+    };
     if image.bgra.len() != expected {
         return Err(OsError::Platform(format!(
             "an image of {}×{} is {expected} bytes of BGRA, and this one is {}",
@@ -269,6 +316,12 @@ fn written_dib(image: &Image) -> Result<Vec<u8>, OsError> {
     };
 
     let mut out = Vec::with_capacity(header.biSize as usize + expected);
+    // SAFETY: `header` is a live, fully initialized `BITMAPINFOHEADER`
+    // on this stack frame, and `biSize` is `size_of` that same type, so
+    // the slice is exactly the object's own bytes. The type is
+    // `#[repr(C)]` and made only of `u32`, `i32` and `u16` fields in an
+    // order that leaves no padding, so no uninitialized byte is read.
+    // The slice is copied immediately and never outlives this call.
     out.extend_from_slice(unsafe {
         std::slice::from_raw_parts(
             (&header as *const BITMAPINFOHEADER) as *const u8,
@@ -311,6 +364,16 @@ fn read_dib(bytes: &[u8]) -> Result<Image, OsError> {
 
     let upside_down = height > 0;
     let (width, height) = (width.unsigned_abs(), height.unsigned_abs());
+    // Before any arithmetic on them. These two numbers come off the
+    // clipboard, which is to say out of whatever program the user last
+    // copied from: a header claiming a width of zero made `stride` zero
+    // and `chunks_exact(0)` panics, so reading the clipboard could
+    // bring the application down over somebody else's bad bitmap.
+    if width == 0 || height == 0 {
+        return Err(OsError::Platform(format!(
+            "the image on the clipboard says it is {width}×{height}, which is no image"
+        )));
+    }
     let stride = width as usize * 4;
     let wanted = stride * height as usize;
     // A `BI_BITFIELDS` header is followed by three masks; a
@@ -339,4 +402,77 @@ fn read_dib(bytes: &[u8]) -> Result<Image, OsError> {
         height,
         bgra,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A DIB with a zero dimension used to reach `chunks_exact(0)`,
+    /// which panics. Reading the clipboard means reading a header
+    /// written by whichever program the user last copied from, so that
+    /// panic was reachable from outside the application entirely.
+    #[test]
+    fn an_image_on_the_clipboard_with_no_pixels_is_refused_and_not_a_panic() {
+        let mut header = vec![0u8; std::mem::size_of::<BITMAPINFOHEADER>()];
+        let put = |bytes: &mut Vec<u8>, at: usize, value: i32| {
+            bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        };
+        let size = header.len() as i32;
+        put(&mut header, 0, size);
+        put(&mut header, 4, 0); // a width of nothing
+        put(&mut header, 8, 8);
+        header[14..16].copy_from_slice(&32u16.to_le_bytes());
+        put(&mut header, 16, 0);
+
+        let said = read_dib(&header).expect_err("no pixels is no image");
+        assert!(said.to_string().contains("0×8"), "got {said}");
+    }
+
+    /// And the same the other way: `set_image` of an image with no
+    /// pixels panicked inside the library rather than refusing.
+    #[test]
+    fn writing_an_image_with_no_pixels_is_refused_and_not_a_panic() {
+        let said = written_dib(&Image {
+            width: 0,
+            height: 0,
+            bgra: Vec::new(),
+        })
+        .expect_err("no pixels is no image");
+        assert!(said.to_string().contains("no pixels"), "got {said}");
+    }
+
+    /// The round trip an application that copies a screenshot and
+    /// pastes it back makes. A DIB is bottom-up, so the rows are turned
+    /// over on the way in and on the way out: written and read without
+    /// that, the image comes back upside down.
+    #[test]
+    fn an_image_written_as_a_dib_reads_back_the_same_way_up() {
+        let image = Image {
+            width: 2,
+            height: 2,
+            bgra: vec![
+                1, 1, 1, 255, 2, 2, 2, 255, // the top row
+                3, 3, 3, 255, 4, 4, 4, 255, // and the bottom one
+            ],
+        };
+        let written = written_dib(&image).expect("a picture");
+        let read = read_dib(&written).expect("the same picture");
+        assert_eq!(read, image);
+    }
+
+    /// A header that promises more rows than it carries is a refusal,
+    /// not a read past the end of the block.
+    #[test]
+    fn an_image_shorter_than_it_claims_is_refused() {
+        let image = Image {
+            width: 4,
+            height: 4,
+            bgra: vec![0; 4 * 4 * 4],
+        };
+        let mut written = written_dib(&image).expect("a picture");
+        written.truncate(written.len() - 16);
+        let said = read_dib(&written).expect_err("it is shorter than it says");
+        assert!(said.to_string().contains("not enough"), "got {said}");
+    }
 }

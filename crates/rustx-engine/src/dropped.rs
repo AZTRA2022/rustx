@@ -112,7 +112,7 @@ fn listening() {
 pub fn landed() {
     let paths = WAITING.with(|waiting| waiting.borrow().clone());
     if std::env::var("RUSTX_TRACE").is_ok() {
-        eprintln!("rustx: lâcher dans la page, {} chemin(s) en attente", paths.len());
+        eprintln!("rustx: dropped into the page, {} path(s) waiting", paths.len());
     }
     if paths.is_empty() {
         return;

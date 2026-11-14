@@ -17,7 +17,7 @@ fn what_is_set_is_on_and_what_is_unset_is_gone() {
         return;
     }
     let name = a_name();
-    assert!(!autostart::is_on(&name), "il ne devrait rien y avoir");
+    assert!(!autostart::is_on(&name), "there should be nothing there");
 
     autostart::set(true, &name).expect("le registre accepte");
     assert!(autostart::is_on(&name), "rien n'a été écrit");
@@ -25,7 +25,7 @@ fn what_is_set_is_on_and_what_is_unset_is_gone() {
     autostart::set(false, &name).expect("le registre accepte");
     assert!(
         !autostart::is_on(&name),
-        "l'application démarrerait encore avec la session"
+        "the application would still start with the session"
     );
 }
 

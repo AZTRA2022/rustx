@@ -82,28 +82,111 @@ pub fn check(deadline: Duration) -> Option<(String, Duration)> {
     Some((what.clone(), waited))
 }
 
-/// Start watching, once per process.
+/// How often the watchdog looks.
+const LOOKS_EVERY: Duration = Duration::from_millis(500);
+
+/// Whether the watchdog is wanted, and whether it is there.
+///
+/// Two flags rather than one, because `watch` has to know that a thread
+/// is already on the job without waiting for it to say so, and
+/// [`watching`] has to answer about the thread and not about the wish.
+static WANTED: AtomicBool = AtomicBool::new(false);
+static RUNNING: AtomicBool = AtomicBool::new(false);
+
+/// Start watching. A second call while one is watching does nothing.
 ///
 /// A thread rather than a timer on the renderer: the thread the timer
 /// would run on is the thread that is stuck.
 pub fn watch() {
-    static WATCHING: OnceLock<()> = OnceLock::new();
-    WATCHING.get_or_init(|| {
-        let _ = std::thread::Builder::new()
-            .name("rustx-watchdog".to_string())
-            .spawn(|| {
-                loop {
-                    std::thread::sleep(Duration::from_millis(500));
-                    if let Some((what, waited)) = check(DEADLINE) {
-                        eprintln!(
-                            "rustx: `{what}` has been drawing for {:.1}s and has not come back. \
-                             A component is asked for the screen as it is now, so it cannot \
-                             wait or loop for ever — move that work into `task(…)`, which runs \
-                             beside the component and stops when the component goes.",
-                            waited.as_secs_f32()
-                        );
-                    }
+    WANTED.store(true, Ordering::Release);
+    if RUNNING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let started = std::thread::Builder::new()
+        .name("rustx-watchdog".to_string())
+        .spawn(|| {
+            // Says the thread is gone whichever way it leaves, so a
+            // later `watch` starts another rather than believing one is
+            // still there.
+            struct Gone;
+            impl Drop for Gone {
+                fn drop(&mut self) {
+                    RUNNING.store(false, Ordering::Release);
                 }
-            });
-    });
+            }
+            let _gone = Gone;
+
+            while WANTED.load(Ordering::Acquire) {
+                std::thread::sleep(LOOKS_EVERY);
+                if let Some((what, waited)) = check(DEADLINE) {
+                    eprintln!(
+                        "rustx: `{what}` has been drawing for {:.1}s and has not come back. \
+                         A component is asked for the screen as it is now, so it cannot \
+                         wait or loop for ever — move that work into `task(…)`, which runs \
+                         beside the component and stops when the component goes.",
+                        waited.as_secs_f32()
+                    );
+                }
+            }
+        });
+    if started.is_err() {
+        RUNNING.store(false, Ordering::Release);
+    }
+}
+
+/// Stop watching.
+///
+/// Called when the frame queue shuts down: there is no render to be
+/// slow any more, and a thread that wakes twice a second for the life
+/// of a process that has stopped drawing is an uncontrolled background
+/// task however cheap it is. [`watch`] starts another one when the next
+/// window mounts something.
+pub fn stop() {
+    WANTED.store(false, Ordering::Release);
+}
+
+/// Is there a watchdog thread right now?
+///
+/// For tests and diagnostics. It lags [`stop`] by up to one look, which
+/// is what cooperative stopping means.
+pub fn watching() -> bool {
+    RUNNING.load(Ordering::Acquire)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Both claims in one test, because the flags are process-wide and
+    /// two tests would be two threads arguing over them.
+    #[test]
+    fn the_watchdog_starts_once_stops_when_asked_and_can_start_again() {
+        let patience = LOOKS_EVERY * 8;
+        let settled = |wanted: bool| {
+            let deadline = Instant::now() + patience;
+            while Instant::now() < deadline {
+                if watching() == wanted {
+                    return true;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            watching() == wanted
+        };
+
+        watch();
+        assert!(watching(), "nothing is watching");
+        // A second call is not a second thread. There is no count to
+        // read, so what is asserted is that it neither panics nor
+        // leaves the first one's flags in a state `stop` cannot undo.
+        watch();
+        assert!(watching());
+
+        stop();
+        assert!(settled(false), "the watchdog would not stop");
+
+        watch();
+        assert!(settled(true), "the watchdog would not start again");
+        stop();
+        assert!(settled(false));
+    }
 }

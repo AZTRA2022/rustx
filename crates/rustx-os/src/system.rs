@@ -124,7 +124,7 @@ impl ThemeWatch {
                 }
             })
             .map_err(|error| {
-                OsError::Platform(format!("le fil du thème n'a pas démarré : {error}"))
+                OsError::Platform(format!("the theme thread did not start: {error}"))
             })?;
         Ok(Self {
             changed,

@@ -76,7 +76,7 @@ fn the_readme_promises_no_async_that_is_not_there() {
     )
     .expect("the README is beside the crates");
     assert!(
-        !readme.contains("n'est **pas** encore"),
+        !readme.contains("is **not** yet"),
         "the README still says the asynchronous half is missing"
     );
 }

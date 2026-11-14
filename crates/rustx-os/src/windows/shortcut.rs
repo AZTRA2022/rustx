@@ -49,12 +49,12 @@ impl Shortcut {
             .name(format!("rustx-shortcut-{keys}"))
             .spawn(move || live(modifiers, key, written, theirs, say))
             .map_err(|error| {
-                OsError::Platform(format!("le fil du raccourci n'a pas démarré : {error}"))
+                OsError::Platform(format!("the shortcut thread did not start: {error}"))
             })?;
 
         let thread_id = heard
             .recv()
-            .map_err(|_| OsError::Platform("le fil du raccourci s'est arrêté".to_string()))??;
+            .map_err(|_| OsError::Platform("the shortcut thread stopped".to_string()))??;
 
         Ok(Self {
             pressed,

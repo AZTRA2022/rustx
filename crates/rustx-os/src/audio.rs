@@ -51,6 +51,7 @@ pub struct Volume {
 
 /// Les périphériques de ce sens-là, celui par défaut en premier.
 pub fn endpoints(flow: Flow) -> Result<Vec<Endpoint>, OsError> {
+    crate::blocking::waiting("the list of audio devices");
     let mut all = crate::platform::audio::endpoints(flow)?;
     all.sort_by_key(|endpoint| !endpoint.default);
     Ok(all)
@@ -69,6 +70,7 @@ pub fn default_endpoint(flow: Flow) -> Result<Endpoint, OsError> {
 
 /// Le volume du périphérique de sortie par défaut.
 pub fn volume() -> Result<Volume, OsError> {
+    crate::blocking::waiting("the volume");
     crate::platform::audio::volume()
 }
 
@@ -76,11 +78,13 @@ pub fn volume() -> Result<Volume, OsError> {
 /// — un volume négatif n'est pas une erreur à faire remonter à
 /// l'utilisateur, c'est un curseur au bout de sa course.
 pub fn set_volume(level: f64) -> Result<(), OsError> {
+    crate::blocking::waiting("the volume");
     crate::platform::audio::set_volume(level.clamp(0.0, 1.0))
 }
 
 /// Couper ou rendre le son.
 pub fn set_muted(muted: bool) -> Result<(), OsError> {
+    crate::blocking::waiting("the volume");
     crate::platform::audio::set_muted(muted)
 }
 

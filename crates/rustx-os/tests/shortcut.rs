@@ -15,7 +15,7 @@ fn a_shortcut_is_read_from_how_it_is_written() {
     // autocollant : `"Ctrl+Shift+R"`. Lu ici, et non deviné.
     let (modifiers, key) = shortcut::parse("Ctrl+Shift+R").expect("une combinaison");
     assert_eq!(modifiers, shortcut::CONTROL | shortcut::SHIFT);
-    assert_eq!(key, u32::from(b'R'), "la touche virtuelle d'une lettre est sa majuscule");
+    assert_eq!(key, u32::from(b'R'), "a letter's virtual key is its capital");
 
     let (modifiers, key) = shortcut::parse("Alt+F4").expect("une combinaison");
     assert_eq!(modifiers, shortcut::ALT);
@@ -35,12 +35,12 @@ fn a_shortcut_is_read_from_how_it_is_written() {
 #[test]
 fn a_combination_without_a_key_is_refused_in_words() {
     let said = shortcut::parse("Ctrl+")
-        .expect_err("un modificateur seul n'est pas un raccourci")
+        .expect_err("a modifier on its own is not a shortcut")
         .to_string();
-    assert!(said.contains("Ctrl+"), "le refus nomme ce qui était écrit : {said}");
+    assert!(said.contains("Ctrl+"), "the refusal names what was written: {said}");
 
     let said = shortcut::parse("Ctrl+Frobnicate")
-        .expect_err("cette touche n'existe pas")
+        .expect_err("there is no such key")
         .to_string();
     assert!(said.contains("Frobnicate"), "got {said}");
 }
@@ -56,9 +56,9 @@ fn a_shortcut_somebody_else_has_is_refused_by_name() {
     let first = Shortcut::listen(keys).expect("personne ne devrait l'avoir");
     let second = Shortcut::listen(keys);
     let said = second
-        .expect_err("deux fois la même combinaison")
+        .expect_err("the same combination twice")
         .to_string();
-    assert!(said.contains(keys), "le refus nomme la touche : {said}");
+    assert!(said.contains(keys), "the refusal names the key: {said}");
     drop(first);
 }
 
@@ -74,7 +74,7 @@ fn dropping_a_shortcut_gives_the_keys_back() {
     // Rendu : sans cela, un raccourci survivrait à l'application et
     // l'utilisateur ne pourrait le récupérer qu'en redémarrant.
     let again = Shortcut::listen(keys);
-    assert!(again.is_ok(), "les touches n'ont pas été rendues : {again:?}");
+    assert!(again.is_ok(), "the keys were not answered with: {again:?}");
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn a_shortcut_nobody_pressed_counts_zero() {
     }
     let held = Shortcut::listen("Ctrl+Shift+F15").expect("libre");
     assert_eq!(held.pressed(), 0);
-    assert_eq!(held.pressed(), 0, "lire ne crée pas un appui");
+    assert_eq!(held.pressed(), 0, "reading does not make a press");
 }
 
 #[test]

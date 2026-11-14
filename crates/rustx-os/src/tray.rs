@@ -129,7 +129,7 @@ pub fn readable(path: &Path) -> Result<(), OsError> {
     })?;
     if bytes.len() < 6 {
         return Err(OsError::File(format!(
-            "{} est trop court pour être une icône",
+            "{} is too short to be an icon",
             path.display()
         )));
     }

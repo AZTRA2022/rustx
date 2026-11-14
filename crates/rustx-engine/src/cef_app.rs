@@ -129,10 +129,22 @@ wrap_render_process_handler! {
             contain("on_context_released", || {
                 let is_main = frame.is_some_and(|frame| frame.is_main() != 0);
                 if is_main {
+                    // What the page had mounted goes first, while the
+                    // runtime its tasks are on is still standing:
+                    // releasing a root runs its components' `Drop`,
+                    // which is where the token that stops a `task(…)`
+                    // is dropped. Nothing released them before, so a
+                    // window replaced by `rustx dev` — or the first of
+                    // two windows closing — left its threads looking
+                    // at a flag nobody would ever flip.
+                    crate::render::unmount_all();
                     crate::dom::context_released();
                     crate::renderer::forget_context();
                     rustx_dom::state::close_remote();
                     crate::runtime::stop();
+                    // There is no screen on this thread any more, so a
+                    // call that waits is nobody's mistake again.
+                    rustx_os::blocking::draws_nowhere();
                 }
             });
         }

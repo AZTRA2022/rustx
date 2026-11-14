@@ -26,16 +26,61 @@ use crate::tree::{Mounted, element_at};
 
 thread_local! {
     /// Everything mounted on this page, by instance.
-    static ROOTS: RefCell<Vec<Root>> = const { RefCell::new(Vec::new()) };
+    ///
+    /// Behind an `Rc` each, because the registry may not be borrowed
+    /// while a component renders — see [`each_entry`].
+    static ROOTS: RefCell<Vec<Rc<Entry>>> = const { RefCell::new(Vec::new()) };
     static RENDERS: Cell<u64> = const { Cell::new(0) };
+    /// Whether this page's one frame callback has been registered.
+    ///
+    /// A count of roots is not the question: an application whose last
+    /// root is released and whose next one is mounted is back at one
+    /// root and would have registered a second callback, so the page
+    /// would have rendered itself twice per frame from then on.
+    static DRAWING: Cell<bool> = const { Cell::new(false) };
 }
 
-struct Root {
+/// One mounted component, as the registry holds it.
+///
+/// Two halves, and the split is the point. What identifies the root —
+/// its instance and the id of the element it hangs under — never
+/// changes, so it can be read while that root is rendering. What a
+/// render writes is behind a cell of its own, so taking a root off the
+/// page does not have to wait for the render it is inside.
+struct Entry {
     id: InstanceId,
     /// The id of the element it hangs under, so it can be taken off.
     id_name: String,
+    body: RefCell<Body>,
+}
+
+struct Body {
     component: Rc<dyn Fn() -> Element>,
     mounted: Mounted,
+}
+
+/// Visit every entry of a registry without holding the registry
+/// borrowed while a visit runs.
+///
+/// This is the shape of a defect rather than a convenience. A render
+/// calls the application's components, and — through
+/// [`crate::foreign`] — React's own reconciler, which may call back
+/// into the engine: a React subtree holding a rustx component mounts a
+/// root of its own (`rustx_component`), and a React cleanup releases
+/// one (`rustx_release`). Both reach for this registry. Iterating it
+/// under `borrow_mut` therefore ended the frame with
+/// `already mutably borrowed: BorrowMutError` — a panic in the middle
+/// of a render, which leaves the page half-patched.
+///
+/// So the list of handles is copied under a borrow that is let go
+/// before anything is called: `Rc` clones, not entries. A visit may add
+/// to the registry, remove from it, or visit a different entry, and
+/// what was in the list when the walk began is what the walk visits.
+fn each_entry<T>(registry: &RefCell<Vec<Rc<T>>>, mut visit: impl FnMut(&Rc<T>)) {
+    let entries: Vec<Rc<T>> = registry.borrow().clone();
+    for entry in &entries {
+        visit(entry);
+    }
 }
 
 /// Mount a component under `id` and keep it up to date.
@@ -69,18 +114,18 @@ pub fn mount_app(component: impl Fn() -> Element + 'static, id: &str) -> Result<
     COST.with(|cost| cost.set((started.elapsed().as_micros() as u64, 0)));
 
     ROOTS.with(|roots| {
-        roots.borrow_mut().push(Root {
+        roots.borrow_mut().push(Rc::new(Entry {
             id: instance,
             id_name: id.to_string(),
-            component,
-            mounted,
-        })
+            body: RefCell::new(Body { component, mounted }),
+        }))
     });
 
     // One frame callback for the whole page, registered on the first
     // mount. Re-registering per root would re-render the page once per
     // root per frame.
-    if ROOTS.with(|roots| roots.borrow().len()) == 1 {
+    if !DRAWING.with(Cell::get) {
+        DRAWING.with(|drawing| drawing.set(true));
         crate::frame::on_frame(render_dirty);
         // And a frame is asked for as soon as anything changes, rather
         // than waited for: a click that draws a tenth of a second later
@@ -102,29 +147,59 @@ pub fn renders() -> u64 {
 /// cleanup mechanism, and it is Rust's own; the framework does not
 /// invent a second one.
 pub fn unmount(id: &str) -> Result<bool, DomError> {
+    // Taken out of the registry under a borrow that is let go before
+    // anything below runs: everything below calls into React or into
+    // the application's own `Drop`, and either may reach back here.
     let removed = ROOTS.with(|roots| {
         let mut roots = roots.borrow_mut();
         roots
             .iter()
-            .position(|root| root.id_name == id)
+            .position(|entry| entry.id_name == id)
             .map(|at| roots.remove(at))
     });
-    let Some(root) = removed else {
+    let Some(entry) = removed else {
         return Ok(false);
     };
-    // React is told while its containers are still in the document.
-    give_back_boundaries(&root.mounted.nodes);
-    root.mounted.root.set_text("")?;
-    drop_instance(root.id);
+    // The instance goes whatever else happens: this is where a
+    // component's `Drop` runs, so a failure to clear the DOM must not
+    // leave its cells — and the tasks they hold — behind.
+    let cleared = match entry.body.try_borrow() {
+        Ok(body) => {
+            // React is told while its containers are still in the
+            // document.
+            give_back_boundaries(&body.mounted.nodes);
+            body.mounted.root.set_text("")
+        }
+        // Released from inside its own render, which is a React cleanup
+        // reaching back through `rustx_release`. The tree it is in the
+        // middle of building will be dropped with the entry; the
+        // instance is still released.
+        Err(_) => Ok(()),
+    };
+    drop_instance(entry.id);
+    cleared?;
     Ok(true)
 }
 
 /// Release everything mounted on this page. Runs every component's
-/// `Drop`, which is the only cleanup mechanism the framework has.
+/// `Drop`, which is the only cleanup mechanism the framework has — the
+/// file a page opened, the capture session it started, the token that
+/// stops its background task.
+///
+/// Called when the page's JavaScript context is released and when the
+/// frame queue is shut down. Without it, a window that closed while the
+/// process stayed — a second window, `rustx dev` replacing a build —
+/// left every root's cells alive: the `Drop`s never ran, and a thread
+/// started by `task(…)` went on looking at a flag nobody would ever
+/// flip.
+///
+/// The DOM is not touched. By the time this is called the context the
+/// nodes belong to is going or gone, and a handle from a dead context
+/// answers [`DomError::ContextDestroyed`] rather than doing anything.
 pub fn unmount_all() {
-    let roots = ROOTS.with(|roots| std::mem::take(&mut *roots.borrow_mut()));
-    for root in roots {
-        drop_instance(root.id);
+    let entries = ROOTS.with(|roots| std::mem::take(&mut *roots.borrow_mut()));
+    for entry in entries {
+        drop_instance(entry.id);
     }
 }
 
@@ -134,6 +209,16 @@ fn render_dirty() {
     // handed over here, on the first frame there is somebody to hand it
     // to. Nothing else in this function runs unless something changed.
     crate::foreign::hand_over_pending();
+
+    // The document first, and the marks only once there is somewhere to
+    // draw them. `take_dirty` clears what it hands back, so taking the
+    // marks before this check threw them away on any frame that ran
+    // without a context — and nothing marks an instance twice, so the
+    // write was simply never drawn. A page that changed while its
+    // context was being replaced stayed as it was, for good.
+    let Some(document) = Document::current() else {
+        return;
+    };
 
     // A child component that changed is redrawn by rendering the root
     // above it: the root is what owns a host element, and the diff is
@@ -147,28 +232,56 @@ fn render_dirty() {
     if dirty.is_empty() {
         return;
     }
-    let Some(document) = Document::current() else {
-        return;
-    };
 
     ROOTS.with(|roots| {
-        let mut roots = roots.borrow_mut();
-        for root in roots.iter_mut() {
-            if !dirty.contains(&root.id) {
-                continue;
+        each_entry(roots, |entry| {
+            if !dirty.contains(&entry.id) {
+                return;
             }
-            if let Err(error) = re_render(&document, root) {
+            // Released while this walk was running — by a React cleanup
+            // calling `rustx_release`, or by the application. Its cells
+            // are already gone; rendering it again would build them
+            // back.
+            if !still_mounted(entry.id) {
+                return;
+            }
+            // A render reached from inside a render of the same root.
+            // Skipped with a sentence rather than left to `RefCell`,
+            // whose panic would end the frame.
+            let Ok(mut body) = entry.body.try_borrow_mut() else {
+                eprintln!(
+                    "rustx: `{}` asked to be drawn from inside its own render; \
+                     the frame it was already in will draw it",
+                    entry.id_name
+                );
+                return;
+            };
+            if let Err(error) = re_render(&document, entry.id, &entry.id_name, &mut body) {
                 eprintln!("rustx: a re-render failed: {error}");
             }
-        }
+        })
     });
 }
 
-fn re_render(document: &Document, root: &mut Root) -> Result<(), DomError> {
+/// Is this root still on the page?
+///
+/// Asked without borrowing any entry's body, which is what the split
+/// between an [`Entry`] and its [`Body`] is for: the root being asked
+/// about is, at the one call site, the one currently rendering.
+fn still_mounted(id: InstanceId) -> bool {
+    ROOTS.with(|roots| roots.borrow().iter().any(|entry| entry.id == id))
+}
+
+fn re_render(
+    document: &Document,
+    id: InstanceId,
+    id_name: &str,
+    root: &mut Body,
+) -> Result<(), DomError> {
     let started = std::time::Instant::now();
-    let _drawing = crate::watchdog::drawing(&root.id_name);
+    let _drawing = crate::watchdog::drawing(id_name);
     let fresh = {
-        let _scope = Scope::enter(root.id);
+        let _scope = Scope::enter(id);
         let fresh = (root.component)();
         // Every render is closed, not only the first. This is where a
         // row that left a keyed list releases its cells, where a child
@@ -335,9 +448,7 @@ fn replace(
     if let Some(old) = mounted.at(path) {
         // Before it leaves the document, not after.
         give_back_boundaries(old);
-    }
-    if let Some(old) = mounted.at(path).and_then(|node| node.dom.clone()) {
-        old.remove()?;
+        detach(old)?;
     }
     if let Some(new) = built.dom.clone() {
         place(&parent_dom, &new, index, mounted, &parent_path)?;
@@ -396,9 +507,26 @@ fn remove(parent: &Path, index: usize, mounted: &mut Mounted) -> Result<(), DomE
         .map(|node| node.children.remove(index));
     if let Some(gone) = gone {
         give_back_boundaries(&gone);
-        if let Some(dom) = &gone.dom {
-            dom.remove()?;
-        }
+        detach(&gone)?;
+    }
+    Ok(())
+}
+
+/// Take everything a subtree put in the document out of it.
+///
+/// Not `node.dom.remove()`. A fragment and an `Empty` have no node of
+/// their own, so that call removed nothing at all and left every
+/// element the subtree had put on the page in the document — with
+/// nothing in the bookkeeping pointing at it any more, so no later
+/// render could find it either. A layout's page is one of the layout's
+/// children, which is why the symptom was "leaving a nested layout
+/// leaves its last page's DOM behind", once per navigation, for as long
+/// as the window stayed open.
+fn detach(node: &crate::tree::MountedNode) -> Result<(), DomError> {
+    let mut attached = Vec::new();
+    node.attached(&mut attached);
+    for dom in attached {
+        dom.remove()?;
     }
     Ok(())
 }
@@ -450,12 +578,16 @@ fn place(
     mounted: &Mounted,
     parent: &Path,
 ) -> Result<(), DomError> {
+    // The first node of the first following sibling that has any —
+    // `first_attached` and not `dom`, because a fragment has no node of
+    // its own and skipping it would put this child *after* everything
+    // the fragment holds rather than before it.
     let before = mounted.at(parent).and_then(|parent| {
         parent
             .children
             .iter()
             .skip(index + 1)
-            .find_map(|sibling| sibling.dom.clone())
+            .find_map(crate::tree::MountedNode::first_attached)
     });
     parent_dom.insert_before(node, before.as_ref())
 }
@@ -511,4 +643,68 @@ thread_local! {
 /// number instead of guessing from a stopwatch.
 pub fn last_render() -> (u64, usize) {
     COST.with(Cell::get)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The registry walk, with the two things a real visit does: a
+    /// React subtree that mounts a rustx component adds a root, and a
+    /// React cleanup that releases one removes a root. Both happen
+    /// *inside* `hand_over`, which happens inside a render — so under
+    /// the walk.
+    ///
+    /// Walking the registry under `borrow_mut`, which is how this was
+    /// written, panicked with `already mutably borrowed: BorrowMutError`
+    /// on either of them: a panic in the middle of a frame, which
+    /// leaves the page half-patched and the window with no explanation.
+    #[test]
+    fn a_visit_may_add_to_the_registry_and_take_from_it() {
+        let registry: RefCell<Vec<Rc<RefCell<u32>>>> = RefCell::new(vec![
+            Rc::new(RefCell::new(1)),
+            Rc::new(RefCell::new(2)),
+        ]);
+
+        let mut seen = Vec::new();
+        each_entry(&registry, |entry| {
+            seen.push(*entry.borrow());
+            // A root mounted from inside the render.
+            registry.borrow_mut().push(Rc::new(RefCell::new(99)));
+            // And one released from inside it.
+            registry.borrow_mut().remove(0);
+        });
+
+        assert_eq!(
+            seen,
+            vec![1, 2],
+            "the walk must visit what was there when it began"
+        );
+        assert_eq!(
+            registry.borrow().len(),
+            2,
+            "two added and two removed leaves the registry as it was"
+        );
+    }
+
+    /// And a visit may reach another entry, which a render does
+    /// whenever one root's component asks a second root to redraw.
+    #[test]
+    fn a_visit_may_reach_the_other_entries() {
+        let registry: RefCell<Vec<Rc<RefCell<u32>>>> =
+            RefCell::new(vec![Rc::new(RefCell::new(1)), Rc::new(RefCell::new(2))]);
+
+        let mut seen = Vec::new();
+        each_entry(&registry, |entry| {
+            let mine = *entry.borrow();
+            let all: u32 = registry.borrow().iter().map(|other| *other.borrow()).sum();
+            seen.push((mine, all));
+        });
+
+        assert_eq!(
+            seen,
+            vec![(1, 3), (2, 3)],
+            "a visit must be able to look at the whole registry"
+        );
+    }
 }

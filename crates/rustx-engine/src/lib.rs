@@ -1,6 +1,26 @@
 //! `rustx-engine` — the layer that hosts the web engine and makes the
 //! application's Rust code live inside the render process.
 
+// Every safety net in this engine is a `catch_unwind`: the C boundary
+// CEF calls across (`panics::contain`), the frame loop, a job a worker
+// posted, a write a future posted, a page that falls over and is
+// replaced by an error screen. `panic = "abort"` turns each of them
+// into an abort of the whole process, silently — so an application
+// built that way has none of the tolerance this engine is written to
+// provide, and the first panic in anybody's `onClick` takes the window
+// down with no message.
+//
+// Said here rather than discovered there. An application that genuinely
+// wants `abort` wants a different engine.
+#[cfg(panic = "abort")]
+compile_error!(
+    "rustx-engine needs unwinding. Its tolerance for a panic in an event \
+     handler, a frame callback, a background task or a page is built on \
+     `catch_unwind`, and `panic = \"abort\"` turns every one of those into \
+     an abort of the process. Remove `panic = \"abort\"` from this \
+     profile."
+);
+
 mod app;
 mod bootstrap;
 mod cef_app;

@@ -112,7 +112,7 @@ pub enum DialogError {
 impl std::fmt::Display for DialogError {
     fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Cancelled => write!(out, "le dialogue a été fermé sans rien choisir"),
+            Self::Cancelled => write!(out, "the dialog was closed without choosing anything"),
             Self::Unsupported(what) => write!(
                 out,
                 "{what} n'est pas disponible sur cette plateforme ({}) — \
@@ -120,7 +120,7 @@ impl std::fmt::Display for DialogError {
                 std::env::consts::OS,
                 std::env::consts::OS
             ),
-            Self::Platform(said) => write!(out, "le système a refusé le dialogue : {said}"),
+            Self::Platform(said) => write!(out, "the system refused the dialog: {said}"),
         }
     }
 }
@@ -161,15 +161,18 @@ pub fn supported() -> bool {
 /// `let Ok(paths) = dialog::open(…) else { return; }` et se comporte
 /// juste.
 pub fn open(ask: Ask) -> Result<Vec<PathBuf>, DialogError> {
+    crate::blocking::waiting("a file dialog");
     crate::platform::dialog::open(&ask)
 }
 
 /// Demander où écrire un fichier.
 pub fn save(ask: Ask) -> Result<PathBuf, DialogError> {
+    crate::blocking::waiting("a file dialog");
     crate::platform::dialog::save(&ask)
 }
 
 /// Demander un dossier.
 pub fn folder(ask: Ask) -> Result<PathBuf, DialogError> {
+    crate::blocking::waiting("a folder dialog");
     crate::platform::dialog::folder(&ask)
 }

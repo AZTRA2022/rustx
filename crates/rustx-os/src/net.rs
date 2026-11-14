@@ -68,6 +68,7 @@ pub struct Network {
 
 /// Le lire.
 pub fn network() -> Result<Network, OsError> {
+    crate::blocking::waiting("the state of the network");
     crate::platform::net::network()
 }
 

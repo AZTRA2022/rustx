@@ -96,7 +96,7 @@ extern "system" fn procedure(window: HWND, message: u32, w: WPARAM, l: LPARAM) -
 fn this_platform_says_it_commands_its_windows() {
     assert!(
         window::supported(),
-        "Windows commande ses fenêtres, et ce test en est la preuve"
+        "Windows commands its windows, and this test is the proof"
     );
 }
 
@@ -106,7 +106,7 @@ fn taking_the_frame_off_takes_the_title_bar_with_it() {
     assert_ne!(
         own.style() & WS_CAPTION.0 as isize,
         0,
-        "une fenêtre ordinaire a une barre de titre"
+        "an ordinary window has a title bar"
     );
 
     window::dress(own.pane(), Dressing::None).expect("the frame comes off");
@@ -120,7 +120,7 @@ fn taking_the_frame_off_takes_the_title_bar_with_it() {
     assert_ne!(
         own.style() & WS_CAPTION.0 as isize,
         0,
-        "et revenir quand on la redemande"
+        "and come back when it is asked for again"
     );
 }
 
@@ -152,7 +152,7 @@ fn a_window_kept_in_front_is_told_so_and_told_back() {
     assert_ne!(
         extended & WS_EX_TOPMOST.0 as isize,
         0,
-        "devant les autres, et le système le dit"
+        "in front of the others, and the system says so"
     );
 
     window::on_top(own.pane(), false).expect("and back in the pile");
@@ -170,7 +170,7 @@ fn a_handle_that_is_not_a_window_is_refused_in_words() {
     let said = refused.to_string();
     assert!(
         said.contains("window"),
-        "le refus doit dire qu'il n'y a pas de fenêtre : {said}"
+        "the refusal has to say there is no window: {said}"
     );
 }
 
@@ -226,7 +226,7 @@ fn a_frameless_window_keeps_no_strip_at_the_top() {
     window::dress(own.pane(), Dressing::System).expect("and goes back on");
     assert!(
         strip_above(own.0) > 0,
-        "avec le cadre du système, le contenu commence sous la barre de titre"
+        "with the system frame, the content starts below the title bar"
     );
 }
 
@@ -244,7 +244,7 @@ fn a_window_that_filled_the_screen_gets_its_own_place_back() {
     assert_eq!(
         window::spread_of(own.pane()),
         Ok(Spread::Fullscreen),
-        "une fenêtre qui occupe l'écran doit le dire"
+        "a window that fills the screen has to say so"
     );
 
     window::spread(own.pane(), Spread::Normal).expect("its own place again");
@@ -254,7 +254,7 @@ fn a_window_that_filled_the_screen_gets_its_own_place_back() {
     assert_eq!(
         (after.left, after.top, after.right, after.bottom),
         (before.left, before.top, before.right, before.bottom),
-        "sortir du plein écran rend la place qu'on avait, et pas une autre"
+        "leaving full screen gives back the place we had, and not another"
     );
     assert_eq!(window::spread_of(own.pane()), Ok(Spread::Normal));
 }
@@ -275,7 +275,7 @@ fn a_switch_is_an_order_that_knows_where_the_window_is() {
     assert_eq!(
         window::spread_of(own.pane()),
         Ok(Spread::Normal),
-        "le deuxième appui doit rendre la fenêtre à sa taille"
+        "the second press has to give the window its size back"
     );
 
     window::switch(own.pane(), Switchable::Fullscreen).expect("the screen");

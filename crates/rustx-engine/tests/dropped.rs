@@ -83,7 +83,7 @@ fn dropped_text_is_not_mistaken_for_a_file() {
     // dépôt de fichiers.
     let before = called.get();
     arriving(&[]);
-    assert_eq!(called.get(), before, "un dépôt sans fichier a appelé le crochet");
+    assert_eq!(called.get(), before, "a drop with no file called the hook");
     assert!(dropped::files().is_empty());
 }
 
@@ -116,6 +116,6 @@ fn a_dropped_file_does_not_replace_the_application() {
         "got {}",
         dropped::LISTENER
     );
-    assert!(dropped::LISTENER.contains("'dragover'"), "le survol aussi : sans lui, le lâcher n'est même pas proposé");
+    assert!(dropped::LISTENER.contains("'dragover'"), "the hover too: without it the drop is not even offered");
     assert!(dropped::LISTENER.contains("__rustx_dropped"));
 }

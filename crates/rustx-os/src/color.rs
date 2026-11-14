@@ -45,6 +45,7 @@ impl Rgb {
 ///
 /// `Ok(None)` quand l'utilisateur annule : ce n'est pas une erreur.
 pub fn pick(initial: Option<Rgb>) -> Result<Option<Rgb>, OsError> {
+    crate::blocking::waiting("the colour picker");
     crate::platform::color::pick(initial)
 }
 

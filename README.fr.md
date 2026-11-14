@@ -1,5 +1,12 @@
 # rustx
 
+> **Cette page est la version française, conservée telle qu'elle a été
+> écrite.** La version de référence, tenue à jour, est
+> [`README.md`](README.md), en anglais — c'est elle que GitHub et
+> crates.io montrent, et c'est elle qu'il faut lire pour les numéros de
+> version et l'état des plateformes. Ce fichier-ci n'est plus mis à
+> jour : il peut nommer une version ou une API qui ont bougé depuis.
+
 Des logiciels natifs, écrits en Rust, dessinés par un moteur de
 navigateur.
 

@@ -22,7 +22,7 @@ fn the_filters_become_patterns_every_system_reads() {
             ("Images".to_string(), "*.png;*.jpg;*.gif".to_string()),
             ("Texte".to_string(), "*.txt".to_string()),
         ],
-        "le motif est le même quelle que soit la façon d'écrire l'extension"
+        "the pattern is the same however the extension is written"
     );
     assert!(dialog::patterns_for(&[]).is_empty());
 }

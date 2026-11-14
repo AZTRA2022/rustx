@@ -47,18 +47,18 @@ fn an_icon_appears_and_its_drop_removes_it() {
         assert_eq!(
             tray::shown(),
             before + 1,
-            "l'icône n'est pas arrivée dans la barre"
+            "the icon never reached the tray"
         );
         // Et le menu se pose sans que personne ne clique.
         icon.menu(&[
             Item::new("ouvrir", "Ouvrir la fenêtre"),
             Item::new("quitter", "Quitter"),
         ])
-        .expect("le menu est accepté");
+        .expect("the menu is accepted");
     }
     // Hors de la portée : une icône qui survit à son jeton est une
     // icône morte que l'utilisateur ne peut plus enlever.
-    assert_eq!(tray::shown(), before, "le Drop n'a pas retiré l'icône");
+    assert_eq!(tray::shown(), before, "Drop did not take the icon away");
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn a_menu_item_that_was_chosen_is_reported_once() {
     chosen.push("quitter");
     assert_eq!(chosen.take().as_deref(), Some("ouvrir"));
     assert_eq!(chosen.take().as_deref(), Some("quitter"), "dans l'ordre");
-    assert_eq!(chosen.take(), None, "et plus rien");
+    assert_eq!(chosen.take(), None, "and nothing more");
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn a_notification_does_not_block() {
     assert!(shown.is_ok(), "la notification a été refusée : {shown:?}");
     assert!(
         waited < std::time::Duration::from_millis(500),
-        "elle a mis {waited:?} : une notification ne bloque pas celui qui la montre"
+        "it took {waited:?}: a notification does not block whoever shows it"
     );
 }
 
@@ -100,13 +100,13 @@ fn an_icon_file_that_is_not_an_ico_is_refused_in_words() {
     let not_one = std::env::temp_dir().join(format!("rustx-not-an-icon-{}.ico", std::process::id()));
     std::fs::write(&not_one, b"\x89PNG\r\n\x1a\n and the rest").expect("un faux .ico");
     let refused = tray::readable(&not_one);
-    let said = refused.expect_err("un PNG renommé n'est pas une icône").to_string();
+    let said = refused.expect_err("a renamed PNG is not an icon").to_string();
     assert!(said.contains("icon"), "got {said}");
     let _ = std::fs::remove_file(&not_one);
 
     // Et le même refus arrive par la porte d'entrée.
     if tray::supported() {
-        let refused = Icon::new(&PathBuf::from("rien-du-tout.ico"), "x");
+        let refused = Icon::new(&PathBuf::from("nothing-at-all.ico"), "x");
         assert!(refused.is_err());
     }
 }

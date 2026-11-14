@@ -81,6 +81,8 @@
       <div id="heavy"></div>
       <!-- The one host the router mounts its screens under. -->
       <div id="screens"></div>
+      <!-- And the host of the `nested` scenario's own router. -->
+      <div id="nested"></div>
       <!-- Host for the component that starts a background task. -->
       <div id="ticker"></div>
 
@@ -647,6 +649,55 @@
                       });
                     });
                   }, 300);
+                });
+              });
+            });
+          });
+        } catch (e) {
+          rustx_report("scenario_error", String(e));
+        }
+      }
+
+      // Leaving a nested layout must take its DOM with it.
+      //
+      // The layout here is a fragment -- a sidebar beside its children,
+      // with no element of its own around the two -- which is what a
+      // layout written as `<>...{children}</>` is, and what any layout
+      // that puts something beside its page looks like. A fragment has
+      // no DOM node of its own, so the engine's removal used to remove
+      // nothing: the sidebar and the last page it had shown stayed in
+      // the document underneath the new screen, once per navigation.
+      //
+      // Counted rather than looked at, and counted twice over, because
+      // the symptom of the defect is accumulation: one round leaves one
+      // copy behind, two rounds leave two.
+      if (rustx_scenario() === "nested") {
+        try {
+          rustx_start_nested();
+
+          const count = (selector) => document.querySelectorAll(selector).length;
+          const frame = (then) => rustx_soon(() => rustx_soon(then));
+
+          frame(() => {
+            rustx_report("deep_on_screen", count("#deep"));
+            rustx_report("aside_on_screen", count("#inner-aside"));
+
+            rustx_navigate("/flat");
+            frame(() => {
+              rustx_report("flat_on_screen", count("#flat"));
+              // The two claims. Nothing of the nested layout, and
+              // nothing of the page it was showing, may still be in the
+              // document.
+              rustx_report("deep_left_behind", count("#deep"));
+              rustx_report("aside_left_behind", count("#inner-aside"));
+
+              rustx_navigate("/deep");
+              frame(() => {
+                rustx_navigate("/flat");
+                frame(() => {
+                  rustx_report("deep_after_two_rounds", count("#deep"));
+                  rustx_report("aside_after_two_rounds", count("#inner-aside"));
+                  rustx_report("flat_after_two_rounds", count("#flat"));
                 });
               });
             });

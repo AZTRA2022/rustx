@@ -15,18 +15,21 @@ use crate::error::OsError;
 /// Ranger un secret, en remplaçant celui qui portait ces deux noms.
 pub fn store(service: &str, account: &str, secret: &str) -> Result<(), OsError> {
     named(service, account)?;
+    crate::blocking::waiting("the system's secret store");
     crate::platform::secret::store(service, account, secret)
 }
 
 /// Le secret rangé sous ces deux noms, ou `None` s'il n'y en a pas.
 pub fn fetch(service: &str, account: &str) -> Result<Option<String>, OsError> {
     named(service, account)?;
+    crate::blocking::waiting("the system's secret store");
     crate::platform::secret::fetch(service, account)
 }
 
 /// Retirer le secret. Retirer ce qui n'existe pas n'est pas une erreur.
 pub fn forget(service: &str, account: &str) -> Result<(), OsError> {
     named(service, account)?;
+    crate::blocking::waiting("the system's secret store");
     crate::platform::secret::forget(service, account)
 }
 

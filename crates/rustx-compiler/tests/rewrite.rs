@@ -1064,3 +1064,107 @@ fn a_comment_before_a_read_leaves_it_a_read() {
         "a read became a write: {rust}"
     );
 }
+
+/// A cell read in the component's own body, between the declaration and
+/// the `return`.
+///
+/// Item 4 of `docs/manques-du-framework.md`, which had no test of its
+/// own: reads in the markup and in handlers were rewritten and reads in
+/// the body were not, which is the most natural of the three to write.
+/// The code after the declaration was chosen by whole spans
+/// (`span.start >= declaration.end`), and the span covering the body
+/// begins *before* the declaration — so it was discarded entire, with
+/// every read in it. `rustc` then refused a correct line with a message
+/// about a type the developer never wrote.
+#[test]
+fn a_cell_read_in_the_body_of_its_component_is_rewritten() {
+    let source = "fn Page() -> Element {\n    \
+         let mut n = 0;\n    \
+         let double = n * 2;\n    \
+         return <button onClick={move |_| n += 1}>{double}</button>;\n\
+         }\n";
+    let rust = rewrite_one(source);
+    let tight: String = rust.chars().filter(|each| !each.is_whitespace()).collect();
+    assert!(
+        tight.contains("letdouble=n.get()*2"),
+        "the read in the body was left naming the cell:\n{rust}"
+    );
+}
+
+/// The same for a page value, and for a read that is not the whole
+/// initializer.
+#[test]
+fn a_page_value_read_in_the_body_of_a_component_is_rewritten() {
+    let source = "let mut total = 0_usize;\n\n\
+         fn Page() -> Element {\n    \
+         let half = total / 2;\n    \
+         return <button onClick={move |_| total += 1}>{half}</button>;\n\
+         }\n";
+    let rust = rewrite_one(source);
+    let tight: String = rust.chars().filter(|each| !each.is_whitespace()).collect();
+    assert!(
+        tight.contains("lethalf=total.get()/2"),
+        "the read in the body was left naming the handle:\n{rust}"
+    );
+}
+
+/// Every refusal this crate can produce is prose, not a wall of spaces.
+///
+/// The existing test of that law names two sources. This one asks the
+/// same question of every refusal the suite can reach, including the
+/// ones added since — a refusal written with a `\` continuation whose
+/// indentation leaks into the message is invisible to an assertion that
+/// only looks for a fragment.
+#[test]
+fn no_refusal_this_crate_can_produce_is_a_wall_of_spaces() {
+    let refused = [
+        // A tag nested past the limit.
+        format!(
+            "fn Page() -> Element {{ return {}{}; }}",
+            "<div>".repeat(rustx_compiler::parse::NESTING_LIMIT + 1),
+            "</div>".repeat(rustx_compiler::parse::NESTING_LIMIT + 1)
+        ),
+        // A tag opened inside an expression and closed outside it.
+        "fn Page() -> Element { return <p>{ vec![<br] }</p>; }".to_string(),
+        // An `async` component.
+        "async fn Page() -> Element { return <p>x</p>; }".to_string(),
+        // A name declared twice.
+        "fn Page() -> Element { let mut n = 0; let mut n = 1; return <button onClick={move |_| n += 1}>{n}</button>; }".to_string(),
+        // A `keep` inside a `keep`.
+        "fn Page() -> Element { keep(keep(1)); return <p>x</p>; }".to_string(),
+        // A component written inside a handler.
+        "fn Row() -> Element { return <p>r</p>; }\nfn Page() -> Element { return <button onClick={|_| { let _ = <Row />; }}>x</button>; }".to_string(),
+        // An unknown tag, and an unknown attribute.
+        "fn Page() -> Element { return <dvi>x</dvi>; }".to_string(),
+        "fn Page() -> Element { return <div classname=\"a\">x</div>; }".to_string(),
+        // A style object with a computed value, and one with a number.
+        "fn Page() -> Element { let n = 1; return <div style={{ width: n }}>x</div>; }".to_string(),
+        "fn Page() -> Element { return <div style={{ width: 20 }}>x</div>; }".to_string(),
+        // A `.await` that is not the value of a `let`.
+        "fn Page() -> Element { ping().await; return <p>ok</p>; }".to_string(),
+        // An unclosed tag.
+        "fn Page() -> Element { return <div>oops; }".to_string(),
+    ];
+    let mut seen = 0;
+    for source in &refused {
+        let Err(error) = rustx_compiler::transpile::transpile(source) else {
+            continue;
+        };
+        seen += 1;
+        assert!(
+            !error.message.contains("  "),
+            "two spaces in a row: {:?}",
+            error.message
+        );
+        assert!(
+            !error.message.contains('\n'),
+            "a newline in a refusal: {:?}",
+            error.message
+        );
+        assert!(
+            !error.message.is_empty(),
+            "an empty refusal for {source:?}"
+        );
+    }
+    assert!(seen >= 8, "only {seen} of these sources were refused");
+}

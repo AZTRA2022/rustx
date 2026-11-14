@@ -37,3 +37,25 @@
 - `style={{ ... }}` is read at compile time and accepts only literal quoted strings: `if`, `format!` and a variable are all refused. The README does not say so, and the refusal advises writing `"format!(...)px"`, which is not what a computed value needs.
 
 Add ponytail skill to claude code
+
+
+Error that appears in the macro declaration '#[rustx::main]':
+  ```
+        extern crate rustx
+
+  The one crate an application depends on.
+
+  A main.rs is a window's title and its size:
+
+  use rustx::{App, Config};
+
+  #[rustx::main]
+  fn main() -> Result<(), rustx::Error> {
+  let app = App::new(Config::new("Console").size(800, 600))?;
+  app.run()
+  }
+
+  Everything that used to be in that file is here instead: leaving a sub-process before it touches anything, finding assets/index.html, compiling the pages of app/ into the binary, and handing the router the table the build script wrote. None of it varies between applications, so none of it is an application's to write.
+
+  Nothing here hides anything: every line the attribute adds is ordinary code that could have been written by hand, which is what lets an application that outgrows this reach for rustx_engine directly and keep going.
+  ```

@@ -47,6 +47,17 @@ pub enum PostError {
     /// has to say is refused rather than delivered to something that is
     /// no longer there.
     Cancelled,
+    /// Nothing in this process has ever run a frame, and the queue has
+    /// grown past what a queue nobody drains may hold.
+    ///
+    /// `tick` runs in the render process. A `post` made from the
+    /// browser process — where the OS layer gives an application real
+    /// reasons to have code — was accepted and never drained: the queue
+    /// grew without bound and without a word. It is still accepted,
+    /// because a post made before the first frame is ordinary and
+    /// common; what is refused is the thousandth one in a process that
+    /// has never drawn.
+    NoFrameLoop,
 }
 
 impl std::fmt::Display for PostError {
@@ -54,6 +65,7 @@ impl std::fmt::Display for PostError {
         match self {
             Self::WindowClosed => f.write_str("WindowClosed"),
             Self::Cancelled => f.write_str("Cancelled"),
+            Self::NoFrameLoop => f.write_str("NoFrameLoop"),
         }
     }
 }
@@ -77,6 +89,10 @@ impl Poster {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         match guard.as_mut() {
             Some(jobs) => {
+                if nobody_will_drain(jobs.len(), TICKS.load(Ordering::Relaxed)) {
+                    said_nobody_is_draining();
+                    return Err(PostError::NoFrameLoop);
+                }
                 jobs.push(Box::new(job));
                 Ok(())
             }
@@ -88,6 +104,56 @@ impl Poster {
 /// A poster for the current application. Hand it to any thread.
 pub fn poster() -> Poster {
     Poster { _private: () }
+}
+
+/// How many jobs a queue nobody has ever drained may hold.
+///
+/// Generous, because a post before the first frame is ordinary: a
+/// window takes a moment to come up and a worker thread may already be
+/// producing. Small enough that a process which will never drain —
+/// the browser process, where `tick` does not run — stops instead of
+/// growing for as long as it is open.
+const UNDRAINED: usize = 1_024;
+
+/// How many frames this **process** has run, on any thread.
+///
+/// Process-wide rather than per-thread, because the question a post
+/// asks is "is there a frame loop anywhere here?" and a post is made
+/// from a thread that is by definition not the one drawing.
+static TICKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+use std::sync::atomic::Ordering;
+
+/// Said once, where a developer will see it.
+fn said_nobody_is_draining() {
+    static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if SAID.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    eprintln!(
+        "rustx: {UNDRAINED} jobs have been posted to the frame queue and no \
+         frame has ever run in this process, so nothing will ever run them. \
+         A `Poster` hands work to the thread that draws, and that thread is \
+         in the render process — code in the browser process has no frame \
+         to post to."
+    );
+}
+
+/// How many frames have run in this process, on any thread.
+pub fn frames_in_this_process() -> u64 {
+    TICKS.load(Ordering::Relaxed)
+}
+
+/// Will anything ever run what is already queued?
+///
+/// `false` while a frame loop exists, however long the queue is: a
+/// worker pushing ten thousand updates a second is the case the whole
+/// design is for, and they all land. `true` only for a queue that has
+/// grown past what waiting could explain in a process where no frame
+/// has *ever* run — which is the browser process, where `tick` does
+/// not.
+fn nobody_will_drain(queued: usize, frames: u64) -> bool {
+    queued >= UNDRAINED && frames == 0
 }
 
 /// Run `callback` once per frame, on the UI thread.
@@ -135,6 +201,7 @@ pub fn tick() {
     }
 
     FRAMES.with(|frames| frames.set(frames.get() + 1));
+    TICKS.fetch_add(1, Ordering::Relaxed);
     LAST.with(|last| last.set(Some(std::time::Instant::now())));
 
     // The callbacks are taken out of the cell for the duration of the call,
@@ -181,6 +248,23 @@ fn report_panic(what: &str, outcome: Result<(), Box<dyn std::any::Any + Send>>) 
 /// The engine calls this when a context goes away; an application may call
 /// it to wind down on its own terms.
 pub fn shutdown() {
+    // Everything the page had mounted, first: releasing a root runs its
+    // components' `Drop`, which is where a file is closed, a capture
+    // session is ended and a `task(…)` token is dropped — so it has to
+    // happen while the runtime those tasks are on is still there.
+    // Before this call, nothing released them: a window that closed
+    // while the process stayed left every cell alive, and a thread
+    // started by `task(…)` went on looking at a flag nobody would ever
+    // flip. In the browser process there is nothing mounted and this is
+    // a look at an empty list.
+    crate::render::unmount_all();
+    // And the thread that watches for a render that never comes back.
+    // There is no render to be slow any more, and a thread waking twice
+    // a second for the life of a process that has stopped drawing is an
+    // uncontrolled background task however cheap it is. The next window
+    // that mounts something starts another.
+    crate::watchdog::stop();
+
     let mut guard = queue()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -257,6 +341,15 @@ pub(crate) fn wake() {
 
 fn schedule_check() {
     crate::renderer::after(FLOOR as u64 / 2, || {
+        // The window is gone: there is no frame to put a floor under,
+        // and a task that reschedules itself for ever is a task nobody
+        // can stop. `watch` is called again for the next context, and
+        // the flag being false is what lets it arm a new chain rather
+        // than believe one is already running.
+        if !accepting() {
+            WATCHING.with(|watching| watching.set(false));
+            return;
+        }
         let stale = LAST
             .with(std::cell::Cell::get)
             .is_none_or(|last| last.elapsed().as_millis() as i64 >= FLOOR);
@@ -268,6 +361,17 @@ fn schedule_check() {
         }
         schedule_check();
     });
+}
+
+/// Is the frame queue still taking work?
+///
+/// `false` from [`shutdown`] until the next [`open`], which is the
+/// engine's own answer to "is there still a window here?".
+pub fn accepting() -> bool {
+    queue()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .is_some()
 }
 
 /// Reopen the queue for a freshly created context.
@@ -285,6 +389,44 @@ pub fn open() {
     // way `shutdown` lets it go: no path takes these two in the other
     // order today, and keeping them apart is how it stays true.
     rustx_dom::state::open_remote();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The rule a post is refused by, at its two edges. Written as a
+    /// predicate rather than inline so that it can be said here without
+    /// a process that has never drawn and a queue of a thousand jobs.
+    #[test]
+    fn a_queue_is_only_refused_where_nothing_will_ever_drain_it() {
+        // A frame loop exists: the queue may be as long as it likes.
+        assert!(!nobody_will_drain(UNDRAINED * 100, 1));
+        assert!(!nobody_will_drain(0, 1));
+
+        // Nothing has ever drawn, but waiting for the first frame
+        // explains a short queue.
+        assert!(!nobody_will_drain(0, 0));
+        assert!(!nobody_will_drain(UNDRAINED - 1, 0));
+
+        // And past that it does not.
+        assert!(nobody_will_drain(UNDRAINED, 0));
+        assert!(nobody_will_drain(UNDRAINED + 1, 0));
+    }
+
+    #[test]
+    fn every_reason_a_post_can_fail_says_which_it_was() {
+        // `PostError` reaches a developer through `Display`, and a
+        // variant that printed nothing of use would be a worse answer
+        // than no answer.
+        for refusal in [
+            PostError::WindowClosed,
+            PostError::Cancelled,
+            PostError::NoFrameLoop,
+        ] {
+            assert!(!refusal.to_string().is_empty(), "{refusal:?} says nothing");
+        }
+    }
 }
 
 /// The script that drives the loop.

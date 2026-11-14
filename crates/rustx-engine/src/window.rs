@@ -604,7 +604,7 @@ pub(crate) fn asked(message: &cef::ProcessMessage, from: Option<&cef::Browser>) 
 
     let name = text(0);
     if name.is_empty() {
-        eprintln!("rustx: une fenêtre a été demandée sans nom, et un nom est ce qui la referme");
+        eprintln!("rustx: a window was asked for with no name, and a name is what closes it");
         return true;
     }
     if let Some((_, _, open)) = OPEN_WINDOWS.with(|open| {
@@ -625,7 +625,7 @@ pub(crate) fn asked(message: &cef::ProcessMessage, from: Option<&cef::Browser>) 
     let document = document();
     if document.is_empty() {
         eprintln!(
-            "rustx: une fenêtre a été demandée avant que l'application ait chargé son document"
+            "rustx: a window was asked for before the application had loaded its document"
         );
         return true;
     }
@@ -658,7 +658,7 @@ fn close_named(name: &str) {
             .map(|(_, _, browser)| browser.clone())
     });
     let Some(browser) = found else {
-        eprintln!("rustx: aucune fenêtre ne s'appelle « {name} »");
+        eprintln!("rustx: no window is called `{name}`");
         return;
     };
     if let Some(host) = browser.host() {
@@ -677,7 +677,7 @@ fn obey(word: &str, from: Option<&cef::Browser>) {
     use cef::{ImplBrowser, ImplBrowserHost};
 
     let Some(order) = rustx_os::window::Order::from_word(word) else {
-        eprintln!("rustx: « {word} » n'est pas un ordre de fenêtre");
+        eprintln!("rustx: `{word}` is not a window command");
         return;
     };
     let Some(handle) = from
@@ -732,7 +732,7 @@ pub(crate) fn wear(handle: *mut std::ffi::c_void, dressing: rustx_os::window::Dr
     }
     let pane = rustx_os::window::Pane::from_handle(handle);
     if let Err(refused) = rustx_os::window::dress(pane, dressing) {
-        eprintln!("rustx: la fenêtre n'a pas pu être déshabillée : {refused}");
+        eprintln!("rustx: the window could not be undressed: {refused}");
     }
 }
 

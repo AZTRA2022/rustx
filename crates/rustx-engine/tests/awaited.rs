@@ -92,13 +92,13 @@ fn the_same_question_is_asked_again_when_the_screen_is_another_one() {
     assert_eq!(
         settled("/depots/tokio-rs/tokio").as_deref(),
         Some("/depots/tokio-rs/tokio"),
-        "le second écran a montré la réponse du premier"
+        "the second screen showed the first one's answer"
     );
     // Et revenir au premier ne repose pas la question pour rien : sa
     // réponse est encore là, sous sa clé.
     assert_eq!(
         render("/depots/rust-lang/rust").as_deref(),
         Some("/depots/rust-lang/rust"),
-        "la réponse du premier écran a été perdue"
+        "the first screen's answer was lost"
     );
 }

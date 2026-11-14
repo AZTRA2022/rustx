@@ -24,11 +24,27 @@ use crate::value::{NativeError, Value};
 /// The shape of a function the page can call.
 pub type NativeFn = dyn Fn(&[Value]) -> Result<Value, NativeError>;
 
+/// The prefix the engine keeps for itself on the JavaScript global.
+///
+/// `__rustx_frame` is how the page drives the frame loop, and it used to
+/// be registered through the public [`register_native`] — so it landed in
+/// the application's own namespace, where an application could replace
+/// it, and on the global as an ordinary writable property, where a page's
+/// script could call it (re-entering `tick`) or shadow it (stopping the
+/// loop). Neither corrupts anything: `tick` takes its callbacks out and
+/// puts them back, so re-entrance loses nothing. It is robustness, and it
+/// costs one reserved prefix.
+pub const RESERVED: &str = "__rustx_";
+
 thread_local! {
     /// What the application asked to run when a page's context appears.
     static HOOKS: RefCell<Vec<Box<dyn Fn()>>> = const { RefCell::new(Vec::new()) };
     /// The functions to install on the JavaScript global.
     static NATIVES: RefCell<HashMap<String, Rc<NativeFn>>> = RefCell::new(HashMap::new());
+    /// The engine's own, kept apart from the application's: an
+    /// application cannot replace one by registering its name, and the
+    /// page cannot write over one or delete it.
+    static INTERNAL: RefCell<HashMap<String, Rc<NativeFn>>> = RefCell::new(HashMap::new());
     /// Hooks run once per process, not once per page, so that state a
     /// closure captures survives a navigation.
     static HOOKS_RUN: RefCell<bool> = const { RefCell::new(false) };
@@ -58,6 +74,21 @@ pub fn inject(name: &str, source: &str) {
 ///
 /// Call it before [`crate::bootstrap`]; this is where an application calls
 /// [`register_native`].
+///
+/// # Once per process, not once per page
+///
+/// The hooks run on the **first** context of the render process and
+/// never again. That is deliberate: a hook is where an application
+/// registers its natives and its components, and running them again per
+/// page would rebuild whatever their closures captured — so a counter
+/// held by a hook would reset on every navigation.
+///
+/// What follows from it, and is the part worth stating: a hook
+/// registered *after* that first context has appeared never runs at
+/// all. In practice every caller registers from `main`, before
+/// [`crate::bootstrap`], which is the only place a render process still
+/// reaches. An application that registers one later is registering it
+/// for a context that has already been and gone.
 pub fn on_context_created(hook: impl Fn() + 'static) {
     HOOKS.with(|hooks| hooks.borrow_mut().push(Box::new(hook)));
 }
@@ -70,6 +101,15 @@ pub fn register_native(
     name: &str,
     function: impl Fn(&[Value]) -> Result<Value, NativeError> + 'static,
 ) {
+    if name.starts_with(RESERVED) {
+        eprintln!(
+            "rustx: `{name}` was not registered. Names beginning with \
+             `{RESERVED}` belong to the engine — one of them is the frame \
+             loop itself, and an application that replaced it would stop \
+             its own window drawing."
+        );
+        return;
+    }
     NATIVES.with(|natives| {
         natives
             .borrow_mut()
@@ -77,8 +117,59 @@ pub fn register_native(
     });
 }
 
+/// The same, for the engine's own functions.
+///
+/// They go on the global read-only, not enumerable and not deletable,
+/// after the application's: a page that writes `__rustx_frame = …` or
+/// `delete __rustx_frame` changes nothing, and `Object.keys(window)`
+/// does not list the framework's plumbing.
+pub(crate) fn register_internal(
+    name: &str,
+    function: impl Fn(&[Value]) -> Result<Value, NativeError> + 'static,
+) {
+    debug_assert!(name.starts_with(RESERVED), "an engine native is reserved");
+    INTERNAL.with(|natives| {
+        natives
+            .borrow_mut()
+            .insert(name.to_string(), Rc::new(function))
+    });
+}
+
+/// What the engine's own functions are put on the global with.
+fn kept_for_the_engine() -> V8Propertyattribute {
+    use cef::sys::cef_v8_propertyattribute_t as Attribute;
+    Attribute(
+        [
+            Attribute::V8_PROPERTY_ATTRIBUTE_READONLY,
+            Attribute::V8_PROPERTY_ATTRIBUTE_DONTENUM,
+            Attribute::V8_PROPERTY_ATTRIBUTE_DONTDELETE,
+        ]
+        .into_iter()
+        .fold(0, |all, one| all | one.0),
+    )
+    .into()
+}
+
 fn lookup(name: &str) -> Option<Rc<NativeFn>> {
     NATIVES.with(|natives| natives.borrow().get(name).cloned())
+}
+
+fn lookup_internal(name: &str) -> Option<Rc<NativeFn>> {
+    INTERNAL.with(|natives| natives.borrow().get(name).cloned())
+}
+
+/// Put one function on the global under `name`.
+fn install_one(
+    global: &cef::V8Value,
+    name: &str,
+    function: Rc<NativeFn>,
+    attributes: V8Propertyattribute,
+) {
+    let key = CefString::from(name);
+    let mut handler = native::handler_for(name, function);
+    if let Some(mut built) = cef::v8_value_create_function(Some(&key), Some(&mut handler)) {
+        global.set_value_bykey(Some(&key), Some(&mut built), attributes);
+    }
 }
 
 /// Install every registered function on a freshly created V8 global.
@@ -108,12 +199,18 @@ pub(crate) fn install(frame: Option<&mut Frame>, context: &V8Context) {
     crate::window::loaded_at(&url);
 
     remember(context);
+    // This thread owns the screen from now on. The platform layer has
+    // no way of knowing that by itself, and it is the layer with the
+    // calls that wait: a file dialog, a script, the clipboard. Told
+    // here, a call made from an `onClick` says so instead of silently
+    // stopping the window — see `rustx_os::blocking`.
+    rustx_os::blocking::draws_here();
     crate::frame::open();
     // Ce que la fenêtre a à dire à la page est écouté dès maintenant, et
     // non à la première lecture : des fichiers lâchés sur la fenêtre
     // avant le premier battement d'une page seraient sinon perdus.
     crate::dropped::ready();
-    register_native("__rustx_dropped", |_args| {
+    register_internal("__rustx_dropped", |_args| {
         crate::dropped::landed();
         Ok(Value::Null)
     });
@@ -124,7 +221,7 @@ pub(crate) fn install(frame: Option<&mut Frame>, context: &V8Context) {
     // And the floor under the loop, which is the engine's own timer: a
     // window that is never asked to draw still has to run.
     crate::frame::watch();
-    register_native("__rustx_frame", |_args| {
+    register_internal("__rustx_frame", |_args| {
         crate::frame::tick();
         Ok(Value::Null)
     });
@@ -187,19 +284,22 @@ pub(crate) fn install(frame: Option<&mut Frame>, context: &V8Context) {
 
     let names: Vec<String> = NATIVES.with(|natives| natives.borrow().keys().cloned().collect());
     for name in names {
-        let key = CefString::from(name.as_str());
         let Some(function) = lookup(&name) else {
             continue;
         };
-        let mut handler = native::handler_for(&name, function);
-        if let Some(mut js_function) = cef::v8_value_create_function(Some(&key), Some(&mut handler))
-        {
-            global.set_value_bykey(
-                Some(&key),
-                Some(&mut js_function),
-                V8Propertyattribute::default(),
-            );
-        }
+        install_one(&global, &name, function, V8Propertyattribute::default());
+    }
+
+    // The engine's own, last and protected. Last so that nothing an
+    // application registered can be sitting on one of these names;
+    // protected so that the page's own script cannot write over one or
+    // delete it.
+    let ours: Vec<String> = INTERNAL.with(|natives| natives.borrow().keys().cloned().collect());
+    for name in ours {
+        let Some(function) = lookup_internal(&name) else {
+            continue;
+        };
+        install_one(&global, &name, function, kept_for_the_engine());
     }
 
     // What the framework brings itself: the other half of the React
@@ -353,9 +453,26 @@ pub(crate) fn in_context(work: impl FnOnce()) {
     if context.is_valid() == 0 {
         return;
     }
-    let entered = context.enter() != 0;
+    if context.enter() == 0 {
+        // Entering can fail, and work done outside a context makes
+        // handles that are stale the moment they are used.
+        return;
+    }
+    // Left on the way out whichever way `work` goes. `work` is a frame,
+    // and a frame runs the application's own code: a panic that escaped
+    // between `enter` and `exit` left V8 with a context entered for
+    // ever, and every frame after it entered another one on top. Only a
+    // `Drop` can promise the exit, which is why this is a guard and not
+    // a second call.
+    let _left = Left(context);
     work();
-    if entered {
-        context.exit();
+}
+
+/// Leaves the page's context, panic or not.
+struct Left(V8Context);
+
+impl Drop for Left {
+    fn drop(&mut self) {
+        self.0.exit();
     }
 }

@@ -10,30 +10,107 @@
   <body>
     <div id="app"></div>
     <script>
-      // A probe, and only when one is asked for: `--scenario=probe`
-      // makes the window say out loud what it actually drew, so that a
-      // run with an empty stderr can be told apart from a run that drew
-      // nothing at all. A normal launch logs nothing.
-      if (typeof rustx_scenario === "function" && rustx_scenario() === "probe") {
-        const look = () => {
-          const card = document.querySelectorAll("#body .recharts-surface").length;
-          const segments = document.querySelectorAll("#body span[style*='border-radius:1px']").length;
-          const alerts = document.querySelectorAll("#alerts > div").length;
-          if (card === 0 || segments === 0) {
-            setTimeout(look, 100);
+      // A probe, and only when one is asked for. `--scenario=probe`
+      // reports what the screen the window opened on actually drew;
+      // `--scenario=routes` walks every screen of the console by
+      // pressing the buttons a person would press, and says what each
+      // one drew. A normal launch logs nothing.
+      (() => {
+        if (typeof rustx_scenario !== "function") return;
+        const scenario = rustx_scenario();
+        if (!scenario) return;
+
+        const screen = () => {
+          const all = [...document.querySelectorAll("[id^='screen-']")].map((node) => node.id);
+          return all.length ? all.join("+") : "none";
+        };
+
+        const press = (label) => {
+          const wanted = label.toLowerCase();
+          for (const button of document.querySelectorAll("button")) {
+            const said = (button.textContent || "").trim().toLowerCase();
+            if (said === wanted || said.startsWith(wanted)) {
+              button.click();
+              return true;
+            }
+          }
+          return false;
+        };
+
+        if (scenario === "probe") {
+          const look = () => {
+            const charts = document.querySelectorAll(".recharts-surface").length;
+            const segments = document.querySelectorAll("span[style*='border-radius:1px']").length;
+            const alerts = document.querySelectorAll("#alerts > div").length;
+            if (charts === 0 || segments === 0) {
+              setTimeout(look, 120);
+              return;
+            }
+            console.log(
+              "probe screen=" + screen() +
+              " charts=" + charts +
+              " segments=" + segments +
+              " alerts=" + alerts +
+              " service=" + (document.body.textContent.includes("runner-gateway") ? "yes" : "no") +
+              " cores=" + (document.body.textContent.match(/(\d+) CORES/) || ["", "?"])[1]
+            );
+          };
+          setTimeout(look, 1800);
+          return;
+        }
+
+        if (scenario !== "routes") return;
+
+        // Every screen the console has, in the order a person would
+        // reach them: the top bar, then a service and its four tabs,
+        // then the documentation and one topic of it.
+        const walk = [
+          "Home",
+          "Services",
+          "runner-gateway",
+          "RESOURCE",
+          "ANALYTICS",
+          "SETTINGS",
+          "OVERVIEW",
+          "Tasks",
+          "Docs",
+          "Reading the machine",
+          "Alerts",
+          "Status",
+          "Changelog",
+          "Home",
+          "token-router",
+          "Home",
+          "eval-worker",
+          "Home",
+          "doc-indexer",
+          "Docs",
+          "Every screen, by address",
+        ];
+
+        let at = 0;
+        const step = () => {
+          if (at >= walk.length) {
+            console.log("routes done=" + at);
             return;
           }
-          console.log(
-            "probe charts=" + card +
-            " segments=" + segments +
-            " alerts=" + alerts +
-            " service=" + (document.body.textContent.includes("runner-gateway") ? "yes" : "no") +
-            " cores=" + (document.body.textContent.match(/(\d+) CORES/) || ["", "?"])[1] +
-            " deployline=[" + (document.querySelector("#deploy-line") || {textContent:"?"}).textContent + "]"
-          );
+          const label = walk[at];
+          const went = press(label);
+          at += 1;
+          setTimeout(() => {
+            console.log(
+              "route step=" + at +
+              " pressed=[" + label + "]" +
+              " found=" + went +
+              " screen=" + screen() +
+              " text=" + document.body.textContent.trim().length +
+              " head=" + document.body.textContent.trim().slice(0, 42).replace(/\s+/g, " ")
+            );
+            step();
+          }, 700);
         };
-        setTimeout(look, 1500);
-      }
+        setTimeout(step, 2200);
+      })();
     </script>
   </body>
 </html>

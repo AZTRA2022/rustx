@@ -70,10 +70,17 @@ pub struct Only {
 /// Un `HANDLE` que le jeton garde pour la durée de l'instance.
 struct Handle(HANDLE);
 
+// SAFETY: a Win32 `HANDLE` belongs to the process and not to a thread.
+// Any thread may close one, and `CloseHandle` is documented as such. The
+// handle in here is the named mutex, which nothing else in this crate
+// holds a copy of, so it is closed exactly once — by the `Drop` below.
 unsafe impl Send for Handle {}
 
 impl Drop for Handle {
     fn drop(&mut self) {
+        // SAFETY: the handle `CreateMutexW` gave us, closed once:
+        // `Handle` is not `Clone` and the only other path out of
+        // `Only::one` drops this same value rather than copying it.
         unsafe {
             let _ = windows::Win32::Foundation::CloseHandle(self.0);
         }
@@ -84,6 +91,12 @@ impl Drop for Handle {
 #[derive(Clone, Copy)]
 struct Window(HWND);
 
+// SAFETY: an `HWND` is a process-wide identifier, and the only thing
+// done with this one off its own thread is `PostMessageW`, which
+// Windows documents as callable from any thread (it queues the message
+// rather than running the window procedure on the caller). Nothing here
+// calls `SendMessageW` or any of the window-state functions that must
+// run on the thread that created the window.
 unsafe impl Send for Window {}
 unsafe impl Sync for Window {}
 
@@ -110,11 +123,11 @@ impl Only {
             .name("rustx-instance".to_string())
             .spawn(move || live(title, say))
             .map_err(|error| {
-                OsError::Platform(format!("le fil de l'instance n'a pas démarré : {error}"))
+                OsError::Platform(format!("the instance thread did not start: {error}"))
             })?;
         let window = heard
             .recv()
-            .map_err(|_| OsError::Platform("le fil de l'instance s'est arrêté".to_string()))??;
+            .map_err(|_| OsError::Platform("the instance thread stopped".to_string()))??;
 
         Ok(Self {
             _mutex: held,
@@ -142,7 +155,7 @@ pub fn hand_over(name: &str, arguments: &[String]) -> Result<(), OsError> {
     let window = unsafe { FindWindowW(PCWSTR(class.as_ptr()), PCWSTR(title.as_ptr())) }
         .map_err(|_| {
             OsError::NoSuchDevice(format!(
-                "{name} — aucune instance ne tourne, il n'y a personne à qui passer la main"
+                "{name} — no instance is running, there is nobody to hand over to"
             ))
         })?;
 
@@ -213,7 +226,7 @@ fn live(title: String, say: std::sync::mpsc::Sender<Result<Window, OsError>>) {
         Ok(window) => window,
         Err(error) => {
             let _ = say.send(Err(OsError::Platform(format!(
-                "la fenêtre invisible de l'instance n'a pas été créée : {}",
+                "the instance's invisible window was not created: {}",
                 error.message()
             ))));
             return;
@@ -246,15 +259,37 @@ unsafe extern "system" fn answered(
     match message {
         WM_COPYDATA => {
             let data = more.0 as *const COPYDATASTRUCT;
+            // SAFETY: for `WM_COPYDATA`, Windows marshals the structure
+            // into this process and `lParam` points at it, properly
+            // aligned, for the duration of this call. `as_ref` answers
+            // `None` for a null pointer, which is the one other thing
+            // `lParam` could be.
             let read = unsafe { data.as_ref() }.filter(|data| data.dwData == OURS);
             if let Some(data) = read {
-                let units = (data.cbData / 2) as usize;
-                let text = if units == 0 || data.lpData.is_null() {
+                let size = data.cbData as usize;
+                let text = if size < 2 || data.lpData.is_null() {
                     String::new()
                 } else {
-                    let slice =
-                        unsafe { std::slice::from_raw_parts(data.lpData as *const u16, units) };
-                    String::from_utf16_lossy(slice)
+                    // Read as bytes and decoded by hand, not as
+                    // `*const u16`. Any program on the machine can post
+                    // this message — the window is found by class and
+                    // title — so `lpData` is a pointer somebody else
+                    // chose, and reading it through a `*const u16` that
+                    // happens to be odd is undefined behaviour rather
+                    // than a wrong answer. `u8` has no alignment to get
+                    // wrong.
+                    //
+                    // SAFETY: `lpData` is non-null and Windows
+                    // guarantees `cbData` readable bytes at it for the
+                    // duration of this call; the slice is consumed here
+                    // and does not escape.
+                    let bytes =
+                        unsafe { std::slice::from_raw_parts(data.lpData as *const u8, size) };
+                    let units: Vec<u16> = bytes
+                        .chunks_exact(2)
+                        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+                        .collect();
+                    String::from_utf16_lossy(&units)
                 };
                 let arguments: Vec<String> = text
                     .split(BETWEEN)
@@ -270,15 +305,22 @@ unsafe extern "system" fn answered(
             LRESULT(1)
         }
         WM_CLOSE => {
+            // SAFETY: the window this procedure was called about, on
+            // the thread that created it — which is where
+            // `DestroyWindow` has to be called.
             unsafe {
                 let _ = DestroyWindow(window);
             }
             LRESULT(0)
         }
         WM_DESTROY => {
+            // SAFETY: posts to this thread's own message queue, which
+            // is what ends the loop in `live`.
             unsafe { PostQuitMessage(0) };
             LRESULT(0)
         }
+        // SAFETY: the arguments this procedure was given, handed
+        // straight back to the default handler.
         _ => unsafe { DefWindowProcW(window, message, which, more) },
     }
 }

@@ -28,26 +28,25 @@ use std::path::{Path, PathBuf};
 
 pub use rustx_macros::{ToValue, main};
 
-// Les deux caisses que le code engendré par le compilateur nomme —
-// `rustx_dom::Element`, `rustx_engine::task::spawn`. Elles passent par
-// la façade pour qu'une application n'en déclare qu'une seule dans son
-// `Cargo.toml`, ce que la documentation promet. Rien à écrire pour le
-// développeur : le prélude de `#[rustx::main]` les importe.
+// The two crates the compiler's generated code names —
+// `rustx_dom::Element`, `rustx_engine::task::spawn`. They come through
+// the facade so that an application declares one crate in its
+// `Cargo.toml`, which is what the documentation promises. Nothing for
+// the developer to write: `#[rustx::main]`'s prelude imports them.
 #[doc(hidden)]
 pub use rustx_dom;
 #[doc(hidden)]
 pub use rustx_engine;
 
-/// Ce qu'un `await` attend.
+/// What an `await` waits on.
 ///
-/// `rustx::time::sleep(…)`, et tout ce que tokio appelle le temps. Une
-/// page ne nomme pas tokio dans son `Cargo.toml` : c'est le meme
-/// runtime que celui qui fait tourner ses `task(async { … })`, et deux
-/// tokio dans un processus seraient deux reacteurs dont un seul aurait
-/// les timers.
+/// `rustx::time::sleep(…)`, and everything tokio calls time. A page
+/// does not name tokio in its `Cargo.toml`: it is the same runtime its
+/// `task(async { … })` blocks run on, and two tokios in one process
+/// would be two reactors with the timers in only one of them.
 pub use tokio::time;
-/// Le reste du runtime, pour une application qui en veut plus que le
-/// temps : `rustx::tokio::sync`, `rustx::tokio::select!`.
+/// The rest of the runtime, for an application that wants more than
+/// time: `rustx::tokio::sync`, `rustx::tokio::select!`.
 pub use tokio;
 
 pub use rustx_dom::value::{ToValue, record};
@@ -55,22 +54,22 @@ pub use rustx_dom::{
     AttributeValue, Element, Handler, IntoElement, Key, TagElement, Value, into_element, route,
     state, store, value,
 };
-/// Ce qui touche la machine et non la page : le presse-papiers, les
-/// dialogues de fichiers, les appareils, la barre système, les
-/// notifications. Chacun dit, avant qu'on lui demande quoi que ce soit,
-/// si cette plateforme sait le faire.
+/// What touches the machine rather than the page: the clipboard, file
+/// dialogs, the devices, the system tray, notifications. Each of them
+/// says, before it is asked for anything, whether this platform can do
+/// it.
 pub use rustx_os::{
     autostart, clipboard, devices, dialog, instance, notify, shortcut, terminal, tray,
 };
 pub use rustx_os::OsError;
 
-/// La couche qui parle au systeme, en entier.
+/// The layer that talks to the system, in full.
 ///
-/// Les modules ci-dessus sont la pour qu'une page ecrive
-/// `rustx::clipboard::text()` sans rien importer. `rustx::os` est pour
-/// le reste : `os::window`, qui tient la poignee de la fenetre et ne
-/// peut pas s'appeler `rustx::window` — ce nom est celui que la **page**
-/// commande, et deux choses ne peuvent pas porter le meme nom.
+/// The modules above exist so that a page can write
+/// `rustx::clipboard::text()` with nothing imported. `rustx::os` is for
+/// the rest: `os::window`, which holds the window's handle and cannot
+/// be called `rustx::window` — that name belongs to what the **page**
+/// commands, and two things cannot carry one name.
 pub use rustx_os as os;
 
 pub use rustx_engine::{
@@ -104,11 +103,11 @@ thread_local! {
     static STYLESHEET: Cell<Option<&'static str>> = const { Cell::new(None) };
 }
 
-/// Attendre une future jusqu'au bout, depuis `main`.
+/// Wait for a future to the end, from `main`.
 ///
-/// Ce que `#[rustx::main]` enveloppe autour d'un `async fn main`. Un
-/// composant, lui, n'attend jamais : on lui demande l'ecran tel qu'il
-/// est maintenant, et ce qui attend s'ecrit dans un `task(async { … })`.
+/// What `#[rustx::main]` wraps an `async fn main` in. A component never
+/// waits: it is asked for the screen as it is now, and what waits is
+/// written in a `task(async { … })`.
 #[doc(hidden)]
 pub fn block_on<T>(work: impl std::future::Future<Output = T>) -> T {
     rustx_engine::runtime::block_on(work)
@@ -184,6 +183,7 @@ pub struct Config {
     host: String,
     start: String,
     not_found: Option<fn() -> Element>,
+    failed: Option<fn(String) -> Element>,
     mounts: Vec<(String, fn() -> Element)>,
     hooks: Vec<std::rc::Rc<dyn Fn()>>,
     icon: Option<PathBuf>,
@@ -204,6 +204,7 @@ impl Config {
             host: "app".to_string(),
             start: "/".to_string(),
             not_found: None,
+            failed: None,
             mounts: Vec::new(),
             hooks: Vec::new(),
             icon: None,
@@ -222,14 +223,14 @@ impl Config {
         self
     }
 
-    /// Une fenêtre sans le cadre du système : pas de barre de titre,
-    /// pas de boutons, la page dessine tout.
+    /// A window without the system's frame: no title bar, no buttons,
+    /// the page draws all of it.
     ///
-    /// Ce qu'il faut alors rendre à l'utilisateur, et que le cadre
-    /// faisait : `window::drag()` sur l'appui de la barre qu'on a
-    /// dessinée, `window::minimize()`, `window::maximize()`,
-    /// `window::shut()` sur ses trois boutons. Sans `drag`, la fenêtre
-    /// ne se déplace plus.
+    /// What then has to be given back to the user, which the frame used
+    /// to do: `window::drag()` on a press of the bar the page drew,
+    /// `window::minimize()`, `window::maximize()` and `window::shut()`
+    /// on its three buttons. Without `drag`, the window no longer
+    /// moves.
     pub fn frameless(mut self) -> Self {
         self.dressing = rustx_os::window::Dressing::None;
         self
@@ -319,8 +320,24 @@ impl Config {
     }
 
     /// The screen for a path nobody declared.
+    ///
+    /// There is one without this call — the engine's own, which says so
+    /// and says where routes come from. This is for an application that
+    /// wants the screen to look like the rest of it.
     pub fn not_found(mut self, component: fn() -> Element) -> Self {
         self.not_found = Some(component);
+        self
+    }
+
+    /// The screen for a page that fell over, given what it said.
+    ///
+    /// The last of three answers, and the first two win over it: an
+    /// `error.rsx` beside a page is that page's frontier, this is the
+    /// application's, and the engine's own is what an application that
+    /// wrote neither is given. None of the three is a blank window,
+    /// which is what a page that panicked used to leave behind.
+    pub fn on_error(mut self, component: fn(String) -> Element) -> Self {
+        self.failed = Some(component);
         self
     }
 
@@ -367,7 +384,14 @@ impl App {
         let components = COMPONENTS.with(|held| held.borrow().clone());
         let host = config.host.clone();
         let start = config.start.clone();
-        let not_found = config.not_found.unwrap_or(no_such_page);
+        // The engine brings both fallback screens; an application that
+        // named one replaces that one and keeps the other.
+        let screens = router::Screens {
+            not_found: config
+                .not_found
+                .unwrap_or(router::Screens::default().not_found),
+            failed: config.failed.unwrap_or(router::Screens::default().failed),
+        };
 
         // Before anything renders: what the process this one replaced was
         // holding, when `rustx dev` is the one that started it. Nothing
@@ -377,7 +401,7 @@ impl App {
 
         if let Some(routes) = routes {
             rustx_engine::on_context_created(move || {
-                start_router(routes, &host, &start, not_found)
+                start_router(routes, &host, &start, screens)
             });
         }
         rustx_engine::on_context_created(move || {
@@ -492,7 +516,7 @@ fn start_router(
     routes: &'static [route::Route],
     host: &str,
     start: &str,
-    not_found: fn() -> Element,
+    screens: router::Screens,
 ) {
     let host = host.to_string();
     // The screen that was open when `rustx dev` replaced the last
@@ -512,7 +536,7 @@ fn start_router(
         if started.get() {
             return;
         }
-        if router::start(routes, &host, &start, not_found).is_ok() {
+        if router::start_with(routes, &host, &start, screens).is_ok() {
             started.set(true);
         }
     });
@@ -708,15 +732,6 @@ fn default_document(title: &str, assets: &Path) -> String {
          <!-- The screens go here. They are written in app/. -->\n    \
          <div id=\"app\"></div>\n  </body>\n</html>\n"
     )
-}
-
-/// Where a path nobody declared leads, unless the application says
-/// otherwise.
-fn no_such_page() -> Element {
-    Element::tag("p")
-        .attribute("id", AttributeValue::Text("rustx-no-such-page".to_string()))
-        .child(Element::Text("This page does not exist.".to_string()))
-        .build()
 }
 
 fn manifest_dir() -> PathBuf {

@@ -349,9 +349,7 @@ fn captures(pattern: &str, wanted: &[&str]) -> Option<Params> {
                 });
             }
             _ => {
-                let Some(given) = wanted.get(at) else {
-                    return None;
-                };
+                let given = wanted.get(at)?;
                 match kind_of(declared) {
                     Kind::Named(name) => captured.push((name.to_string(), (*given).to_string())),
                     Kind::Static if declared == given => {}

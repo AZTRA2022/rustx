@@ -166,7 +166,7 @@ mod asking_tests {
 
     #[test]
     fn every_button_becomes_an_action_option_and_the_call_waits() {
-        let what = What::new("Sauvegarde", "Elle est prête.");
+        let what = What::new("Sauvegarde", "It is ready.");
         let actions = [Action::new("open", "Ouvrir"), Action::new("later", "Plus tard")];
         let arguments = asking(&what, &actions);
         assert_eq!(arguments[0], "--wait", "without it there is nothing to read");
@@ -175,7 +175,7 @@ mod asking_tests {
         // Le titre et le corps restent derrière `--`.
         let separator = arguments.iter().position(|each| each == "--").expect("a --");
         assert_eq!(arguments[separator + 1], "Sauvegarde");
-        assert_eq!(arguments[separator + 2], "Elle est prête.");
+        assert_eq!(arguments[separator + 2], "It is ready.");
     }
 
     #[test]

@@ -122,5 +122,6 @@ pub fn ask(what: What, actions: &[Action]) -> Result<Option<String>, OsError> {
             empty.label
         )));
     }
+    crate::blocking::waiting("an answer to a notification");
     crate::platform::notify::ask(&what, actions)
 }

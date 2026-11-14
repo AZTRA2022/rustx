@@ -36,7 +36,7 @@ fn main() {
         }
     };
 
-    println!("{keys} est à nous. Appuyez dessus, d'où vous voulez.");
+    println!("{keys} is ours. Press it, from wherever you like.");
     let until = Instant::now() + Duration::from_secs(60);
     let mut total = 0;
     while Instant::now() < until {

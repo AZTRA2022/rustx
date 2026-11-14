@@ -207,6 +207,74 @@ $Gates = @(
     }
   },
   @{
+    Name = 'deps'
+    What = 'Every dependency is permissively licensed and free of known advisories.'
+    Run  = {
+      # Two tools, because they answer two different questions.
+      # `cargo deny` reads `deny.toml` and checks licences, duplicate
+      # versions, banned crates and where each crate came from.
+      # `cargo audit` checks the RustSec database, which is the one
+      # that moves without anything in this repository changing.
+      $haveDeny  = Test-Usable 'cargo' 'deny --version'
+      $haveAudit = Test-Usable 'cargo' 'audit --version'
+      if (-not $haveDeny -and -not $haveAudit) {
+        return @{
+          State = 'SKIP'
+          Note  = 'neither is installed; cargo install cargo-deny cargo-audit'
+        }
+      }
+      if (-not (Test-Path 'deny.toml')) {
+        return @{ State = 'FAIL'; Note = 'deny.toml is missing from the repository root' }
+      }
+
+      $absent = @()
+
+      if ($haveDeny) {
+        # Offline, cargo-deny uses the advisory database already on
+        # this machine rather than fetching it.
+        $flag = if ($Offline) { '--offline' } else { '' }
+        $got = Invoke-Gate "cargo deny $flag check"
+        if ($got.Code -ne 0) {
+          # Its last line is `advisories ok, bans FAILED, licenses ok,
+          # sources ok`, which says which half of the check is red.
+          $summary = [regex]::Match($got.Output, '(?m)^(advisories .+, sources \w+)$')
+          $note = if ($summary.Success) { $summary.Groups[1].Value } else { 'cargo deny check failed' }
+          return @{ State = 'FAIL'; Note = $note }
+        }
+      } else {
+        $absent += 'cargo-deny'
+      }
+
+      $crates = ''
+      if ($haveAudit) {
+        # `-n` is "do not fetch the advisory database", for the same
+        # reason as the flag above.
+        $flag = if ($Offline) { '-n' } else { '' }
+        $got = Invoke-Gate "cargo audit $flag"
+        if ($got.Code -ne 0) {
+          $found = ([regex]::Matches($got.Output, '(?m)^ID:\s')).Count
+          $note = if ($found -gt 0) { "$found advisory/advisories" } else { 'cargo audit failed' }
+          return @{ State = 'FAIL'; Note = $note }
+        }
+        $scanned = [regex]::Match($got.Output, 'vulnerabilities \((\d+) crate')
+        if ($scanned.Success) { $crates = "$($scanned.Groups[1].Value) crates" }
+      } else {
+        $absent += 'cargo-audit'
+      }
+
+      # One of the two having run is not this gate having run. Section
+      # 6 again: a check that did not happen is not a check that
+      # passed, so it is a SKIP with the reason, not a PASS.
+      if ($absent.Count -gt 0) {
+        return @{
+          State = 'SKIP'
+          Note  = "$($absent -join ' and ') not installed; what ran passed"
+        }
+      }
+      return @{ State = 'PASS'; Note = ("licences, bans, sources, advisories" + $(if ($crates -ne '') { "; $crates" } else { '' })) }
+    }
+  },
+  @{
     Name = 'editor'
     What = 'The VS Code extension typechecks, builds and passes its tests.'
     Run  = {

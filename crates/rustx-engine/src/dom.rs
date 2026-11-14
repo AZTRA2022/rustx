@@ -83,6 +83,16 @@ pub struct Document {
 
 impl Document {
     /// The live document, or `None` outside a JavaScript context.
+    ///
+    /// # Which thread
+    ///
+    /// The render process's UI thread, and nowhere else. V8 has one
+    /// isolate per such thread and the document belongs to it; asked
+    /// from a worker thread, from the browser process, or before a page
+    /// exists, this answers `None`. It is a refusal and not undefined
+    /// behaviour — libcef's own `CEF_V8_REQUIRE_ISOLATE_RETURN` checks
+    /// before it answers — but a `None` with no explanation is a bad
+    /// way to learn where you are, so it is written here.
     pub fn current() -> Option<Self> {
         let context = cef::v8_context_get_current_context()?;
         let global = context.global()?;

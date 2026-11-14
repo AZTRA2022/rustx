@@ -11,10 +11,34 @@ function isWord(letter) {
  *
  * Blanked rather than removed: every index still means what it meant.
  */
-function codeOf(line, inBlockComment) {
+function codeOf(line, inBlockComment, inString = null) {
   const out = line.split("");
   let at = 0;
   let commented = inBlockComment;
+  let quoting = inString;
+
+  // A string that was still open at the end of the line above. The rest
+  // of it is not code: a `\` at a line's end continues a literal, and so
+  // does a line break inside one that was never closed.
+  if (quoting !== null) {
+    while (at < out.length) {
+      if (line[at] === "\\") {
+        out[at] = " ";
+        if (at + 1 < out.length) {
+          out[at + 1] = " ";
+        }
+        at += 2;
+        continue;
+      }
+      const closing = line[at] === quoting;
+      out[at] = " ";
+      at += 1;
+      if (closing) {
+        quoting = null;
+        break;
+      }
+    }
+  }
 
   while (at < out.length) {
     const here = line[at];
@@ -57,10 +81,16 @@ function codeOf(line, inBlockComment) {
     if (quoted) {
       out[at] = " ";
       at += 1;
+      // Open until proved otherwise: a literal that reaches the end of
+      // the line without its closing quote carries on to the next one,
+      // and the lines it covers are its own text rather than code.
+      quoting = here;
       while (at < out.length) {
         if (line[at] === "\\") {
           out[at] = " ";
-          out[at + 1] = " ";
+          if (at + 1 < out.length) {
+            out[at + 1] = " ";
+          }
           at += 2;
           continue;
         }
@@ -68,6 +98,7 @@ function codeOf(line, inBlockComment) {
         out[at] = " ";
         at += 1;
         if (closing) {
+          quoting = null;
           break;
         }
       }
@@ -77,7 +108,14 @@ function codeOf(line, inBlockComment) {
     at += 1;
   }
 
-  return { code: out.join(""), commented };
+  // A `'` is a lifetime far more often than it is an unterminated
+  // character literal, and a lifetime must not swallow the rest of the
+  // file. Only a `"` is believed when it says it continues.
+  if (quoting === "'") {
+    quoting = null;
+  }
+
+  return { code: out.join(""), commented, quoting };
 }
 
 /**
@@ -96,7 +134,16 @@ function opensATag(code, at, inChildren) {
   if (!inChildren && (isWord(before) || before === ":")) {
     return false;
   }
-  if (before === "<" || before === ">") {
+  if (before === "<") {
+    return false;
+  }
+  // A `>` in front of a `<` is `>>` or `=>` in Rust, and in the children
+  // of an element it is the tag before this one:
+  // `<Card><CardContent>` is how anybody writes it. Refusing it
+  // everywhere meant `<CardContent>` opened nothing while
+  // `</CardContent>` closed something, so the line came out a frame
+  // short and the `</Card>` after it closed the enclosing block.
+  if (!inChildren && before === ">") {
     return false;
   }
   const next = code[at + 1];
@@ -112,21 +159,95 @@ function opensATag(code, at, inChildren) {
  *
  * A method chain is written one step in — `let data = (0..n)`, then
  * `.map(…)`, then `.collect();` — and that step is not a bracket, so
- * nothing left open knows about it. 
+ * nothing left open knows about it.
+ *
+ * A boolean operator is the same thing: a condition too long for one
+ * line is broken before its `&&` or its `||`, and rustfmt writes the
+ * rest one step in. Read as statements of their own, those lines came
+ * back flush against the line that opened them — which is how
+ * `|| entry.name.contains(&needle)` ended up level with the `if` above
+ * it in half the pages of this repository.
+ *
+ * A single `|` is not one: that is a match arm's pattern, and it belongs
+ * at the arm's own level.
  */
 function isAContinuation(line) {
-  return /^\s*[.?]/.test(line);
+  return /^\s*([.?]|&&|\|\||==|!=)/.test(line);
+}
+
+/**
+ * Does this line's code stop in the middle of something?
+ *
+ * A line ending in `=` has not said what the thing is yet, so the line
+ * below it is the rest of the same statement and is written one step in:
+ *
+ *     if let Ok(Some(output)) =
+ *         spawn_blocking(|| run(script)).await
+ *     {
+ *
+ * Only `=` itself, and not `==`, `!=`, `<=`, `>=` or `=>`: those end a
+ * line that is complete enough, and `=>` ends a match arm whose body is
+ * on the next line at the arm's own level.
+ */
+function endsUnfinished(code, line) {
+  const bare = line.trimEnd();
+  if (!bare.endsWith("=")) {
+    return false;
+  }
+  // And it has to be code: `id="waiting"` is blanked to `id=` by
+  // `codeOf`, and a line that merely *looks* as though it stopped at an
+  // equals sign is every attribute in every `.rsx` there is.
+  if (code[bare.length - 1] !== "=") {
+    return false;
+  }
+  return !/[=!<>+\-*/%&|^]=$/.test(bare);
 }
 
 /** As deep as indentation is ever allowed to go. */
 const MOST = 64;
 
+/** Which frame each closing delimiter is allowed to close. */
+const CLOSES = { "}": "{", ")": "(", "]": "[" };
+
+/**
+ * Where the `>` that ends the tag opening at `at` is, or `-1`.
+ *
+ * Not `indexOf(">")`: an attribute holds an expression, and an
+ * expression holds comparisons. `<button disabled={n + 1 >= all.len()}>`
+ * ends at its last `>` and not at the one inside the braces — and a tag
+ * whose end was found inside its own attribute had everything after
+ * that point read as though it were outside the tag, which is how the
+ * children of such a button lost their level.
+ */
+function endOfTag(code, at) {
+  let braces = 0;
+  for (let look = at + 1; look < code.length; look += 1) {
+    const here = code[look];
+    if (here === "{") {
+      braces += 1;
+    } else if (here === "}") {
+      braces = Math.max(0, braces - 1);
+    } else if (here === ">" && braces === 0) {
+      return look;
+    } else if (here === "<" && braces === 0) {
+      // Another tag began before this one was finished: this one has its
+      // attributes on the lines below.
+      return -1;
+    }
+  }
+  return -1;
+}
+
 /**
  * One line, placed, and applied to the list of things still open.
  * finds it.
  */
-function placeLine(open, code, line) {
-  const bonus = isAContinuation(line) ? 1 : 0;
+function placeLine(open, counts, stamp, code, held, bonus) {
+  // Which frames this line opened is told by the stamp they carry, and
+  // not by walking the stack to clear a flag: a file with twenty
+  // thousand unclosed braces in it has a stack that deep on every line
+  // below them, and clearing a flag on each is the whole file squared.
+  const isFresh = (frame) => frame !== undefined && frame.stamp === stamp;
   // The innermost frame that is a level. Every bracket is a frame, so
   // that a close matches an open one for one, but only some of them
   // move the text.
@@ -142,28 +263,62 @@ function placeLine(open, code, line) {
   let printAt = null;
   const place = () => {
     if (printAt === null) {
-      printAt = levelNow() + bonus;
+      printAt = held === null ? levelNow() + bonus : held;
     }
   };
 
+  // How many frames this line has opened and not closed again. Of
+  // those, only the first is a level: `task(move |alive| {` opens a
+  // parenthesis and a brace, and Rust is written with the body one step
+  // in, not two.
   let opened = 0;
   const push = (kind, openedAt = null) => {
     place();
-    // Of the frames one line opens, only the first is a level:
-    // `task(move |alive| {` opens a parenthesis and a brace, and Rust
-    // is written with the body one step in, not two.
     opened += 1;
+    counts[kind] = (counts[kind] ?? 0) + 1;
     open.push({
       kind,
       level: opened === 1,
       openedAt: openedAt === null ? printAt : openedAt,
+      stamp,
     });
   };
-  const close = () => {
+  const pop = () => {
     const frame = open.pop();
-    if (frame !== undefined && frame.level) {
-      opened = Math.max(0, opened - 1);
+    if (frame !== undefined) {
+      counts[frame.kind] = Math.max(0, (counts[frame.kind] ?? 0) - 1);
+      if (isFresh(frame)) {
+        opened = Math.max(0, opened - 1);
+      }
     }
+    return frame;
+  };
+  // `kind` is what this delimiter is allowed to close. A `}` closes a
+  // `{`, a `</div>` closes a tag, and neither closes the other: a
+  // closing tag that popped a block used to shift the whole rest of the
+  // file one level out, and a half-typed file is full of chances to do
+  // that. Frames in between are discarded with it, because something
+  // that was never closed is not going to be.
+  const close = (kind) => {
+    // `counts` rather than a search: a stack twenty thousand deep must
+    // not be walked once per delimiter.
+    if (kind !== undefined && (counts[kind] ?? 0) === 0) {
+      return undefined;
+    }
+    if (kind !== undefined) {
+      while (open.length > 0 && open[open.length - 1].kind !== kind) {
+        pop();
+      }
+    }
+    const frame = pop();
+    // A frame this line opened *and* closed is not one of the frames
+    // this line opened; `pop` has already taken it off the count. That
+    // was the bug: in `match total(&rows) {` the parentheses open and
+    // close before the brace, so the brace was the third frame by the
+    // old count and was therefore denied its level — and every arm of
+    // that `match`, and the body of every `if let Some(v) = f(g(x)) {`,
+    // came back flush with the line above.
+    //
     // A line that begins by closing something is printed where the line
     // that opened it was printed. That is what puts `}` under its `fn`,
     // `</Card>` under its `<Card>`, and the `})` of a `.map(|x| {` back
@@ -186,13 +341,28 @@ function placeLine(open, code, line) {
       continue;
     }
     if (here === "}" || here === ")" || here === "]") {
-      close();
+      close(CLOSES[here]);
+      continue;
+    }
+
+    // The `/>` that ends an attribute list written across lines. It
+    // belongs where the tag's name is — which is what every JSX
+    // formatter does, and how every page here is written by hand — so
+    // the `/` must not place the line: the `>` just below closes the
+    // attributes and takes the level of the line that opened them, the
+    // same way a `}` takes the level of its `{`. Placing on the `/`
+    // left it among the attributes, one step too deep.
+    if (
+      here === "/" &&
+      code.startsWith("/>", at) &&
+      (counts.attributes ?? 0) > 0
+    ) {
       continue;
     }
 
     if (here === "<") {
       if (code.startsWith("</", at)) {
-        close();
+        close("tag");
         const end = code.indexOf(">", at);
         at = end === -1 ? code.length : end;
         continue;
@@ -203,7 +373,7 @@ function placeLine(open, code, line) {
         place();
         continue;
       }
-      const end = code.indexOf(">", at);
+      const end = endOfTag(code, at);
       if (end === -1) {
         // `<section`, with its attributes on the lines below.
         push("attributes");
@@ -218,7 +388,7 @@ function placeLine(open, code, line) {
       continue;
     }
 
-    if (here === ">" && open.some((frame) => frame.kind === "attributes")) {
+    if (here === ">" && (counts.attributes ?? 0) > 0) {
       // The `>` that finishes an attribute list written across lines.
       // It closes the attributes and, unless the tag closed itself,
       // opens the element — so `className="p-8">` stays among the
@@ -228,7 +398,7 @@ function placeLine(open, code, line) {
       // The element takes the level of the line that opened the tag,
       // not of the attributes: `<section` is where its children are
       // measured from, however many lines its attributes took.
-      const attributes = close();
+      const attributes = close("attributes");
       if (!closed) {
         push("tag", attributes === undefined ? null : attributes.openedAt);
       } else {
@@ -266,12 +436,33 @@ export function reindent(text, options) {
   const windows = text.includes("\r\n");
   const out = [];
   const open = [];
+  // How many frames of each kind are open, so that asking whether a
+  // delimiter has anything to close is a lookup rather than a walk.
+  const counts = Object.create(null);
+  let stamp = 0;
   let commented = false;
+  let quoting = null;
+  // What a run of continuation lines has settled on, and whether the
+  // line before this one opened a level. Both belong to the text rather
+  // than to one line, which is why they are kept out here.
+  const chain = {
+    depth: -1,
+    level: null,
+    opened_a_level: false,
+    unfinished: false,
+  };
+  const levels = () => open.filter((frame) => frame.level).length;
 
   for (const line of (windows ? text.replace(/\r\n/g, "\n") : text).split("\n")) {
     const wasCommented = commented;
-    const { code, commented: stillCommented } = codeOf(line, commented);
+    const wasQuoting = quoting;
+    const {
+      code,
+      commented: stillCommented,
+      quoting: stillQuoting,
+    } = codeOf(line, commented, quoting);
     commented = stillCommented;
+    quoting = stillQuoting;
 
     const bare = line.trim();
     if (bare === "") {
@@ -282,12 +473,37 @@ export function reindent(text, options) {
     // Inside a block comment, the line is left exactly as it was: a
     // comment can hold a drawing, a table, a quoted snippet, and moving
     // its spaces loses something that cannot be put back.
-    if (wasCommented) {
+    //
+    // And inside a string literal, for a stronger reason: the spaces at
+    // the front of the second line of a literal are part of what the
+    // program prints.
+    if (wasCommented || wasQuoting !== null) {
       out.push(line);
       continue;
     }
 
-    const at = placeLine(open, code, line);
+    // A chain, a broken condition, or the rest of a statement whose
+    // line ended in `=`.
+    const continues = isAContinuation(line) || chain.unfinished;
+    // The run this line belongs to is the one at the same bracket
+    // depth: `.iter()` and `.collect()` either side of a closure body
+    // are the same chain, and the `&& …` inside that body is not.
+    const together = continues && chain.depth === open.length && chain.level !== null;
+    // Written one step past the statement it continues — unless the
+    // line above already opened a level, in which case that level *is*
+    // the step, and adding another put every `.iter()` under a `{cells`
+    // one place too far right.
+    const bonus = continues && !chain.opened_a_level ? 1 : 0;
+    const before = levels();
+    const brackets = open.length;
+    stamp += 1;
+    const at = placeLine(open, counts, stamp, code, together ? chain.level : null, bonus);
+    if (continues && !together) {
+      chain.depth = brackets;
+      chain.level = at;
+    }
+    chain.opened_a_level = levels() > before;
+    chain.unfinished = endsUnfinished(code, line);
     // And the depth is capped. A file that opens a thousand brackets
     // and closes none is not a file anybody wrote, but it is a file an
     // editor can be handed — half a paste, a generated fixture, a

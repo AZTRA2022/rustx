@@ -120,9 +120,24 @@ impl App {
             )));
         }
 
+        // `shutdown` happens on the way out whichever way the loop
+        // ends. It used to be the statement after `run_message_loop`,
+        // so a panic coming up through the loop — out of a handler CEF
+        // called, which is the engine's whole architecture — skipped
+        // the orderly stop of a browser process that had already
+        // started its sub-processes.
+        let _stop = Stops;
         cef::run_message_loop();
-        cef::shutdown();
         Ok(())
+    }
+}
+
+/// Stops CEF on the way out, whichever way the message loop ended.
+struct Stops;
+
+impl Drop for Stops {
+    fn drop(&mut self) {
+        cef::shutdown();
     }
 }
 
@@ -145,7 +160,11 @@ fn elevation_note() -> String {
     if !elevated() {
         return String::new();
     }
-    " Cette application tourne avec les droits d'administrateur, et Chromium 156      refuse : il se dés-élève lui-même et quitte (« ContentMainInitialize failed with      exit code 38 »), avant que le moteur ait la main. Lancez-la sans ces droits, ou      passez-lui `--do-not-de-elevate` sur sa ligne de commande."
+    " This application is running with administrator rights, and Chromium 156 \
+     refuses: it de-elevates itself and quits (\"ContentMainInitialize failed \
+     with exit code 38\") before the engine ever has the hand. Start it \
+     without those rights, or pass it `--do-not-de-elevate` on its command \
+     line."
         .to_string()
 }
 

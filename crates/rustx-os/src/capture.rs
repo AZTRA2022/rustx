@@ -28,6 +28,7 @@ use crate::window::Pane;
 
 /// Tout le bureau, tous les écrans d'un coup.
 pub fn desktop() -> Result<Image, OsError> {
+    crate::blocking::waiting("a capture of the screen");
     crate::platform::capture::area(None)
 }
 
@@ -39,11 +40,13 @@ pub fn area(area: Area) -> Result<Image, OsError> {
             area.width, area.height
         )));
     }
+    crate::blocking::waiting("a capture of the screen");
     crate::platform::capture::area(Some(area))
 }
 
 /// Cette fenêtre, telle qu'elle est à l'écran.
 pub fn window(pane: Pane) -> Result<Image, OsError> {
+    crate::blocking::waiting("a capture of a window");
     crate::platform::capture::window(pane)
 }
 
