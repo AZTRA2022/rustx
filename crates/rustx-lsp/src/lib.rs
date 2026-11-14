@@ -259,6 +259,20 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
             .as_str()
             .map(str::to_string);
 
+        // Whatever was deferred goes out unless this very message is the
+        // next keystroke of the same burst. One rule, in one place: a
+        // burst that ended in a `shutdown`, a question, a close, or
+        // anything else at all used to lose its last change — and the
+        // last change of a burst is the text on the developer's screen.
+        let continues_the_burst = method == "textDocument/didChange"
+            && deferred.is_some()
+            && deferred.as_deref() == uri_of_document.as_deref();
+        if !continues_the_burst
+            && let Some(uri) = deferred.take()
+        {
+            published(output, &uri, &documents, &mut shadows, &mut downstream);
+        }
+
         match method.as_str() {
             "initialize" => {
                 // What is promised is what there is: an editor told a
@@ -308,12 +322,6 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
             // the shadow, the question goes downstream, and what comes
             // back is told where it really is.
             "textDocument/completion" | "textDocument/hover" | "textDocument/definition" => {
-                // A question about a text whose shadow has not been
-                // written yet would be answered about the text before
-                // it. Whatever was deferred goes out first.
-                if let Some(uri) = deferred.take() {
-                    published(output, &uri, &documents, &mut shadows, &mut downstream);
-                }
                 // The markup first: it needs nothing but the text, so
                 // it answers while `rust-analyzer` is still loading, and
                 // it answers for positions that have no counterpart in
@@ -383,12 +391,6 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
                 // screen. The change itself is always applied; only the
                 // compiling waits for the end of the burst.
                 if frames.waiting() {
-                    // Anything deferred for another document still has
-                    // to go out: one page's burst must not hold another
-                    // page's underlines.
-                    if let Some(other) = deferred.take().filter(|other| *other != uri) {
-                        published(output, &other, &documents, &mut shadows, &mut downstream);
-                    }
                     deferred = Some(uri);
                 } else {
                     published(output, &uri, &documents, &mut shadows, &mut downstream);
@@ -404,9 +406,6 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
                 let Some(uri) = uri_of_document else {
                     continue;
                 };
-                if deferred.as_deref() == Some(uri.as_str()) {
-                    deferred = None;
-                }
                 let was_open = documents.closed(&uri);
                 let shadow = shadows.remove(&uri);
                 if was_open {
@@ -430,9 +429,6 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
             // document attached to the question — the tag this server
             // wrote onto it (Task 2) is the only way back to a shadow.
             "completionItem/resolve" => {
-                if let Some(uri) = deferred.take() {
-                    published(output, &uri, &documents, &mut shadows, &mut downstream);
-                }
                 // Forwarded as it was written, which is why this one is
                 // read out of the raw body: an item carries `data` that
                 // belongs to `rust-analyzer`, and it has to go back

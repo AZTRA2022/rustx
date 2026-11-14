@@ -58,23 +58,47 @@ pub fn of(source: &str) -> Vec<Diagnostic> {
 /// How far to underline from where the compiler pointed.
 ///
 /// To the end of the word, which is the tag or the attribute that was
-/// refused; to the end of the line when the point is not on a word, so
-/// that something is underlined rather than nothing.
+/// refused; and over the whole of `<dvi>` when the point is on the `<`
+/// that opens it, which is where the compiler points for a tag it does
+/// not know. That case used to fall through to "the rest of the line",
+/// so `<dvi>bonjour</dvi>;` was underlined whole for a mistake that is
+/// three letters long — an underline that says "something on this line"
+/// when the compiler knew exactly which word.
+///
+/// To the end of the line only when there is no word at all after the
+/// point, so that something is underlined rather than nothing.
 fn word_at(source: &str, line: usize, column: usize) -> u32 {
     let Some(text) = source.lines().nth(line.saturating_sub(1)) else {
         return 1;
     };
     let from = column.saturating_sub(1);
-    let rest: String = text.chars().skip(from).collect();
-    let word = rest
-        .chars()
-        .take_while(|letter| letter.is_alphanumeric() || *letter == '_' || *letter == '-')
-        .count();
-    if word > 0 {
-        word as u32
-    } else {
-        rest.chars().count().max(1) as u32
+    let rest: Vec<char> = text.chars().skip(from).collect();
+    let is_word = |letter: &char| letter.is_alphanumeric() || *letter == '_' || *letter == '-';
+
+    // The punctuation a tag or an attribute begins with, which the
+    // compiler points at and which is part of what was refused.
+    let mut at = 0;
+    if rest.first() == Some(&'<') {
+        at = 1;
+        if rest.get(1) == Some(&'/') {
+            at = 2;
+        }
     }
+    let word = rest[at.min(rest.len())..]
+        .iter()
+        .take_while(|letter| is_word(letter))
+        .count();
+    if word == 0 {
+        // Nothing nameable after the point.
+        return rest.len().max(1) as u32;
+    }
+    let mut length = at + word;
+    // And the `>` that closes it, so the underline is the tag and not
+    // the tag with its last character missing.
+    if at > 0 && rest.get(length) == Some(&'>') {
+        length += 1;
+    }
+    length as u32
 }
 
 /// The notification an editor is waiting for.
