@@ -13,8 +13,9 @@ use rustx::{App, Config};
 #[rustx::main]
 fn main() -> Result<(), rustx::Error> {
     let app = App::new(
-        Config::new("AI Agent Manager")
-            .size(980, 680)
+        Config::new("Vantage")
+            .size(1280, 820)
+            .start("/agent/support-triage")
             .description("Deploy and watch a handful of agents.")
             .publisher("rustx"),
     )?;

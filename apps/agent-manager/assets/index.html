@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Vantage</title>
+    <!-- No stylesheet and no script of this application's own: its
+         Tailwind and its libraries are declared in `package.json`, and
+         rustx builds both and puts them in this page. -->
+  </head>
+  <body>
+    <!-- The hatch the completed bars are painted with. An SVG pattern
+         is addressed by id across the whole document, so a chart drawn
+         by a library somewhere else can still say
+         `fill="url(#hatch)"` and get this. -->
+    <svg width="0" height="0" aria-hidden="true" style="position: absolute">
+      <defs>
+        <pattern id="hatch" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+          <rect width="6" height="6" fill="#17191700" />
+          <line x1="0" y1="0" x2="0" y2="6" stroke="#4f544f" stroke-width="2.4" />
+        </pattern>
+      </defs>
+    </svg>
+
+    <div id="app"></div>
+    <script>
+      // A probe, and only when one is asked for: `--scenario=probe`
+      // makes the window say what it actually drew, so a run with an
+      // empty stderr can be told from a run that drew nothing. A normal
+      // launch logs nothing at all.
+      if (typeof rustx_scenario === "function" && rustx_scenario() === "probe") {
+        const look = (left = 120) => {
+          const bars = document.querySelectorAll(".recharts-bar-rectangle").length;
+          const runs = document.querySelectorAll("#runs tbody tr").length;
+          const fleet = document.querySelectorAll("#fleet button").length;
+          if ((bars === 0 || runs === 0) && left > 0) {
+            setTimeout(() => look(left - 1), 120);
+            return;
+          }
+          console.log(
+            "probe bars=" + bars +
+            " runs=" + runs +
+            " fleet=" + fleet +
+            " title=" + (document.querySelector("#agent-title") || { textContent: "?" }).textContent +
+            " hatched=" + document.querySelectorAll('.recharts-bar-rectangle path[fill^="url"]').length
+          );
+        };
+        setTimeout(look, 1200);
+      }
+
+      // `--scenario=tour` walks every item of the navigation and says
+      // what each screen drew. A route that is named and does not
+      // exist shows up here as "This page does not exist".
+      if (typeof rustx_scenario === "function" && rustx_scenario() === "tour") {
+        const stops = [
+          "Overview",
+          "Agents",
+          "Runs",
+          "Evals",
+          "Datasets",
+          "Billing",
+        ];
+        let at = 0;
+        const step = () => {
+          if (at >= stops.length) {
+            // And back into an agent, through the fleet list.
+            const agent = document.querySelectorAll("#fleet button")[1];
+            if (agent) agent.click();
+            setTimeout(() => {
+              console.log(
+                "tour agent body=" + document.querySelector("main").textContent.trim().slice(0, 170)
+              );
+              console.log("tour done");
+            }, 1400);
+            return;
+          }
+          const want = stops[at];
+          const button = [...document.querySelectorAll("nav button")].find(
+            (b) => b.textContent.trim().startsWith(want)
+          );
+          at += 1;
+          if (!button) {
+            console.log("tour " + want + " — no button");
+            setTimeout(step, 100);
+            return;
+          }
+          button.click();
+          setTimeout(() => {
+            console.log(
+              "tour " + want + " body=" +
+              document.querySelector("main").textContent.trim().slice(0, 170)
+            );
+            step();
+          }, 1400);
+        };
+        setTimeout(step, 1800);
+      }
+    </script>
+  </body>
+</html>

@@ -1,201 +1,150 @@
-// AI Agent Manager — the overview.
+// `/` — the Overview the sidebar's first item points at.
 //
-// Deploying an agent here means adding it to `agents`, a plain
-// `Vec<Agent>` — no Kubernetes, no process spawned. What is real: a
-// background loop feeds each running agent's request history, and
-// `recharts::LineChart` — off npm — draws it from data this page
-// owns, styled with Tailwind utility classes and shadcn/ui's `Card`,
-// `Badge` and `Button` rather than hand-rolled look-alikes. The chat
-// at the bottom calls `answer_from`, a stubbed reply function,
-// instead of a paid LLM API — the honest version of what the
-// showcase copy calls "LLM-Studio/Anthropic/OpenRouter API".
-
-#[derive(rustx::ToValue, Clone)]
-struct Point {
-    at: f64,
-    value: f64,
-}
+// The agent screen is where the work is; this one is the fleet at a
+// glance, plus the one card that is about the machine rather than the
+// product: locale, timezone, theme and power, read from
+// `rustx::os::system` so that at least one number on this screen is
+// not the demo's own.
 
 #[derive(Clone)]
-struct Agent {
+struct Line {
     name: String,
-    model: String,
-    running: bool,
-    requests: u32,
-    history: Vec<f64>,
+    slug: String,
+    runs: u64,
+    rate: f64,
+    live: bool,
 }
 
-let mut agents: Vec<Agent> = vec![
-    Agent { name: "scout".to_string(), model: "haiku-class".to_string(), running: true, requests: 0, history: Vec::new() },
-    Agent { name: "closer".to_string(), model: "sonnet-class".to_string(), running: true, requests: 0, history: Vec::new() },
-    Agent { name: "archivist".to_string(), model: "haiku-class".to_string(), running: false, requests: 0, history: Vec::new() },
-];
-let mut selected: usize = 0;
-let mut chat: Vec<(String, String)> = Vec::new();
-let mut draft = String::new();
-let mut pending: Option<String> = None;
-let mut sending = false;
+let mut over_fleet: Vec<Line> = Vec::new();
+let mut over_machine: Vec<(String, String)> = Vec::new();
 
 fn Page() -> Element {
-    async move {
-        let mut step: u64 = 0;
-        loop {
-            tokio::time::sleep(std::time::Duration::from_millis(700)).await;
-            step += 1;
-            for agent in agents.iter_mut() {
-                if agent.running {
-                    let wave = (step as f64 * 0.6 + agent.name.len() as f64).sin().abs();
-                    let bump = 2.0 + wave * 6.0;
-                    agent.requests += bump as u32;
-                    agent.history.push(bump);
-                    if agent.history.len() > 24 {
-                        agent.history.remove(0);
-                    }
-                }
-            }
+    effect((), || {
+        if over_fleet.is_empty() {
+            over_fleet = vec![
+                Line { name: "Support Triage".to_string(), slug: "support-triage".to_string(), runs: 12_480, rate: 97.4, live: true },
+                Line { name: "Refund Copilot".to_string(), slug: "refund-copilot".to_string(), runs: 3_902, rate: 99.1, live: false },
+                Line { name: "Lead Qualifier".to_string(), slug: "lead-qualifier".to_string(), runs: 8_117, rate: 95.8, live: true },
+                Line { name: "Doc Indexer".to_string(), slug: "doc-indexer".to_string(), runs: 640, rate: 100.0, live: false },
+                Line { name: "Churn Watcher".to_string(), slug: "churn-watcher".to_string(), runs: 1_204, rate: 92.3, live: false },
+            ];
         }
-    };
+        over_machine = read_machine();
+    });
 
-    async move {
-        let mut handled: Option<String> = None;
-        loop {
-            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-            let Some(question) = pending.clone() else { continue; };
-            if handled.as_deref() == Some(question.as_str()) {
-                continue;
-            }
-            handled = Some(question.clone());
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            let reply = answer_from(&question);
-            chat.push(("agent".to_string(), reply));
-            sending = false;
-            pending = None;
-        }
-    };
+    let runs: u64 = over_fleet.iter().map(|line| line.runs).sum();
+    let live = over_fleet.iter().filter(|line| line.live).count();
 
-    return <div className="mx-auto max-w-6xl px-6 py-8">
-        <h1 className="text-2xl font-semibold tracking-tight">AI Agent Manager</h1>
-        <p className="mt-1 text-sm text-muted-foreground">deploy, watch, and talk to a handful of agents.</p>
+    return <div key="overview" id="screen-overview" className="px-8 py-7">
+        <div className="text-[13px] text-[#8b8f8b]">Workspace</div>
+        <h1 className="mt-2 text-[30px] font-semibold tracking-tight">Overview</h1>
 
-        <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-[280px_1fr]">
-            {AgentList()}
-            <div className="flex flex-col gap-5">
-                {Chart()}
-                {Chat()}
+        <div className="mt-6 grid grid-cols-3 gap-4">
+            {Tile("Runs this period".to_string(), thousands(runs))}
+            {Tile("Agents deployed".to_string(), over_fleet.len().to_string())}
+            {Tile("Live right now".to_string(), live.to_string())}
+        </div>
+
+        <div className="mt-4 grid grid-cols-[1.6fr_1fr] gap-4">
+            <div className="rounded-2xl border border-border bg-[#101110] p-5">
+                <h2 className="text-[19px] font-semibold tracking-tight">Agents</h2>
+                <table id="fleet-table" className="mt-4 w-full text-left">
+                    <thead>
+                        <tr className="text-[13px] text-[#8b8f8b]">
+                            <th className="pb-2 font-normal">Agent</th>
+                            <th className="pb-2 text-right font-normal">Runs</th>
+                            <th className="pb-2 text-right font-normal">Success</th>
+                            <th className="pb-2 text-right font-normal">State</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {over_fleet.iter().map(|line| FleetLine(line.clone())).collect::<Vec<_>>()}
+                    </tbody>
+                </table>
+            </div>
+
+            <div className="rounded-2xl border border-border bg-[#101110] p-5">
+                <h2 className="text-[19px] font-semibold tracking-tight">This machine</h2>
+                <p className="mt-1 text-[12px] text-[#5d615d]">Read from the system, not from the demo.</p>
+                <div className="mt-4 flex flex-col gap-3">
+                    {over_machine.iter().map(|fact| Fact(fact.0.clone(), fact.1.clone())).collect::<Vec<_>>()}
+                </div>
             </div>
         </div>
     </div>;
 }
 
-fn AgentList() -> Element {
-    return <Card className="border-border bg-card">
-        <CardHeader>
-            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">agents</CardTitle>
-        </CardHeader>
-        <CardContent>
-            <ul id="agents" className="flex flex-col gap-2">
-                {agents.iter().enumerate().map(|(index, agent)| AgentRow(index, agent.clone())).collect::<Vec<_>>()}
-            </ul>
-        </CardContent>
-    </Card>;
+fn Tile(label: String, value: String) -> Element {
+    return <div key={label.clone()} className="rounded-2xl border border-border bg-[#101110] p-5">
+        <div className="text-[14px] text-[#b6bbb6]">{label}</div>
+        <div className="mt-3 font-mono text-[30px] tracking-[0.02em]">{value}</div>
+    </div>;
 }
 
-fn AgentRow(index: usize, agent: Agent) -> Element {
-    let active = selected == index;
-    let name_for_route = agent.name.clone();
-    return <li key={index.to_string()} className={format!("rounded-lg border p-2.5 {}", if active { "border-primary bg-accent" } else { "border-transparent" })}>
-        <div className="cursor-pointer" onClick={move |_| selected = index}>
-            <div className="flex items-center justify-between">
-                <span className="font-medium">{agent.name.clone()}</span>
-                <span className={format!("h-2 w-2 rounded-full {}", if agent.running { "bg-emerald-400" } else { "bg-zinc-600" })}></span>
-            </div>
-            <div className="text-xs text-muted-foreground">{agent.model.clone()} · {agent.requests} reqs</div>
-        </div>
-        <div className="mt-2 flex gap-2">
-            <Button variant="outline" className="h-7 px-2 text-xs" onClick={move |_| {
-                if let Some(agent) = agents.get_mut(index) {
-                    agent.running = !agent.running;
-                }
-            }}>
-                {if agent.running { "stop" } else { "start" }}
-            </Button>
-            <Button variant="ghost" className="h-7 px-2 text-xs" onClick={move |_| rustx::router::navigate(format!("/agent/{}", name_for_route))}>
-                open →
-            </Button>
-        </div>
-    </li>;
+fn FleetLine(line: Line) -> Element {
+    let route = format!("/agent/{}", line.slug);
+    let pill = format!(
+        "border-radius:999px;padding:2px 10px;font-size:12px;background-color:{};color:{}",
+        if line.live { "#133021" } else { "#1c1e1c" },
+        if line.live { "#3ddc84" } else { "#8b8f8b" }
+    );
+    return <tr key={line.slug.clone()} className="border-t border-border text-[13px]" onClick={move |_| rustx::router::navigate(route.clone())}>
+        <td className="py-2.5">{line.name.clone()}</td>
+        <td className="py-2.5 text-right font-mono text-[#b6bbb6]">{thousands(line.runs)}</td>
+        <td className="py-2.5 text-right font-mono text-[#b6bbb6]">{format!("{:.1}%", line.rate)}</td>
+        <td className="py-2.5 text-right">
+            <span style={pill}>{if line.live { "live" } else { "idle" }}</span>
+        </td>
+    </tr>;
 }
 
-fn Chart() -> Element {
-    let agent = agents.get(selected.min(agents.len().saturating_sub(1)));
-    let data: Vec<Point> = match agent {
-        Some(agent) => agent.history.iter().enumerate().map(|(index, value)| Point { at: index as f64, value: *value }).collect(),
-        None => Vec::new(),
+fn Fact(name: String, value: String) -> Element {
+    return <div key={name.clone()} className="flex items-baseline">
+        <span className="text-[13px] text-[#8b8f8b]">{name}</span>
+        <span className="ml-auto font-mono text-[13px] text-[#b6bbb6]">{value}</span>
+    </div>;
+}
+
+/// Four answers from the operating system, each one named even when the
+/// platform has nothing to say.
+fn read_machine() -> Vec<(String, String)> {
+    let theme = match rustx::os::system::theme() {
+        Ok(theme) => format!("{theme:?}").to_lowercase(),
+        Err(_) => "unknown".to_string(),
     };
-    let name = agent.map(|agent| agent.name.clone()).unwrap_or_default();
+    let locale = rustx::os::system::locale().unwrap_or_else(|_| "unknown".to_string());
+    let timezone = rustx::os::system::timezone().unwrap_or_else(|_| "unknown".to_string());
+    let scale = match rustx::os::system::scale() {
+        Ok(scale) => format!("{scale:.2}x"),
+        Err(_) => "unknown".to_string(),
+    };
+    let power = match rustx::os::system::power() {
+        Ok(power) => match power.level {
+            Some(level) => format!("{level}%"),
+            None => "on mains".to_string(),
+        },
+        Err(_) => "unknown".to_string(),
+    };
+    let screens = rustx::os::screen::screens().map(|all| all.len()).unwrap_or(0);
 
-    return <Card className="border-border bg-card">
-        <CardHeader>
-            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">{name} — requests over time</CardTitle>
-        </CardHeader>
-        <CardContent>
-            <recharts::LineChart width={620} height={200} data={data}>
-                <recharts::XAxis dataKey="at" stroke="#52525b" />
-                <recharts::YAxis stroke="#52525b" />
-                <recharts::Line type="monotone" dataKey="value" stroke="#818cf8" strokeWidth={2} isAnimationActive={false} />
-            </recharts::LineChart>
-        </CardContent>
-    </Card>;
+    vec![
+        ("theme".to_string(), theme),
+        ("locale".to_string(), locale),
+        ("timezone".to_string(), timezone),
+        ("display scale".to_string(), scale),
+        ("screens".to_string(), screens.to_string()),
+        ("power".to_string(), power),
+    ]
 }
 
-fn Chat() -> Element {
-    return <Card className="border-border bg-card">
-        <CardHeader>
-            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">talk to the selected agent</CardTitle>
-        </CardHeader>
-        <CardContent>
-            <div id="chat" className="mb-3 flex max-h-44 flex-col gap-1.5 overflow-auto">
-                {chat.iter().enumerate().map(|(index, message)| ChatLine(index, message.clone())).collect::<Vec<_>>()}
-                {if sending { <p className="text-xs text-muted-foreground">thinking…</p> } else { <span></span> }}
-            </div>
-            <div className="flex gap-2">
-                <input id="draft" placeholder="ask it something" value={draft.clone()}
-                    onInput={move |event| draft = event.value}
-                    onKeyDown={move |event| if event.key == "Enter" { send(); }}
-                    className="flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm" />
-                <Button onClick={move |_| send()}>send</Button>
-            </div>
-        </CardContent>
-    </Card>;
-}
-
-fn ChatLine(index: usize, message: (String, String)) -> Element {
-    let (who, text) = message;
-    return <p key={index.to_string()} className="text-sm">
-        <b className={if who == "you" { "text-indigo-300" } else { "text-emerald-400" }}>{who}</b>: {text}
-    </p>;
-}
-
-fn send() {
-    if draft.trim().is_empty() || pending.is_some() {
-        return;
+fn thousands(value: u64) -> String {
+    let digits = value.to_string();
+    let mut out = String::new();
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(digit);
     }
-    let question = draft.trim().to_string();
-    chat.push(("you".to_string(), question.clone()));
-    pending = Some(question);
-    sending = true;
-    draft = String::new();
-}
-
-/// A stubbed reply, standing in for a real LLM API call this demo does
-/// not reach for.
-fn answer_from(question: &str) -> String {
-    let lower = question.to_lowercase();
-    if lower.contains("status") || lower.contains("how") {
-        "All agents I can see are reporting their last tick fine.".to_string()
-    } else if lower.contains("cost") || lower.contains("price") {
-        "This reply is stubbed, so it costs nothing — a real deployment would call the model's API here.".to_string()
-    } else {
-        format!("Noted: \"{}\". (stub reply — no LLM API is called by this demo)", question.trim())
-    }
+    out
 }

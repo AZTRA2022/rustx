@@ -1,27 +1,31 @@
+/* Vantage. A near-black console with one accent — the green that means
+   "live" — and a type scale that lets the numbers be the loudest thing
+   on the screen. Tailwind 4 is configured in CSS; `@theme` below is the
+   configuration. */
 @import "tailwindcss";
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: #0a0b10;
-  --foreground: #e7e9f2;
-  --card: #11131c;
-  --card-foreground: #e7e9f2;
-  --primary: #818cf8;
-  --primary-foreground: #0a0b10;
-  --secondary: #1c2030;
-  --secondary-foreground: #e7e9f2;
-  --muted: #11131c;
-  --muted-foreground: #9499b8;
-  --accent: #1c2030;
-  --accent-foreground: #e7e9f2;
-  --border: #1c2030;
-  --input: #1c2030;
-  --ring: #6366f1;
+  --background: #090a09;
+  --foreground: #e8eae8;
+  --card: #101110;
+  --card-foreground: #e8eae8;
+  --primary: #3ddc84;
+  --primary-foreground: #06100a;
+  --secondary: #1c1e1c;
+  --secondary-foreground: #e8eae8;
+  --muted: #131413;
+  --muted-foreground: #8b8f8b;
+  --accent: #1c1e1c;
+  --accent-foreground: #e8eae8;
+  --border: #1e201e;
+  --input: #1e201e;
+  --ring: #3ddc84;
   /* shadcn's `destructive` variant asks for this one by name, and a
      token nothing declares is a button with no background at all. */
   --destructive: #7f1d2e;
   --destructive-foreground: #fee2e2;
-  --radius: 0.6rem;
+  --radius: 0.9rem;
 }
 
 @theme inline {
@@ -45,13 +49,55 @@
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
-  --font-sans: "Segoe UI Variable Text", "Segoe UI", ui-sans-serif, system-ui;
+  --font-sans: "Inter", "Segoe UI Variable Text", "Segoe UI", ui-sans-serif,
+    system-ui;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", "Consolas", ui-monospace,
+    monospace;
 }
 
 @layer base {
-  html, body {
+  html,
+  body {
     background-color: var(--background);
     color: var(--foreground);
     font-family: var(--font-sans);
+    margin: 0;
   }
+
+  table {
+    border-collapse: collapse;
+  }
+}
+
+/* The chart's own text, and the hover card, in the console's voice
+   rather than the library's defaults. */
+.recharts-cartesian-axis-tick text {
+  font-size: 12px;
+  fill: #6f746f;
+  font-family: var(--font-mono);
+}
+
+.recharts-default-tooltip {
+  background-color: #1b1d1b !important;
+  border: 1px solid #2b2e2b !important;
+  border-radius: 12px;
+  padding: 12px 14px !important;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.55);
+}
+
+.recharts-tooltip-label {
+  color: var(--muted-foreground) !important;
+  margin-bottom: 6px !important;
+}
+
+.recharts-tooltip-item {
+  padding: 2px 0 !important;
+  color: var(--foreground) !important;
+}
+
+.recharts-tooltip-item-name,
+.recharts-tooltip-item-separator {
+  color: var(--muted-foreground) !important;
 }
