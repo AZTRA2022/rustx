@@ -2,6 +2,7 @@ import * as React from "react"
 import Link from "next/link"
 
 import { cn } from "@/lib/utils"
+import { Brand } from "@/components/brand"
 import { Callout } from "@/components/callout"
 import { CodeBlockCommand } from "@/components/code-block-command"
 import { CodeTabs } from "@/components/code-tabs"
@@ -230,6 +231,7 @@ export const mdxComponents = {
   Button: ({ className, ...props }: React.ComponentProps<typeof Button>) => (
     <Button className={cn("not-typeset", className)} {...props} />
   ),
+  Brand,
   Callout,
   Accordion: ({
     className,
