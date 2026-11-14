@@ -1,11 +1,15 @@
-//! Every platform that is neither Windows nor Linux.
+//! Every platform that is none of the three.
 //!
-//! macOS above all, which will get a directory of its own the day
-//! somebody writes it: `AppKit`'s `NSPasteboard` for the clipboard and
-//! `AVFoundation` for the devices. Until then this crate compiles there
-//! and refuses in a sentence that names the platform, because a program
-//! that builds everywhere and silently does nothing on two of the three
-//! is worse than one that says where it stands.
+//! Windows, Linux and macOS each have a directory now; this is what is
+//! left — a BSD, a Redox, whatever comes. Every capability refuses in a
+//! sentence that names the platform, because a program that builds
+//! everywhere and silently does nothing somewhere is worse than one
+//! that says where it stands.
+//!
+//! One file rather than a directory, deliberately: there is nothing to
+//! fill in per capability here, only the same refusal repeated, and
+//! splitting it would invite somebody to fill one of the files for a
+//! platform nobody has.
 
 pub mod clipboard {
     use crate::clipboard::Image;
@@ -80,6 +84,15 @@ pub mod notify {
     pub const AVAILABLE: bool = false;
 
     pub fn show(_what: &What) -> Result<(), OsError> {
+        Err(OsError::Unsupported("les notifications"))
+    }
+
+    pub const CAN_ASK: bool = false;
+
+    pub fn ask(
+        _what: &What,
+        _actions: &[crate::notify::Action],
+    ) -> Result<Option<String>, OsError> {
         Err(OsError::Unsupported("les notifications"))
     }
 }
@@ -182,10 +195,10 @@ pub mod devices {
 pub mod window {
     //! La fenêtre, partout ailleurs.
     //!
-    //! macOS avant tout, où ce sera `NSWindow` : `styleMask` sans
-    //! `titled` pour enlever le cadre, `performWindowDragWithEvent:`
-    //! pour le déplacement, `toggleFullScreen:` pour l'écran entier —
-    //! trois appels, le jour où ce dossier existera.
+    //! Ni Windows, ni Linux, ni macOS : les trois ont leur dossier,
+    //! et celui-ci est ce qui reste — un BSD, un Redox, ce qui
+    //! viendra. Refuser en nommant la plateforme est tout ce qu'il y a
+    //! à faire ici.
 
     use crate::error::OsError;
     use crate::window::{Dressing, Pane, Spread};
@@ -206,6 +219,9 @@ pub mod window {
     pub fn on_top(_pane: Pane, _above: bool) -> Result<(), OsError> {
         Err(OsError::Unsupported(WHAT))
     }
+    pub fn drag_out(_pane: Pane, _paths: &[std::path::PathBuf]) -> Result<(), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
     pub fn drag(_pane: Pane) -> Result<(), OsError> {
         Err(OsError::Unsupported(WHAT))
     }
@@ -213,6 +229,209 @@ pub mod window {
         Err(OsError::Unsupported(WHAT))
     }
     pub fn pointer() -> Result<(i32, i32), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+}
+
+pub mod system {
+    use crate::error::OsError;
+    use crate::system::{Power, Theme};
+
+    const WHAT: &str = "the system state";
+
+    pub fn theme() -> Result<Theme, OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn power() -> Result<Power, OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn idle() -> Result<std::time::Duration, OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn locked() -> Result<bool, OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn locale() -> Result<String, OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn timezone() -> Result<String, OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn scale() -> Result<f64, OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+}
+
+pub mod shell {
+    use std::path::Path;
+
+    use crate::error::OsError;
+    use crate::shell::Association;
+
+    const WHAT: &str = "the file manager";
+
+    pub fn reveal(_path: &Path) -> Result<(), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn remember_recent(_path: &Path) -> Result<(), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn associate(_association: &Association) -> Result<(), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn dissociate(_association: &Association) -> Result<(), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+}
+
+pub mod secret {
+    use crate::error::OsError;
+
+    const WHAT: &str = "secret storage";
+
+    pub fn store(_service: &str, _account: &str, _secret: &str) -> Result<(), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn fetch(_service: &str, _account: &str) -> Result<Option<String>, OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn forget(_service: &str, _account: &str) -> Result<(), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+}
+
+pub mod attention {
+    use crate::error::OsError;
+    use crate::window::Pane;
+
+    const WHAT: &str = "the taskbar";
+
+    pub fn flash(_pane: Pane) -> Result<(), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn progress(_pane: Pane, _done: Option<f64>) -> Result<(), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn badge(_count: Option<u32>) -> Result<(), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+}
+
+pub mod color {
+    use crate::color::Rgb;
+    use crate::error::OsError;
+
+    pub fn pick(_initial: Option<Rgb>) -> Result<Option<Rgb>, OsError> {
+        Err(OsError::Unsupported("the color picker"))
+    }
+}
+
+pub mod screen {
+    use crate::error::OsError;
+    use crate::screen::Screen;
+
+    pub fn screens() -> Result<Vec<Screen>, OsError> {
+        Err(OsError::Unsupported("the list of screens"))
+    }
+}
+
+pub mod net {
+    use crate::error::OsError;
+    use crate::net::Network;
+
+    pub fn network() -> Result<Network, OsError> {
+        Err(OsError::Unsupported("the network state"))
+    }
+}
+
+pub mod audio {
+    use crate::audio::{Endpoint, Flow, Volume};
+    use crate::error::OsError;
+
+    const WHAT: &str = "the audio devices";
+
+    pub fn endpoints(_flow: Flow) -> Result<Vec<Endpoint>, OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn volume() -> Result<Volume, OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn set_volume(_level: f64) -> Result<(), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn set_muted(_muted: bool) -> Result<(), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+}
+
+pub mod capture {
+    use crate::clipboard::Image;
+    use crate::error::OsError;
+    use crate::screen::Area;
+    use crate::window::Pane;
+
+    const WHAT: &str = "capturing the screen";
+
+    pub fn area(_area: Option<Area>) -> Result<Image, OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn window(_pane: Pane) -> Result<Image, OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+}
+
+pub mod bluetooth {
+    use crate::bluetooth::Paired;
+    use crate::error::OsError;
+
+    pub fn paired() -> Result<Vec<Paired>, OsError> {
+        Err(OsError::Unsupported("the Bluetooth devices"))
+    }
+}
+
+pub mod about {
+    use crate::about::Credits;
+    use crate::error::OsError;
+    use crate::window::Pane;
+
+    pub const AVAILABLE: bool = false;
+
+    pub fn show(_pane: Pane, _credits: &Credits) -> Result<(), OsError> {
+        Err(OsError::Unsupported("the About panel"))
+    }
+}
+
+pub mod print {
+    use std::path::Path;
+
+    use crate::error::OsError;
+    use crate::print::Printer;
+
+    const WHAT: &str = "printing";
+
+    pub fn printers() -> Result<Vec<Printer>, OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn print(_path: &Path, _ask: bool) -> Result<(), OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+}
+
+pub mod terminal {
+    use std::path::Path;
+
+    use crate::error::OsError;
+    use crate::terminal::{Output, Shell};
+
+    const WHAT: &str = "a terminal";
+
+    pub fn shell() -> Result<Shell, OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn run(_script: &str, _at: Option<&Path>) -> Result<Output, OsError> {
+        Err(OsError::Unsupported(WHAT))
+    }
+    pub fn open(_at: &Path) -> Result<(), OsError> {
         Err(OsError::Unsupported(WHAT))
     }
 }

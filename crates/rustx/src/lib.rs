@@ -59,7 +59,9 @@ pub use rustx_dom::{
 /// dialogues de fichiers, les appareils, la barre système, les
 /// notifications. Chacun dit, avant qu'on lui demande quoi que ce soit,
 /// si cette plateforme sait le faire.
-pub use rustx_os::{autostart, clipboard, devices, dialog, instance, notify, shortcut, tray};
+pub use rustx_os::{
+    autostart, clipboard, devices, dialog, instance, notify, shortcut, terminal, tray,
+};
 pub use rustx_os::OsError;
 
 /// La couche qui parle au systeme, en entier.

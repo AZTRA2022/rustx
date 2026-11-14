@@ -67,15 +67,28 @@
 //! `cef` — to send `AppKit` its messages. Nothing above this crate hears
 //! about any of them.
 
+pub mod about;
+pub mod attention;
+pub mod audio;
 pub mod autostart;
+pub mod bluetooth;
+pub mod capture;
 pub mod clipboard;
+pub mod color;
 pub mod devices;
 pub mod dialog;
 pub mod error;
 pub mod instance;
+pub mod net;
 pub mod notify;
 pub mod patience;
+pub mod print;
+pub mod screen;
+pub mod secret;
+pub mod shell;
 pub mod shortcut;
+pub mod system;
+pub mod terminal;
 pub mod tray;
 pub mod window;
 

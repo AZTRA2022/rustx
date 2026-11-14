@@ -14,12 +14,25 @@
 //! Windows against `objc2` built for GNUstep. Each says so at its top.
 
 mod appkit;
+pub mod about;
+pub mod attention;
+pub mod audio;
 pub mod autostart;
+pub mod color;
+pub mod bluetooth;
+pub mod capture;
 pub mod clipboard;
 pub mod devices;
 pub mod dialog;
 pub mod instance;
+pub mod net;
 pub mod notify;
+pub mod print;
+pub mod screen;
+pub mod secret;
+pub mod shell;
 pub mod shortcut;
+pub mod system;
+pub mod terminal;
 pub mod tray;
 pub mod window;
