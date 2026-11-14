@@ -118,6 +118,9 @@ function isAContinuation(line) {
   return /^\s*[.?]/.test(line);
 }
 
+/** As deep as indentation is ever allowed to go. */
+const MOST = 64;
+
 /**
  * One line, placed, and applied to the list of things still open.
  * finds it.
@@ -247,7 +250,16 @@ function placeLine(open, code, line) {
  * `options` is VS Code's own: `{ tabSize, insertSpaces }`.
  */
 export function reindent(text, options) {
-  const unit = options.insertSpaces ? " ".repeat(options.tabSize) : "\t";
+  // The editor's own numbers, not trusted. `tabSize` arrives from a
+  // setting, and a setting can hold anything somebody typed into a
+  // `settings.json`: `0`, `-1`, `"four"`, `1e9`. `String.repeat`
+  // throws a `RangeError` on a negative or an infinite count, and
+  // Format Document then fails with a stack trace from inside the
+  // extension instead of formatting the file.
+  const width = Number(options?.tabSize);
+  const tabSize =
+    Number.isFinite(width) && width >= 1 ? Math.min(Math.floor(width), 16) : 4;
+  const unit = options?.insertSpaces === false ? "\t" : " ".repeat(tabSize);
   // The editor hands the text over with the document's own endings.
   // Splitting on "\n" and trimming would eat every "\r", and indenting
   // one line would rewrite the whole file as a side effect.
@@ -276,8 +288,42 @@ export function reindent(text, options) {
     }
 
     const at = placeLine(open, code, line);
-    out.push(unit.repeat(Math.max(0, at)) + bare);
+    // And the depth is capped. A file that opens a thousand brackets
+    // and closes none is not a file anybody wrote, but it is a file an
+    // editor can be handed — half a paste, a generated fixture, a
+    // fuzzer — and `"    ".repeat(900000)` is megabytes of spaces per
+    // line and an editor that stops responding. Past this depth the
+    // indentation means nothing anyway.
+    const depth = Number.isFinite(at) ? Math.min(Math.max(0, at), MOST) : 0;
+    out.push(unit.repeat(depth) + bare);
   }
 
   return out.join(windows ? "\r\n" : "\n");
+}
+
+/**
+ * Is `after` the same source as `before`, give or take the indentation?
+ *
+ * The check that makes Format Document safe to run on a file somebody
+ * has not saved. Whatever the rule above does to the spaces at the
+ * front of a line, no character of theirs may appear, vanish, or move
+ * to another line — so a bug in the indenter costs a formatting that
+ * did nothing, rather than a document with a line missing out of the
+ * middle of it.
+ *
+ * @param {string} before
+ * @param {string} after
+ * @returns {boolean}
+ */
+export function onlyIndentationChanged(before, after) {
+  if (typeof before !== "string" || typeof after !== "string") {
+    return false;
+  }
+  const bare = (text) =>
+    text
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .map((line) => line.trim())
+      .join("\n");
+  return bare(before) === bare(after);
 }

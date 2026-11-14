@@ -19,7 +19,7 @@ import {
 // Plain JavaScript on purpose: these two are the only parts of the
 // extension with a rule worth arguing about, and plain modules can be
 // tested with `node --test` without a build or a running editor.
-import { reindent } from "./indent.mjs";
+import { onlyIndentationChanged, reindent } from "./indent.mjs";
 import { closingFor } from "./tags.mjs";
 
 let client: LanguageClient | undefined;
@@ -63,10 +63,21 @@ function closeTags(): vscode.Disposable {
     }
 
     const after = change.range.start.translate(0, change.text.length);
-    const upToHere = event.document.getText(
-      new vscode.Range(new vscode.Position(0, 0), after),
-    );
-    const closing = closingFor(upToHere);
+    // Only what is near the cursor. This runs between the key going
+    // down and the `>` appearing, and copying a megabyte of document
+    // out of the editor on every one of those is a stutter the person
+    // typing pays for. A tag's `<` is a few characters back — `tags.mjs`
+    // will not look further than this either.
+    const end = event.document.offsetAt(after);
+    const start = event.document.positionAt(Math.max(0, end - 4096));
+    let closing: string | undefined;
+    try {
+      closing = closingFor(event.document.getText(new vscode.Range(start, after)));
+    } catch {
+      // A rule that cannot decide closes nothing. This is a document
+      // change handler: throwing here is an error on every keystroke.
+      return;
+    }
     if (closing === undefined) {
       return;
     }
@@ -90,10 +101,25 @@ function formatting(): vscode.Disposable {
   return vscode.languages.registerDocumentFormattingEditProvider(RSX, {
     provideDocumentFormattingEdits(document, options) {
       const text = document.getText();
-      const formatted = reindent(text, {
-        tabSize: options.tabSize,
-        insertSpaces: options.insertSpaces,
-      });
+      let formatted: string;
+      try {
+        formatted = reindent(text, {
+          tabSize: options.tabSize,
+          insertSpaces: options.insertSpaces,
+        });
+      } catch {
+        // Format Document must never fail with a stack trace out of
+        // the extension. A file this cannot indent is a file left
+        // exactly as it was, which is the worst that should happen to
+        // somebody's source.
+        return [];
+      }
+      // And never an edit that loses text: an indenter changes leading
+      // whitespace and nothing else, so if anything else moved, the
+      // result is thrown away rather than written over the document.
+      if (!onlyIndentationChanged(text, formatted)) {
+        return [];
+      }
       if (formatted === text) {
         return [];
       }
@@ -166,6 +192,23 @@ function analyzerOfTheEditor(): string | undefined {
  * and not by reloading the window.
  */
 function start(): void {
+  // A server that cannot even be constructed — a `rustx.server.path`
+  // holding something that is not a command, an environment this
+  // cannot read — must not take the extension down with it. The
+  // grammar, the tag closing and the formatter do not need a server,
+  // and an editor that lost all three because a binary is missing is
+  // a worse day than one that lost the underlines.
+  try {
+    startOrThrow();
+  } catch (reason: unknown) {
+    void vscode.window.showWarningMessage(
+      `rustx: the language server could not be started (${said(reason)}). ` +
+        "Colours, tag closing and formatting still work.",
+    );
+  }
+}
+
+function startOrThrow(): void {
   const command = server();
   const options: ServerOptions = {
     run: {
@@ -197,11 +240,47 @@ function start(): void {
     void vscode.window.showWarningMessage(
       `rustx: the language server (${command}) did not start. ` +
         "Build it with `cargo build -p rustx-lsp`, or set `rustx.server.path`. " +
-        `(${reason instanceof Error ? reason.message : String(reason)})`,
+        `(${said(reason)})`,
     );
   });
-
 }
+
+/** Whatever was thrown, as a sentence. */
+function said(reason: unknown): string {
+  if (reason instanceof Error) {
+    return reason.message;
+  }
+  try {
+    return String(reason);
+  } catch {
+    // A thrown object whose `toString` throws. It happens.
+    return "no reason given";
+  }
+}
+
+/**
+ * Stop the client, and do not care how that goes.
+ *
+ * A server that has already died rejects its own `stop()`, and a
+ * rejection here is an error dialog on a command that did what the
+ * user asked. Restarting a dead server is the normal reason to restart
+ * one.
+ */
+async function stop(): Promise<void> {
+  const going = client;
+  client = undefined;
+  if (going === undefined) {
+    return;
+  }
+  try {
+    await going.stop();
+  } catch {
+    // Already gone, which is where we wanted it.
+  }
+}
+
+/** True while a restart is in flight, so that two cannot overlap. */
+let restarting = false;
 
 export function activate(context: vscode.ExtensionContext): void {
   start();
@@ -210,19 +289,31 @@ export function activate(context: vscode.ExtensionContext): void {
     closeTags(),
     formatting(),
     vscode.commands.registerCommand("rustx.restartServer", async () => {
-      await client?.stop();
-      client = undefined;
-      start();
-      void vscode.window.setStatusBarMessage("rustx: server restarted", 2000);
+      // Two restarts at once would leave one client running with
+      // nothing holding it: the second `start()` overwrites `client`
+      // and the first server is never stopped.
+      if (restarting) {
+        return;
+      }
+      restarting = true;
+      try {
+        await stop();
+        start();
+        void vscode.window.setStatusBarMessage("rustx: server restarted", 2000);
+      } finally {
+        restarting = false;
+      }
     }),
     {
       dispose: () => {
-        void client?.stop();
+        void stop();
       },
     },
   );
 }
 
 export function deactivate(): Thenable<void> | undefined {
-  return client?.stop();
+  // Not `client.stop()` directly: a rejection on the way out is an
+  // error VS Code reports about an editor that is already closing.
+  return stop();
 }

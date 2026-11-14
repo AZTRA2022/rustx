@@ -19,3 +19,12 @@ export interface Indentation {
  * joined or reordered, and the document's line endings are kept.
  */
 export function reindent(text: string, options: Indentation): string;
+
+/**
+ * Is `after` the same source as `before`, give or take the indentation?
+ *
+ * What the formatter checks before it writes anything: a bug in
+ * `reindent` should cost a formatting that did nothing, not a line out
+ * of somebody's file.
+ */
+export function onlyIndentationChanged(before: string, after: string): boolean;

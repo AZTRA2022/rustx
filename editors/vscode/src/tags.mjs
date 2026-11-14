@@ -12,6 +12,15 @@ const WITHIN = /^[A-Za-z0-9_$.:-]$/;
 const FIRST = /^[A-Za-z_$]$/;
 
 /**
+ * How far back a `>` is willing to look for its `<`.
+ *
+ * An opening tag is short. Anything further back than this is not the
+ * tag this `>` closed, and the scan is happening on a keystroke, so the
+ * cost of looking is paid by the person typing.
+ */
+const REACH = 4096;
+
+/**
  * What to insert after the `>` at the end of `before`, or `undefined`
  * when that `>` did not finish an opening tag.
  *
@@ -19,7 +28,7 @@ const FIRST = /^[A-Za-z_$]$/;
  * @returns {string | undefined} `"</Card>"`, `"</>"`, or nothing
  */
 export function closingFor(before) {
-  if (!before.endsWith(">")) {
+  if (typeof before !== "string" || !before.endsWith(">")) {
     return undefined;
   }
   const end = before.length - 1;
@@ -65,7 +74,15 @@ export function closingFor(before) {
  */
 function openingBefore(text, end) {
   let at = end - 1;
-  while (at >= 0) {
+  // This runs on the keystroke, for every `>` typed, over everything
+  // in front of the cursor — so on a long file it is work done between
+  // the key going down and the character appearing. A tag's `<` is
+  // always a few characters back; a scan that has gone further than
+  // this is a scan through prose, and the honest answer is to close
+  // nothing. Bounded rather than clever: giving up inserts no tag,
+  // which is exactly what a `>` that finished no tag should do.
+  const floor = Math.max(0, end - REACH);
+  while (at >= floor) {
     const letter = text[at];
     // An attribute's expression and an attribute's string are both
     // inside the tag, and both may hold a `>` of their own. They are
@@ -122,7 +139,8 @@ function openingBefore(text, end) {
  */
 function matching(text, close, opener, closer) {
   let depth = 0;
-  for (let at = close; at >= 0; at -= 1) {
+  const floor = Math.max(0, close - REACH);
+  for (let at = close; at >= floor; at -= 1) {
     if (text[at] === closer) {
       depth += 1;
     } else if (text[at] === opener) {
