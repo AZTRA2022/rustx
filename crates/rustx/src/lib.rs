@@ -189,6 +189,7 @@ pub struct Config {
     icon: Option<PathBuf>,
     about: rustx_engine::window::About,
     dressing: rustx_os::window::Dressing,
+    scrollbars: bool,
 }
 
 impl Config {
@@ -211,6 +212,7 @@ impl Config {
                 ..Default::default()
             },
             dressing: rustx_os::window::Dressing::System,
+            scrollbars: true,
         }
     }
 
@@ -230,6 +232,39 @@ impl Config {
     /// ne se déplace plus.
     pub fn frameless(mut self) -> Self {
         self.dressing = rustx_os::window::Dressing::None;
+        self
+    }
+
+    /// A window that scrolls without drawing a scrollbar.
+    ///
+    /// Nothing stops scrolling: the wheel, the trackpad, the arrow
+    /// keys, Page Down, a drag against the edge and
+    /// `scrollIntoView` all work exactly as before. The bar itself is
+    /// not painted, and it takes no width, so a panel that was 8
+    /// pixels narrower than its neighbour because one of them
+    /// overflowed lines up again.
+    ///
+    /// This is the look a desktop application usually wants and the
+    /// one a browser does not: a document on the web says how far down
+    /// it goes with a scrollbar, and an application says it with its
+    /// own design — a fading edge, a thumb drawn in the page, a list
+    /// that is obviously a list. The web's default is the right
+    /// default, which is why this is asked for rather than assumed.
+    ///
+    /// The whole window, every element in it, and inside a React
+    /// subtree too — one stylesheet, put in after the application's
+    /// own and marked `!important`. Calling this is a more deliberate
+    /// statement than any rule a component library happened to ship,
+    /// so it wins over them: a `::-webkit-scrollbar { width: 8px }`
+    /// three levels deep in somebody's CSS does not quietly put the
+    /// bar back. An application that wants bars in one panel and not
+    /// elsewhere does not call this and styles that panel itself.
+    ///
+    /// ```ignore
+    /// rustx::Config::new("Console").frameless().without_scrollbars()
+    /// ```
+    pub fn without_scrollbars(mut self) -> Self {
+        self.scrollbars = false;
         self
     }
 
@@ -356,7 +391,8 @@ impl App {
         // which libraries it uses — `rustx.use({ recharts })` — and
         // writes its components in `.rsx`; the bridge between the two
         // is the framework's, so the framework brings it.
-        rustx_engine::on_context_created(|| {
+        let scrollbars = config.scrollbars;
+        rustx_engine::on_context_created(move || {
             rustx_engine::inject("react-runtime", include_str!("../assets/runtime.js"));
             // And the application's own libraries, after the runtime
             // that reads them. Both go in through the frame, in order.
@@ -396,6 +432,13 @@ impl App {
                         javascript_string(css)
                     ),
                 );
+            }
+            // And the scrollbars, hidden if the application asked for
+            // that — last, so that a page which styles
+            // `::-webkit-scrollbar` on purpose is not overruled by a
+            // sheet it did not write.
+            if !scrollbars {
+                rustx_engine::inject("app-scrollbars", &hidden_scrollbars());
             }
         });
         for (id, component) in config.mounts {
@@ -604,6 +647,40 @@ fn hash_of(path: &Path) -> u64 {
     hasher.finish()
 }
 
+/// The stylesheet that hides every scrollbar and stops none of the
+/// scrolling.
+///
+/// Two rules, because they are two different mechanisms and Chromium
+/// honours both: `scrollbar-width: none` is the standard property, and
+/// the `::-webkit-scrollbar` pseudo-element is what a page that styles
+/// its own bars is written against — a sheet that sets a width there
+/// would otherwise put the bar back, which is why both are `!important`
+/// and why this goes in last.
+///
+/// `html` and `body` are named as well as `*`, because the viewport's
+/// own scrollbar belongs to the document element and not to any
+/// element inside it.
+///
+/// Put in with the same waiting as the stylesheet: a JavaScript
+/// context exists before the document's `<head>` does, and a window
+/// that is never composited never calls `requestAnimationFrame` back,
+/// so this waits on a timer rather than on a frame.
+fn hidden_scrollbars() -> String {
+    const CSS: &str = "\
+        html, body, * { scrollbar-width: none !important; \
+        -ms-overflow-style: none !important; } \
+        html::-webkit-scrollbar, body::-webkit-scrollbar, *::-webkit-scrollbar { \
+        width: 0 !important; height: 0 !important; display: none !important; }";
+    format!(
+        "(() => {{ const css = {}; const put = () => {{ \
+         if (!document.head) {{ setTimeout(put, 16); return; }} \
+         const sheet = document.createElement('style'); \
+         sheet.id = 'rustx-no-scrollbars'; sheet.textContent = css; \
+         document.head.appendChild(sheet); }}; put(); }})();",
+        javascript_string(CSS)
+    )
+}
+
 /// The document an application that wrote none is given.
 ///
 /// With a `<base>` pointing at the application's own `assets`, because
@@ -718,4 +795,58 @@ fn install_about_native() {
             ("publisher".to_string(), Value::String(about.publisher)),
         ]))
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_window_draws_its_scrollbars_unless_it_is_asked_not_to() {
+        // The web's default is the right default: a document says how
+        // far down it goes with a scrollbar, and only an application
+        // that has drawn its own way of saying so should take it away.
+        assert!(Config::new("Console").scrollbars);
+        assert!(!Config::new("Console").without_scrollbars().scrollbars);
+    }
+
+    #[test]
+    fn hiding_the_scrollbars_does_not_stop_the_scrolling() {
+        let css = hidden_scrollbars();
+        // Width and visibility, and nothing that touches `overflow`:
+        // a rule that set `overflow: hidden` would hide the bar by
+        // taking the scrolling away with it, which is the one thing
+        // this must not do.
+        assert!(css.contains("scrollbar-width"), "got {css}");
+        assert!(css.contains("::-webkit-scrollbar"), "got {css}");
+        assert!(!css.contains("overflow:"), "this must not stop scrolling: {css}");
+    }
+
+    #[test]
+    fn the_viewports_own_scrollbar_is_named_and_not_only_the_wildcard() {
+        // The window's bar belongs to the document element, not to any
+        // element inside it, so `*` alone would leave it drawn.
+        let css = hidden_scrollbars();
+        assert!(css.contains("html"), "got {css}");
+        assert!(css.contains("body"), "got {css}");
+    }
+
+    #[test]
+    fn the_rule_outranks_a_stylesheet_that_draws_its_own_bars() {
+        // Calling `without_scrollbars` is more deliberate than a rule
+        // a component library happened to ship.
+        let css = hidden_scrollbars();
+        assert!(css.contains("!important"), "got {css}");
+    }
+
+    #[test]
+    fn the_stylesheet_waits_for_a_head_to_put_itself_in() {
+        // A JavaScript context exists before the document's `<head>`
+        // does, and a window nothing composites never calls
+        // `requestAnimationFrame` back — so this waits on a timer.
+        let css = hidden_scrollbars();
+        assert!(css.contains("document.head"), "got {css}");
+        assert!(css.contains("setTimeout"), "got {css}");
+        assert!(!css.contains("requestAnimationFrame"), "got {css}");
+    }
 }
