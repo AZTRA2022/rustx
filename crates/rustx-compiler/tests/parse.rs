@@ -199,3 +199,91 @@ fn a_comment_does_not_eat_the_text_around_it() {
     };
     assert_eq!(text, "avant après");
 }
+
+/// A tree deeper than the parser's own recursion can afford.
+///
+/// The parser descends into a tag, and so does the emission under it, so
+/// every level of nesting costs stack — about twelve kilobytes of it in
+/// an unoptimised build. A few hundred levels therefore overflowed the
+/// thread, and a stack overflow is not a refusal: the process dies with
+/// no line, no column and no message, whether it is `cargo build` or the
+/// language server answering a keystroke. A minified blob pasted into a
+/// page is enough to do it.
+#[test]
+fn a_tree_too_deep_to_descend_is_refused_rather_than_crashing() {
+    let depth = rustx_compiler::parse::NESTING_LIMIT + 1;
+    let source = format!(
+        "fn Page() -> Element {{ return {}{}; }}",
+        "<div>".repeat(depth),
+        "</div>".repeat(depth)
+    );
+    let error = parse_one_err(&source);
+    assert!(
+        error.message.contains("nested more than"),
+        "got {}",
+        error.message
+    );
+    assert!(error.line >= 1 && error.column >= 1, "unplaced refusal");
+}
+
+/// And the refusal survives a stack far smaller than the one the deep
+/// tree needed, which is the whole point of having a limit at all.
+///
+/// Two hundred and fifty-six kibibytes: less than a quarter of what the
+/// limit itself costs, so this would die if the refusal were not raised
+/// before the descent. Ten thousand levels, because that is what a
+/// minified document looks like.
+#[test]
+fn a_very_deep_tree_is_refused_on_a_small_stack() {
+    let worker = std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(|| {
+            let source = format!(
+                "fn Page() -> Element {{ return {}{}; }}",
+                "<div>".repeat(10_000),
+                "</div>".repeat(10_000)
+            );
+            rustx_compiler::transpile::transpile(&source).is_err()
+        })
+        .expect("a worker thread");
+    assert!(
+        worker.join().expect("the worker did not die"),
+        "a tree ten thousand deep was accepted"
+    );
+}
+
+/// The same limit, reached through braces rather than through tags.
+///
+/// `<div>{ <div>{ … } }</div>` nests just as deeply, and each `{…}` is
+/// parsed by a call of its own — so a limit the cursor kept to itself
+/// was no limit at all.
+#[test]
+fn nesting_through_an_expression_counts_towards_the_same_limit() {
+    let depth = rustx_compiler::parse::NESTING_LIMIT;
+    let source = format!(
+        "fn Page() -> Element {{ return {}<br />{}; }}",
+        "<div>{".repeat(depth),
+        "}</div>".repeat(depth)
+    );
+    let error = parse_one_err(&source);
+    assert!(
+        error.message.contains("nested more than"),
+        "got {}",
+        error.message
+    );
+}
+
+/// And a tree exactly at the limit is still compiled.
+///
+/// A limit that refused what it allows would be a limit nobody could
+/// reason about.
+#[test]
+fn a_tree_at_the_limit_is_still_accepted() {
+    let depth = rustx_compiler::parse::NESTING_LIMIT;
+    let source = format!(
+        "fn Page() -> Element {{ return {}{}; }}",
+        "<div>".repeat(depth),
+        "</div>".repeat(depth)
+    );
+    rustx_compiler::transpile::transpile(&source).expect("a tree at the limit compiles");
+}

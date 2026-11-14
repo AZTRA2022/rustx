@@ -97,7 +97,10 @@ owned by another agent right now:
 - `package` — none of the eight crates has its own `README.md`.
   `readme.workspace` resolves per manifest, so every crates.io page
   would render empty, and `cargo package` only *warns*. The CLI and
-  distribution agent is writing them.
+  distribution agent is writing them. **Since fixed in `551a1ea`:**
+  all eight files are present on disk. The gate itself has not been
+  re-run — the measurement below is the one taken at `1db1f48` and it
+  stays as written until a run replaces it.
 - `editor` — the one pre-existing failure in
   `editors/vscode/test/indent.test.mjs`: the test that formats the
   repository's own `.rsx` pages, which fails because `apps/` is being

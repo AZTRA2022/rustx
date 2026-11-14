@@ -1034,12 +1034,47 @@ fn apply_relative(text: &str, offset: usize, edits: Vec<Edit>) -> String {
     out
 }
 
+/// The edits, applied to the source they were measured against.
+///
+/// This is the one place every edit of the pass goes through, so it is
+/// the one place the pass's central promise can be kept: **an edit never
+/// changes the line count of what it replaces.** The position map rests
+/// on the two files having the same lines, and a replacement one line
+/// shorter than the declaration it stands for moves every `rustc`
+/// diagnostic below it further up the file, for ever and invisibly.
+///
+/// Padding here rather than at each of the eight places an edit is
+/// built. Three of them remembered to pad and five did not, which is how
+/// a `let mut` whose initializer was written over four lines came out on
+/// one and took three lines off the page:
+///
+/// ```ignore
+/// let mut agents: Vec<Agent> = vec![
+///     Agent::new("scout"),
+///     Agent::new("relay"),
+/// ];
+/// ```
+///
+/// The initializer is deliberately collapsed onto one line — it is also
+/// copied to wherever a future reaches the value, and a newline inserted
+/// there would move lines too — so the newlines it gave up are given
+/// back at the end of the replacement, where they change nothing but the
+/// numbering they preserve.
 fn apply(source: &str, edits: Vec<Edit>) -> String {
     let mut out = source.to_string();
     for edit in ordered(edits) {
-        if edit.span.start <= edit.span.end && edit.span.end <= out.len() {
-            out.replace_range(edit.span.start..edit.span.end, &edit.text);
+        let Some(replaced) = source.get(edit.span.start..edit.span.end) else {
+            // A span that is not a span of this source, or that falls
+            // inside a character rather than between two. Nothing in the
+            // pass should produce one; applying it anyway would panic,
+            // and guessing at a nearby boundary would corrupt the file.
+            continue;
+        };
+        if out.get(edit.span.start..edit.span.end).is_none() {
+            continue;
         }
+        let text = pad_to(edit.text, replaced);
+        out.replace_range(edit.span.start..edit.span.end, &text);
     }
     out
 }

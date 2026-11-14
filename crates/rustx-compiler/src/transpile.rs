@@ -18,6 +18,54 @@ pub struct Transpiled {
     pub map: PositionMap,
 }
 
+/// A refusal measured against the rewritten text, put back where the
+/// developer can act on it.
+///
+/// State promotion replaces a declaration in place and keeps the line it
+/// was on — that is its contract, and `every_page_keeps_its_line_count`
+/// is what holds it to it — so the **line** of a refusal is already the
+/// line of the `.rsx`. Nothing else is: a line the rewrite rebuilt has
+/// different characters on it, so a column counted in the rewritten text
+/// names a different character, and the byte offset of a file that has
+/// grown by a thousand characters can point past the end of the one the
+/// developer has open. A caller that reads the `.rsx` and slices at that
+/// offset — which is what a language server does to underline the
+/// mistake — would be slicing at random.
+///
+/// So the line is kept, the column is kept only where the line is
+/// untouched, and the offset is counted afresh in the written file.
+fn as_written(error: CompileError, written: &str, rewritten: &[usize]) -> CompileError {
+    let line = error.line;
+    // A column on a rebuilt line has no counterpart; the start of the
+    // line is the honest answer, and it is the one the map already gives
+    // for the same reason.
+    let column = if rewritten.contains(&line) {
+        1
+    } else {
+        error.column
+    };
+
+    // The byte offset of (line, column) in the file that was written.
+    let mut offset = 0;
+    for (at, text) in written.lines().enumerate() {
+        if at + 1 == line {
+            offset += text
+                .char_indices()
+                .nth(column.saturating_sub(1))
+                .map_or(text.len(), |(at, _)| at);
+            break;
+        }
+        offset += text.len() + 1;
+    }
+
+    CompileError {
+        offset: offset.min(written.len()),
+        line,
+        column,
+        ..error
+    }
+}
+
 /// Translate one `.rsx` source.
 pub fn transpile(source: &str) -> Result<Transpiled, CompileError> {
     // State promotion runs first: it rewrites Rust, never JSX, and it
@@ -37,7 +85,15 @@ pub fn transpile(source: &str) -> Result<Transpiled, CompileError> {
         .map(|(at, _)| at + 1)
         .collect();
 
-    let spans = find_jsx(source).map_err(|error| error.resolve(source))?;
+    // Every refusal below is raised against the *rewritten* text, which
+    // is not the text the developer has open: state promotion makes a
+    // `let mut n = 0;` into a hundred and twenty characters of cell, so
+    // a column counted there names nothing, and a byte offset counted
+    // there runs past the end of the file they wrote. `as_written` puts
+    // each one back in their coordinates.
+    let placed = |error: CompileError| as_written(error.resolve(source), written, &rewritten);
+
+    let spans = find_jsx(source).map_err(placed)?;
 
     // What a capitalised tag needs to become a call: the components
     // this file declares, and their parameters in order.
@@ -70,8 +126,8 @@ pub fn transpile(source: &str) -> Result<Transpiled, CompileError> {
         let line_start = source[..span.start].rfind('\n').map_or(0, |at| at + 1);
         let column = source[line_start..span.start].chars().count() + 1;
 
-        let node = parse_jsx(source, span).map_err(|error| error.resolve(source))?;
-        let code = emit(&node, &context).map_err(|error| error.resolve(source))?;
+        let node = parse_jsx(source, span).map_err(placed)?;
+        let code = emit(&node, &context).map_err(placed)?;
         // A region is one Rust expression however many lines it took to
         // write, so the newlines it swallowed are put back after it. That
         // keeps every later line of the generated file on the number it

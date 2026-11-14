@@ -95,7 +95,7 @@ fn scan_range(source: &str, start: usize, end: usize) -> Result<Vec<Span>, Compi
             continue;
         }
         if byte == b'<' && previous.may_open_a_tag() && opens_a_tag(bytes, index) {
-            let span = region(source, index)?;
+            let span = region(source, index, end)?;
             index = span.end;
             spans.push(span);
             previous = Previous::Anything;
@@ -220,18 +220,29 @@ pub(crate) fn skip_raw_string(source: &str, index: usize) -> Result<Option<usize
 }
 
 /// The whole region, from the opening `<` to the `>` that closes the
-/// outermost tag.
-fn region(source: &str, start: usize) -> Result<Span, CompileError> {
+/// outermost tag, and never past `ceiling`.
+///
+/// The ceiling is what makes a region found inside a `{…}` stay inside
+/// it. `find_jsx_range` is asked for the regions of one expression, and
+/// this used to read the whole file: a `<div>` opened between the braces
+/// and closed after them gave back a span whose end was past the closing
+/// brace. The caller then sliced from that end back to the brace — a
+/// range that starts after it ends — and the compiler died on a page
+/// somebody was halfway through typing. A tag that does not close inside
+/// the expression it was opened in is unclosed, and that is what it is
+/// told.
+fn region(source: &str, start: usize, ceiling: usize) -> Result<Span, CompileError> {
     let bytes = source.as_bytes();
     // Open tags, by name and by where they were opened, so an unclosed one
     // can be named and placed.
     let mut open: Vec<(String, usize)> = Vec::new();
     let mut index = start;
+    let ceiling = ceiling.min(bytes.len());
 
-    while index < bytes.len() {
+    while index < ceiling {
         match bytes[index] {
             b'<' if bytes.get(index + 1) == Some(&b'/') => {
-                index = end_of_tag(source, index)?;
+                index = end_of_tag(source, index, ceiling)?;
                 if open.pop().is_none() {
                     return Err(CompileError::at(
                         source,
@@ -249,10 +260,22 @@ fn region(source: &str, start: usize) -> Result<Span, CompileError> {
             b'<' => {
                 let at = index;
                 let name = tag_name(source, index);
-                index = end_of_tag(source, index)?;
+                index = end_of_tag(source, index, ceiling)?;
                 let self_closing = source[..index].trim_end().ends_with("/>");
                 if !self_closing {
                     open.push((name, at));
+                    // The parser below descends into this tree, and so
+                    // does the emission below that, so the depth costs
+                    // stack — about twelve kilobytes a level. Counted
+                    // here as well as there because here it is free: the
+                    // scan is a loop over bytes with the open tags in a
+                    // vector, so a document nested ten thousand deep is
+                    // refused without a single frame being pushed. Left
+                    // to the parser alone, the refusal itself needed a
+                    // quarter of a megabyte to be reached.
+                    if open.len() > crate::parse::NESTING_LIMIT {
+                        return Err(CompileError::at(source, at, nesting_refusal()));
+                    }
                 } else if open.is_empty() {
                     return Ok(Span { start, end: index });
                 }
@@ -273,6 +296,21 @@ fn region(source: &str, start: usize) -> Result<Span, CompileError> {
     ))
 }
 
+/// The one sentence a tree too deep to descend is answered with.
+///
+/// Written once and said by both the scanner and the parser: they catch
+/// the same mistake at two different moments, and two wordings of one
+/// refusal is one wording too many.
+pub(crate) fn nesting_refusal() -> String {
+    format!(
+        "this tag is nested more than {} deep. rustx reads a tree by descending into it, \
+         and so does the Rust it writes, so a tree this deep would run the thread out of \
+         stack — which is a crash and not a message. Give a part of it a component of its \
+         own: `<Row …/>` beside the page reads better at that depth in any case.",
+        crate::parse::NESTING_LIMIT
+    )
+}
+
 /// The name right after a `<`, or the empty string for a fragment.
 fn tag_name(source: &str, open: usize) -> String {
     let bytes = source.as_bytes();
@@ -287,10 +325,16 @@ fn tag_name(source: &str, open: usize) -> String {
 /// One byte past the `>` that ends this tag's header, stepping over
 /// strings and over the braces of attribute expressions — a closure body
 /// may hold `>` and `<` of its own.
-fn end_of_tag(source: &str, open: usize) -> Result<usize, CompileError> {
+///
+/// `ceiling` is where the region being read has to end: a tag whose `>`
+/// is past it is a tag the expression does not close, and giving back an
+/// offset past it would hand the caller a range that starts after it
+/// ends.
+fn end_of_tag(source: &str, open: usize, ceiling: usize) -> Result<usize, CompileError> {
     let bytes = source.as_bytes();
+    let ceiling = ceiling.min(bytes.len());
     let mut index = open + 1;
-    while index < bytes.len() {
+    while index < ceiling {
         match bytes[index] {
             b'>' => return Ok(index + 1),
             b'"' => index = skip_attribute_string(source, index)?,

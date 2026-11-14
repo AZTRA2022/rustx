@@ -1667,7 +1667,7 @@ fn mutations_in(
             Some(b'.') | Some(b'[') if assigns_through_path(bytes, span.end) => {
                 Some(MutationKind::Method)
             }
-            Some(b'.') if is_statement(bytes, span, handler, tail_discarded) => {
+            Some(b'.') if is_statement(source, span, handler, tail_discarded) => {
                 Some(MutationKind::Method)
             }
             _ => None,
@@ -1693,7 +1693,8 @@ fn shift_assign(bytes: &[u8], at: usize) -> bool {
 /// it became a call on a copy: it compiled, did nothing, and the list on
 /// screen never reordered. In the argument of a `keep` or a `task` it
 /// does not: there the last expression is the value being computed.
-fn is_statement(bytes: &[u8], span: Span, handler: Span, tail_discarded: bool) -> bool {
+fn is_statement(source: &str, span: Span, handler: Span, tail_discarded: bool) -> bool {
+    let bytes = source.as_bytes();
     let before = back_over_space_and_comments(bytes, span.start, handler.start);
     let opens = before == handler.start
         // `}`: the statement before was a block — an `if`, a `for`, a
@@ -1733,19 +1734,24 @@ fn is_statement(bytes: &[u8], span: Span, handler: Span, tail_discarded: bool) -
                 if index + 1 >= handler.end {
                     return tail_discarded;
                 }
-                match next_token(bytes, index + 1, handler.end) {
-                    // The block was a statement, so its last expression
-                    // is one too.
-                    Some(b';') => return true,
-                    // The block is itself the last expression of the
-                    // block around it: the same question, one level out.
-                    Some(b'}') => {}
-                    // Anything else -- a `,`, a `.`, a `)`, an operator
-                    // -- is the block feeding a value to something,
-                    // which makes this a read.
-                    Some(_) => return false,
-                    None => return tail_discarded,
-                }
+                // Decided by what is *in front of* the block, not by
+                // what follows it. What follows told the two apart
+                // wrongly: a statement block takes no semicolon in Rust,
+                // so a `};` is almost always a `let` whose value is a
+                // block —
+                //
+                //     let found: Vec<_> = if needle.is_empty() {
+                //         Vec::new()
+                //     } else {
+                //         departments.iter().filter(…).collect()
+                //     };
+                //
+                // and reading that `;` as "the block was a statement"
+                // made `.collect()` a write to `departments`. The page
+                // was then refused with "`departments` is written while
+                // `Page` is being drawn" — a sentence about a line that
+                // only ever reads.
+                return block_in_statement_position(source, index, handler, tail_discarded);
             }
             b'{' if depth == 0 => return false,
             _ => {}
@@ -1755,7 +1761,198 @@ fn is_statement(bytes: &[u8], span: Span, handler: Span, tail_discarded: bool) -
     tail_discarded
 }
 
+/// Is the block whose `}` sits at `close` in statement position?
+///
+/// Asked when the expression being judged is the **last** one in a
+/// block: the expression's value is the block's value, so the expression
+/// is a statement exactly when the block is one.
+///
+/// And what says whether a block is a statement is the head of the
+/// statement it sits in — everything from where that statement begins up
+/// to the block's own `{`:
+///
+/// | the head                       | the block is              |
+/// |--------------------------------|---------------------------|
+/// | nothing                        | the first thing in a block: a statement |
+/// | `if …`, `match …`, `for …`, …  | a construct, whose own position decides — and the head is that position |
+/// | `let x =`, `x =`, `return`     | a value                   |
+/// | `f(`, `vec![`, `a +`           | a value                   |
+/// | `… =>`                         | a match arm's value, which is the match's value: ask again one level out |
+/// | `… |x|`                        | a closure body, whose tail its caller discards or does not |
+///
+/// Reading the head rather than walking backwards over single bytes is
+/// what makes the `else` of a `let` land where it belongs: the head is
+/// the whole `let people: Vec<_> = if … {…} else`, and the `=` in it is
+/// unmistakable.
+fn block_in_statement_position(
+    source: &str,
+    close: usize,
+    handler: Span,
+    tail_discarded: bool,
+) -> bool {
+    let bytes = source.as_bytes();
+    let floor = handler.start;
+    let Some(mut open) = brace_back(bytes, close, floor) else {
+        return tail_discarded;
+    };
+
+    // One pass out per enclosing block, so this cannot spin: `open`
+    // strictly decreases, and `statement_start` never returns more.
+    for _ in 0..64 {
+        let start = statement_start(source, floor, open);
+        let head = source[start.min(open)..open].trim();
+
+        if head.is_empty() {
+            return true;
+        }
+        // A match arm. Its value is the match's, so the question moves
+        // out to the braces holding the arms.
+        if head.ends_with("=>") {
+            match enclosing_brace(bytes, open, floor) {
+                Some(outer) => {
+                    open = outer;
+                    continue;
+                }
+                None => return tail_discarded,
+            }
+        }
+        // A closure body. Whether its tail counts is its caller's
+        // business, and `tail_discarded` is what the caller said.
+        if head.ends_with('|') {
+            return tail_discarded;
+        }
+        // The head of a construct whose block is a block of statements.
+        // `if let Some(x) = y {` is one of them, which is why this comes
+        // before the test for a binding.
+        if first_word(head).is_some_and(|word| {
+            matches!(
+                word,
+                "if" | "match" | "while" | "loop" | "for" | "unsafe" | "else"
+            )
+        }) {
+            return true;
+        }
+        // `let x =`, `x =`, `self.field =`: the block is the value.
+        // Anything else — an argument, an element, an operand — is a
+        // value too, and so is a `return`.
+        return false;
+    }
+    tail_discarded
+}
+
+/// Where the statement enclosing `at` begins.
+///
+/// Scanned forwards from `floor`, which is the one direction in which a
+/// string literal and a comment can be stepped over without guessing:
+/// backwards, `"a;b"` and `// a;` are indistinguishable from code until
+/// the line they are on has been read from its start.
+///
+/// A statement begins after the `{` of the block it is in, or after the
+/// `;` that ended the one before it. A `;` only counts at the bracket
+/// depth its own block opened at, so the `a;` of `f(|| { a; b })` begins
+/// a statement of the closure's body and not of the call's.
+fn statement_start(source: &str, floor: usize, at: usize) -> usize {
+    let bytes = source.as_bytes();
+    // One entry per open brace: where the statement in it begins, and
+    // the bracket depth that brace was opened at.
+    let mut levels: Vec<(usize, i32)> = vec![(floor, 0)];
+    let mut brackets = 0_i32;
+    let mut index = floor;
+
+    while index < at && index < bytes.len() {
+        let skipped = if let Ok(Some(after)) = crate::scan::skip_raw_string(source, index) {
+            Some(after)
+        } else if bytes[index] == b'"' {
+            crate::scan::skip_string(source, index).ok()
+        } else if bytes[index] == b'\'' {
+            Some(crate::scan::skip_char_or_lifetime(bytes, index))
+        } else {
+            crate::scan::skip_comment(bytes, index)
+        };
+        if let Some(after) = skipped {
+            if after > index {
+                index = after;
+                continue;
+            }
+        }
+
+        match bytes[index] {
+            b'{' => levels.push((index + 1, brackets)),
+            b'}' => {
+                if levels.len() > 1 {
+                    levels.pop();
+                }
+            }
+            b'(' | b'[' => brackets += 1,
+            b')' | b']' => brackets -= 1,
+            b';' => {
+                if let Some(level) = levels.last_mut()
+                    && level.1 == brackets
+                {
+                    level.0 = index + 1;
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    levels.last().map_or(floor, |level| level.0)
+}
+
+/// The first word of this text, when it begins with one.
+fn first_word(head: &str) -> Option<&str> {
+    let word = head
+        .split(|letter: char| !(letter.is_alphanumeric() || letter == '_'))
+        .next()?;
+    (!word.is_empty()).then_some(word)
+}
+
+/// The `{` the `}` at `close` matches, counting only braces.
+///
+/// Braces only: the `}` it starts from was reached by the forward scan
+/// of [`is_statement`], which reads code, so what lies between it and
+/// its `{` is the block's own body.
+fn brace_back(bytes: &[u8], close: usize, floor: usize) -> Option<usize> {
+    let mut depth = 0_i32;
+    let mut index = close + 1;
+    while index > floor {
+        index -= 1;
+        match bytes[index] {
+            b'}' => depth += 1,
+            b'{' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The nearest `{` that is still open at `at`.
+fn enclosing_brace(bytes: &[u8], at: usize, floor: usize) -> Option<usize> {
+    let mut depth = 0_i32;
+    let mut index = at;
+    while index > floor {
+        index -= 1;
+        match bytes[index] {
+            b'}' => depth += 1,
+            b'{' => {
+                if depth == 0 {
+                    return Some(index);
+                }
+                depth -= 1;
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// The next byte from `at` that is neither whitespace nor a comment.
+#[allow(dead_code)]
 fn next_token(bytes: &[u8], at: usize, ceiling: usize) -> Option<u8> {
     let mut at = at;
     loop {

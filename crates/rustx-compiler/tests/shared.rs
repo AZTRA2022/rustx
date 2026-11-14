@@ -553,3 +553,140 @@ fn a_method_that_is_a_statement_of_its_own_is_still_a_write() {
         built.rust
     );
 }
+
+/// A page value read in the `else` of a `let`, which is a read.
+///
+/// The test for "is this method call a statement, and so a write?"
+/// walked forward from the call looking for the first `;` or `}` at
+/// depth zero, and read a `}` followed by `;` as "the block was a
+/// statement". But a statement block takes no semicolon in Rust: a `};`
+/// is almost always a `let` whose value is a block. So
+///
+/// ```ignore
+/// let found: Vec<Unit> = if needle.is_empty() {
+///     Vec::new()
+/// } else {
+///     departments.iter().filter(…).cloned().collect()
+/// };
+/// ```
+///
+/// had `.collect()` read as a write to `departments`, and the page was
+/// refused with "`departments` is written while `Page` is being drawn"
+/// — a sentence about a line that only ever reads. Found on
+/// `apps/utility-hub/app/search/page.rsx`.
+#[test]
+fn a_page_value_read_in_the_else_of_a_let_is_not_a_write() {
+    let source = "let mut departments: Vec<String> = Vec::new();\n\
+         \n\
+         fn Page() -> Element {\n    \
+         let needle = String::new();\n    \
+         let units: Vec<String> = if needle.is_empty() {\n        \
+         Vec::new()\n    \
+         } else {\n        \
+         departments.iter().filter(|each| each.contains(&needle)).cloned().collect()\n    \
+         };\n    \
+         return <p>{units.len()}</p>;\n\
+         }\n";
+    let built = transpile(source).expect("a page that only reads is not refused");
+    let tight: String = built
+        .rust
+        .chars()
+        .filter(|each| !each.is_whitespace())
+        .collect();
+    assert!(
+        tight.contains("departments.get().iter()"),
+        "the read should be a read:\n{}",
+        built.rust
+    );
+    assert!(
+        !tight.contains("departments.update"),
+        "the read was taken for a write:\n{}",
+        built.rust
+    );
+}
+
+/// The same shape, with the block as the value of an assignment rather
+/// than of a `let`.
+#[test]
+fn a_page_value_read_in_a_block_assigned_to_something_is_not_a_write() {
+    let source = "let mut rows: Vec<String> = Vec::new();\n\
+         \n\
+         fn Page() -> Element {\n    \
+         let mut seen = 0_usize;\n    \
+         let total = match rows.len() {\n        \
+         0 => 0,\n        \
+         _ => {\n            \
+         rows.iter().filter(|each| !each.is_empty()).count()\n        \
+         }\n    \
+         };\n    \
+         return <button onClick={move |_| seen += total}>{seen}</button>;\n\
+         }\n";
+    let built = transpile(source).expect("transpiles");
+    let tight: String = built
+        .rust
+        .chars()
+        .filter(|each| !each.is_whitespace())
+        .collect();
+    assert!(
+        !tight.contains("rows.update"),
+        "a read inside a match arm feeding a `let` was taken for a write:\n{}",
+        built.rust
+    );
+}
+
+/// And the counterpart: a real write at the end of a block that *is* a
+/// statement is still a write.
+///
+/// `if …  { }` and `match … { }` written as statements are the two
+/// shapes a handler uses to decide between two writes, and a fix that
+/// turned either into a read would silently stop the screen changing.
+#[test]
+fn a_write_that_ends_a_statement_block_is_still_a_write() {
+    let source = "let mut rows: Vec<String> = Vec::new();\n\
+         \n\
+         fn Page() -> Element {\n    \
+         return <button onClick={move |_| {\n        \
+         if rows.is_empty() { rows.push(\"first\".to_string()) }\n        \
+         match rows.len() { 0 => {}, _ => { rows.push(\"more\".to_string()) } }\n    \
+         }}>push</button>;\n\
+         }\n";
+    let built = transpile(source).expect("transpiles");
+    let tight: String = built
+        .rust
+        .chars()
+        .filter(|each| !each.is_whitespace())
+        .collect();
+    assert_eq!(
+        tight.matches("rows.update(|__v|{__v.push(").count(),
+        2,
+        "both pushes should still be writes:\n{}",
+        built.rust
+    );
+}
+
+/// A `;` inside a string literal does not begin a statement.
+///
+/// The whole class of defect this subsystem keeps producing is a scan
+/// that is not aware of what it is scanning over. The head of a
+/// statement is read from the statement's start, and finding that start
+/// means stepping over strings, raw strings, character literals and
+/// both kinds of comment on the way.
+#[test]
+fn a_semicolon_in_a_string_does_not_begin_a_statement() {
+    let source = "let mut rows: Vec<String> = Vec::new();\n\
+         \n\
+         fn Page() -> Element {\n    \
+         let joined = if rows.is_empty() {\n        \
+         String::new()\n    \
+         } else {\n        \
+         rows.join(\"; \")\n    \
+         };\n    \
+         return <p>{joined}</p>;\n\
+         }\n";
+    let built = transpile(source).expect("transpiles");
+    assert!(
+        !built.rust.contains("rows.update"),
+        "the `;` inside the separator was read as code:\n{}",
+        built.rust
+    );
+}

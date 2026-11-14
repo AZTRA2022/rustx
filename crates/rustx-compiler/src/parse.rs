@@ -9,12 +9,39 @@ use crate::emit::emit;
 use crate::error::CompileError;
 use crate::scan::{Span, find_jsx_range, opens_a_tag, skip_attribute_string, skip_braces};
 
+/// How deep one region's tags may nest.
+///
+/// The parser is recursive descent, and so is the emission under it: a
+/// tag inside a tag is a call inside a call, all the way down. Each
+/// level costs about seven kilobytes of stack, so a tree a few hundred
+/// deep overflows the thread it runs on — and a stack overflow is not a
+/// refusal. The process dies, with no line, no message and no file name,
+/// whether it is `cargo build` or the language server answering a
+/// keystroke.
+///
+/// Sixty-four is far past anything a page is written with — a deeply
+/// indented layout reaches a dozen — and far short of the hundred and
+/// twenty-eight that kills a one-megabyte thread. What is past it is a
+/// minified blob or a paste that went wrong, and either is better met by
+/// a sentence.
+pub const NESTING_LIMIT: usize = 64;
+
 /// Parse one JSX region, as found by [`crate::scan::find_jsx`].
 pub fn parse_jsx(source: &str, span: Span) -> Result<Node, CompileError> {
+    parse_nested(source, span, 0)
+}
+
+/// The same, told how many tags already enclose this region.
+///
+/// A region written inside a `{…}` of another region is parsed by its
+/// own call, so the count has to travel: without it, nesting through
+/// braces was unbounded however low the limit was set.
+fn parse_nested(source: &str, span: Span, depth: usize) -> Result<Node, CompileError> {
     let mut cursor = Cursor {
         source,
         index: span.start,
         end: span.end,
+        depth,
     };
     let node = cursor.element()?;
     Ok(node)
@@ -24,6 +51,8 @@ struct Cursor<'a> {
     source: &'a str,
     index: usize,
     end: usize,
+    /// How many tags enclose the one being read.
+    depth: usize,
 }
 
 impl Cursor<'_> {
@@ -69,6 +98,14 @@ impl Cursor<'_> {
         if self.peek() != Some(b'<') {
             return Err(self.error(offset, "expected a tag"));
         }
+        // The scanner counts the same depth and refuses first, which is
+        // what keeps a ten-thousand-deep document from costing a frame.
+        // This catches what the scanner cannot see: nesting through the
+        // `{…}` of an expression, where each level is a region of its
+        // own found by a separate scan.
+        if self.depth >= NESTING_LIMIT {
+            return Err(self.error(offset, crate::scan::nesting_refusal()));
+        }
         self.index += 1;
 
         let name = self.name();
@@ -87,7 +124,11 @@ impl Cursor<'_> {
         }
         self.expect(b'>', offset)?;
 
-        let children = self.children()?;
+        // What is inside this tag is one level deeper than this tag is.
+        self.depth += 1;
+        let children = self.children();
+        self.depth -= 1;
+        let children = children?;
 
         // The closing tag.
         self.expect(b'<', offset)?;
@@ -261,7 +302,9 @@ impl Cursor<'_> {
         let mut cursor = from;
         for span in find_jsx_range(self.source, from, to)? {
             code.push_str(&self.source[cursor..span.start]);
-            let node = parse_jsx(self.source, span)?;
+            // One level deeper: these braces are inside the tag being
+            // read, so a region in them is inside it too.
+            let node = parse_nested(self.source, span, self.depth + 1)?;
             // A region written inside a handler sees the same
             // components as the one around it: they are the file's.
             let components = crate::promote::component_signatures(self.source);
