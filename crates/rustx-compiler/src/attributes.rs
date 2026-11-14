@@ -366,6 +366,63 @@ pub fn canonical(name: &str) -> Option<&'static str> {
         .copied()
 }
 
+/// Is this attribute one HTML reads as presence rather than as a value?
+///
+/// HTML never looks at what a boolean attribute is set to: `disabled`,
+/// `disabled=""` and `disabled="false"` all mean disabled, and the only
+/// way to say "not disabled" is for the attribute not to be there.
+///
+/// So `disabled={busy}` could not go through `to_string()` the way
+/// every other value does — it produced `disabled="false"` and a button
+/// that could not be clicked for as long as it was not busy. That is
+/// the opposite of what was written, on the line the documentation
+/// recommends, and nothing in the page said why.
+///
+/// The names are the ones the HTML standard lists as boolean, limited
+/// to those that can appear on an element a page writes. Anything not
+/// in this list keeps the old behaviour, which is right for it.
+pub fn is_boolean(name: &str) -> bool {
+    matches!(
+        name,
+        "allowFullScreen"
+            | "async"
+            | "autoFocus"
+            | "autoPlay"
+            | "checked"
+            | "controls"
+            | "default"
+            | "defer"
+            | "disabled"
+            | "formNoValidate"
+            | "hidden"
+            | "inert"
+            | "isMap"
+            | "itemScope"
+            | "loop"
+            | "multiple"
+            | "muted"
+            | "noModule"
+            | "noValidate"
+            | "open"
+            | "playsInline"
+            | "readOnly"
+            | "required"
+            | "reversed"
+            | "selected"
+            // The DOM spellings, for a page that wrote one of those.
+            | "allowfullscreen"
+            | "autofocus"
+            | "autoplay"
+            | "formnovalidate"
+            | "ismap"
+            | "itemscope"
+            | "nomodule"
+            | "novalidate"
+            | "playsinline"
+            | "readonly"
+    )
+}
+
 /// Does the framework know this attribute at all?
 ///
 /// `data-*` and `aria-*` are open by design — they are namespaces the web
@@ -570,11 +627,33 @@ pub fn style_string(object: &str) -> Result<String, String> {
             .strip_prefix('"')
             .and_then(|rest| rest.strip_suffix('"'))
         else {
-            return Err(format!(
-                "`{property}` is given `{value}`, and a style value has to be a string — \
-                 write \"{value}px\" if you meant pixels. React adds `px` to some \
-                 properties and not to others, and rustx will not guess which."
-            ));
+            // Two different mistakes reach here, and they want two
+            // different sentences. `width: 20` is a unit the developer
+            // left off, and the advice is to write it. `width:
+            // format!(…)` is a computed value, and telling *that*
+            // developer to write `"format!(…)px"` -- which is what this
+            // said to everybody -- is advice that cannot be followed:
+            // the object is read at compile time and holds literals
+            // only. What they want is the whole style as one
+            // expression, which is passed through untouched.
+            let literal = value
+                .chars()
+                .all(|each| each.is_ascii_digit() || each == '.' || each == '-');
+            return Err(if literal {
+                format!(
+                    "`{property}` is given `{value}`, and a style value has to be a string — \
+                     write \"{value}px\" if you meant pixels. React adds `px` to some \
+                     properties and not to others, and rustx will not guess which."
+                )
+            } else {
+                format!(
+                    "`{property}` is given `{value}`, and a style object holds quoted \
+                     strings only — it is read at compile time, so nothing computed can \
+                     go in one. For a value that changes, write the whole style as one \
+                     expression: style={{format!(\"{property}: {{}}\", …)}} — or give the \
+                     element a `className` and let the stylesheet do it."
+                )
+            });
         };
         declarations.push(format!("{property}: {text}"));
     }

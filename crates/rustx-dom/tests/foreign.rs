@@ -182,3 +182,4 @@ fn a_prop_that_was_dropped_is_a_prop_patch_of_what_is_left() {
         }]
     );
 }
+

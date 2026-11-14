@@ -124,3 +124,33 @@ fn a_suggestion_is_only_offered_when_it_is_plausible() {
         error.message
     );
 }
+
+#[test]
+fn a_boolean_attribute_is_presence_and_not_the_word_false() {
+    // `disabled={busy}` as `disabled="false"` is a button that cannot
+    // be clicked for as long as it is not busy -- the opposite of what
+    // was written, on the line the documentation recommends. HTML never
+    // looks at a boolean attribute's value.
+    let rust = emit_one("<button disabled={busy}>go</button>");
+    assert!(
+        rust.contains("Flag (busy)") || rust.contains("Flag(busy)"),
+        "a boolean attribute has to be a flag: {rust}"
+    );
+    assert!(
+        !rust.contains("busy) . to_string") && !rust.contains("(busy).to_string"),
+        "a bool must not be stringified: {rust}"
+    );
+}
+
+#[test]
+fn an_attribute_that_is_not_boolean_is_still_the_text_it_displays_as() {
+    let rust = emit_one("<progress value={done} />");
+    assert!(rust.contains("to_string"), "got {rust}");
+    assert!(!rust.contains("Flag"), "got {rust}");
+}
+
+#[test]
+fn a_bare_boolean_attribute_is_still_a_flag() {
+    let rust = emit_one("<input required />");
+    assert!(rust.contains("Flag"), "got {rust}");
+}

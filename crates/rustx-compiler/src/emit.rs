@@ -358,7 +358,16 @@ fn attribute_step(attribute: &Attribute) -> Result<TokenStream, CompileError> {
         AttributeSource::Flag => quote! { rustx_dom::AttributeValue::Flag(true) },
         AttributeSource::Expression(code) => {
             let inner = rust(code, attribute.offset)?;
-            quote! { rustx_dom::AttributeValue::Text((#inner).to_string()) }
+            // A boolean attribute is presence, not text. HTML reads
+            // `disabled="false"` as disabled, so `disabled={busy}` put
+            // through `to_string()` produced a button that could not be
+            // clicked for as long as it was not busy -- the opposite of
+            // what was written. `Flag` is what the engine already knew
+            // how to set bare and how to remove.
+            match crate::attributes::is_boolean(&attribute.name) {
+                true => quote! { rustx_dom::AttributeValue::Flag(#inner) },
+                false => quote! { rustx_dom::AttributeValue::Text((#inner).to_string()) },
+            }
         }
     };
     Ok(quote! { .attribute(#in_dom, #value) })
