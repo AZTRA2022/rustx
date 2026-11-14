@@ -291,3 +291,100 @@ fn assert_is_valid_json(text: &str) {
     }
     assert_eq!(depth, 0, "unbalanced braces: {text}");
 }
+
+/// What a complex library needs before it will install itself.
+///
+/// `npx shadcn add button` reads two files before it writes anything,
+/// and refuses without them — "No import alias found in your
+/// tsconfig.json file" — so a project born without them is a project
+/// where the documented one-liner does not work. Verified end to end on
+/// a project this function wrote: `npm install`, `npx shadcn add button
+/// card`, `cargo build`, and a window that resolved `Button` and drew
+/// the card.
+#[test]
+fn a_new_project_can_already_receive_a_shadcn_component() {
+    let into = somewhere();
+    let root = new::write("mon-app", &into)
+        .expect("a project")
+        .first()
+        .and_then(|first| first.parent().map(|parent| parent.to_path_buf()))
+        .expect("a root");
+
+    // The alias, which both the shadcn command line and esbuild read.
+    let tsconfig = fs::read_to_string(root.join("tsconfig.json")).expect("a tsconfig.json");
+    assert!(
+        tsconfig.contains("\"@/*\"") && tsconfig.contains("\"baseUrl\""),
+        "the `@` alias is what `@/lib/utils` resolves by: {tsconfig}"
+    );
+    let _: () = assert_is_valid_json(&tsconfig);
+
+    // And what the command line reads to know it needs no `init`.
+    let components = fs::read_to_string(root.join("components.json")).expect("a components.json");
+    assert!(
+        components.contains("assets/tailwind.css"),
+        "the stylesheet named here is the one the framework hands to Tailwind: {components}"
+    );
+    let _: () = assert_is_valid_json(&components);
+
+    // The one function every shadcn component has imported, and the
+    // theme whose names its classes are.
+    assert!(root.join("lib").join("utils.ts").exists(), "no lib/utils.ts");
+    let css = fs::read_to_string(root.join("assets").join("tailwind.css")).expect("a stylesheet");
+    assert!(
+        css.contains("--primary:") && css.contains("--muted-foreground:"),
+        "`bg-primary` and `text-muted-foreground` are names of these: {css}"
+    );
+
+    let _ = fs::remove_dir_all(&into);
+}
+
+/// A file that imports what the manifest does not declare is a project
+/// that fails on its first `npm install`.
+#[test]
+fn a_new_project_declares_what_its_own_files_import() {
+    let into = somewhere();
+    new::write("mon-app", &into).expect("a project");
+    let root = into.join("mon-app");
+    let manifest = fs::read_to_string(root.join("package.json")).expect("a package.json");
+
+    // `lib/utils.ts` imports these two by name.
+    for named in ["clsx", "tailwind-merge"] {
+        assert!(
+            manifest.contains(&format!("\"{named}\"")),
+            "lib/utils.ts imports {named}: {manifest}"
+        );
+    }
+    // `assets/tailwind.css` imports these two by name.
+    for named in ["tailwindcss", "tw-animate-css"] {
+        assert!(
+            manifest.contains(&format!("\"{named}\"")),
+            "assets/tailwind.css imports {named}: {manifest}"
+        );
+    }
+    // And a React component cannot be drawn without React.
+    for named in ["react", "react-dom"] {
+        assert!(
+            manifest.contains(&format!("\"{named}\"")),
+            "a library component needs {named}: {manifest}"
+        );
+    }
+    let _: () = assert_is_valid_json(&manifest);
+    let _ = fs::remove_dir_all(&into);
+}
+
+/// `@tailwindcss/cli` brings `@parcel/watcher`, whose install script a
+/// modern `npm` holds back — and says so, on the last line of the first
+/// `npm install` a developer ever runs here. Its version is whatever the
+/// tree resolves, so it is approved by name alone, which npm accepts.
+#[test]
+fn a_new_project_leaves_no_install_script_unapproved() {
+    let into = somewhere();
+    new::write("mon-app", &into).expect("a project");
+    let manifest = fs::read_to_string(into.join("mon-app").join("package.json"))
+        .expect("a package.json");
+    assert!(
+        manifest.contains("\"@parcel/watcher\""),
+        "the one install script a fresh tree holds back: {manifest}"
+    );
+    let _ = fs::remove_dir_all(&into);
+}

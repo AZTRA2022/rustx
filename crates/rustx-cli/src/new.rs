@@ -33,6 +33,10 @@ pub fn write(name: &str, into: &Path) -> Result<Vec<PathBuf>, String> {
         (root.join(".gitignore"), ignored()),
         (root.join("assets").join("readme.md"), assets_note()),
         (root.join("package.json"), package_json(name)),
+        (root.join("tsconfig.json"), tsconfig()),
+        (root.join("components.json"), components_json()),
+        (root.join("lib").join("utils.ts"), utils_ts()),
+        (root.join("assets").join("tailwind.css"), tailwind_css()),
     ];
 
     let mut written = Vec::new();
@@ -134,11 +138,34 @@ fn wanted_version() -> String {
 /// on the page, silently, because the tool that would have said why is
 /// the one that is missing.
 ///
-/// `allowScripts` goes with it, pinned to the same version. Esbuild
-/// fetches its own platform binary through a postinstall script, and a
-/// modern `npm` holds every postinstall script back until it is
-/// approved — one more silent way for `esbuild.cmd` to exist and still
-/// have nothing to run.
+/// `allowScripts` goes with it. Esbuild fetches its own platform binary
+/// through a postinstall script, and a modern `npm` holds every
+/// postinstall script back until it is approved — one more silent way
+/// for `esbuild.cmd` to exist and still have nothing to run. Esbuild is
+/// named with its version, because the version above is exact and the
+/// two are edited together. `@parcel/watcher`, which arrives under
+/// `@tailwindcss/cli`, is named without one: its version is whatever
+/// the tree resolves and nobody here can pin it. npm accepts both
+/// forms, and without that second line a fresh `npm install` ends on a
+/// warning about a script it held back.
+///
+/// And the libraries the files beside it already import.
+///
+/// `lib/utils.ts` imports `clsx` and `tailwind-merge` on the day the
+/// project is born; `assets/tailwind.css` imports `tailwindcss` and
+/// `tw-animate-css`; every component `npx shadcn add` writes imports
+/// React and most of them `class-variance-authority`. A project whose
+/// files import what its manifest does not declare is a project that
+/// fails on its first `npm install` — or worse, installs and then
+/// cannot bundle, which is the failure that says nothing useful.
+///
+/// So the manifest declares them, and `npm install` in a fresh project
+/// is enough for `npx shadcn add button` to work. The heavier libraries
+/// a page might reach for — Convex, Supabase, a charting library —
+/// need no files beyond this: `npm install convex` and the generated
+/// entry point picks them up. shadcn was the one that needed more than
+/// a dependency, because it reads `components.json` and `tsconfig.json`
+/// before it writes anything.
 fn package_json(name: &str) -> String {
     let npm_name = name.to_lowercase();
     format!(
@@ -146,15 +173,218 @@ fn package_json(name: &str) -> String {
          \x20   \"name\": \"{npm_name}\",\n\
          \x20   \"private\": true,\n\
          \x20   \"version\": \"0.1.0\",\n\
-         \x20   \"dependencies\": {{}},\n\
+         \x20   \"dependencies\": {{\n\
+         \x20       \"class-variance-authority\": \"^0.7.1\",\n\
+         \x20       \"clsx\": \"^2.1.1\",\n\
+         \x20       \"react\": \"18.3.1\",\n\
+         \x20       \"react-dom\": \"18.3.1\",\n\
+         \x20       \"tailwind-merge\": \"^3.7.0\"\n\
+         \x20   }},\n\
          \x20   \"devDependencies\": {{\n\
-         \x20       \"esbuild\": \"0.28.2\"\n\
+         \x20       \"@tailwindcss/cli\": \"^4.3.3\",\n\
+         \x20       \"@types/react\": \"^18.3.31\",\n\
+         \x20       \"@types/react-dom\": \"^18.3.7\",\n\
+         \x20       \"esbuild\": \"0.28.2\",\n\
+         \x20       \"tailwindcss\": \"^4.3.3\",\n\
+         \x20       \"tw-animate-css\": \"^1.4.0\",\n\
+         \x20       \"typescript\": \"^5.9.3\"\n\
          \x20   }},\n\
          \x20   \"allowScripts\": {{\n\
+         \x20       \"@parcel/watcher\": true,\n\
          \x20       \"esbuild@0.28.2\": true\n\
          \x20   }}\n\
          }}\n"
     )
+}
+
+/// What makes `@/lib/utils` resolve — for esbuild and for the shadcn
+/// command line both.
+///
+/// Every component `npx shadcn add` writes starts with
+/// `import { cn } from "@/lib/utils"`. That `@` is not a package: it is
+/// a path alias, declared here and nowhere else. Two things read this
+/// file, and a project without it fails at both — the shadcn command
+/// line refuses before writing anything ("No import alias found in your
+/// tsconfig.json file"), and if the files are copied in by hand esbuild
+/// then refuses to bundle them ("Could not resolve `@/lib/utils`"), so
+/// the library is installed, the component is on disk, and the page is
+/// empty.
+///
+/// esbuild finds it by walking up from each file it reads, which is why
+/// it sits at the root of the project rather than beside the entry point
+/// the framework generates.
+fn tsconfig() -> String {
+    "{\n\
+     \x20 \"compilerOptions\": {\n\
+     \x20   \"target\": \"ES2020\",\n\
+     \x20   \"lib\": [\"ES2020\", \"DOM\", \"DOM.Iterable\"],\n\
+     \x20   \"jsx\": \"react-jsx\",\n\
+     \x20   \"module\": \"ESNext\",\n\
+     \x20   \"moduleResolution\": \"Bundler\",\n\
+     \x20   \"allowImportingTsExtensions\": true,\n\
+     \x20   \"strict\": true,\n\
+     \x20   \"noEmit\": true,\n\
+     \x20   \"skipLibCheck\": true,\n\
+     \x20   \"baseUrl\": \".\",\n\
+     \x20   \"paths\": { \"@/*\": [\"./*\"] }\n\
+     \x20 },\n\
+     \x20 \"include\": [\"components\", \"lib\"]\n\
+     }\n"
+        .to_string()
+}
+
+/// What `npx shadcn add` reads before it writes anything.
+///
+/// Without this file the command line runs its own `init` — which asks
+/// questions in a terminal that may not be interactive, guesses a
+/// Next.js project, and puts the stylesheet somewhere the framework does
+/// not look. With it, `npx shadcn add button` is the whole of the
+/// installation, and the component lands in `components/ui/` where the
+/// bundler's own index already looks for it.
+///
+/// `"rsc": false` because there is no server here, and `"css"` points at
+/// `assets/tailwind.css` because that is the one file the framework
+/// hands to Tailwind.
+fn components_json() -> String {
+    "{\n\
+     \x20 \"$schema\": \"https://ui.shadcn.com/schema.json\",\n\
+     \x20 \"style\": \"new-york\",\n\
+     \x20 \"rsc\": false,\n\
+     \x20 \"tsx\": true,\n\
+     \x20 \"tailwind\": {\n\
+     \x20   \"config\": \"\",\n\
+     \x20   \"css\": \"assets/tailwind.css\",\n\
+     \x20   \"baseColor\": \"zinc\",\n\
+     \x20   \"cssVariables\": true,\n\
+     \x20   \"prefix\": \"\"\n\
+     \x20 },\n\
+     \x20 \"aliases\": {\n\
+     \x20   \"components\": \"@/components\",\n\
+     \x20   \"utils\": \"@/lib/utils\",\n\
+     \x20   \"ui\": \"@/components/ui\",\n\
+     \x20   \"lib\": \"@/lib\",\n\
+     \x20   \"hooks\": \"@/hooks\"\n\
+     \x20 }\n\
+     }\n"
+        .to_string()
+}
+
+/// The one function every shadcn component imports.
+///
+/// Six lines, and they are the same six lines in every project that uses
+/// them. Written on the day the project is born rather than left for the
+/// first `shadcn add` to notice, because a component that cannot find
+/// `cn` is a component that does not compile — and the file is harmless
+/// in a project that never installs one.
+fn utils_ts() -> String {
+    "import { clsx, type ClassValue } from \"clsx\";\n\
+     import { twMerge } from \"tailwind-merge\";\n\n\
+     /** What every shadcn component uses to merge its classes. */\n\
+     export function cn(...inputs: ClassValue[]) {\n\
+     \x20 return twMerge(clsx(inputs));\n\
+     }\n"
+        .to_string()
+}
+
+/// The stylesheet an application owns, and the theme shadcn reads.
+///
+/// Writing this file is how an application says it wants the whole of
+/// Tailwind — its reset and its component layer, not the utilities
+/// alone. The variables under it are shadcn/ui's theme at base colour
+/// zinc: `bg-primary`, `text-muted-foreground` and `border-input` are
+/// names of *these*, so a component installed into a project without
+/// them is a component with no colours at all.
+///
+/// Tailwind 4 is configured in CSS — `@theme` is the configuration —
+/// so there is no `tailwind.config.js` to write and none to keep in
+/// step with this.
+fn tailwind_css() -> String {
+    "/* The whole of Tailwind for this application: its reset, its\n\
+     \x20  component layer and its utilities. Delete this file and the\n\
+     \x20  framework asks Tailwind for the utilities alone, so a page that\n\
+     \x20  brings its own stylesheet is not reset underneath it.\n\n\
+     \x20  The variables are shadcn/ui's theme, base colour zinc. Every\n\
+     \x20  component `npx shadcn add` installs reads them, so they belong\n\
+     \x20  to the application and not to the framework. */\n\
+     @import \"tailwindcss\";\n\
+     @import \"tw-animate-css\";\n\n\
+     @theme inline {\n\
+     \x20 --color-background: var(--background);\n\
+     \x20 --color-foreground: var(--foreground);\n\
+     \x20 --color-card: var(--card);\n\
+     \x20 --color-card-foreground: var(--card-foreground);\n\
+     \x20 --color-popover: var(--popover);\n\
+     \x20 --color-popover-foreground: var(--popover-foreground);\n\
+     \x20 --color-primary: var(--primary);\n\
+     \x20 --color-primary-foreground: var(--primary-foreground);\n\
+     \x20 --color-secondary: var(--secondary);\n\
+     \x20 --color-secondary-foreground: var(--secondary-foreground);\n\
+     \x20 --color-muted: var(--muted);\n\
+     \x20 --color-muted-foreground: var(--muted-foreground);\n\
+     \x20 --color-accent: var(--accent);\n\
+     \x20 --color-accent-foreground: var(--accent-foreground);\n\
+     \x20 --color-destructive: var(--destructive);\n\
+     \x20 --color-destructive-foreground: var(--destructive-foreground);\n\
+     \x20 --color-border: var(--border);\n\
+     \x20 --color-input: var(--input);\n\
+     \x20 --color-ring: var(--ring);\n\
+     \x20 --radius-lg: var(--radius);\n\
+     \x20 --radius-md: calc(var(--radius) - 2px);\n\
+     \x20 --radius-sm: calc(var(--radius) - 4px);\n\
+     }\n\n\
+     :root {\n\
+     \x20 --radius: 0.625rem;\n\
+     \x20 --background: oklch(1 0 0);\n\
+     \x20 --foreground: oklch(0.141 0.005 285.823);\n\
+     \x20 --card: oklch(1 0 0);\n\
+     \x20 --card-foreground: oklch(0.141 0.005 285.823);\n\
+     \x20 --popover: oklch(1 0 0);\n\
+     \x20 --popover-foreground: oklch(0.141 0.005 285.823);\n\
+     \x20 --primary: oklch(0.21 0.006 285.885);\n\
+     \x20 --primary-foreground: oklch(0.985 0 0);\n\
+     \x20 --secondary: oklch(0.967 0.001 286.375);\n\
+     \x20 --secondary-foreground: oklch(0.21 0.006 285.885);\n\
+     \x20 --muted: oklch(0.967 0.001 286.375);\n\
+     \x20 --muted-foreground: oklch(0.552 0.016 285.938);\n\
+     \x20 --accent: oklch(0.967 0.001 286.375);\n\
+     \x20 --accent-foreground: oklch(0.21 0.006 285.885);\n\
+     \x20 --destructive: oklch(0.577 0.245 27.325);\n\
+     \x20 --destructive-foreground: oklch(0.985 0 0);\n\
+     \x20 --border: oklch(0.92 0.004 286.32);\n\
+     \x20 --input: oklch(0.92 0.004 286.32);\n\
+     \x20 --ring: oklch(0.705 0.015 286.067);\n\
+     }\n\n\
+     .dark {\n\
+     \x20 --background: oklch(0.141 0.005 285.823);\n\
+     \x20 --foreground: oklch(0.985 0 0);\n\
+     \x20 --card: oklch(0.21 0.006 285.885);\n\
+     \x20 --card-foreground: oklch(0.985 0 0);\n\
+     \x20 --popover: oklch(0.21 0.006 285.885);\n\
+     \x20 --popover-foreground: oklch(0.985 0 0);\n\
+     \x20 --primary: oklch(0.92 0.004 286.32);\n\
+     \x20 --primary-foreground: oklch(0.21 0.006 285.885);\n\
+     \x20 --secondary: oklch(0.274 0.006 286.033);\n\
+     \x20 --secondary-foreground: oklch(0.985 0 0);\n\
+     \x20 --muted: oklch(0.274 0.006 286.033);\n\
+     \x20 --muted-foreground: oklch(0.705 0.015 286.067);\n\
+     \x20 --accent: oklch(0.274 0.006 286.033);\n\
+     \x20 --accent-foreground: oklch(0.985 0 0);\n\
+     \x20 --destructive: oklch(0.704 0.191 22.216);\n\
+     \x20 --destructive-foreground: oklch(0.985 0 0);\n\
+     \x20 --border: oklch(1 0 0 / 10%);\n\
+     \x20 --input: oklch(1 0 0 / 15%);\n\
+     \x20 --ring: oklch(0.552 0.016 285.938);\n\
+     }\n\n\
+     @layer base {\n\
+     \x20 * {\n\
+     \x20   border-color: var(--border);\n\
+     \x20 }\n\
+     \x20 body {\n\
+     \x20   background-color: var(--background);\n\
+     \x20   color: var(--foreground);\n\
+     \x20 }\n\
+     }\n"
+        .to_string()
 }
 
 /// The `main.rs` of the design document, and not one line more.
