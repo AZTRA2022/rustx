@@ -5,6 +5,13 @@ description: "The VS Code extension: highlighting, errors at the right coordinat
 
 A `.rsx` file is Rust with markup: without the extension, it is a file without colors whose errors fall into a generated file. With it, it is a file of the editor like the others.
 
+<p className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
+  <span>Built on</span>
+  <Brand name="vscode" />
+  <Brand name="rust-analyzer" />
+  <Brand name="rust" />
+</p>
+
 ## Installing
 
 <Callout type="warn" title="Before">
@@ -15,10 +22,10 @@ calls them.
 ```sh
 rustup component add rust-analyzer
 cargo install rustx-lsp
-code --install-extension editors/vscode/rustx-0.2.0.vsix
+code --install-extension editors/vscode/rustx-0.3.0.vsix
 ```
 
-The extension asks for `rust-lang.rust-analyzer` — it is what answers inside the braces — and VS Code suggests it along with it.
+The extension asks for <Brand name="rust-analyzer">rust-lang.rust-analyzer</Brand> — it is what answers inside the braces — and <Brand name="vscode" /> suggests it along with it.
 
 ## What it provides
 
@@ -30,9 +37,9 @@ The extension asks for `rust-lang.rust-analyzer` — it is what answers inside t
 - completion of **what these tags take**: on `<Button `,
   `variant`, `size` and `asChild` come before the HTML attributes, read from the package's `.d.ts` or from the `components/ui/*.tsx` that `shadcn add` wrote;
 - **closing tags**: typing the `>` of `<Card>` writes `</Card>` behind the cursor. `Vec<u32>`, `a < b >`, `=>` and a tag that has already closed itself are left alone;
-- inside a `{ … }`, it is **`rust-analyzer`** that answers, behind the server: completion, hover, go-to-definition.
+- inside a `{ … }`, it is <Brand name="rust-analyzer" /> that answers, behind the server: completion, hover, go-to-definition.
 
-The first list of a session may take a few seconds, while `rust-analyzer` loads the project.
+The first list of a session may take a few seconds, while <Brand name="rust-analyzer" /> loads the project.
 
 ## Settings
 

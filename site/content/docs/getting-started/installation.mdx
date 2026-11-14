@@ -7,13 +7,13 @@ description: "Install `rustx-cli`, write a project, and open a window."
 cargo install rustx-cli      # rustx new, dev, build, run
 ```
 
-You need Rust 1.88 or later. Nothing else: CEF — the browser engine
-— arrives with the `cef` package on the first build, and an
-application that uses no npm library needs neither Node
-nor npm.
+You need <Brand name="rust">Rust</Brand> 1.88 or later. Nothing else:
+<Brand name="cef">CEF</Brand> — the browser engine — arrives with the
+`cef` package on the first build, and an application that uses no npm
+library needs neither <Brand name="node" /> nor <Brand name="npm" />.
 
-For JavaScript libraries, you need Node and npm, as for any
-project that uses them.
+For JavaScript libraries, you need <Brand name="node" /> and
+<Brand name="npm" />, as for any project that uses them.
 
 ## A project
 
@@ -27,7 +27,7 @@ Five files, and a window:
 
 ```text
 my-app/
-  Cargo.toml        rustx = { package = "rustx-app", version = "0.2" }
+  Cargo.toml        rustx = { package = "rustx-app", version = "0.3" }
   src/main.rs       the window, in four lines
   app/page.rsx      the `/` page
   assets/           what the page loads (an icon, an image, an index.html)
@@ -40,7 +40,7 @@ all the code is written as `rustx::`:
 
 ```toml
 [dependencies]
-rustx = { package = "rustx-app", version = "0.2" }
+rustx = { package = "rustx-app", version = "0.3" }
 ```
 
 The whole `main.rs`:

@@ -5,17 +5,19 @@ description: "Native software, written in Rust, drawn by a browser engine."
 
 Components are written in `.rsx` files — the syntax of JSX,
 the language of Rust — and a `let mut` there is a state, with no annotation, no
-macro, no `store::`. npm libraries (React, Recharts, Tailwind,
-shadcn) are used from the `.rsx` itself. The `main.rs` of a project
+macro, no `store::`. <Brand name="npm" /> libraries
+(<Brand name="react" />, <Brand name="recharts" />,
+<Brand name="tailwind" />, <Brand name="shadcn" />) are used from the
+`.rsx` itself. The `main.rs` of a project
 is four lines, because the ceremony is the framework's job.
 
-Rust and React live in **the same process**: an `onClick` is a
+<Brand name="rust" /> and <Brand name="react" /> live in **the same process**: an `onClick` is a
 function call, not a serialized message, and props cross the boundary
 as V8 values.
 
 <Callout title="Status">
 Windows is written and measured. macOS and Linux compile and refuse by
-naming the file they are missing. The version is `0.2.0`: the API may
+naming the file they are missing. The version is `0.3.0`: the API may
 still change.
 </Callout>
 
