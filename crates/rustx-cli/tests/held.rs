@@ -13,7 +13,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use rustx_cli::build::{held, target_directory};
+// The environment is said out loud rather than read: these tests run in
+// one process with whatever `CARGO_TARGET_DIR` the terminal exported, and
+// a test whose answer depends on that is a test that passes on one
+// machine and fails on the next. `tests/target.rs` is where the
+// environment's own precedence is a law.
+use rustx_cli::build::{held_told, target_directory_told};
 
 fn somewhere(what: &str) -> PathBuf {
     let path = std::env::temp_dir().join(format!(
@@ -42,7 +47,7 @@ fn a_file_nobody_holds_is_not_held() {
     a_project(&room, "debug");
 
     assert_eq!(
-        held(&room, false),
+        held_told(&room, false, None),
         None,
         "nothing is running, so nothing stands in the way of a build"
     );
@@ -63,14 +68,14 @@ fn a_file_a_running_program_holds_is_named() {
     let opened = exclusive(&library);
 
     assert_eq!(
-        held(&room, false),
+        held_told(&room, false, None),
         Some(library.clone()),
         "the file that cannot be replaced is the file the developer is told about"
     );
 
     drop(opened);
     assert_eq!(
-        held(&room, false),
+        held_told(&room, false, None),
         None,
         "and once the program is gone, the build is possible again"
     );
@@ -81,7 +86,7 @@ fn a_missing_target_directory_is_not_a_problem() {
     let room = somewhere("empty");
 
     assert_eq!(
-        held(&room, false),
+        held_told(&room, false, None),
         None,
         "a project that has never been built has nothing to hold"
     );
@@ -100,7 +105,7 @@ fn the_target_directory_a_project_configured_is_the_one_that_is_looked_at() {
     .expect("a cargo configuration");
 
     assert_eq!(
-        target_directory(&room),
+        target_directory_told(&room, None),
         elsewhere,
         "a project that shares a build directory is looked at where it builds, \
          and not where it would have built"
@@ -112,7 +117,7 @@ fn the_target_directory_a_project_configured_is_the_one_that_is_looked_at() {
     fs::write(&library, b"not really a library").expect("the library");
     let opened = exclusive(&library);
 
-    assert_eq!(held(&room, false), Some(library));
+    assert_eq!(held_told(&room, false, None), Some(library));
     drop(opened);
 }
 

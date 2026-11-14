@@ -137,7 +137,7 @@ fn every_command_is_read_from_what_was_typed() {
         arguments::Command::Build { release: true }
     );
     assert_eq!(read("build"), arguments::Command::Build { release: false });
-    assert_eq!(read("run"), arguments::Command::Run);
+    assert_eq!(read("run"), arguments::Command::Run { release: false });
     assert_eq!(read(""), arguments::Command::Help);
     assert_eq!(read("--help"), arguments::Command::Help);
     assert_eq!(

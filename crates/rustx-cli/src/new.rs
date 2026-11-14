@@ -36,6 +36,7 @@ pub fn write(name: &str, into: &Path) -> Result<Vec<PathBuf>, String> {
         (root.join("tsconfig.json"), tsconfig()),
         (root.join("components.json"), components_json()),
         (root.join("lib").join("utils.ts"), utils_ts()),
+        (root.join("components").join("readme.md"), components_note()),
         (root.join("assets").join("tailwind.css"), tailwind_css()),
     ];
 
@@ -51,13 +52,29 @@ pub fn write(name: &str, into: &Path) -> Result<Vec<PathBuf>, String> {
 }
 
 /// A name cargo would refuse, refused here first and in words.
-fn refuse_a_bad_name(name: &str) -> Result<(), String> {
+///
+/// Every refusal here is a failure a developer would otherwise meet one
+/// step later and in worse words: cargo's own, npm's own, or Windows's
+/// — and by then there is a directory on disk with half a project in
+/// it. The promise of [`write`] is that nothing is written until the
+/// name is known to be a name, so this function is where every known
+/// way for a name to be wrong is written down.
+pub fn refuse_a_bad_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("A project needs a name: `rustx new mon-app`.".to_string());
     }
-    if name.starts_with(|letter: char| letter.is_ascii_digit()) {
+    // A crate name's first character has to be a letter. Cargo says
+    // "the first character must be a Unicode XID_Start" about a digit;
+    // about a `-` or a `_` it says the same thing, and npm refuses a
+    // package whose name begins with `_` outright — so one rule covers
+    // all three, and `rustx new --help` stops being a directory called
+    // `--help`.
+    if !name.starts_with(|letter: char| letter.is_ascii_alphabetic()) {
+        let first = name.chars().next().unwrap_or(' ');
         return Err(format!(
-            "`{name}` starts with a digit, and a Rust crate cannot. Try `app-{name}`."
+            "`{name}` starts with `{first}`, and a crate name starts with a letter. \
+             Try `app-{}`.",
+            name.trim_start_matches(['-', '_', '.'])
         ));
     }
     if let Some(wrong) = name
@@ -69,17 +86,94 @@ fn refuse_a_bad_name(name: &str) -> Result<(), String> {
              `_` only."
         ));
     }
-    // The framework's own names. A project called `rustx` cannot depend
-    // on `rustx`, and the error cargo gives for that is not one anybody
-    // should have to read.
-    if matches!(name, "rustx" | "rustx-dom" | "rustx-engine" | "rustx-cli") {
+    // crates.io takes sixty-four characters, and a path on Windows is
+    // bounded too: a name that long makes a project whose deepest
+    // generated file cannot be written, and the error for *that* is an
+    // IO error about a path nobody typed.
+    if name.len() > 64 {
+        return Err(format!(
+            "`{name}` is {} characters long, and a crate name stops at 64.",
+            name.len()
+        ));
+    }
+    // The framework's own names — every one of the eight crates, by
+    // package name and by directory name, because a project that shares
+    // one has to depend on itself and cargo's message for that is not
+    // one anybody should have to read. `_` and `-` are compared the
+    // same, because a library called `rustx_dom` collides with
+    // `rustx-dom`'s library whichever way the package was spelled.
+    let normalised = name.to_ascii_lowercase().replace('_', "-");
+    if OURS.contains(&normalised.as_str()) {
         return Err(format!(
             "`{name}` is the framework's own name, and a project cannot share it — it would \
              have to depend on itself."
         ));
     }
+    // A keyword is not a module name, and a crate is a module. Cargo
+    // refuses these, late, with a message about Unicode identifiers.
+    if KEYWORDS.contains(&normalised.replace('-', "_").as_str()) {
+        return Err(format!(
+            "`{name}` is a Rust keyword, and a crate is a module whose name has to be \
+             an identifier. `{name}-app` is not."
+        ));
+    }
+    // And the names of the crates every Rust program already has. Cargo
+    // refuses these too: "it conflicts with Rust's built-in crate
+    // names".
+    if BUILT_IN.contains(&normalised.replace('-', "_").as_str()) {
+        return Err(format!(
+            "`{name}` is the name of a crate every Rust program already has, and cargo \
+             refuses it for that reason. `{name}-app` is free."
+        ));
+    }
+    // Windows has nine file names that are devices, at every level of
+    // every directory. `mkdir nul` does not make a directory, and what
+    // it says instead is not about a project name.
+    let without_extension = normalised.split('.').next().unwrap_or(&normalised);
+    if RESERVED_ON_WINDOWS.contains(&without_extension) {
+        return Err(format!(
+            "`{name}` is a device name on Windows, not a file name — a directory \
+             cannot be called that on any machine that runs one. `{name}-app` can."
+        ));
+    }
     Ok(())
 }
+
+/// The framework's own names: each crate's package name and its
+/// directory name, since both are things a developer might type.
+const OURS: &[&str] = &[
+    "rustx",
+    "rustx-app",
+    "rustx-cli",
+    "rustx-compiler",
+    "rustx-dom",
+    "rustx-engine",
+    "rustx-lsp",
+    "rustx-macro",
+    "rustx-macros",
+    "rustx-os",
+];
+
+/// Rust's keywords, the reserved ones included: a crate name is a
+/// module name, and `use crate::…` is already something else.
+const KEYWORDS: &[&str] = &[
+    "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum",
+    "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move",
+    "mut", "pub", "ref", "return", "self", "static", "struct", "super", "trait", "true", "type",
+    "union", "unsafe", "use", "where", "while", "abstract", "become", "box", "do", "final",
+    "macro", "override", "priv", "try", "typeof", "unsized", "virtual", "yield",
+];
+
+/// The crates every Rust program already has, which cargo refuses as a
+/// package name for exactly that reason.
+const BUILT_IN: &[&str] = &["std", "core", "alloc", "test", "proc_macro"];
+
+/// The nine names Windows gives to devices rather than to files, at
+/// every level of every directory.
+const RESERVED_ON_WINDOWS: &[&str] = &[
+    "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
+    "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+];
 
 fn why(path: &Path, error: &std::io::Error) -> String {
     format!("`{}` could not be written: {error}", path.display())
@@ -458,6 +552,28 @@ fn page() -> String {
 /// megabytes of minified JavaScript learned that from here.
 fn ignored() -> String {
     "/target\n/node_modules\n/.rustx/\n/assets/rustx-bundle.js\n".to_string()
+}
+
+/// Why there is a `components/` on the day the project is born.
+///
+/// Three files written by this command name that directory before
+/// anything has put a component in it: `tsconfig.json` compiles it,
+/// `components.json` aliases it as `@/components`, and the bundler
+/// walks it looking for what to re-export. A project whose own
+/// configuration names a directory that is not there is a project a
+/// developer cannot check for themselves — and `npx shadcn add button`
+/// is the first thing that writes into it, so it may as well be waiting.
+fn components_note() -> String {
+    "The React components this application owns. `npx shadcn add button`\n\
+     writes into `components/ui/`; anything you write yourself goes here\n\
+     beside it.\n\n\
+     A page writes the file's name as a tag — `components/Editor.tsx` is\n\
+     `<Editor />` — and the framework builds the index that makes that\n\
+     true at every build. Nothing here has to be declared anywhere.\n\n\
+     `tsconfig.json` compiles this directory and `components.json` calls\n\
+     it `@/components`, so an import of `@/components/ui/button` resolves\n\
+     for the shadcn command line, for esbuild and for an editor alike.\n"
+        .to_string()
 }
 
 fn assets_note() -> String {

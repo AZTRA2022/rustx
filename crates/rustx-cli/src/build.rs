@@ -84,6 +84,48 @@ pub fn read(project: &Path) -> Result<Project, String> {
     })
 }
 
+/// The cargo to run.
+///
+/// `CARGO` first, which is the one thing in the environment that names a
+/// cargo for certain: cargo sets it for everything it starts, so a
+/// `rustx build` run from a cargo subcommand, a build script or a test
+/// uses the toolchain that is already in play rather than whichever
+/// `cargo` the `PATH` of that process happens to reach first. Otherwise
+/// the name, looked up on the `PATH` the way a developer typing it would
+/// have it looked up.
+///
+/// This is the command line's one hidden dependency on the developer's
+/// machine, and it is the one dependency it may legitimately have — the
+/// framework is a Rust framework. What it owes in exchange is a refusal
+/// that says so, which [`says_no_cargo`] is.
+fn cargo_command() -> Command {
+    match std::env::var_os("CARGO").filter(|named| !named.is_empty()) {
+        Some(named) => Command::new(named),
+        None => Command::new("cargo"),
+    }
+}
+
+/// What to say when cargo is not there.
+///
+/// `cargo could not be started: program not found` named neither what
+/// was looked for nor where, and a developer whose `PATH` is missing
+/// `~/.cargo/bin` — a fresh terminal after an install, a CI image, a
+/// GUI-launched editor on macOS — read it as a bug in `rustx`.
+pub fn says_no_cargo(error: &std::io::Error) -> String {
+    let looked_for = std::env::var_os("CARGO")
+        .filter(|named| !named.is_empty())
+        .map(|named| named.to_string_lossy().to_string())
+        .unwrap_or_else(|| "cargo, on the PATH".to_string());
+    format!(
+        "`{looked_for}` could not be started: {error}.\n\
+         `rustx build` does not replace cargo, it calls it: a Rust toolchain has to \
+         be on this machine and on this terminal's PATH. `cargo --version` says \
+         whether it is; https://rustup.rs installs one. If cargo is installed and \
+         only this terminal cannot see it, the PATH of a terminal opened before the \
+         install is the usual reason — open a new one."
+    )
+}
+
 /// Build it, then stamp what cargo produced.
 pub fn run(release: bool, project: &Path) -> Result<PathBuf, String> {
     let read = read(project)?;
@@ -95,14 +137,12 @@ pub fn run(release: bool, project: &Path) -> Result<PathBuf, String> {
         return Err(says_it_is_held(&file));
     }
 
-    let mut cargo = Command::new("cargo");
+    let mut cargo = cargo_command();
     cargo.arg("build").current_dir(project);
     if release {
         cargo.arg("--release");
     }
-    let status = cargo
-        .status()
-        .map_err(|error| format!("cargo could not be started: {error}"))?;
+    let status = cargo.status().map_err(|error| says_no_cargo(&error))?;
     if !status.success() {
         // Cargo already said what is wrong, in the coordinates of the
         // `.rsx` because that is what the compiler keeps. Saying it
@@ -112,10 +152,13 @@ pub fn run(release: bool, project: &Path) -> Result<PathBuf, String> {
 
     let Some(exe) = produced(&read.binary, release, project) else {
         return Err(format!(
-            "cargo said it was done and there is no `{}{}` under any `target/`. Does \
-             the project have a `[[bin]]` of another name?",
+            "cargo said it was done and there is no `{}{}` in {}. Does the project \
+             have a `[[bin]]` of another name?",
             read.binary,
-            std::env::consts::EXE_SUFFIX
+            std::env::consts::EXE_SUFFIX,
+            target_directory(project)
+                .join(if release { "release" } else { "debug" })
+                .display()
         ));
     };
 
@@ -136,33 +179,104 @@ pub fn run(release: bool, project: &Path) -> Result<PathBuf, String> {
     Ok(exe)
 }
 
-/// Where cargo put the file.
+/// Where cargo builds this project, in the same four steps cargo takes.
 ///
-/// Its own `target/` for a project on its own; the workspace's for a
-/// project that is a member of one. Looked for rather than worked out,
-/// because which of the two it is depends on a manifest further up than
-/// this reads.
-/// Where this project builds.
+/// One function, because the command line has four reasons to ask —
+/// where the binary is, which runtime files a window is holding, where
+/// the state that crosses a restart lives, and where the copies
+/// `rustx dev` launches go — and four answers that disagree is the
+/// defect this replaced. `rustx build` looked in `target/` beside the
+/// manifest while cargo had been told to build elsewhere, and said
+/// `cargo said it was done and there is no mon-app.exe under any
+/// target/` about a file cargo had just written.
 ///
-/// `target/` beside the manifest, unless the project said otherwise:
-/// `[build] target-dir` in `.cargo/config.toml` is how two projects
-/// share one build directory, and a project that shares one must be
-/// looked at where it really builds.
+/// The order is cargo's own:
+///
+/// 1. `CARGO_TARGET_DIR` — how one build directory is shared between
+///    projects, and how every CI cache is wired.
+/// 2. `CARGO_BUILD_TARGET_DIR`, the same thing said as a configuration
+///    key.
+/// 3. `[build] target-dir` in the nearest `.cargo/config.toml` at or
+///    above the project, because cargo walks up from where it was run.
+/// 4. `target/` at the root of the workspace, which for a project on
+///    its own is the project itself.
 pub fn target_directory(project: &Path) -> PathBuf {
-    for name in [".cargo/config.toml", ".cargo/config"] {
-        let Ok(text) = std::fs::read_to_string(project.join(name)) else {
-            continue;
-        };
-        if let Some(named) = configured(&text) {
-            let named = PathBuf::from(named.replace('\\', "/"));
-            return if named.is_absolute() {
-                named
-            } else {
-                project.join(named)
-            };
+    target_directory_told(project, target_from_environment().as_deref())
+}
+
+/// What the environment says about where cargo builds, if anything.
+///
+/// Read here and handed to [`target_directory_told`] rather than read
+/// inside it, so that a test can say what the environment says without
+/// setting a variable: tests of one crate share one process, and a
+/// variable set in one is set in all of them — which is why writing one
+/// is `unsafe` since the 2024 edition.
+pub fn target_from_environment() -> Option<String> {
+    for name in ["CARGO_TARGET_DIR", "CARGO_BUILD_TARGET_DIR"] {
+        if let Some(said) = std::env::var_os(name) {
+            let said = said.to_string_lossy().to_string();
+            // An exported-but-empty variable is what a shell script
+            // leaves behind, and cargo ignores it. Taking it at its word
+            // would put the binary at the root of the filesystem.
+            if !said.trim().is_empty() {
+                return Some(said);
+            }
         }
     }
-    project.join("target")
+    None
+}
+
+/// [`target_directory`], with the environment said out loud.
+pub fn target_directory_told(project: &Path, environment: Option<&str>) -> PathBuf {
+    if let Some(named) = environment.filter(|said| !said.trim().is_empty()) {
+        // Cargo resolves a relative one against the directory it was run
+        // in, and this command line runs it in the project.
+        return beside(project, named);
+    }
+    for directory in project.ancestors() {
+        for name in [".cargo/config.toml", ".cargo/config"] {
+            let Ok(text) = std::fs::read_to_string(directory.join(name)) else {
+                continue;
+            };
+            if let Some(named) = configured(&text) {
+                // A relative `target-dir` is relative to the directory
+                // that holds the `.cargo` it was written in.
+                return beside(directory, &named);
+            }
+        }
+    }
+    workspace_root(project).join("target")
+}
+
+/// `named`, made absolute against `directory` if it is not already.
+fn beside(directory: &Path, named: &str) -> PathBuf {
+    let named = PathBuf::from(named.trim().replace('\\', "/"));
+    if named.is_absolute() {
+        named
+    } else {
+        directory.join(named)
+    }
+}
+
+/// The directory whose manifest declares the workspace this project is
+/// in, or the project itself when it is in none.
+///
+/// Cargo builds every member of a workspace into one `target/` at the
+/// workspace's root. A member looked at where it would have built on
+/// its own is a member whose binary is never found.
+fn workspace_root(project: &Path) -> PathBuf {
+    for directory in project.ancestors() {
+        let Ok(text) = std::fs::read_to_string(directory.join("Cargo.toml")) else {
+            continue;
+        };
+        if text.lines().any(|line| {
+            let line = line.trim();
+            line == "[workspace]" || line.starts_with("[workspace.")
+        }) {
+            return directory.to_path_buf();
+        }
+    }
+    project.to_path_buf()
 }
 
 /// `target-dir = "…"` under `[build]`, the value, unquoted.
@@ -199,8 +313,14 @@ fn configured(text: &str) -> Option<String> {
 /// Asked **before** cargo is started, because the answer is a sentence
 /// and not a failure: there is nothing to try.
 pub fn held(project: &Path, release: bool) -> Option<PathBuf> {
+    held_told(project, release, target_from_environment().as_deref())
+}
+
+/// [`held`], with the environment said out loud — see
+/// [`target_from_environment`] for why that is a parameter.
+pub fn held_told(project: &Path, release: bool, environment: Option<&str>) -> Option<PathBuf> {
     let profile = if release { "release" } else { "debug" };
-    let out = target_directory(project).join(profile);
+    let out = target_directory_told(project, environment).join(profile);
     // The library is the one that matters: it is the big one, it is
     // always loaded, and the others go the same way when it does.
     for name in ["libcef.dll", "chrome_elf.dll", "libEGL.dll"] {
@@ -233,13 +353,114 @@ pub fn says_it_is_held(file: &Path) -> String {
     )
 }
 
-fn produced(binary: &str, release: bool, project: &Path) -> Option<PathBuf> {
+/// Is this file part of what a built application has to ship, or is it
+/// something the build left behind for the build's own use?
+///
+/// Cargo's bookkeeping, and the files a linker needs and a program does
+/// not: `.pdb` is debug information, `.lib` and `.exp` are what the
+/// linker reads to resolve an import at link time, `.d` is a dependency
+/// list cargo wrote for itself. Shipping them is how a release carries
+/// three hundred megabytes of symbols and an import library nobody on
+/// the other machine can use.
+///
+/// Everything else beside the binary is Chromium's, and Chromium reads
+/// it from beside the binary at start-up.
+pub fn ships_with(name: &str) -> bool {
+    // Cargo's own, and the directories it owns.
+    if name.starts_with('.') {
+        return false;
+    }
+    if matches!(
+        name,
+        "build" | "deps" | "examples" | "incremental" | "CACHEDIR.TAG"
+    ) {
+        return false;
+    }
+    let dev_only = [".d", ".pdb", ".lib", ".exp", ".rlib", ".rmeta", ".ilk"];
+    !dev_only
+        .iter()
+        .any(|end| name.to_ascii_lowercase().ends_with(end))
+}
+
+/// What a release build leaves behind that has to travel with the
+/// binary.
+///
+/// A rustx application is a Chromium host. The `.exe` the linker made
+/// loads `libcef.dll` when it starts and Chromium reads its own
+/// resources — the `.pak` files, `icudtl.dat`,
+/// `v8_context_snapshot.bin`, `locales/` — from beside that binary. A
+/// developer who copies the one path `rustx build` prints onto another
+/// machine gets a program that does not start, and the dialog Windows
+/// shows for that names a library, not a cause.
+///
+/// So the command line names the artefact instead of implying that the
+/// artefact is one file. It does not pretend to be a packager: there is
+/// no `rustx package` yet, and saying which of Chromium's files a
+/// particular application could do without is a claim this cannot
+/// verify. What it can say, exactly, is what is there.
+pub fn says_what_ships(exe: &Path) -> String {
+    let Some(directory) = exe.parent() else {
+        return String::new();
+    };
+    let binary = exe.file_name().unwrap_or_default().to_string_lossy();
+
+    let mut beside: Vec<String> = Vec::new();
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return String::new();
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name == binary || !ships_with(&name) {
+            continue;
+        }
+        beside.push(name);
+    }
+    if beside.is_empty() {
+        return String::new();
+    }
+    beside.sort();
+
+    let listed = if beside.len() > 12 {
+        format!("{}, and {} more", beside[..12].join(", "), beside.len() - 12)
+    } else {
+        beside.join(", ")
+    };
+    format!(
+        "\nrustx: that binary is not the whole application. It is a Chromium host, and \
+         Chromium reads its runtime from beside the file: {} more file{} in {}, which \
+         is {listed}.\nrustx: the directory is the artefact — copy it whole, or the \
+         program will not start on a machine that has never built it. There is no \
+         `rustx package` yet; this is the command line saying so rather than letting \
+         you find out later.\n",
+        beside.len(),
+        if beside.len() == 1 { "" } else { "s" },
+        directory.display(),
+    )
+}
+
+/// The binary cargo wrote, where cargo wrote it.
+pub fn produced(binary: &str, release: bool, project: &Path) -> Option<PathBuf> {
+    produced_told(binary, release, project, target_from_environment().as_deref())
+}
+
+/// [`produced`], with the environment said out loud — see
+/// [`target_from_environment`] for why that is a parameter.
+///
+/// One place, and not a search: a search found a stale binary in a
+/// `target/` cargo had stopped writing to, and handed it back as the
+/// build that had just succeeded.
+pub fn produced_told(
+    binary: &str,
+    release: bool,
+    project: &Path,
+    environment: Option<&str>,
+) -> Option<PathBuf> {
     let file = format!("{binary}{}", std::env::consts::EXE_SUFFIX);
     let profile = if release { "release" } else { "debug" };
-    std::iter::once(project)
-        .chain(project.ancestors().skip(1))
-        .map(|directory| directory.join("target").join(profile).join(&file))
-        .find(|candidate| candidate.is_file())
+    let candidate = target_directory_told(project, environment)
+        .join(profile)
+        .join(&file);
+    candidate.is_file().then_some(candidate)
 }
 
 /// The `[package]` table, as text.

@@ -382,6 +382,7 @@ fn write_them(
 
 /// The text of a `.desktop` entry — not gated on Linux, so a test on
 /// any machine can read exactly what one says.
+#[cfg_attr(not(test), allow(dead_code))]
 fn desktop_entry(exe: &Path, about: &About, icon: Option<&Path>) -> String {
     let name = if about.name.is_empty() {
         exe.file_stem()
@@ -419,6 +420,7 @@ fn desktop_entry(exe: &Path, about: &About, icon: Option<&Path>) -> String {
 /// A `.desktop` value may not hold a bare newline — one from a
 /// multi-line description would end the file at the key that follows
 /// it, silently dropping everything after.
+#[cfg_attr(not(test), allow(dead_code))]
 fn single_line(text: &str) -> String {
     text.replace('\n', " ")
 }
@@ -426,6 +428,7 @@ fn single_line(text: &str) -> String {
 /// Build the bundle folder and copy `exe` into it. Not gated on macOS,
 /// so a test on any machine can make one and read it back; only
 /// `write_them` decides whether this ever runs for real.
+#[cfg_attr(not(test), allow(dead_code))]
 fn write_app_bundle(exe: &Path, about: &About) -> Result<(), String> {
     let Some(parent) = exe.parent() else {
         return Ok(());
@@ -463,6 +466,7 @@ fn write_app_bundle(exe: &Path, about: &About) -> Result<(), String> {
 /// The text of `Info.plist` — the whole case for "install panels show
 /// the software's own name, version and publisher" on macOS, the same
 /// fields the Windows version resource above carries.
+#[cfg_attr(not(test), allow(dead_code))]
 fn info_plist(about: &About, binary_name: &str) -> String {
     let version = if about.version.is_empty() {
         "0.0.0"
@@ -494,6 +498,7 @@ fn info_plist(about: &About, binary_name: &str) -> String {
     )
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn plist_name(about: &About, binary_name: &str) -> String {
     if about.name.is_empty() {
         binary_name.to_string()
@@ -505,6 +510,7 @@ fn plist_name(about: &About, binary_name: &str) -> String {
 /// The five characters a plist's XML may not hold bare — a publisher
 /// or a name written with an `&` or a `"` would otherwise end the
 /// string, or the file, at the character that broke it.
+#[cfg_attr(not(test), allow(dead_code))]
 fn xml_escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for letter in text.chars() {
