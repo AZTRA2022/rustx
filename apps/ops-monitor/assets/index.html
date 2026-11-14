@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ops Monitor</title>
+    <!-- No stylesheet and no script of its own: the Tailwind of this
+         application and its libraries are declared in `package.json`,
+         and rustx builds both and puts them in this page. -->
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      // A probe, and only when one is asked for: `--scenario=probe`
+      // makes the window say out loud what it actually drew, so that a
+      // run with an empty stderr can be told apart from a run that drew
+      // nothing at all. A normal launch logs nothing.
+      if (typeof rustx_scenario === "function" && rustx_scenario() === "probe") {
+        const look = () => {
+          const card = document.querySelectorAll("#body .recharts-surface").length;
+          const segments = document.querySelectorAll("#body span[style*='border-radius:1px']").length;
+          const alerts = document.querySelectorAll("#alerts > div").length;
+          if (card === 0 || segments === 0) {
+            setTimeout(look, 100);
+            return;
+          }
+          console.log(
+            "probe charts=" + card +
+            " segments=" + segments +
+            " alerts=" + alerts +
+            " service=" + (document.body.textContent.includes("runner-gateway") ? "yes" : "no") +
+            " cores=" + (document.body.textContent.match(/(\d+) CORES/) || ["", "?"])[1] +
+            " deployline=[" + (document.querySelector("#deploy-line") || {textContent:"?"}).textContent + "]"
+          );
+        };
+        setTimeout(look, 1500);
+      }
+    </script>
+  </body>
+</html>

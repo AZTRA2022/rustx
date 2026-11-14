@@ -18,7 +18,7 @@ use rustx::{App, Config};
 fn main() -> Result<(), rustx::Error> {
     let app = App::new(
         Config::new("Ops Monitor")
-            .size(860, 640)
+            .size(1320, 880)
             .description("Resource tracking for the agents running on this machine.")
             .publisher("rustx"),
     )?;
