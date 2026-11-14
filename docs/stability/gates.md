@@ -173,28 +173,68 @@ the worst place for them.
 
 Stated here rather than worked around, per §10.
 
-- **rustfmt cannot run.** `rustup component list --installed` reports
-  `rustfmt-x86_64-pc-windows-msvc`, and both `cargo fmt` and `rustfmt`
-  fail with *"the 'rustfmt.exe' binary, normally provided by the
-  'rustfmt' component, is not applicable to the
-  'stable-x86_64-pc-windows-msvc' toolchain"*. The binary is genuinely
-  absent from
-  `~/.rustup/toolchains/stable-x86_64-pc-windows-msvc/bin/` — rustup's
-  metadata and its filesystem disagree. Repairing it needs
-  `rustup component remove/add rustfmt`, which needs the network.
-  **Consequence: the whole workspace's formatting is unmeasured.** The
-  `fmt` gate will be the first thing CI reports, and it may well report
-  a great deal. No `rustfmt.toml` was added for the same reason — a
-  config nobody can run against the tree is a config that encodes a
-  guess.
-- **No network.** cargo runs `--offline`; `npm install` fails with DNS
-  errors. No dependency can be added, which rules out `cargo-deny`,
-  `cargo-audit`, `cargo-fuzz` and `cargo-llvm-cov`. The dependency
-  integrity and security audit §3 asks for is therefore **not done**,
-  and `deny.toml` is not written. This is the largest single unmet gate
-  and it is an environment limitation, not a decision.
-- **No GPU.** `RUSTX_SOFTWARE=1` is set by both the script and the
-  workflow.
+**Two of the three limitations this document first recorded are gone.**
+The user authorized network access on 2026-11-14, after the gates were
+written. What follows is the state after that.
+
+### Resolved: rustfmt
+
+It was genuinely broken. `rustup component list --installed` reported
+`rustfmt-x86_64-pc-windows-msvc` while both `cargo fmt` and `rustfmt`
+failed with *"the 'rustfmt.exe' binary, normally provided by the
+'rustfmt' component, is not applicable to the
+'stable-x86_64-pc-windows-msvc' toolchain"* — and the binary really was
+absent from `~/.rustup/toolchains/stable-x86_64-pc-windows-msvc/bin/`.
+rustup's metadata and its filesystem disagreed, and `rustup component
+add rustfmt` answered *"component rustfmt is up to date"* and did
+nothing. A `remove` followed by an `add` fixed it: `rustfmt 1.10.0-stable`.
+
+And the measurement it was blocking:
+
+```
+cargo fmt --all --check  ->  347 files differ
+```
+
+**The workspace has never been formatted.** Not partly — essentially
+every Rust file in it deviates.
+
+That is not a reformat to do right now. Six agents are editing this
+tree, and a 347-file whitespace commit landing underneath them would
+conflict with every one of them and bury their real changes. So the
+reformat was **delegated per owner**: each agent runs `cargo fmt` over
+its own crates only, as one separate commit of its own, as the last
+thing it does. The ownership is already disjoint, so the formatting
+lands in six non-overlapping pieces and nobody's fix gets buried in
+whitespace. `apps/` is a small case — `cargo fmt` does not touch
+`.rsx`, only each app's `main.rs`.
+
+Still no `rustfmt.toml`. Default rustfmt is what the 347 was measured
+against; adding a config now would change the target mid-reformat.
+Decide on one after the tree is formatted and uniform, if at all.
+
+### Resolved: the network
+
+cargo fetches, `npm install` works, `cargo install` works. The
+consequences were dispatched to the agents whose work they unblock:
+
+- **The dependency and security audit is now possible**, and it was the
+  largest single unmet gate in the mission. Assigned to the CLI and
+  distribution agent: `cargo-deny` and `cargo-audit` (installing),
+  a real `deny.toml` for licenses, duplicate versions and advisories,
+  and a ninth gate named `deps` added to `scripts/gates.ps1`.
+- **`rustx new` can now be verified end to end for real** — scaffold,
+  `npm install`, `npx shadcn@latest add button card`, build, run. That
+  had only ever been done once, by hand. Same agent.
+- **`cargo-fuzz` is available** to the compiler agent, alongside the
+  seeded-generator `#[test]` harness its brief asked for. The harness
+  is still worth having: it runs in CI on every push, where a fuzzer
+  does not.
+- **`npm install` works in `apps/`**, so the redesign agent is no
+  longer restricted to libraries already in the cache.
+
+### Still true: no GPU
+
+`RUSTX_SOFTWARE=1` is set by both the script and the workflow.
 
 ## Deliberately not done yet
 
@@ -208,12 +248,20 @@ table once the agents land and the 17 diagnostics are cleared.
 
 ## Next
 
-1. Clear the 17 clippy diagnostics once the subsystem agents have
-   stopped editing those files.
-2. Measure `rustx` and `rustx-cli` with clippy.
-3. Add `[workspace.lints]` and `clippy.toml` after that.
-4. Get `rustfmt` working, or accept that CI is where formatting is
-   first measured, and commit the resulting reformat as one isolated
-   commit.
-5. Run the workflow for real and fix what it finds.
-6. Dependency and security audit — blocked on the network.
+1. **Confirm every agent's `cargo fmt` commit landed**, and then
+   re-run `cargo fmt --all --check` expecting 0. If any files are left
+   over, they belong to no owner and are mine.
+2. Clear the 17 clippy diagnostics — each agent was told which of them
+   are in its own crates (`rustx-lsp` 7, `rustx-os` 6,
+   `rustx-compiler` 2 +1 example, `rustx-dom` 1).
+3. Measure `rustx` and `rustx-cli` with clippy; both link CEF and were
+   skipped to avoid build contention.
+4. Add `[workspace.lints]` and `clippy.toml` **after** 1–3 land. Doing
+   it sooner breaks six agents' builds on code they did not write.
+5. Run the workflow for real and fix what it finds — particularly
+   whether the `portable` jobs survive on `ubuntu-latest` and
+   `macos-latest`. The runtime agent has been warned that its macOS
+   and Linux halves are about to be compiled by their real compilers
+   for the first time and will probably fail.
+6. Dependency and security audit — **no longer blocked**, delegated,
+   see above.
