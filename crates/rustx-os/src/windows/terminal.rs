@@ -42,7 +42,17 @@ pub fn run(script: &str, at: Option<&Path>) -> Result<Output, OsError> {
         .arg("-NoProfile")
         .arg("-NonInteractive")
         .arg(&shell.run_flag)
-        .arg(script);
+        .arg(script)
+        // And no window. A rustx application is a GUI process, which
+        // has no console of its own, so Windows gives every console
+        // program it starts a brand new one — a black rectangle that
+        // appears in front of the user's window, takes focus and
+        // disappears again. On a build button pressed once that is a
+        // flicker; on a script run every few seconds it makes the
+        // application unusable. `CREATE_NO_WINDOW` is what says the
+        // child is being read by a program rather than watched by a
+        // person. `open` deliberately does the opposite.
+        .creation_flags(CREATE_NO_WINDOW);
     if let Some(directory) = at {
         command.current_dir(directory);
     }
@@ -90,7 +100,9 @@ pub fn open(at: &Path) -> Result<(), OsError> {
         })
 }
 
-/// `CREATE_NEW_CONSOLE`. Named here rather than reached for through the
-/// `windows` crate, because it is one number and this is the only place
-/// in the crate that wants it.
+/// `CREATE_NEW_CONSOLE`, for the window a user is meant to see, and
+/// `CREATE_NO_WINDOW`, for the one they are not. Named here rather than
+/// reached for through the `windows` crate, because they are two
+/// numbers and this is the only place in the crate that wants them.
 const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;

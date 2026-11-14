@@ -63,9 +63,32 @@ pub fn shell() -> Result<Shell, OsError> {
 /// is the shell's own language — a pipeline, a `&&`, a loop — and not a
 /// program name with arguments beside it.
 ///
-/// This waits. A script that asks a question waits for an answer nobody
-/// is there to give, so a script run this way should be one that does
-/// not ask: the whole point of [`open`] is the one that does.
+/// # Nothing is shown
+///
+/// No window, no console, nothing on the screen: this is a script being
+/// read by a program, not watched by a person. That has to be asked for
+/// on Windows — an application is a GUI process and has no console, so
+/// Windows gives every console program it starts a new one, and the
+/// user sees a black rectangle appear in front of their window, take
+/// focus and vanish. `CREATE_NO_WINDOW` is what stops it. [`open`] is
+/// the call that deliberately does the opposite.
+///
+/// # It waits
+///
+/// On the thread it was called on. A page's handler runs on the thread
+/// that draws, so a script that takes two seconds freezes the window
+/// for two seconds — which is what `task` exists for:
+///
+/// ```ignore
+/// task(async move {
+///     let built = rustx::terminal::run("cargo build --release", Some(&project))?;
+///     status.set(if built.worked() { "built" } else { "failed" }.to_string());
+/// });
+/// ```
+///
+/// And a script run this way must be one that does not ask: there is
+/// nobody at the other end to answer it, so a prompt is a script that
+/// never returns. A script that needs a person needs [`open`].
 pub fn run(script: &str, at: Option<&Path>) -> Result<Output, OsError> {
     if script.trim().is_empty() {
         return Err(OsError::Platform(
