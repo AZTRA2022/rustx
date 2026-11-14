@@ -1,0 +1,185 @@
+# The gates, on every push.
+#
+# `STABILITY.md` section 6 asks for measurable quality gates and for
+# them to run in CI wherever possible. `scripts/gates.ps1` is the same
+# set of gates run by hand; this file is where they are enforced.
+#
+# Three things are worth knowing about the shape of this file.
+#
+# **Windows is the primary job.** It is the platform `rustx-os` is
+# written and measured on, and the only one on which an application has
+# ever been run. The gates run there in full.
+#
+# **The macOS and Linux jobs compile what they can, and no more.** The
+# framework draws with CEF, which the `cef` crate fetches and links on
+# first build; the crates that do not touch it are compiled on all three
+# platforms, and that is deliberately the whole claim. `rustx-os`
+# matters most here: `lib.rs` compile-checks the other platforms'
+# modules through a `mod *_also_compiles` trick so a Windows build
+# catches their syntax errors, but a trick is not a target. These jobs
+# build those halves with the compiler that actually targets them.
+#
+# **A gate that cannot run is not a gate that passed.** Nothing here is
+# allowed to continue on error, and nothing reports success for a step
+# it skipped.
+
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch makes the previous run's answer
+# irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # A backtrace costs nothing until something panics, and a panic
+  # without one is a bug report nobody can act on.
+  RUST_BACKTRACE: 1
+  # There is no GPU on a CI runner. Without this, every application
+  # fails in a way that looks like a defect in the application.
+  RUSTX_SOFTWARE: "1"
+
+jobs:
+  # ------------------------------------------------------------- windows
+  #
+  # The real platform: formatting, lints, the whole workspace, every
+  # test, the doc build and the packaging check.
+  windows:
+    name: gates (windows)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # CEF is large and its build is the slowest thing here.
+          key: windows-gates
+
+      # Run the same script a developer runs, so that the two cannot
+      # drift apart. `pwsh` is the shell on purpose: Git Bash puts its
+      # own `link` ahead of MSVC's on the `PATH` and every native build
+      # started from bash fails at the linker.
+      - name: The gates
+        shell: pwsh
+        run: ./scripts/gates.ps1 -Only fmt,clippy,build,test,docs,package
+
+  # ----------------------------------------------------- other platforms
+  #
+  # What compiles away from Windows. See the note at the top: this is a
+  # narrower claim than "rustx works on Linux", and it is the only one
+  # these jobs are entitled to make.
+  portable:
+    name: compiles (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: portable-${{ matrix.os }}
+
+      # The platform half that a Windows build only ever compile-checked
+      # by proxy, built by the compiler that actually targets it. If
+      # `rustx-os` is going to claim macOS and Linux support one day,
+      # this is the job that has to be green first.
+      - name: rustx-os, for this platform
+        run: cargo check -p rustx-os --all-targets
+
+      - name: rustx-os, its own tests
+        run: cargo test -p rustx-os
+
+      # The compiler, the DOM, the macros and the language server are
+      # plain Rust: they have no business being platform-dependent, and
+      # if they are, that is the bug this step finds.
+      - name: The platform-independent crates
+        run: |
+          cargo test -p rustx-compiler
+          cargo test -p rustx-dom
+          cargo test -p rustx-macros
+          cargo test -p rustx-lsp
+
+      - name: No clippy warning in them either
+        run: |
+          cargo clippy -p rustx-os -p rustx-compiler -p rustx-dom \
+            -p rustx-macros -p rustx-lsp --all-targets -- -D warnings
+
+  # ------------------------------------------------------------- tooling
+  editor:
+    name: the editor extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - run: npm ci
+        working-directory: editors/vscode
+
+      - name: It typechecks
+        run: npx tsc --noEmit
+        working-directory: editors/vscode
+
+      - name: It builds
+        run: node build.mjs
+        working-directory: editors/vscode
+
+      # Including `test/hardcases.test.mjs`, which is the suite that
+      # asserts the extension cannot be made to throw, hang, or lose a
+      # character of somebody's file.
+      - name: Its tests pass
+        run: node --test test
+        working-directory: editors/vscode
+
+  site:
+    name: the documentation site
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - run: npm ci
+        working-directory: site
+
+      - name: It typechecks
+        run: npx tsc --noEmit
+        working-directory: site
+
+      # Every `.mdx` page is compiled here, so a broken component or a
+      # malformed page fails the build rather than the reader.
+      - name: Every page builds
+        run: npx next build
+        working-directory: site
