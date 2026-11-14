@@ -36,8 +36,9 @@ nests: outermost first, so the layout of `app/` wraps the one of `app/repos/`.
 | `[[...path]]` | everything left, or nothing | `path: String`, empty for the bare path |
 | `(shop)` | nothing. A group | nothing |
 
-A static segment beats a named one, which beats a catch-all. A parameter arrives
-decoded. See [parameters](/docs/the-router/parameters) and
+A static segment beats a named one, which beats a catch-all. A path parameter
+arrives **as it was written**, percent-escapes included; only the query string
+is decoded. See [parameters](/docs/the-router/parameters) and
 [routes from folders](/docs/the-router/routes-from-folders).
 
 ## Outside the folders

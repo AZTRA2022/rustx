@@ -40,6 +40,50 @@ fn Editor() -> Element {
 }
 ```
 
+### What `keep` hands back
+
+A `Kept<T>`, and not the `T` itself. The value lives in the component's
+cell, which outlives the render, so what you get is a handle to it with
+exactly two ways in:
+
+| | |
+|---|---|
+| `kept.with(\|value\| …)` | borrow it, and return whatever you computed. Works for any `T` |
+| `kept.get()` | a clone of it. Only where `T: Clone` |
+
+```rust
+fn Panel() -> Element {
+    let rows = keep(load_the_table());          // Kept<Vec<Row>>
+
+    // Borrowed — nothing is cloned to count it.
+    let how_many = rows.with(|all| all.len());
+
+    // Cloned, because the list is walked to build elements.
+    let items = rows.get().iter().map(Row).collect::<Vec<_>>();
+
+    return <ul>{how_many} rows{items}</ul>;
+}
+```
+
+`Kept<T>` is `Clone` whatever `T` is — it is a reference count — so it
+can be moved into a closure while the component keeps reading it.
+
+<Callout type="warn" title="There is no Deref">
+`kept.len()`, `kept.iter()` and `kept.as_ref()` do not compile:
+`Kept<T>` is not a smart pointer to `T`. A value that is not `Clone`,
+such as a `Shortcut` or a `tray::Icon`, is reached only through
+`with`:
+
+```rust
+let hotkey = keep(shortcut::Shortcut::listen("Ctrl+Shift+R"));
+
+return hotkey.with(|found| match found {
+    Ok(found) => <p>{found.keys().to_string()} is listening</p>,
+    Err(why) => <p className="text-destructive">{why.to_string()}</p>,
+});
+```
+</Callout>
+
 ## `effect`
 
 `effect(WATCHED, WORK)` redoes the work when the watched value

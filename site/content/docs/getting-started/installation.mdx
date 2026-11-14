@@ -23,16 +23,30 @@ cd my-app
 rustx dev
 ```
 
-Five files, and a window:
+Ten files, and a window:
 
 ```text
 my-app/
-  Cargo.toml        rustx = { package = "rustx-app", version = "0.3" }
-  src/main.rs       the window, in four lines
-  app/page.rsx      the `/` page
-  assets/           what the page loads (an icon, an image, an index.html)
-  .gitignore        /target
+  Cargo.toml          rustx = { package = "rustx-app", version = "0.3" }
+  src/main.rs         the window, in four lines
+  app/page.rsx        the `/` page
+  assets/readme.md    a note: what this folder is for
+  assets/tailwind.css the shadcn/ui theme variables, base colour zinc
+  package.json        `esbuild` and the libraries the files above import
+  tsconfig.json       what `@/` means, for esbuild and for `shadcn add`
+  components.json     where `npx shadcn add` puts what it downloads
+  lib/utils.ts        the `cn()` helper every shadcn component imports
+  .gitignore          /target, /node_modules, /.rustx/, /assets/rustx-bundle.js
 ```
+
+The last six are there so that the first command you are likely to run
+works. `npm install`, `npm install recharts` and `npx shadcn add button`
+each read a file that a project without them does not have — `shadcn add`
+refuses outright with "No import alias found in your tsconfig.json file"
+— and a component copied in by hand is then refused by esbuild, because
+`@/lib/utils` is a path alias nothing declared. A project that uses no
+JavaScript library can delete all six; nothing in the framework reads
+them.
 
 The package is called `rustx-app` on crates.io, because `rustx` is
 taken there by another project. The **library** is called `rustx`, so

@@ -53,7 +53,7 @@ fn Pick() -> Element {
     let cameras = keep(devices::devices_of(devices::Kind::Camera));
 
     return <select value={chosen.clone()} onChange={move |event| chosen = event.value}>
-        {cameras.iter().map(|device| <option
+        {cameras.get().iter().map(|device| <option
             key={device.id.clone()}
             value={device.id.clone()}
             disabled={device.busy}
@@ -67,6 +67,10 @@ fn Pick() -> Element {
 
 The `keep` is not a free optimization: enumerating devices talks to the system, and
 doing it sixty times a second would be sixty calls a second for a list that changes once a day. To refresh it when the user plugs something in, use a button and an `effect`.
+
+`keep` hands back a `Kept<Vec<Device>>`, not the `Vec`, so the list is
+reached with `get()` — or with `with(|all| …)` to walk it without
+cloning. See [keep, effect, task](/docs/getting-started/keep-effect-task).
 
 ## Who reads them
 

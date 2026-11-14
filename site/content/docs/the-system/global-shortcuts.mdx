@@ -19,8 +19,43 @@ A web page cannot hear a keyboard that is not meant for it.
 ## What is read
 
 `pressed()` returns **how many times** the combination was pressed since the
-last read, and resets the counter to zero. A page that draws sixty times a second
-misses nothing, and has no callback to install:
+last read, and resets the counter to zero. There is no callback to
+install: something has to ask.
+
+The place that asks is a `task`, which owns the `Shortcut` and posts what
+it saw into state. It cannot be the body of the component: a component
+may not write state while it is being drawn, and the compiler says so.
+
+```rust
+let mut shots = 0;
+
+fn Capture() -> Element {
+    task(move |alive| {
+        let Ok(hotkey) = shortcut::Shortcut::listen("Ctrl+Shift+R") else {
+            return;      // taken by another application; see below
+        };
+        while alive.get() {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            let times = hotkey.pressed();
+            if times > 0 && alive.post(move || shots += times as usize).is_err() {
+                break;   // the window is gone, or this component
+            }
+        }
+    });
+
+    return <p>{shots} captures</p>;
+}
+```
+
+The thread ends with the component, the `Shortcut` is dropped with it,
+and the combination goes back to the system. Nothing is cleaned up by
+hand.
+
+<Callout title="Or on the frame, without a thread">
+`on_frame` runs a closure once per frame on the thread that draws, which
+is also a place a write is allowed. Registered from an `effect((), …)`
+so that it happens once per instance, it gives the same result with no
+thread and no sleep to choose:
 
 ```rust
 let mut shots = 0;
@@ -28,19 +63,29 @@ let mut shots = 0;
 fn Capture() -> Element {
     let hotkey = keep(shortcut::Shortcut::listen("Ctrl+Shift+R"));
 
-    if let Ok(hotkey) = hotkey.as_ref() {
-        let times = hotkey.pressed();
-        if times > 0 {
-            shots += times as usize;
-        }
-    }
+    effect((), move || {
+        rustx::on_frame(move || {
+            let times = hotkey.with(|found| {
+                found.as_ref().map(|each| each.pressed()).unwrap_or(0)
+            });
+            if times > 0 {
+                shots += times as usize;
+            }
+        });
+    });
 
     return <p>{shots} captures</p>;
 }
 ```
 
+The difference that matters: a frame callback cannot be removed, so this
+form belongs in a component that lives as long as the window — the root
+`layout.rsx`. A `task` is the form for a screen that comes and goes.
+</Callout>
+
 `hotkey.keys()` returns the combination as it was written, to display it
-in a settings screen.
+in a settings screen. `keep` hands back a `Kept<Shortcut>`, which is
+read with `with` — see [keep, effect, task](/docs/getting-started/keep-effect-task).
 
 ## What can be written
 
@@ -56,12 +101,16 @@ shortcut::Shortcut::listen("Ctrl+Alt+Shift+F9")?;
 shortcut::Shortcut::listen("Win+Up")?;
 ```
 
-What is not recognized is refused **by naming what was written**:
+What is not recognized is refused **by naming what was written**: the
+error quotes the piece it could not read, quotes the whole combination it
+was in, and lists the key names it does accept. `Ctrl+` with no key, and
+a combination that names two keys, are each refused with their own
+sentence.
 
-```text
-rustx: « Ctrl+Suppr » n'est pas une combinaison — « Suppr » n'est pas
-une touche connue
-```
+The refusal arrives as `OsError::Platform`, so it reads
+`the system refused: …` followed by that sentence. Those sentences are
+still written in French and are being translated; the variant is what to
+match on.
 
 ## A combination already taken
 
@@ -72,12 +121,12 @@ The system gives it out only once. If another application holds
 fn Settings() -> Element {
     let hotkey = keep(shortcut::Shortcut::listen("Ctrl+Shift+R"));
 
-    return match hotkey.as_ref() {
-        Ok(hotkey) => <p>{hotkey.keys().to_string()} is listening</p>,
+    return hotkey.with(|found| match found {
+        Ok(found) => <p>{found.keys().to_string()} is listening</p>,
         Err(why) => <p className="text-destructive">
             {why.to_string()} — choose another one
         </p>,
-    };
+    });
 }
 ```
 
@@ -98,7 +147,10 @@ let mut held = None::<shortcut::Shortcut>;
 
 fn Settings() -> Element {
     effect(keys.clone(), move || {
-        held = shortcut::Shortcut::listen(&keys).ok();   // the old one is released here
+        // Bound first: a page value is read by value, so `&keys` would
+        // be a reference to the cell and not to the string in it.
+        let wanted = keys.clone();
+        held = shortcut::Shortcut::listen(&wanted).ok();   // the old one is released here
     });
 
     return <input value={keys.clone()} onInput={move |event| keys = event.value} />;

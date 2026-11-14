@@ -70,9 +70,12 @@ panic: a handle that is no longer a window, a platform that does not yet have th
 code, an order that the system refused.
 
 ```text
-rustx: « maximize » a été refusé : the handle 0x1a0f2 is not a window any
-more — it was closed
+rustx: « maximize » a été refusé : the system refused: …
 ```
+
+The frame around that line — `rustx: « … » a été refusé :` — is still
+written in French and is being translated; what follows it is the
+`OsError` the system layer returned.
 
 ## Under the facade
 

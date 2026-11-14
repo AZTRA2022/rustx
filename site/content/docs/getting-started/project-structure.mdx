@@ -9,7 +9,7 @@ page loads.
 
 ```text
 my-app/
-  Cargo.toml          rustx = { package = "rustx-app", version = "0.2" }
+  Cargo.toml          rustx = { package = "rustx-app", version = "0.3" }
   src/
     main.rs           the window, in four lines
     api.rs            the application's Rust: network, files, computation
@@ -30,13 +30,20 @@ my-app/
     tailwind.css      the style sheet, if the project uses Tailwind
   components/         the project's React components, if it has any
     ui/               what `npx shadcn add` drops in
+  lib/utils.ts        the `cn()` helper shadcn components import
   package.json        the npm libraries, if the project has any
-  .gitignore          /target
+  tsconfig.json       what `@/` means, for esbuild and for `shadcn add`
+  components.json     where `npx shadcn add` puts what it downloads
+  .gitignore          /target, /node_modules, /.rustx/, /assets/rustx-bundle.js
 ```
 
-`rustx new my-app` writes five files: `Cargo.toml`, `src/main.rs`,
-`app/page.rsx`, `assets/`, and `.gitignore`. Everything else is added
-when it is needed.
+`rustx new my-app` writes ten files: `Cargo.toml`, `src/main.rs`,
+`app/page.rsx`, `.gitignore`, `assets/readme.md`, `assets/tailwind.css`,
+`package.json`, `tsconfig.json`, `components.json` and `lib/utils.ts`.
+The last six exist so that `npm install` and `npx shadcn add` work on the
+day the project is born; a project that uses no JavaScript library can
+delete them. `layout.rsx`, `loading.rsx`, `error.rsx` and the folders
+under `app/` are added when they are needed.
 
 ## The whole `main.rs`
 
@@ -81,7 +88,7 @@ all the code is written as `rustx::`.
 
 ```toml
 [dependencies]
-rustx = { package = "rustx-app", version = "0.2" }
+rustx = { package = "rustx-app", version = "0.3" }
 ```
 
 ## The application's Rust

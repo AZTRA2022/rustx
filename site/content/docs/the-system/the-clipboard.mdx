@@ -25,13 +25,17 @@ let mut said = String::new();
 
 fn Copy(what: String) -> Element {
     return <button onClick={move |_| {
-        said = match clipboard::set_text(what.clone()) {
+        said = match clipboard::set_text(&what) {
             Ok(()) => "copied".to_string(),
             Err(why) => why.to_string(),
         };
-    }}>{if said.is_empty() { "copy" } else { said.clone() }}</button>;
+    }}>{if said.is_empty() { "copy".to_string() } else { said.clone() }}</button>;
 }
 ```
+
+`set_text` takes a `&str`, so a `String` is passed by reference. And both
+arms of the `if` are `String`: the two branches of an expression in the
+tree have to be the same type, exactly as anywhere else in Rust.
 
 ## An image
 
@@ -81,27 +85,38 @@ A refusal after that is final: the other program does not let go, and retrying w
 
 ## Pasting on a shortcut
 
-This is what combining the two gives, and it is the example that justifies the layer:
+This is what combining the two gives, and it is the example that justifies the layer.
+The shortcut is owned by a `task`, which polls it and posts the paste
+into state — a component may not write state while it is being drawn, so
+the poll cannot live in the body of the component:
 
 ```rust
 let mut lines = Vec::<String>::new();
 
 fn Paste() -> Element {
-    // The token lives in a cell: it listens as long as this screen is there.
-    let hotkey = keep(shortcut::Shortcut::listen("Ctrl+Shift+V"));
-
-    if let Ok(hotkey) = hotkey.as_ref() {
-        if hotkey.pressed() > 0 {
-            if let Ok(text) = clipboard::text() {
-                lines.push(text);
+    // The thread stops with this screen, and the combination is given
+    // back to the system when its `Shortcut` is dropped with it.
+    task(move |alive| {
+        let Ok(hotkey) = shortcut::Shortcut::listen("Ctrl+Shift+V") else {
+            return;
+        };
+        while alive.get() {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            if hotkey.pressed() == 0 {
+                continue;
+            }
+            let Ok(text) = clipboard::text() else { continue };
+            if alive.post(move || lines.push(text)).is_err() {
+                break;
             }
         }
-    }
+    });
 
     return <ul>{lines.len()} pasted</ul>;
 }
 ```
 
-`pressed()` is read during the render and returns **how many times** since the
-last read, which is what a screen drawn sixty times a second can query without missing anything. See
+`pressed()` returns **how many times** the combination was pressed since
+the last read and resets the count, so a loop that polls twenty times a
+second misses nothing. See
 [global shortcuts](/docs/the-system/global-shortcuts).

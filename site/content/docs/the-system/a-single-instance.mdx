@@ -34,15 +34,48 @@ In the page, read whenever you want:
 let mut opened = Vec::<String>::new();
 
 fn Page() -> Element {
-    for argument in instance::handed_over() {
-        opened.push(argument);
-    }
+    task(move |alive| {
+        while alive.get() {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            let handed = instance::handed_over();
+            if handed.is_empty() {
+                continue;
+            }
+            if alive.post(move || opened.extend(handed)).is_err() {
+                break;
+            }
+        }
+    });
 
     return <ul>{opened.len()} files</ul>;
 }
 ```
 
-`handed_over()` is taken, like the rest: read once. A page that queries it on every frame sees each handover exactly once.
+`handed_over()` is taken, like the rest: read once. Whatever reads it
+sees each handover exactly once — which is why it is read from one place
+and not from several.
+
+It is read in a `task` and not in the body of the component because a
+component may not write state while it is being drawn; the compiler
+refuses that and names `onClick`, `effect` and `task`. For a handover
+that only has to be read **once**, at the first render — the usual case,
+since the launch that passed the arguments has already happened — an
+`effect` is shorter:
+
+```rust
+fn Page() -> Element {
+    effect((), move || {
+        for argument in instance::handed_over() {
+            opened.push(argument);
+        }
+    });
+
+    return <ul>{opened.len()} files</ul>;
+}
+```
+
+The `task` is what catches a handover that arrives later, while the
+window is already open — which is what a second launch is.
 
 The arguments travel separated by `instance::BETWEEN` — the byte `0x1f`,
 the unit separator — because a Windows path contains spaces
@@ -54,18 +87,25 @@ This is what a user expects when they relaunch the software:
 
 ```rust
 fn Page() -> Element {
-    let handed = instance::handed_over();
-
-    if !handed.is_empty() {
+    effect((), move || {
+        let handed = instance::handed_over();
+        if handed.is_empty() {
+            return;
+        }
         rustx::window::restore();
         rustx::window::on_top(true);
         rustx::window::on_top(false);   // in front, without staying there
-        for path in handed { open(&path); }
-    }
+        for path in handed {
+            open(&path);
+        }
+    });
 
     return <main>…</main>;
 }
 ```
+
+One place reads `handed_over()`, because the read takes what it found.
+Two components that both read it would each see half the handovers.
 
 ## The name
 

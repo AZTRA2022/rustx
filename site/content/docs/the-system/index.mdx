@@ -8,18 +8,32 @@ nor place an icon next to the clock.
 This is what `rustx-os` does, and it is written in a page like the rest.
 
 ```rust
-use rustx::{autostart, clipboard, devices, dialog, instance, notify, shortcut, tray};
+use rustx::{autostart, clipboard, devices, dialog, instance, notify, shortcut, terminal, tray};
 ```
 
-Nothing more to import: these modules are on the facade, so a page
-writes `clipboard::text()` without declaring anything in its `Cargo.toml`.
+Those nine are on the facade under a short name, so a page writes
+`clipboard::text()` without declaring anything in its `Cargo.toml`.
+
+The other capabilities are reached through `rustx::os`:
+
+```rust
+use rustx::os::{about, attention, audio, bluetooth, capture, color, net, print, screen, secret, shell, system};
+```
+
+Same crate, same error type; only the path is longer, because
+`rustx::window` is the name the **page** uses to command its own window
+and `rustx::os::window` is the window as the system knows it. See
+[platforms](/docs/the-system/platforms) for which of these does anything
+on which operating system.
 
 ## Two rules, for the whole module
 
-### `supported()` before asking
+### Ask before you draw the button
 
-Each module answers `supported()`, so that a missing feature is a button you
-do not draw, rather than an error to read.
+Ten of these modules answer `supported()`, so that a missing feature is
+a button you do not draw rather than an error to read: `about`,
+`autostart`, `clipboard`, `dialog`, `instance`, `notify`, `shortcut`,
+`tray`, `window`, and `os::window`'s own.
 
 ```rust
 return <div>
@@ -35,6 +49,12 @@ This is the answer of the **platform** itself — each
 `<os>/clipboard.rs` declares it — and not a list of system names
 kept up to date somewhere.
 
+The newer capabilities — `attention`, `audio`, `bluetooth`, `capture`,
+`color`, `net`, `print`, `screen`, `secret`, `shell`, `system`,
+`terminal` — have **no** `supported()`. They answer with a `Result`,
+and a platform that cannot do the thing refuses by naming itself and the
+thing. Call them and read the refusal; there is nothing to ask first.
+
 ### What is registered is a token
 
 A tray icon, a global shortcut, an instance lock: the token that is released removes the thing. A dead icon next to the clock or a `Ctrl+Shift+R` that no application handles are defects that
@@ -43,10 +63,12 @@ the user can only fix by restarting, and that is why these objects have a lifeti
 ```rust
 fn Tray() -> Element {
     // Kept by a cell of the component: the icon lives as long as
-    // the screen that set it.
+    // the screen that set it. `keep` hands back a `Kept<T>`, which is
+    // read with `with`, because an `Icon` is not `Clone`.
     let icon = keep(tray::Icon::new(Path::new("assets/icon.ico"), "My app"));
+    let on = icon.with(|made| made.is_ok());
 
-    return <></>;
+    return <small>{on}</small>;
 }
 ```
 
@@ -54,19 +76,28 @@ For an icon that lives as long as the application, it is the root `layout.rsx` t
 
 ## What an error says
 
-Everything that speaks to the system returns a `Result<_, OsError>`, and the refusal
-is a sentence:
+Everything that speaks to the system returns a `Result<_, OsError>`, and
+the refusal is a sentence. `OsError` has five variants, and each one
+names the thing it is about:
 
-```text
-rustx: the clipboard is held by another program — tried for 200 ms
-```
-
-```text
-rustx: « tray » n'est pas écrit pour linux — le fichier à écrire est
-crates/rustx-os/src/linux/tray.rs
-```
+| | says |
+|---|---|
+| `NoSuchDevice(which)` | "there is no device called `…` — it may have been unplugged. `devices()` lists what is there now." |
+| `Busy(which)` | "`…` is being used by another application. Close whatever has it open, or choose another device." |
+| `Unsupported(what)` | "… is not available on this platform (`std::env::consts::OS`)." |
+| `Platform(said)` | "the system refused: …" — the platform's own words, passed through |
+| `File(said)` | the sentence about the file, as the module wrote it |
 
 Nothing panics, and nothing pretends to have succeeded.
+
+<Callout type="warn" title="Two things these messages do not do yet">
+`Unsupported` names the platform, but **not** the file that would have
+to be written to support the capability there, which earlier versions of
+this page claimed. And several of the strings inside `Platform(…)` — the
+shortcut parser's, the tray's and the dialogs' on the platforms that
+refuse — are still written in French; they are being translated. Read
+the variant, not the prose, when you are matching on a failure.
+</Callout>
 
 ## The pages
 

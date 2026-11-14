@@ -17,8 +17,11 @@ by the page, as they are.
 | `rustx-bundle.js` | **written by the build** from `package.json`. Do not edit or commit it |
 | anything else | yours: images, fonts, data |
 
-`rustx new` writes `assets/` with a short note and nothing else. The
-`.gitignore` it writes excludes `/assets/rustx-bundle.js`.
+`rustx new` writes two files in `assets/`: a `readme.md` saying what the
+folder is for, and a `tailwind.css` holding the shadcn/ui theme
+variables. There is no `index.html` and no `icon.ico` until you add them.
+The `.gitignore` it writes excludes `/target`, `/node_modules`,
+`/.rustx/` and `/assets/rustx-bundle.js`.
 
 ## How a path resolves
 

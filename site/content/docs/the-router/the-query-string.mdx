@@ -78,9 +78,13 @@ fn Search() -> Element {
 
     return <input value={term.clone()} onInput={move |event| {
         term = event.value;
+        // Bound to a local first: a page value is read by value, so
+        // `term.as_str()` written inside the argument would borrow a
+        // temporary that is dropped before the call.
+        let wanted = term.clone();
         rustx::router::replace(rustx::router::with_query(
             "q",
-            if term.is_empty() { None } else { Some(term.as_str()) },
+            if wanted.is_empty() { None } else { Some(wanted.as_str()) },
         ));
     }} />;
 }
