@@ -55,7 +55,11 @@ mod tests {
 
     #[test]
     fn hex_goes_both_ways() {
-        let teal = Rgb { r: 0, g: 128, b: 255 };
+        let teal = Rgb {
+            r: 0,
+            g: 128,
+            b: 255,
+        };
         assert_eq!(teal.hex(), "#0080ff");
         assert_eq!(Rgb::from_hex("#0080ff"), Some(teal));
         assert_eq!(Rgb::from_hex("0080FF"), Some(teal));

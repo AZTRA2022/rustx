@@ -75,7 +75,11 @@ fn default_location(ask: &Ask) -> String {
 
 /// The AppleScript lines for `choose file`.
 pub fn open_script(ask: &Ask) -> Vec<String> {
-    let many = if ask.many { " with multiple selections allowed" } else { "" };
+    let many = if ask.many {
+        " with multiple selections allowed"
+    } else {
+        ""
+    };
     vec![
         "try".to_string(),
         format!(
@@ -200,7 +204,10 @@ mod tests {
     fn the_title_is_in_the_script_and_cancel_is_caught_by_number() {
         let ask = Ask::new("Choose an image");
         let script = open_script(&ask).join("\n");
-        assert!(script.contains("choose file with prompt \"Choose an image\""), "got {script}");
+        assert!(
+            script.contains("choose file with prompt \"Choose an image\""),
+            "got {script}"
+        );
         assert!(script.contains("on error number -128"), "got {script}");
     }
 
@@ -208,7 +215,10 @@ mod tests {
     fn a_filter_becomes_an_of_type_clause() {
         let ask = Ask::new("Pick").filter("Images", ["png", "jpg"]);
         let script = open_script(&ask).join("\n");
-        assert!(script.contains("of type {\"png\", \"jpg\"}"), "got {script}");
+        assert!(
+            script.contains("of type {\"png\", \"jpg\"}"),
+            "got {script}"
+        );
     }
 
     #[test]
@@ -232,7 +242,10 @@ mod tests {
     fn a_default_name_reaches_the_save_script() {
         let ask = Ask::new("Save as").named("export.png");
         let script = save_script(&ask).join("\n");
-        assert!(script.contains("default name \"export.png\""), "got {script}");
+        assert!(
+            script.contains("default name \"export.png\""),
+            "got {script}"
+        );
     }
 
     #[test]

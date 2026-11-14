@@ -92,14 +92,27 @@ mod tests {
 
     #[test]
     fn an_address_is_normalised_whatever_separator_and_case_it_came_in() {
-        assert_eq!(clean_address("ac:de:48:00:11:22").as_deref(), Some("AC:DE:48:00:11:22"));
-        assert_eq!(clean_address("AC-DE-48-00-11-22").as_deref(), Some("AC:DE:48:00:11:22"));
-        assert_eq!(clean_address(" ac:de:48:00:11:22 \n").as_deref(), Some("AC:DE:48:00:11:22"));
+        assert_eq!(
+            clean_address("ac:de:48:00:11:22").as_deref(),
+            Some("AC:DE:48:00:11:22")
+        );
+        assert_eq!(
+            clean_address("AC-DE-48-00-11-22").as_deref(),
+            Some("AC:DE:48:00:11:22")
+        );
+        assert_eq!(
+            clean_address(" ac:de:48:00:11:22 \n").as_deref(),
+            Some("AC:DE:48:00:11:22")
+        );
     }
 
     #[test]
     fn what_is_not_an_address_is_not_one() {
-        assert_eq!(clean_address("AC:DE:48:00:11"), None, "five bytes is not an address");
+        assert_eq!(
+            clean_address("AC:DE:48:00:11"),
+            None,
+            "five bytes is not an address"
+        );
         assert_eq!(clean_address("AC:DE:48:00:11:22:33"), None);
         assert_eq!(clean_address("ZZ:DE:48:00:11:22"), None);
         assert_eq!(clean_address("A:B:C:D:E:F"), None, "a byte is two digits");

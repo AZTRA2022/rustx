@@ -109,7 +109,10 @@ mod tests {
         let left = Area::between(-1920, 0, 0, 1080);
         assert_eq!(left.width, 1920);
         assert_eq!(left.height, 1080);
-        assert_eq!(left.x, -1920, "a monitor left of the primary has a negative x");
+        assert_eq!(
+            left.x, -1920,
+            "a monitor left of the primary has a negative x"
+        );
         assert!(left.holds(-1920, 0), "the top-left corner is inside");
         assert!(!left.holds(0, 0), "the right edge is not");
         assert!(!left.holds(-1921, 500));
@@ -125,7 +128,10 @@ mod tests {
                     "the primary screen comes first"
                 );
                 for screen in &all {
-                    assert!(screen.bounds.width > 0 && screen.bounds.height > 0, "{screen:?}");
+                    assert!(
+                        screen.bounds.width > 0 && screen.bounds.height > 0,
+                        "{screen:?}"
+                    );
                     assert!(screen.scale > 0.0, "{screen:?}");
                     assert!(
                         screen.work.width <= screen.bounds.width

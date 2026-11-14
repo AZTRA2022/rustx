@@ -34,9 +34,7 @@ use crate::window::{Dressing, Spread};
 pub const AVAILABLE: bool = true;
 
 #[allow(unused_imports)]
-pub use real::{
-    close, drag, drag_out, dress, frame_of, on_top, pointer, spread, spread_of,
-};
+pub use real::{close, drag, drag_out, dress, frame_of, on_top, pointer, spread, spread_of};
 
 // ─────────────── What is computed without a window ───────────────
 
@@ -223,8 +221,7 @@ mod real {
         // SAFETY: documented `NSWindow` calls, on the main thread.
         unsafe {
             let behaviour: usize = msg_send![window, collectionBehavior];
-            let _: () =
-                msg_send![window, setCollectionBehavior: behaviour | FULL_SCREEN_PRIMARY];
+            let _: () = msg_send![window, setCollectionBehavior: behaviour | FULL_SCREEN_PRIMARY];
             let _: () = msg_send![window, toggleFullScreen: None::<&AnyObject>];
         }
     }
@@ -518,7 +515,11 @@ mod tests {
     #[test]
     fn frameless_keeps_the_title_bar_and_runs_the_content_under_it() {
         let bare = style_for(Dressing::None, TITLED_AND_RESIZABLE);
-        assert_eq!(bare & 1, 1, "NSWindowStyleMaskTitled is kept: the keyboard needs it");
+        assert_eq!(
+            bare & 1,
+            1,
+            "NSWindowStyleMaskTitled is kept: the keyboard needs it"
+        );
         assert_eq!(bare & 0b1000, 0b1000, "resizable is kept");
         assert_ne!(bare & FULL_SIZE_CONTENT, 0);
     }

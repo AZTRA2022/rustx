@@ -358,7 +358,7 @@ fn platform_fonts() -> PlatformFonts {
 
 #[cfg(test)]
 mod laws {
-    use super::{platform_fonts, SOFTWARE_SWITCHES, SOFTWARE_VALUES};
+    use super::{SOFTWARE_SWITCHES, SOFTWARE_VALUES, platform_fonts};
 
     /// `BrowserSettings::default()`'s own fallback for every one of
     /// these, on every platform, is "Times New Roman" — a page that
@@ -398,7 +398,9 @@ mod laws {
         assert!(SOFTWARE_SWITCHES.contains(&"disable-gpu"));
         assert!(SOFTWARE_SWITCHES.contains(&"disable-gpu-compositing"));
         assert_eq!(
-            SOFTWARE_VALUES.iter().find(|(name, _)| *name == "use-angle"),
+            SOFTWARE_VALUES
+                .iter()
+                .find(|(name, _)| *name == "use-angle"),
             Some(&("use-angle", "swiftshader")),
             "SwiftShader is the CPU implementation that makes a context \
              possible at all when there is no driver"

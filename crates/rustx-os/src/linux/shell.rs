@@ -138,7 +138,8 @@ fn write(path: &Path, text: &str) -> Result<(), OsError> {
         std::fs::create_dir_all(parent)
             .map_err(|error| OsError::File(format!("{}: {error}", parent.display())))?;
     }
-    std::fs::write(path, text).map_err(|error| OsError::File(format!("{}: {error}", path.display())))
+    std::fs::write(path, text)
+        .map_err(|error| OsError::File(format!("{}: {error}", path.display())))
 }
 
 pub fn associate(association: &Association) -> Result<(), OsError> {
@@ -175,7 +176,10 @@ pub fn dissociate(association: &Association) -> Result<(), OsError> {
         }
     }
     let home = data_home()?;
-    let _ = ran("update-mime-database", &[&home.join("mime").to_string_lossy()]);
+    let _ = ran(
+        "update-mime-database",
+        &[&home.join("mime").to_string_lossy()],
+    );
     let _ = ran(
         "update-desktop-database",
         &[&home.join("applications").to_string_lossy()],
@@ -206,13 +210,22 @@ mod tests {
         let package = mime_package(&sample());
         assert!(package.contains("<glob pattern=\"*.rxdoc\"/>"), "{package}");
         assert!(package.contains("Docs &amp; &lt;notes&gt;"), "{package}");
-        assert!(package.contains("type=\"application/x-my-editor\""), "{package}");
+        assert!(
+            package.contains("type=\"application/x-my-editor\""),
+            "{package}"
+        );
     }
 
     #[test]
     fn the_desktop_entry_quotes_the_program_and_names_the_type() {
         let entry = desktop_entry(&sample());
-        assert!(entry.contains("Exec=\"/opt/my editor/bin/editor\" %f"), "{entry}");
-        assert!(entry.contains("MimeType=application/x-my-editor;"), "{entry}");
+        assert!(
+            entry.contains("Exec=\"/opt/my editor/bin/editor\" %f"),
+            "{entry}"
+        );
+        assert!(
+            entry.contains("MimeType=application/x-my-editor;"),
+            "{entry}"
+        );
     }
 }

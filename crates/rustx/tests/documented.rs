@@ -57,8 +57,9 @@ fn every_async_example_in_the_readme_compiles() {
     );
 
     for example in &waiting {
-        let built = rustx_compiler::transpile::transpile(example)
-            .unwrap_or_else(|refused| panic!("the README says:\n{example}\nand rustx says:\n{refused:?}"));
+        let built = rustx_compiler::transpile::transpile(example).unwrap_or_else(|refused| {
+            panic!("the README says:\n{example}\nand rustx says:\n{refused:?}")
+        });
         assert!(
             built.rust.contains("spawn_future"),
             "an `async` example did not become a future:\n{example}\n{}",
@@ -100,10 +101,12 @@ fn the_awaited_example_in_the_readme_compiles() {
 
     for example in &shown {
         let built = rustx_compiler::transpile::transpile(example).unwrap_or_else(|refused| {
-            panic!("the README says:
+            panic!(
+                "the README says:
 {example}
 and rustx says:
-{refused:?}")
+{refused:?}"
+            )
         });
         assert!(
             built.rust.contains("task::awaited"),
@@ -143,8 +146,7 @@ fn what_the_readme_examples_transpile_to_is_valid_rust() {
         // all. Either shape is fine; what is not fine is tokens that
         // close nothing, and neither shape accepts those.
         let shaped = syn::parse_file(&built.rust).map(|_| ()).or_else(|_| {
-            syn::parse_str::<syn::Block>(&(String::from("{") + &built.rust + "}"))
-                .map(|_| ())
+            syn::parse_str::<syn::Block>(&(String::from("{") + &built.rust + "}")).map(|_| ())
         });
         if let Err(broken) = shaped {
             eprintln!("the README says:");

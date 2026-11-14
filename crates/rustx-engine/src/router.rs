@@ -643,19 +643,16 @@ fn wrap(route: &Route, params: &Params, screens: Screens) -> Element {
     let failed = route.failed.unwrap_or(screens.failed);
     let page = match caught(drawing) {
         Ok(page) => page,
-        Err(pourquoi) => rustx_dom::state::with_key(
-            format!("error:{}", route.pattern),
-            || {
-                component_at(
-                    Slot {
-                        file: file!(),
-                        line: line!(),
-                        column: column!(),
-                    },
-                    || failed(pourquoi.clone()),
-                )
-            },
-        ),
+        Err(pourquoi) => rustx_dom::state::with_key(format!("error:{}", route.pattern), || {
+            component_at(
+                Slot {
+                    file: file!(),
+                    line: line!(),
+                    column: column!(),
+                },
+                || failed(pourquoi.clone()),
+            )
+        }),
     };
 
     // A page that is waiting for a `.await` renders nothing — which is
@@ -666,9 +663,8 @@ fn wrap(route: &Route, params: &Params, screens: Screens) -> Element {
     // Keyed apart from the page: they are two different components, and
     // one must not inherit the other's cells.
     let page = match (&page, route.loading) {
-        (Element::Empty, Some(loading)) => rustx_dom::state::with_key(
-            format!("loading:{}", route.pattern),
-            || {
+        (Element::Empty, Some(loading)) => {
+            rustx_dom::state::with_key(format!("loading:{}", route.pattern), || {
                 component_at(
                     Slot {
                         file: file!(),
@@ -677,8 +673,8 @@ fn wrap(route: &Route, params: &Params, screens: Screens) -> Element {
                     },
                     loading,
                 )
-            },
-        ),
+            })
+        }
         _ => page,
     };
 
@@ -741,8 +737,10 @@ fn fell_over(pourquoi: String) -> Element {
                 .attribute("id", at(FAILED_REASON_ID))
                 .attribute(
                     "style",
-                    at("margin:0;padding:12px;border-radius:6px;white-space:pre-wrap;\
-                        background:rgba(127,127,127,0.12);font:13px/1.5 ui-monospace,monospace"),
+                    at(
+                        "margin:0;padding:12px;border-radius:6px;white-space:pre-wrap;\
+                        background:rgba(127,127,127,0.12);font:13px/1.5 ui-monospace,monospace",
+                    ),
                 )
                 .child(Element::Text(pourquoi))
                 .build(),
@@ -760,13 +758,11 @@ fn fell_over(pourquoi: String) -> Element {
 /// application that ships no stylesheet at all, which is exactly the
 /// application most likely to reach them.
 fn column(id: &str, children: Vec<Element>) -> Element {
-    let mut built = Element::tag("div")
-        .attribute("id", at(id))
-        .attribute(
-            "style",
-            at("margin:0 auto;padding:40px 24px;max-width:46rem;\
+    let mut built = Element::tag("div").attribute("id", at(id)).attribute(
+        "style",
+        at("margin:0 auto;padding:40px 24px;max-width:46rem;\
                 font:15px/1.6 system-ui,sans-serif"),
-        );
+    );
     for child in children {
         built = built.child(child);
     }
@@ -775,7 +771,10 @@ fn column(id: &str, children: Vec<Element>) -> Element {
 
 fn heading(text: &str) -> Element {
     Element::tag("h1")
-        .attribute("style", at("margin:0 0 12px;font-size:1.25rem;font-weight:600"))
+        .attribute(
+            "style",
+            at("margin:0 0 12px;font-size:1.25rem;font-weight:600"),
+        )
         .child(Element::Text(text.to_string()))
         .build()
 }

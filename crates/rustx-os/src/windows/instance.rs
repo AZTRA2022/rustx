@@ -16,12 +16,12 @@ use std::os::windows::ffi::OsStrExt;
 use std::sync::{Arc, Mutex};
 
 use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, HANDLE, HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::System::DataExchange::COPYDATASTRUCT;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::CreateMutexW;
-use windows::Win32::System::DataExchange::COPYDATASTRUCT;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, FindWindowW,
-    GetMessageW, HWND_MESSAGE, MSG, PostMessageW, PostQuitMessage, RegisterClassW, SendMessageW,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, FindWindowW, GetMessageW,
+    HWND_MESSAGE, MSG, PostMessageW, PostQuitMessage, RegisterClassW, SendMessageW,
     TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COPYDATA, WM_DESTROY, WNDCLASSW,
 };
 use windows::core::PCWSTR;
@@ -152,8 +152,8 @@ impl Drop for Only {
 pub fn hand_over(name: &str, arguments: &[String]) -> Result<(), OsError> {
     let class = wide(CLASS);
     let title = wide(name);
-    let window = unsafe { FindWindowW(PCWSTR(class.as_ptr()), PCWSTR(title.as_ptr())) }
-        .map_err(|_| {
+    let window =
+        unsafe { FindWindowW(PCWSTR(class.as_ptr()), PCWSTR(title.as_ptr())) }.map_err(|_| {
             OsError::NoSuchDevice(format!(
                 "{name} — no instance is running, there is nobody to hand over to"
             ))

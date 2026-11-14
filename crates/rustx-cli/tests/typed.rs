@@ -28,8 +28,8 @@
 use std::fs;
 use std::path::PathBuf;
 
-use rustx_cli::{arguments, help, new};
 use rustx_cli::arguments::Command;
+use rustx_cli::{arguments, help, new};
 
 fn read(line: &str) -> Command {
     arguments::read(
@@ -232,7 +232,9 @@ fn a_name_that_cannot_work_is_refused_before_a_directory_is_made() {
     for (name, because) in impossible {
         let refused = new::write(name, &into)
             .map(|written| written.len())
-            .expect_err(&format!("`rustx new {name}` wrote a project that cannot build"));
+            .expect_err(&format!(
+                "`rustx new {name}` wrote a project that cannot build"
+            ));
         assert!(
             refused.contains(because),
             "`{name}` is refused, and the sentence does not say why ({because}): {refused}"
@@ -272,8 +274,9 @@ fn the_names_that_do_work_still_work() {
         "selfie",
         "console",
     ] {
-        new::write(name, &into)
-            .unwrap_or_else(|why| panic!("`rustx new {name}` is a reasonable thing to type: {why}"));
+        new::write(name, &into).unwrap_or_else(|why| {
+            panic!("`rustx new {name}` is a reasonable thing to type: {why}")
+        });
     }
     let _ = fs::remove_dir_all(&into);
 }

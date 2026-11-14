@@ -75,7 +75,11 @@ mod tests {
     fn sixteen_bit_channels_come_down_to_eight() {
         assert_eq!(
             read_color("65535, 32896, 0\n"),
-            Some(Rgb { r: 255, g: 128, b: 0 })
+            Some(Rgb {
+                r: 255,
+                g: 128,
+                b: 0
+            })
         );
         assert_eq!(read_color("{0, 0, 0}"), Some(Rgb { r: 0, g: 0, b: 0 }));
         assert_eq!(read_color("1, 2"), None);

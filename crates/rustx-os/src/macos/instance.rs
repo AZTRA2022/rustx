@@ -58,7 +58,9 @@ mod real {
     }
 
     pub fn handed_over() -> Vec<String> {
-        let mut held = handed().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut held = handed()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         std::mem::take(&mut *held)
     }
 
@@ -155,8 +157,9 @@ mod real {
                     .filter(|piece| !piece.is_empty())
                     .map(str::to_string)
                     .collect();
-                let mut held =
-                    handed().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                let mut held = handed()
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
                 held.extend(arguments);
             }
         }

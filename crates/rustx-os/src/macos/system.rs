@@ -95,7 +95,9 @@ pub(crate) fn power_from(batt: &str, low_power: Option<&str>) -> Power {
 
 pub fn power() -> Result<Power, OsError> {
     let Some((true, batt)) = said("pmset", &["-g", "batt"]) else {
-        return Err(OsError::Platform("`pmset -g batt` could not be run".to_string()));
+        return Err(OsError::Platform(
+            "`pmset -g batt` could not be run".to_string(),
+        ));
     };
     let settings = said("pmset", &["-g"]).map(|(_, text)| text);
     Ok(power_from(&batt, settings.as_deref()))
@@ -110,16 +112,18 @@ pub(crate) fn idle_from(ioreg: &str) -> Option<std::time::Duration> {
         .chars()
         .take_while(char::is_ascii_digit)
         .collect();
-    digits.parse::<u64>().ok().map(std::time::Duration::from_nanos)
+    digits
+        .parse::<u64>()
+        .ok()
+        .map(std::time::Duration::from_nanos)
 }
 
 pub fn idle() -> Result<std::time::Duration, OsError> {
     let Some((true, text)) = said("ioreg", &["-c", "IOHIDSystem", "-d", "4"]) else {
         return Err(OsError::Platform("`ioreg` could not be run".to_string()));
     };
-    idle_from(&text).ok_or_else(|| {
-        OsError::Platform("`ioreg` did not report HIDIdleTime".to_string())
-    })
+    idle_from(&text)
+        .ok_or_else(|| OsError::Platform("`ioreg` did not report HIDIdleTime".to_string()))
 }
 
 pub fn locked() -> Result<bool, OsError> {
@@ -130,15 +134,16 @@ pub fn locked() -> Result<bool, OsError> {
 
 pub fn locale() -> Result<String, OsError> {
     let Some((true, text)) = said("defaults", &["read", "-g", "AppleLocale"]) else {
-        return Err(OsError::Platform("`defaults read -g AppleLocale` failed".to_string()));
+        return Err(OsError::Platform(
+            "`defaults read -g AppleLocale` failed".to_string(),
+        ));
     };
     bcp47(&text).ok_or_else(|| OsError::Platform(format!("`{text}` is not a locale")))
 }
 
 pub fn timezone() -> Result<String, OsError> {
-    let target = std::fs::read_link("/etc/localtime").map_err(|error| {
-        OsError::Platform(format!("/etc/localtime is not a link: {error}"))
-    })?;
+    let target = std::fs::read_link("/etc/localtime")
+        .map_err(|error| OsError::Platform(format!("/etc/localtime is not a link: {error}")))?;
     zone_from_link(&target.to_string_lossy()).ok_or_else(|| {
         OsError::Platform(format!(
             "/etc/localtime points at {}, not into zoneinfo",
@@ -206,7 +211,10 @@ mod tests {
     #[test]
     fn idle_time_is_read_in_nanoseconds() {
         let ioreg = "  |   \"HIDIdleTime\" = 2500000000\n  |   \"Other\" = 1";
-        assert_eq!(idle_from(ioreg), Some(std::time::Duration::from_millis(2500)));
+        assert_eq!(
+            idle_from(ioreg),
+            Some(std::time::Duration::from_millis(2500))
+        );
         assert_eq!(idle_from("nothing"), None);
     }
 }

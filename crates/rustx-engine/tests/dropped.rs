@@ -67,7 +67,10 @@ fn a_page_that_prefers_to_read_reads_the_same_thing() {
     arriving(&["C:\\Travail\\dossier"]);
     // Lu une fois : ce qui a été lu n'est plus en attente, sinon un
     // battement de la page rouvrirait le même dossier sans fin.
-    assert_eq!(dropped::files(), vec![PathBuf::from("C:\\Travail\\dossier")]);
+    assert_eq!(
+        dropped::files(),
+        vec![PathBuf::from("C:\\Travail\\dossier")]
+    );
     assert!(dropped::files().is_empty());
 }
 
@@ -116,6 +119,9 @@ fn a_dropped_file_does_not_replace_the_application() {
         "got {}",
         dropped::LISTENER
     );
-    assert!(dropped::LISTENER.contains("'dragover'"), "the hover too: without it the drop is not even offered");
+    assert!(
+        dropped::LISTENER.contains("'dragover'"),
+        "the hover too: without it the drop is not even offered"
+    );
     assert!(dropped::LISTENER.contains("__rustx_dropped"));
 }

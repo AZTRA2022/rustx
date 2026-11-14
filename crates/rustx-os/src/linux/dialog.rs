@@ -133,7 +133,10 @@ fn filename(ask: &Ask) -> Vec<String> {
         (None, Some(name)) => Some(name.clone()),
         (None, None) => None,
     };
-    value.map(|value| format!("--filename={value}")).into_iter().collect()
+    value
+        .map(|value| format!("--filename={value}"))
+        .into_iter()
+        .collect()
 }
 
 /// `--file-filter="Name | *.ext1 *.ext2"`, one per declared filter.
@@ -150,8 +153,10 @@ fn filters(tool: Tool, ask: &Ask) -> Vec<String> {
             .filters
             .iter()
             .map(|(name, extensions)| {
-                let patterns: Vec<String> =
-                    extensions.iter().map(|extension| format!("*.{}", extension.trim_start_matches('.'))).collect();
+                let patterns: Vec<String> = extensions
+                    .iter()
+                    .map(|extension| format!("*.{}", extension.trim_start_matches('.')))
+                    .collect();
                 format!("--file-filter={name} | {}", patterns.join(" "))
             })
             .collect(),
@@ -195,14 +200,20 @@ fn run(tool: Tool, program: &str, arguments: &[String]) -> Result<String, Dialog
         // platform error, the more common of the two by far.
         return Err(DialogError::Cancelled);
     }
-    Ok(String::from_utf8_lossy(&out.stdout).trim_end_matches(['\n', '\r']).to_string())
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .trim_end_matches(['\n', '\r'])
+        .to_string())
 }
 
 pub fn open(ask: &Ask) -> Result<Vec<PathBuf>, DialogError> {
     let tool = chosen(std::env::var("XDG_CURRENT_DESKTOP").ok().as_deref());
     let (program, arguments) = open_arguments(tool, ask);
     let said = run(tool, program, &arguments)?;
-    Ok(said.split(SEPARATOR).filter(|piece| !piece.is_empty()).map(PathBuf::from).collect())
+    Ok(said
+        .split(SEPARATOR)
+        .filter(|piece| !piece.is_empty())
+        .map(PathBuf::from)
+        .collect())
 }
 
 pub fn save(ask: &Ask) -> Result<PathBuf, DialogError> {
@@ -234,7 +245,10 @@ mod tests {
         let ask = Ask::new("Choose an image");
         let (program, arguments) = open_arguments(Tool::Zenity, &ask);
         assert_eq!(program, "zenity");
-        assert!(arguments.contains(&"--title=Choose an image".to_string()), "got {arguments:?}");
+        assert!(
+            arguments.contains(&"--title=Choose an image".to_string()),
+            "got {arguments:?}"
+        );
     }
 
     #[test]
@@ -242,8 +256,16 @@ mod tests {
         let ask = Ask::new("Pick").many();
         let (_, arguments) = open_arguments(Tool::Zenity, &ask);
         assert!(arguments.contains(&"--multiple".to_string()));
-        assert!(arguments.iter().any(|argument| argument.starts_with("--separator=")));
-        assert!(!arguments.iter().any(|argument| argument.contains('|') && argument.starts_with("--separator")));
+        assert!(
+            arguments
+                .iter()
+                .any(|argument| argument.starts_with("--separator="))
+        );
+        assert!(
+            !arguments
+                .iter()
+                .any(|argument| argument.contains('|') && argument.starts_with("--separator"))
+        );
     }
 
     #[test]
@@ -256,14 +278,18 @@ mod tests {
         );
         let (_, kdialog_arguments) = open_arguments(Tool::Kdialog, &ask);
         assert!(
-            kdialog_arguments.iter().any(|argument| argument == "Images (*.png *.jpg)"),
+            kdialog_arguments
+                .iter()
+                .any(|argument| argument == "Images (*.png *.jpg)"),
             "got {kdialog_arguments:?}"
         );
     }
 
     #[test]
     fn a_proposed_name_and_a_starting_folder_join_into_one_filename() {
-        let ask = Ask::new("Save").starting_in("/home/me/pictures").named("export.png");
+        let ask = Ask::new("Save")
+            .starting_in("/home/me/pictures")
+            .named("export.png");
         let (_, arguments) = save_arguments(Tool::Zenity, &ask);
         assert!(
             arguments.contains(&"--filename=/home/me/pictures/export.png".to_string()),

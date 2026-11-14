@@ -14,13 +14,20 @@ fn a_secret_is_stored_read_back_replaced_and_forgotten() {
 
     secret::store(&service, account, "première — clé").expect("stored");
     assert_eq!(
-        secret::fetch(&service, account).expect("readable").as_deref(),
+        secret::fetch(&service, account)
+            .expect("readable")
+            .as_deref(),
         Some("première — clé"),
         "UTF-8 comes back as it went in"
     );
 
     secret::store(&service, account, "second").expect("replaced");
-    assert_eq!(secret::fetch(&service, account).expect("readable").as_deref(), Some("second"));
+    assert_eq!(
+        secret::fetch(&service, account)
+            .expect("readable")
+            .as_deref(),
+        Some("second")
+    );
 
     secret::forget(&service, account).expect("forgotten");
     assert_eq!(secret::fetch(&service, account).expect("readable"), None);

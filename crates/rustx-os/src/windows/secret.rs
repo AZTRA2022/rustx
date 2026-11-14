@@ -55,7 +55,9 @@ pub fn store(service: &str, account: &str, secret: &str) -> Result<(), OsError> 
     // SAFETY: chaque pointeur de la structure vit jusqu'à la fin de cette
     // fonction ; Windows copie ce qu'il garde.
     unsafe { CredWriteW(&credential, 0) }.map_err(|error| {
-        OsError::Platform(format!("the Credential Manager refused the secret: {error}"))
+        OsError::Platform(format!(
+            "the Credential Manager refused the secret: {error}"
+        ))
     })
 }
 

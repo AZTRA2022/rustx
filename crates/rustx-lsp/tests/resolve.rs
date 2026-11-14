@@ -142,7 +142,11 @@ fn resolve_is_promised_only_with_a_downstream_server() {
         &["{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}"],
         Some(canned(&[])),
     );
-    assert!(with[0].contains("\"resolveProvider\":true"), "got {}", with[0]);
+    assert!(
+        with[0].contains("\"resolveProvider\":true"),
+        "got {}",
+        with[0]
+    );
 
     let without = conversation(
         &["{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}"],

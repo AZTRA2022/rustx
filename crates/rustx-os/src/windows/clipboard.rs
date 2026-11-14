@@ -1,11 +1,11 @@
 use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL};
 use windows::Win32::Graphics::Gdi::BITMAPINFOHEADER;
 use windows::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable,
-    OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
+    CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+    RegisterClipboardFormatW, SetClipboardData,
 };
 use windows::Win32::System::Memory::{
-    GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE,
+    GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock,
 };
 use windows::core::HSTRING;
 
@@ -48,12 +48,14 @@ fn open() -> Result<Held, OsError> {
         || {
             // No window handle: this process owns the clipboard for
             // as long as the guard lives, which is one call.
-            unsafe { OpenClipboard(None) }.map(|()| Held).map_err(|error| {
-                OsError::Busy(format!(
-                    "the clipboard (another application has it open: {})",
-                    error.message()
-                ))
-            })
+            unsafe { OpenClipboard(None) }
+                .map(|()| Held)
+                .map_err(|error| {
+                    OsError::Busy(format!(
+                        "the clipboard (another application has it open: {})",
+                        error.message()
+                    ))
+                })
         },
         PATIENCE,
         BETWEEN,
@@ -345,9 +347,8 @@ fn read_dib(bytes: &[u8]) -> Result<Image, OsError> {
     // Read field by field rather than cast: the clipboard's header
     // may be a `BITMAPV5HEADER`, which starts with these same
     // fields and goes on for longer.
-    let number = |at: usize| {
-        i32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
-    };
+    let number =
+        |at: usize| i32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
     let size = number(0) as usize;
     let width = number(4);
     let height = number(8);

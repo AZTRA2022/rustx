@@ -83,14 +83,8 @@ pub fn show(pane: Pane, credits: &Credits) -> Result<(), OsError> {
     // SAFETY: deux chaînes terminées par zéro qui vivent jusqu'au
     // retour, et une poignée de fenêtre ou rien. L'appel est modal : il
     // ne rend la main qu'à la fermeture de la boîte.
-    let shown = unsafe {
-        ShellAboutW(
-            owner,
-            PCWSTR(first.as_ptr()),
-            PCWSTR(second.as_ptr()),
-            icon,
-        )
-    };
+    let shown =
+        unsafe { ShellAboutW(owner, PCWSTR(first.as_ptr()), PCWSTR(second.as_ptr()), icon) };
     if shown == 0 {
         return Err(OsError::Platform(
             "Windows refused to show the About box".to_string(),

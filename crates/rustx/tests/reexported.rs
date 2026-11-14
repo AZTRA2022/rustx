@@ -28,7 +28,11 @@ fn the_runtime_the_readme_names_is_reachable() {
         }
     });
 
-    assert_eq!(got, Some(7), "select! did not take the value the channel had");
+    assert_eq!(
+        got,
+        Some(7),
+        "select! did not take the value the channel had"
+    );
 }
 
 #[test]
@@ -50,7 +54,10 @@ fn the_tokio_a_developer_knows_is_all_there() {
     });
     let _ = std::fs::remove_file(&path);
 
-    assert_eq!(read_back.expect("the file round-tripped"), "ecrit sans bloquer");
+    assert_eq!(
+        read_back.expect("the file round-tripped"),
+        "ecrit sans bloquer"
+    );
 
     // And the pieces an application composes with, named so this file
     // stops compiling if they ever go away again.

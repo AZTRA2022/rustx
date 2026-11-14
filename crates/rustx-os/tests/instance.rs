@@ -26,10 +26,11 @@ fn a_second_instance_is_refused_by_name() {
     let name = a_name();
     let first = Only::one(&name).expect("nobody is holding that name");
     let second = Only::one(&name);
-    let said = second
-        .expect_err("the same name twice")
-        .to_string();
-    assert!(said.contains(&name), "le refus nomme l'application : {said}");
+    let said = second.expect_err("the same name twice").to_string();
+    assert!(
+        said.contains(&name),
+        "le refus nomme l'application : {said}"
+    );
     drop(first);
 }
 
@@ -92,10 +93,7 @@ fn handing_over_to_nobody_says_so() {
     let said = refused
         .expect_err("nobody is holding that name")
         .to_string();
-    assert!(
-        said.contains("rustx-test-personne-ne-tourne"),
-        "got {said}"
-    );
+    assert!(said.contains("rustx-test-personne-ne-tourne"), "got {said}");
 }
 
 #[test]

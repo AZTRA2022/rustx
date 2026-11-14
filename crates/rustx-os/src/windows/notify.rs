@@ -60,10 +60,7 @@ fn kept() -> &'static Mutex<Option<Icon>> {
 /// `.exe` installé s'enregistre dans le menu Démarrer, `ask` passera
 /// par un toast WinRT et cette constante deviendra vraie sans que la
 /// page change.
-pub fn ask(
-    _what: &What,
-    _actions: &[crate::notify::Action],
-) -> Result<Option<String>, OsError> {
+pub fn ask(_what: &What, _actions: &[crate::notify::Action]) -> Result<Option<String>, OsError> {
     Err(OsError::Unsupported(
         "buttons in a notification on Windows (a tray balloon has none; a WinRT toast does,          and needs an AppUserModelID registered in the Start menu)",
     ))

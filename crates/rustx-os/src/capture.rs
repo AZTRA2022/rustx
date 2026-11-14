@@ -87,9 +87,19 @@ mod tests {
 
     #[test]
     fn an_empty_rectangle_is_refused_before_anything_is_captured() {
-        let flat = Area { x: 0, y: 0, width: 0, height: 100 };
+        let flat = Area {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 100,
+        };
         assert!(area(flat).is_err());
-        let backwards = Area { x: 0, y: 0, width: -10, height: -10 };
+        let backwards = Area {
+            x: 0,
+            y: 0,
+            width: -10,
+            height: -10,
+        };
         assert!(area(backwards).is_err());
     }
 

@@ -55,7 +55,11 @@ pub fn reading(display: Display, format: &str) -> (&'static str, Vec<String>) {
     match display {
         Display::Wayland => (
             "wl-paste",
-            vec!["--no-newline".to_string(), "--type".to_string(), format.to_string()],
+            vec![
+                "--no-newline".to_string(),
+                "--type".to_string(),
+                format.to_string(),
+            ],
         ),
         Display::X11 => (
             "xclip",
@@ -125,9 +129,9 @@ fn write(format: &str, bytes: &[u8]) -> Result<(), OsError> {
         .spawn()
         .map_err(|error| missing(program, &error))?;
     if let Some(stdin) = child.stdin.as_mut() {
-        stdin
-            .write_all(bytes)
-            .map_err(|error| OsError::Platform(format!("`{program}` refused the bytes: {error}")))?;
+        stdin.write_all(bytes).map_err(|error| {
+            OsError::Platform(format!("`{program}` refused the bytes: {error}"))
+        })?;
     }
     // On attend : `xclip` doit avoir pris la sélection avant qu'on
     // rende la main, sinon une lecture faite tout de suite après
@@ -193,7 +197,11 @@ mod tests {
         // La sélection est nommée : sans `-selection clipboard`, `xclip`
         // parle de la sélection primaire, celle du clic du milieu, qui
         // n'est pas le presse-papiers.
-        assert!(arguments.windows(2).any(|pair| pair == ["-selection", "clipboard"]));
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["-selection", "clipboard"])
+        );
         assert!(arguments.contains(&"-out".to_string()));
     }
 

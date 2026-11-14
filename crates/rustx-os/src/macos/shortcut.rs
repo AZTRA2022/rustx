@@ -134,8 +134,7 @@ mod real {
     type EventHandlerCallRef = *mut c_void;
     type EventHandlerRef = *mut c_void;
     type EventHotKeyRef = *mut c_void;
-    type EventHandlerProc =
-        extern "C" fn(EventHandlerCallRef, EventRef, *mut c_void) -> OsStatus;
+    type EventHandlerProc = extern "C" fn(EventHandlerCallRef, EventRef, *mut c_void) -> OsStatus;
 
     #[repr(C)]
     #[derive(Clone, Copy, Default)]
@@ -204,9 +203,7 @@ mod real {
         HELD.get_or_init(|| Mutex::new(Vec::new()))
     }
 
-    fn lock<T>(
-        lock: &'static Mutex<Vec<T>>,
-    ) -> std::sync::MutexGuard<'static, Vec<T>> {
+    fn lock<T>(lock: &'static Mutex<Vec<T>>) -> std::sync::MutexGuard<'static, Vec<T>> {
         lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 

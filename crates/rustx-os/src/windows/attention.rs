@@ -4,9 +4,7 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
 };
-use windows::Win32::UI::Shell::{
-    ITaskbarList3, TBPF_NOPROGRESS, TBPF_NORMAL, TaskbarList,
-};
+use windows::Win32::UI::Shell::{ITaskbarList3, TBPF_NOPROGRESS, TBPF_NORMAL, TaskbarList};
 use windows::Win32::UI::WindowsAndMessaging::{
     FLASHW_ALL, FLASHW_TIMERNOFG, FLASHWINFO, FlashWindowEx, IsWindow,
 };
@@ -60,9 +58,13 @@ pub fn progress(pane: Pane, done: Option<f64>) -> Result<(), OsError> {
             CoCreateInstance(&TaskbarList, None, CLSCTX_INPROC_SERVER).map_err(complaint)?;
         taskbar.HrInit().map_err(complaint)?;
         match done {
-            None => taskbar.SetProgressState(window, TBPF_NOPROGRESS).map_err(complaint),
+            None => taskbar
+                .SetProgressState(window, TBPF_NOPROGRESS)
+                .map_err(complaint),
             Some(done) => {
-                taskbar.SetProgressState(window, TBPF_NORMAL).map_err(complaint)?;
+                taskbar
+                    .SetProgressState(window, TBPF_NORMAL)
+                    .map_err(complaint)?;
                 taskbar
                     .SetProgressValue(window, per_ten_thousand(done), 10_000)
                     .map_err(complaint)

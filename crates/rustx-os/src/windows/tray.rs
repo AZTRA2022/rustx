@@ -28,9 +28,9 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
-    DispatchMessageW, GetCursorPos, GetMessageW, HICON, HWND_MESSAGE, IDI_APPLICATION,
-    IMAGE_ICON, LR_DEFAULTSIZE, LR_LOADFROMFILE, LoadIconW, LoadImageW, MF_CHECKED, MF_SEPARATOR,
-    MF_STRING, MF_UNCHECKED, MSG, PostMessageW, PostQuitMessage, RegisterClassW, SetForegroundWindow,
+    DispatchMessageW, GetCursorPos, GetMessageW, HICON, HWND_MESSAGE, IDI_APPLICATION, IMAGE_ICON,
+    LR_DEFAULTSIZE, LR_LOADFROMFILE, LoadIconW, LoadImageW, MF_CHECKED, MF_SEPARATOR, MF_STRING,
+    MF_UNCHECKED, MSG, PostMessageW, PostQuitMessage, RegisterClassW, SetForegroundWindow,
     TPM_BOTTOMALIGN, TPM_RIGHTALIGN, TrackPopupMenu, TranslateMessage, WINDOW_EX_STYLE,
     WINDOW_STYLE, WM_APP, WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_LBUTTONUP, WM_RBUTTONUP, WNDCLASSW,
 };
@@ -109,8 +109,7 @@ impl Icon {
 
         let window = heard
             .recv()
-            .map_err(|_| OsError::Platform("the icon thread stopped immediately".to_string()))?
-            ?;
+            .map_err(|_| OsError::Platform("the icon thread stopped immediately".to_string()))??;
 
         Ok(Self {
             shared,
@@ -230,7 +229,9 @@ fn live(
                     "Windows n'a pas chargé l'icône : {}",
                     error.message()
                 ))));
-                unsafe { let _ = DestroyWindow(window); }
+                unsafe {
+                    let _ = DestroyWindow(window);
+                }
                 return;
             }
         }
@@ -297,8 +298,8 @@ fn removed(window: HWND) {
 /// La fenêtre invisible, et ce que son `wndproc` lira.
 fn made_window(shared: &Arc<Shared>) -> Result<(HWND, Held), OsError> {
     let class = wide(std::ffi::OsStr::new("rustx-tray-window"));
-    let instance = unsafe { GetModuleHandleW(None) }
-        .map_err(|error| OsError::Platform(error.message()))?;
+    let instance =
+        unsafe { GetModuleHandleW(None) }.map_err(|error| OsError::Platform(error.message()))?;
 
     let description = WNDCLASSW {
         lpfnWndProc: Some(answered),

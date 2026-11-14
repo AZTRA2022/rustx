@@ -125,10 +125,7 @@ pub fn asking(what: &What, actions: &[crate::notify::Action]) -> Vec<String> {
     asked
 }
 
-pub fn ask(
-    what: &What,
-    actions: &[crate::notify::Action],
-) -> Result<Option<String>, OsError> {
+pub fn ask(what: &What, actions: &[crate::notify::Action]) -> Result<Option<String>, OsError> {
     let out = Command::new("notify-send")
         .args(asking(what, actions))
         .stdin(Stdio::null())
@@ -143,8 +140,7 @@ pub fn ask(
         let said = String::from_utf8_lossy(&out.stderr);
         // Une libnotify d'avant 0.8 ne connaît ni `--action` ni
         // `--wait`, et le dit comme toute option inconnue.
-        if said.contains("--action") || said.contains("--wait") || said.contains("Unknown option")
-        {
+        if said.contains("--action") || said.contains("--wait") || said.contains("Unknown option") {
             return Err(OsError::Unsupported(
                 "buttons in a notification with this `notify-send` (--action and --wait came                  with libnotify 0.8)",
             ));
@@ -167,13 +163,28 @@ mod asking_tests {
     #[test]
     fn every_button_becomes_an_action_option_and_the_call_waits() {
         let what = What::new("Sauvegarde", "It is ready.");
-        let actions = [Action::new("open", "Ouvrir"), Action::new("later", "Plus tard")];
+        let actions = [
+            Action::new("open", "Ouvrir"),
+            Action::new("later", "Plus tard"),
+        ];
         let arguments = asking(&what, &actions);
-        assert_eq!(arguments[0], "--wait", "without it there is nothing to read");
-        assert!(arguments.contains(&"--action=open=Ouvrir".to_string()), "{arguments:?}");
-        assert!(arguments.contains(&"--action=later=Plus tard".to_string()), "{arguments:?}");
+        assert_eq!(
+            arguments[0], "--wait",
+            "without it there is nothing to read"
+        );
+        assert!(
+            arguments.contains(&"--action=open=Ouvrir".to_string()),
+            "{arguments:?}"
+        );
+        assert!(
+            arguments.contains(&"--action=later=Plus tard".to_string()),
+            "{arguments:?}"
+        );
         // Le titre et le corps restent derrière `--`.
-        let separator = arguments.iter().position(|each| each == "--").expect("a --");
+        let separator = arguments
+            .iter()
+            .position(|each| each == "--")
+            .expect("a --");
         assert_eq!(arguments[separator + 1], "Sauvegarde");
         assert_eq!(arguments[separator + 2], "It is ready.");
     }
@@ -182,6 +193,9 @@ mod asking_tests {
     fn a_label_that_looks_like_an_option_stays_a_label() {
         let actions = [Action::new("rm", "--force")];
         let arguments = asking(&What::new("t", "b"), &actions);
-        assert!(arguments.contains(&"--action=rm=--force".to_string()), "{arguments:?}");
+        assert!(
+            arguments.contains(&"--action=rm=--force".to_string()),
+            "{arguments:?}"
+        );
     }
 }

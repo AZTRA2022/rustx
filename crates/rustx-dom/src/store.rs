@@ -63,12 +63,22 @@ impl<T> Held<T> {
     /// somebody else's, and a page that refuses to draw because of it
     /// is a worse answer than a page that draws what is there.
     fn read<R>(&self, with: impl FnOnce(&T) -> R) -> R {
-        with(&self.value.read().unwrap_or_else(|poisoned| poisoned.into_inner()))
+        with(
+            &self
+                .value
+                .read()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
     }
 
     /// The value, to change in place.
     fn write<R>(&self, with: impl FnOnce(&mut T) -> R) -> R {
-        with(&mut self.value.write().unwrap_or_else(|poisoned| poisoned.into_inner()))
+        with(
+            &mut self
+                .value
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
     }
 
     /// The value, if reading it right now would not wait.
@@ -261,7 +271,12 @@ impl<T> Clone for Reach<T> {
 impl<T: 'static> Reach<T> {
     /// The value, for as long as `read` runs.
     pub fn with<R>(&self, read: impl FnOnce(&T) -> R) -> R {
-        read(&self.value.read().unwrap_or_else(|poisoned| poisoned.into_inner()))
+        read(
+            &self
+                .value
+                .read()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
     }
 
     /// Change the value, on the next frame of the thread that owns it.

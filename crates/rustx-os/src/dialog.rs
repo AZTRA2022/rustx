@@ -72,8 +72,10 @@ impl Ask {
         name: impl Into<String>,
         extensions: impl IntoIterator<Item = E>,
     ) -> Self {
-        self.filters
-            .push((name.into(), extensions.into_iter().map(Into::into).collect()));
+        self.filters.push((
+            name.into(),
+            extensions.into_iter().map(Into::into).collect(),
+        ));
         self
     }
 
@@ -140,7 +142,10 @@ pub fn patterns_for(filters: &[(String, Vec<String>)]) -> Vec<(String, String)> 
             let patterns: Vec<String> = extensions
                 .iter()
                 .map(|extension| {
-                    let extension = extension.trim().trim_start_matches('*').trim_start_matches('.');
+                    let extension = extension
+                        .trim()
+                        .trim_start_matches('*')
+                        .trim_start_matches('.');
                     format!("*.{extension}")
                 })
                 .collect();

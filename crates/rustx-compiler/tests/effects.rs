@@ -175,7 +175,9 @@ fn a_task_whose_argument_is_an_async_block_spawns_a_future() {
     );
     assert!(rust.contains("keep_at"), "got {rust}");
     assert!(
-        rust.contains("rustx_engine::task::spawn_future_until(__cancel, async move { work().await; })"),
+        rust.contains(
+            "rustx_engine::task::spawn_future_until(__cancel, async move { work().await; })"
+        ),
         "got {rust}"
     );
 }
@@ -193,8 +195,7 @@ fn a_task_whose_argument_is_a_closure_still_spawns_a_thread() {
 fn an_async_task_keeps_the_line_count_of_what_it_replaced() {
     // Plan 2's position map rests on the line count: an error `rustc`
     // reports at line 4 has to be line 4 of the `.rsx`.
-    let source =
-        "fn C() -> Element {\n    task(async move {\n        work().await;\n    });\n    return <p>ok</p>;\n}";
+    let source = "fn C() -> Element {\n    task(async move {\n        work().await;\n    });\n    return <p>ok</p>;\n}";
     let rust = rewrite_one(source);
     assert_eq!(
         rust.matches('\n').count(),

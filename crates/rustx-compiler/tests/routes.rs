@@ -415,8 +415,7 @@ fn a_layout_whose_first_parameter_is_not_children_is_still_refused() {
 
 // ────────────────────── L'écran d'attente d'un segment ──────────────────────
 
-const LOADING: &str =
-    "fn Loading() -> Element {\n    return <p>un instant</p>;\n}\n";
+const LOADING: &str = "fn Loading() -> Element {\n    return <p>un instant</p>;\n}\n";
 
 #[test]
 fn a_loading_file_becomes_the_screen_shown_while_a_page_has_nothing() {
@@ -432,7 +431,10 @@ fn the_nearest_loading_file_is_the_one_a_page_gets() {
     let generated = table(&[
         ("loading.rsx", LOADING),
         ("depots/loading.rsx", LOADING),
-        ("depots/[nom]/page.rsx", "fn Page(nom: String) -> Element {\n    return <p>{nom}</p>;\n}\n"),
+        (
+            "depots/[nom]/page.rsx",
+            "fn Page(nom: String) -> Element {\n    return <p>{nom}</p>;\n}\n",
+        ),
     ]);
     // Deux fichiers d'attente, et c'est le plus proche de la page qui
     // la couvre -- comme un layout, mais un seul, le plus bas.
@@ -450,8 +452,7 @@ fn a_page_with_no_loading_file_above_it_has_none() {
 
 // ──────────────────── La frontière d'erreur d'un segment ────────────────────
 
-const ERREUR: &str =
-    "fn Error(pourquoi: String) -> Element {\n    return <p>{pourquoi}</p>;\n}\n";
+const ERREUR: &str = "fn Error(pourquoi: String) -> Element {\n    return <p>{pourquoi}</p>;\n}\n";
 
 #[test]
 fn an_error_file_becomes_the_screen_shown_when_a_page_falls_over() {
@@ -484,7 +485,10 @@ fn a_page_with_no_error_file_above_it_has_none() {
 #[test]
 fn an_error_screen_that_does_not_take_the_reason_is_refused() {
     let error = table_for(Path::new(&tree(&[
-        ("error.rsx", "fn Error() -> Element {\n    return <p>raté</p>;\n}\n"),
+        (
+            "error.rsx",
+            "fn Error() -> Element {\n    return <p>raté</p>;\n}\n",
+        ),
         ("page.rsx", PAGE),
     ])))
     .expect_err("this cannot be generated");

@@ -27,7 +27,12 @@ use rustx_lsp::documents::{Change, Documents, Position};
 /// written in the units the specification counts in and sharing nothing
 /// with the one under test.
 fn reference(text: &str, change: &Change) -> String {
-    let Change::Ranged { start, end, text: inserted } = change else {
+    let Change::Ranged {
+        start,
+        end,
+        text: inserted,
+    } = change
+    else {
         let Change::Whole(whole) = change else {
             unreachable!()
         };
@@ -63,10 +68,7 @@ fn reference(text: &str, change: &Change) -> String {
         }
         // A position inside a surrogate pair is the character it is
         // inside, which is the only one that is a position in a text.
-        while wanted > offset
-            && wanted < units.len()
-            && (0xDC00..0xE000).contains(&units[wanted])
-        {
+        while wanted > offset && wanted < units.len() && (0xDC00..0xE000).contains(&units[wanted]) {
             wanted -= 1;
         }
         wanted
@@ -222,10 +224,7 @@ fn ten_thousand_random_changes_agree_with_the_reference() {
                 std::slice::from_ref(&change),
             );
             let got = held.text("file:///c:/p/app/page.rsx").expect("a text");
-            assert_eq!(
-                got, expected,
-                "seed {seed}, step {step}, change {change:?}"
-            );
+            assert_eq!(got, expected, "seed {seed}, step {step}, change {change:?}");
             checked += 1;
         }
     }
@@ -271,11 +270,7 @@ fn a_whole_text_change_is_always_exactly_the_text() {
     held.opened("u", String::new(), 1);
     for step in 0..500 {
         let text = starting_text(&mut dice);
-        held.changed(
-            "u",
-            Some(step + 2),
-            &[Change::Whole(text.clone())],
-        );
+        held.changed("u", Some(step + 2), &[Change::Whole(text.clone())]);
         assert_eq!(held.text("u"), Some(text.as_str()));
     }
 }
@@ -387,14 +382,24 @@ fn the_server_publishes_what_the_compiler_says_about_the_text_it_holds() {
             .map(|found| {
                 format!(
                     "{}:{}-{}",
-                    found.get("range").get("start").get("line").as_i64().unwrap_or(-1),
+                    found
+                        .get("range")
+                        .get("start")
+                        .get("line")
+                        .as_i64()
+                        .unwrap_or(-1),
                     found
                         .get("range")
                         .get("start")
                         .get("character")
                         .as_i64()
                         .unwrap_or(-1),
-                    found.get("range").get("end").get("character").as_i64().unwrap_or(-1),
+                    found
+                        .get("range")
+                        .get("end")
+                        .get("character")
+                        .as_i64()
+                        .unwrap_or(-1),
                 )
             })
             .collect();

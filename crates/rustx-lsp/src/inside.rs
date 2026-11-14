@@ -431,7 +431,12 @@ fn read(before: &str) -> Place {
                 typed
             },
         },
-        State::Attributes { tag, typed, already, .. } => Place::AttributeName {
+        State::Attributes {
+            tag,
+            typed,
+            already,
+            ..
+        } => Place::AttributeName {
             tag,
             typed,
             already,

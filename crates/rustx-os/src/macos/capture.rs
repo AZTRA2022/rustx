@@ -122,9 +122,7 @@ fn run(arguments: &[&str], into: &std::path::Path) -> Result<Image, OsError> {
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .output()
-        .map_err(|error| {
-            OsError::Platform(format!("`screencapture` could not be run: {error}"))
-        })?;
+        .map_err(|error| OsError::Platform(format!("`screencapture` could not be run: {error}")))?;
     if !done.status.success() {
         return Err(OsError::Platform(format!(
             "`screencapture` failed: {}",
@@ -143,7 +141,13 @@ pub fn area(area: Option<Area>) -> Result<Image, OsError> {
         // `-x` keeps the shutter sound quiet — a capture an application
         // takes for its own purposes should not click.
         Some(area) => run(
-            &["-x", "-t", "bmp", "-R", &format!("{},{},{},{}", area.x, area.y, area.width, area.height)],
+            &[
+                "-x",
+                "-t",
+                "bmp",
+                "-R",
+                &format!("{},{},{},{}", area.x, area.y, area.width, area.height),
+            ],
             &scratch.0,
         ),
         None => run(&["-x", "-t", "bmp"], &scratch.0),
@@ -199,7 +203,10 @@ mod tests {
     fn a_top_down_bmp_is_left_alone() {
         let image = read_bmp(&bmp(-3)).expect("an image");
         assert_eq!(image.height, 3);
-        assert_eq!(image.bgra[0], 0, "the first stored row is already the top one");
+        assert_eq!(
+            image.bgra[0], 0,
+            "the first stored row is already the top one"
+        );
     }
 
     #[test]

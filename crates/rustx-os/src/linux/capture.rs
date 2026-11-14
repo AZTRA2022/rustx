@@ -29,7 +29,12 @@ use crate::window::Pane;
 /// bits, et chaque pixel y est déjà B, G, R, puis un octet inutilisé —
 /// il ne reste qu'à mettre l'alpha à 255, parce que X11 n'en a pas et
 /// qu'un alpha à zéro donne une image entièrement transparente.
-pub(crate) fn to_bgra(bytes: &[u8], width: u32, height: u32, depth: u8) -> Result<Vec<u8>, OsError> {
+pub(crate) fn to_bgra(
+    bytes: &[u8],
+    width: u32,
+    height: u32,
+    depth: u8,
+) -> Result<Vec<u8>, OsError> {
     let per_pixel = match depth {
         24 | 32 => 4,
         16 => 2,
@@ -136,7 +141,12 @@ fn grab(area: Option<Area>, from: Option<u32>) -> Result<Image, OsError> {
     Ok(Image {
         width: u32::from(width),
         height: u32::from(height),
-        bgra: to_bgra(&image.data, u32::from(width), u32::from(height), image.depth)?,
+        bgra: to_bgra(
+            &image.data,
+            u32::from(width),
+            u32::from(height),
+            image.depth,
+        )?,
     })
 }
 
@@ -179,16 +189,25 @@ mod tests {
     fn x11_has_no_alpha_so_the_image_is_never_transparent() {
         let bytes = [1, 2, 3, 0];
         let bgra = to_bgra(&bytes, 1, 1, 32).expect("an image");
-        assert_eq!(bgra[3], 255, "an alpha of zero would be an invisible capture");
+        assert_eq!(
+            bgra[3], 255,
+            "an alpha of zero would be an invisible capture"
+        );
     }
 
     #[test]
     fn a_sixteen_bit_screen_is_spread_back_over_eight_bits() {
         // Blanc en 5-6-5 : tous les bits à un.
         let bytes = u16::MAX.to_le_bytes();
-        assert_eq!(to_bgra(&bytes, 1, 1, 16).expect("an image"), vec![255, 255, 255, 255]);
+        assert_eq!(
+            to_bgra(&bytes, 1, 1, 16).expect("an image"),
+            vec![255, 255, 255, 255]
+        );
         // Noir reste noir.
-        assert_eq!(to_bgra(&[0, 0], 1, 1, 16).expect("an image"), vec![0, 0, 0, 255]);
+        assert_eq!(
+            to_bgra(&[0, 0], 1, 1, 16).expect("an image"),
+            vec![0, 0, 0, 255]
+        );
     }
 
     #[test]

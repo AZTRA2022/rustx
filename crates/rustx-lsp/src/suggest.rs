@@ -351,10 +351,7 @@ pub const AT_MOST: usize = 800;
 pub fn list(items: &[Item]) -> String {
     let partial = items.len() > AT_MOST;
     let shown = if partial { &items[..AT_MOST] } else { items };
-    format!(
-        "{{\"isIncomplete\":{partial},\"items\":{}}}",
-        json(shown)
-    )
+    format!("{{\"isIncomplete\":{partial},\"items\":{}}}", json(shown))
 }
 
 /// The LSP answer for a list of items.
@@ -491,10 +488,13 @@ mod tests {
         let root = std::env::temp_dir().join("rustx-lsp-props-test");
         let ui = root.join("components").join("ui");
         std::fs::create_dir_all(&ui).expect("a place to put the fixture");
-        std::fs::write(root.join("package.json"), "{
+        std::fs::write(
+            root.join("package.json"),
+            "{
   \"dependencies\": {}
-}")
-            .expect("a manifest");
+}",
+        )
+        .expect("a manifest");
         std::fs::write(
             ui.join("button.tsx"),
             "import * as React from \"react\";

@@ -74,7 +74,9 @@ pub fn screens() -> Result<Vec<Screen>, OsError> {
                     .and_then(|name| {
                         let utf8: *const std::ffi::c_char = msg_send![&*name, UTF8String];
                         (!utf8.is_null()).then(|| {
-                            std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned()
+                            std::ffi::CStr::from_ptr(utf8)
+                                .to_string_lossy()
+                                .into_owned()
                         })
                     })
                     .unwrap_or_else(|| format!("screen {}", index + 1));
@@ -120,7 +122,12 @@ mod tests {
         // and the whole screen starts at the top left in ours.
         assert_eq!(
             flipped(0.0, 0.0, 2560.0, 1440.0, 1440.0),
-            Area { x: 0, y: 0, width: 2560, height: 1440 }
+            Area {
+                x: 0,
+                y: 0,
+                width: 2560,
+                height: 1440
+            }
         );
     }
 
@@ -131,7 +138,12 @@ mod tests {
         // out as a y of 0 at the top plus a shorter height.
         assert_eq!(
             flipped(0.0, 25.0, 2560.0, 1415.0, 1440.0),
-            Area { x: 0, y: 0, width: 2560, height: 1415 }
+            Area {
+                x: 0,
+                y: 0,
+                width: 2560,
+                height: 1415
+            }
         );
     }
 
@@ -141,7 +153,12 @@ mod tests {
         // (Cocoa y = 1440): in our coordinates it is entirely above zero.
         assert_eq!(
             flipped(0.0, 1440.0, 1920.0, 1080.0, 1440.0),
-            Area { x: 0, y: -1080, width: 1920, height: 1080 }
+            Area {
+                x: 0,
+                y: -1080,
+                width: 1920,
+                height: 1080
+            }
         );
     }
 }

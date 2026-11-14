@@ -324,8 +324,7 @@ impl<'a> Reader<'a> {
                 self.at += 2;
                 if let Some(second) = self.four_digits() {
                     if (0xDC00..0xE000).contains(&second) {
-                        let code =
-                            0x10000 + ((first - 0xD800) << 10) + (second - 0xDC00);
+                        let code = 0x10000 + ((first - 0xD800) << 10) + (second - 0xDC00);
                         if let Some(letter) = char::from_u32(code) {
                             return Some(letter);
                         }
@@ -393,10 +392,7 @@ mod tests {
     #[test]
     fn every_escape_json_defines_is_decoded() {
         let read = parse(r#"{"t":"\"\\\/\b\f\n\r\té"}"#).expect("a message");
-        assert_eq!(
-            read.get("t").as_str(),
-            Some("\"\\/\u{8}\u{c}\n\r\t\u{e9}")
-        );
+        assert_eq!(read.get("t").as_str(), Some("\"\\/\u{8}\u{c}\n\r\t\u{e9}"));
     }
 
     #[test]
@@ -413,7 +409,15 @@ mod tests {
     #[test]
     fn nothing_that_is_not_json_is_read_as_json() {
         for broken in [
-            "", "{", "[", "{\"a\"}", "{\"a\":}", "nul", "{,}", "[1,]", "\"unterminated",
+            "",
+            "{",
+            "[",
+            "{\"a\"}",
+            "{\"a\":}",
+            "nul",
+            "{,}",
+            "[1,]",
+            "\"unterminated",
         ] {
             assert!(parse(broken).is_none(), "{broken:?} was read as JSON");
         }

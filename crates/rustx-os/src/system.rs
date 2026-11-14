@@ -13,8 +13,8 @@
 //! mensonge que l'application affiche.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crate::error::OsError;
@@ -202,7 +202,11 @@ mod tests {
         // Aucune valeur n'est épinglée — c'est la machine de celui qui
         // lance les tests — mais une réponse est soit une réponse, soit
         // un refus qui dit quoi.
-        for answer in [theme().map(|_| ()), power().map(|_| ()), locale().map(|_| ())] {
+        for answer in [
+            theme().map(|_| ()),
+            power().map(|_| ()),
+            locale().map(|_| ()),
+        ] {
             if let Err(refused) = answer {
                 assert!(!refused.to_string().is_empty());
             }

@@ -65,6 +65,5 @@ fn opening_route() -> &'static str {
 }
 
 fn named_scenario() -> Option<String> {
-    std::env::args()
-        .find_map(|argument| argument.strip_prefix("--scenario=").map(str::to_string))
+    std::env::args().find_map(|argument| argument.strip_prefix("--scenario=").map(str::to_string))
 }

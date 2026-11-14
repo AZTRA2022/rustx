@@ -135,22 +135,59 @@ pub fn starting_departments() -> Vec<Department> {
         Department {
             slug: "lighting".to_string(),
             name: "Lighting".to_string(),
-            crew: built("light", &["Gaffer", "Best Boy", "Spark", "Rigger", "Board Op", "Spark", "Spark", "Rigger", "Spark", "Trainee"]),
+            crew: built(
+                "light",
+                &[
+                    "Gaffer", "Best Boy", "Spark", "Rigger", "Board Op", "Spark", "Spark",
+                    "Rigger", "Spark", "Trainee",
+                ],
+            ),
         },
         Department {
             slug: "sound".to_string(),
             name: "Sound".to_string(),
-            crew: built("sound", &["Mixer", "Boom", "Utility", "Mixer", "Boom", "Utility"]),
+            crew: built(
+                "sound",
+                &["Mixer", "Boom", "Utility", "Mixer", "Boom", "Utility"],
+            ),
         },
         Department {
             slug: "art-department".to_string(),
             name: "Art Department".to_string(),
-            crew: built("art", &["Designer", "Buyer", "Dresser", "Standby", "Buyer", "Dresser", "Standby", "Carpenter", "Painter", "Trainee", "Runner", "Runner"]),
+            crew: built(
+                "art",
+                &[
+                    "Designer",
+                    "Buyer",
+                    "Dresser",
+                    "Standby",
+                    "Buyer",
+                    "Dresser",
+                    "Standby",
+                    "Carpenter",
+                    "Painter",
+                    "Trainee",
+                    "Runner",
+                    "Runner",
+                ],
+            ),
         },
         Department {
             slug: "post-production".to_string(),
             name: "Post Production".to_string(),
-            crew: built("post", &["Editor", "Assistant", "Colourist", "Sound Ed", "VFX", "VFX", "Online", "Runner"]),
+            crew: built(
+                "post",
+                &[
+                    "Editor",
+                    "Assistant",
+                    "Colourist",
+                    "Sound Ed",
+                    "VFX",
+                    "VFX",
+                    "Online",
+                    "Runner",
+                ],
+            ),
         },
         Department {
             slug: "locations".to_string(),
@@ -177,13 +214,22 @@ fn named(people: &[(&str, &str, &str)]) -> Vec<Person> {
 /// A department's crew, named from its own initial so that two
 /// departments are never the same list.
 fn built(prefix: &str, jobs: &[&str]) -> Vec<Person> {
-    let firsts = ["Ada", "Ben", "Cleo", "Dev", "Enzo", "Fay", "Gus", "Hana", "Ivo", "Juno", "Kit", "Lio"];
-    let lasts = ["Arden", "Bly", "Cross", "Dane", "Ebe", "Falk", "Gray", "Holt", "Ives", "Jarl", "Kerr", "Lund"];
+    let firsts = [
+        "Ada", "Ben", "Cleo", "Dev", "Enzo", "Fay", "Gus", "Hana", "Ivo", "Juno", "Kit", "Lio",
+    ];
+    let lasts = [
+        "Arden", "Bly", "Cross", "Dane", "Ebe", "Falk", "Gray", "Holt", "Ives", "Jarl", "Kerr",
+        "Lund",
+    ];
     jobs.iter()
         .enumerate()
         .map(|(index, job)| Person {
             id: format!("{prefix}{}", index + 1),
-            name: format!("{} {}", firsts[index % firsts.len()], lasts[(index + prefix.len()) % lasts.len()]),
+            name: format!(
+                "{} {}",
+                firsts[index % firsts.len()],
+                lasts[(index + prefix.len()) % lasts.len()]
+            ),
             email: format!("{}{}@reelhouse.co", prefix, index + 1),
             role: if index == 0 {
                 "Lead".to_string()
@@ -198,14 +244,54 @@ fn built(prefix: &str, jobs: &[&str]) -> Vec<Person> {
 
 pub fn starting_activity() -> Vec<Happened> {
     vec![
-        Happened { who: "Nadia Okafor".to_string(), what: "added a B-cam operator".to_string(), when_said: "2 hrs".to_string(), week: false },
-        Happened { who: "Tom Rivers".to_string(), what: "logged 4 magazines".to_string(), when_said: "3 hrs".to_string(), week: false },
-        Happened { who: "Aline Sousa".to_string(), what: "updated the lens list".to_string(), when_said: "5 hrs".to_string(), week: false },
-        Happened { who: "Marek Kowal".to_string(), what: "completed safety induction".to_string(), when_said: "1 day".to_string(), week: true },
-        Happened { who: "Priya Menon".to_string(), what: "moved call time to 06:30".to_string(), when_said: "2 days".to_string(), week: true },
-        Happened { who: "Jonah Blake".to_string(), what: "flagged a gate check".to_string(), when_said: "3 days".to_string(), week: true },
-        Happened { who: "Esme Laurent".to_string(), what: "uploaded dailies".to_string(), when_said: "4 days".to_string(), week: true },
-        Happened { who: "Kofi Mensah".to_string(), what: "requested a kit swap".to_string(), when_said: "5 days".to_string(), week: true },
+        Happened {
+            who: "Nadia Okafor".to_string(),
+            what: "added a B-cam operator".to_string(),
+            when_said: "2 hrs".to_string(),
+            week: false,
+        },
+        Happened {
+            who: "Tom Rivers".to_string(),
+            what: "logged 4 magazines".to_string(),
+            when_said: "3 hrs".to_string(),
+            week: false,
+        },
+        Happened {
+            who: "Aline Sousa".to_string(),
+            what: "updated the lens list".to_string(),
+            when_said: "5 hrs".to_string(),
+            week: false,
+        },
+        Happened {
+            who: "Marek Kowal".to_string(),
+            what: "completed safety induction".to_string(),
+            when_said: "1 day".to_string(),
+            week: true,
+        },
+        Happened {
+            who: "Priya Menon".to_string(),
+            what: "moved call time to 06:30".to_string(),
+            when_said: "2 days".to_string(),
+            week: true,
+        },
+        Happened {
+            who: "Jonah Blake".to_string(),
+            what: "flagged a gate check".to_string(),
+            when_said: "3 days".to_string(),
+            week: true,
+        },
+        Happened {
+            who: "Esme Laurent".to_string(),
+            what: "uploaded dailies".to_string(),
+            when_said: "4 days".to_string(),
+            week: true,
+        },
+        Happened {
+            who: "Kofi Mensah".to_string(),
+            what: "requested a kit swap".to_string(),
+            when_said: "5 days".to_string(),
+            week: true,
+        },
     ]
 }
 
@@ -219,7 +305,11 @@ pub fn call_sheets() -> Vec<CallSheet> {
             location: "Quayside warehouse, stage 2".to_string(),
             call: "06:30".to_string(),
             wrap: "19:00".to_string(),
-            scenes: vec!["42 · int. warehouse · day".to_string(), "42A · insert, hands".to_string(), "43 · int. corridor · day".to_string()],
+            scenes: vec![
+                "42 · int. warehouse · day".to_string(),
+                "42A · insert, hands".to_string(),
+                "43 · int. corridor · day".to_string(),
+            ],
             locked: true,
         },
         CallSheet {
@@ -230,7 +320,10 @@ pub fn call_sheets() -> Vec<CallSheet> {
             location: "Quayside warehouse, stage 2".to_string(),
             call: "07:00".to_string(),
             wrap: "19:30".to_string(),
-            scenes: vec!["44 · int. office · night".to_string(), "45 · int. office · night".to_string()],
+            scenes: vec![
+                "44 · int. office · night".to_string(),
+                "45 · int. office · night".to_string(),
+            ],
             locked: true,
         },
         CallSheet {
@@ -241,7 +334,11 @@ pub fn call_sheets() -> Vec<CallSheet> {
             location: "Harbour road, east end".to_string(),
             call: "05:45".to_string(),
             wrap: "16:00".to_string(),
-            scenes: vec!["12B · ext. road · dawn".to_string(), "12C · ext. road · dawn".to_string(), "13 · ext. junction".to_string()],
+            scenes: vec![
+                "12B · ext. road · dawn".to_string(),
+                "12C · ext. road · dawn".to_string(),
+                "13 · ext. junction".to_string(),
+            ],
             locked: false,
         },
         CallSheet {
@@ -263,7 +360,10 @@ pub fn call_sheets() -> Vec<CallSheet> {
             location: "Riverside house, garden".to_string(),
             call: "07:30".to_string(),
             wrap: "18:30".to_string(),
-            scenes: vec!["52 · ext. garden · day".to_string(), "53 · ext. garden · dusk".to_string()],
+            scenes: vec![
+                "52 · ext. garden · day".to_string(),
+                "53 · ext. garden · dusk".to_string(),
+            ],
             locked: false,
         },
     ]
@@ -274,8 +374,17 @@ pub fn call_sheet_named(slug: &str) -> Option<CallSheet> {
 }
 
 pub fn footage() -> Vec<Clip> {
-    let scenes = ["42", "42A", "43", "44", "45", "12B", "12C", "13", "51", "52", "53", "54"];
-    let departments = ["Camera", "Camera", "Second unit", "Camera", "Sound", "Camera"];
+    let scenes = [
+        "42", "42A", "43", "44", "45", "12B", "12C", "13", "51", "52", "53", "54",
+    ];
+    let departments = [
+        "Camera",
+        "Camera",
+        "Second unit",
+        "Camera",
+        "Sound",
+        "Camera",
+    ];
     scenes
         .iter()
         .enumerate()
@@ -284,7 +393,11 @@ pub fn footage() -> Vec<Clip> {
                 reel: format!("A{:03}", index * 3 + take as usize),
                 scene: scene.to_string(),
                 take,
-                length: format!("{:01}:{:02}", 1 + (index + take as usize) % 4, (index * 13 + take as usize * 7) % 60),
+                length: format!(
+                    "{:01}:{:02}",
+                    1 + (index + take as usize) % 4,
+                    (index * 13 + take as usize * 7) % 60
+                ),
                 department: departments[index % departments.len()].to_string(),
                 graded: (index + take as usize) % 3 == 0,
             })
@@ -294,17 +407,72 @@ pub fn footage() -> Vec<Clip> {
 
 pub fn budget_lines() -> Vec<BudgetLine> {
     vec![
-        BudgetLine { head: "Camera package".to_string(), department: "Camera".to_string(), planned: 184_000.0, spent: 171_400.0 },
-        BudgetLine { head: "Lenses and filters".to_string(), department: "Camera".to_string(), planned: 62_000.0, spent: 64_900.0 },
-        BudgetLine { head: "Lighting hire".to_string(), department: "Lighting".to_string(), planned: 148_000.0, spent: 121_300.0 },
-        BudgetLine { head: "Generators and power".to_string(), department: "Lighting".to_string(), planned: 41_000.0, spent: 38_200.0 },
-        BudgetLine { head: "Sound package".to_string(), department: "Sound".to_string(), planned: 54_000.0, spent: 49_750.0 },
-        BudgetLine { head: "Set build".to_string(), department: "Art Department".to_string(), planned: 236_000.0, spent: 248_600.0 },
-        BudgetLine { head: "Dressing and props".to_string(), department: "Art Department".to_string(), planned: 88_000.0, spent: 72_100.0 },
-        BudgetLine { head: "Edit suite".to_string(), department: "Post Production".to_string(), planned: 96_000.0, spent: 40_000.0 },
-        BudgetLine { head: "Grade and online".to_string(), department: "Post Production".to_string(), planned: 74_000.0, spent: 0.0 },
-        BudgetLine { head: "Location fees".to_string(), department: "Locations".to_string(), planned: 112_000.0, spent: 103_450.0 },
-        BudgetLine { head: "Unit and parking".to_string(), department: "Locations".to_string(), planned: 37_000.0, spent: 35_900.0 },
+        BudgetLine {
+            head: "Camera package".to_string(),
+            department: "Camera".to_string(),
+            planned: 184_000.0,
+            spent: 171_400.0,
+        },
+        BudgetLine {
+            head: "Lenses and filters".to_string(),
+            department: "Camera".to_string(),
+            planned: 62_000.0,
+            spent: 64_900.0,
+        },
+        BudgetLine {
+            head: "Lighting hire".to_string(),
+            department: "Lighting".to_string(),
+            planned: 148_000.0,
+            spent: 121_300.0,
+        },
+        BudgetLine {
+            head: "Generators and power".to_string(),
+            department: "Lighting".to_string(),
+            planned: 41_000.0,
+            spent: 38_200.0,
+        },
+        BudgetLine {
+            head: "Sound package".to_string(),
+            department: "Sound".to_string(),
+            planned: 54_000.0,
+            spent: 49_750.0,
+        },
+        BudgetLine {
+            head: "Set build".to_string(),
+            department: "Art Department".to_string(),
+            planned: 236_000.0,
+            spent: 248_600.0,
+        },
+        BudgetLine {
+            head: "Dressing and props".to_string(),
+            department: "Art Department".to_string(),
+            planned: 88_000.0,
+            spent: 72_100.0,
+        },
+        BudgetLine {
+            head: "Edit suite".to_string(),
+            department: "Post Production".to_string(),
+            planned: 96_000.0,
+            spent: 40_000.0,
+        },
+        BudgetLine {
+            head: "Grade and online".to_string(),
+            department: "Post Production".to_string(),
+            planned: 74_000.0,
+            spent: 0.0,
+        },
+        BudgetLine {
+            head: "Location fees".to_string(),
+            department: "Locations".to_string(),
+            planned: 112_000.0,
+            spent: 103_450.0,
+        },
+        BudgetLine {
+            head: "Unit and parking".to_string(),
+            department: "Locations".to_string(),
+            planned: 37_000.0,
+            spent: 35_900.0,
+        },
     ]
 }
 
@@ -360,7 +528,13 @@ pub fn help_topic_named(slug: &str) -> Option<HelpTopic> {
 pub fn slugify(name: &str) -> String {
     name.to_lowercase()
         .chars()
-        .map(|letter| if letter.is_ascii_alphanumeric() { letter } else { '-' })
+        .map(|letter| {
+            if letter.is_ascii_alphanumeric() {
+                letter
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .trim_matches('-')
         .to_string()
@@ -415,12 +589,20 @@ pub fn read_machine() -> Vec<(String, String)> {
     };
     vec![
         ("system theme".to_string(), theme),
-        ("locale".to_string(), rustx::os::system::locale().unwrap_or_else(|_| "unknown".to_string())),
-        ("timezone".to_string(), rustx::os::system::timezone().unwrap_or_else(|_| "unknown".to_string())),
+        (
+            "locale".to_string(),
+            rustx::os::system::locale().unwrap_or_else(|_| "unknown".to_string()),
+        ),
+        (
+            "timezone".to_string(),
+            rustx::os::system::timezone().unwrap_or_else(|_| "unknown".to_string()),
+        ),
         ("shell".to_string(), shell),
         (
             "working directory".to_string(),
-            std::env::current_dir().map(|path| path.display().to_string()).unwrap_or_default(),
+            std::env::current_dir()
+                .map(|path| path.display().to_string())
+                .unwrap_or_default(),
         ),
     ]
 }

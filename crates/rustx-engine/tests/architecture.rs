@@ -189,10 +189,7 @@ fn nested_components_see_one_shared_value_and_keep_their_own() {
     };
 
     let page = Page::mount(move || {
-        Element::Fragment(vec![
-            with_key("left", &panel),
-            with_key("right", &panel),
-        ])
+        Element::Fragment(vec![with_key("left", &panel), with_key("right", &panel)])
     });
 
     assert_eq!(
@@ -457,7 +454,8 @@ fn a_task_a_component_kept_stops_when_the_component_churns_out() {
     }
 
     assert!(
-        within(Duration::from_secs(60), || running.load(Ordering::Acquire) == 0),
+        within(Duration::from_secs(60), || running.load(Ordering::Acquire)
+            == 0),
         "{} of {CHURN} tasks were still running after their components left",
         running.load(Ordering::Acquire)
     );
@@ -506,10 +504,7 @@ fn watching(_: &Params) -> Element {
 /// navigation: that is the whole comfort of a nested layout.
 fn bar(inner: Element, _: &Params) -> Element {
     let drawn = cell(here!(), || 0u32);
-    Element::Fragment(vec![
-        Element::Text(format!("[{}]", drawn.get())),
-        inner,
-    ])
+    Element::Fragment(vec![Element::Text(format!("[{}]", drawn.get())), inner])
 }
 
 static TABLE: &[Route] = &[

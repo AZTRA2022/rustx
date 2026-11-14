@@ -53,7 +53,9 @@ fn cameras() -> Vec<Device> {
         .filter_map(|entry| {
             let name = entry.file_name();
             let name = name.to_str()?;
-            if !name.starts_with("video") || !name["video".len()..].bytes().all(|b| b.is_ascii_digit()) {
+            if !name.starts_with("video")
+                || !name["video".len()..].bytes().all(|b| b.is_ascii_digit())
+            {
                 return None;
             }
             let id = format!("/dev/{name}");
@@ -75,7 +77,9 @@ fn cameras() -> Vec<Device> {
 /// The name the kernel wrote for `video_node` (`"video0"`, …), if any.
 fn sysfs_name(video_node: &str) -> Option<String> {
     let path = format!("/sys/class/video4linux/{video_node}/name");
-    std::fs::read_to_string(path).ok().map(|text| text.trim().to_string())
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|text| text.trim().to_string())
 }
 
 #[cfg(test)]
@@ -88,10 +92,16 @@ mod tests {
         // these tests run on, so what is pinned is the filter: a name
         // that is not `videoN` for a decimal `N` is not a camera node.
         for name in ["video0", "video12"] {
-            assert!(name.starts_with("video") && name["video".len()..].bytes().all(|b| b.is_ascii_digit()));
+            assert!(
+                name.starts_with("video")
+                    && name["video".len()..].bytes().all(|b| b.is_ascii_digit())
+            );
         }
         for name in ["videodisk", "random", "videoA"] {
-            assert!(!(name.starts_with("video") && name["video".len()..].bytes().all(|b| b.is_ascii_digit())));
+            assert!(
+                !(name.starts_with("video")
+                    && name["video".len()..].bytes().all(|b| b.is_ascii_digit()))
+            );
         }
     }
 

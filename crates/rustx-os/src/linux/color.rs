@@ -76,7 +76,11 @@ mod tests {
 
     #[test]
     fn both_tools_are_read() {
-        let orange = Some(Rgb { r: 255, g: 128, b: 0 });
+        let orange = Some(Rgb {
+            r: 255,
+            g: 128,
+            b: 0,
+        });
         assert_eq!(read_color("rgb(255,128,0)\n"), orange);
         assert_eq!(read_color("rgba(255, 128, 0, 1)"), orange);
         assert_eq!(read_color("#ff8000"), orange);

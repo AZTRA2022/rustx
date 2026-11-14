@@ -116,7 +116,10 @@ fn a_query_string_does_not_stop_a_path_from_matching() {
     // du dernier segment. Une recherche partageable était donc
     // impossible, et le labo garde son terme dans un état de page
     // faute de pouvoir le mettre dans l'URL.
-    assert_eq!(matched("/depots?q=rust", &["/", "/depots"]), Some("/depots"));
+    assert_eq!(
+        matched("/depots?q=rust", &["/", "/depots"]),
+        Some("/depots")
+    );
 }
 
 #[test]
@@ -207,7 +210,10 @@ fn a_named_segment_beats_a_catch_all() {
 #[test]
 fn a_static_segment_beats_a_catch_all() {
     assert_eq!(
-        matched("/fichiers/neuf", &["/fichiers/[...chemin]", "/fichiers/neuf"]),
+        matched(
+            "/fichiers/neuf",
+            &["/fichiers/[...chemin]", "/fichiers/neuf"]
+        ),
         Some("/fichiers/neuf")
     );
 }

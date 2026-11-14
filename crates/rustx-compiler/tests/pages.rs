@@ -89,9 +89,9 @@ fn said_plainly(rust: &str) -> String {
 /// whose body is one `return <main …>;` has no item in it at all.
 /// Either shape is fine; tokens that close nothing are not.
 fn holds_as_rust(rust: &str) -> Result<(), syn::Error> {
-    syn::parse_file(rust).map(|_| ()).or_else(|_| {
-        syn::parse_str::<syn::Block>(&(String::from("{") + rust + "}")).map(|_| ())
-    })
+    syn::parse_file(rust)
+        .map(|_| ())
+        .or_else(|_| syn::parse_str::<syn::Block>(&(String::from("{") + rust + "}")).map(|_| ()))
 }
 
 #[test]

@@ -212,8 +212,8 @@ mod real {
     use x11rb::wrapper::ConnectionExt as _;
 
     use super::{
-        Change, ICONIC, StateNames, dragged_to, motif_hints, reachable, spread_from,
-        state_change, xid,
+        Change, ICONIC, StateNames, dragged_to, motif_hints, reachable, spread_from, state_change,
+        xid,
     };
     use crate::error::OsError;
     use crate::window::{Dressing, Pane, Spread};
@@ -426,7 +426,10 @@ mod real {
     }
 
     fn flush(display: &Display) -> Result<(), OsError> {
-        display.link.flush().map_err(complaint("sending the request"))
+        display
+            .link
+            .flush()
+            .map_err(complaint("sending the request"))
     }
 
     pub fn dress(pane: Pane, dressing: Dressing) -> Result<(), OsError> {
@@ -461,7 +464,13 @@ mod real {
         // plein écran est un état que le gestionnaire tient, et c'est lui
         // qui sait de quelle taille revenir.
         if how == Spread::Fullscreen {
-            state(display, window, Change::Add, atoms._NET_WM_STATE_FULLSCREEN, 0)?;
+            state(
+                display,
+                window,
+                Change::Add,
+                atoms._NET_WM_STATE_FULLSCREEN,
+                0,
+            )?;
             return flush(display);
         }
         let (states, iconic) = read_state(display, window)?;
@@ -471,7 +480,13 @@ mod real {
         // et le gestionnaire, lui, garderait le plein écran sous la
         // réduction.
         if states.contains(&atoms._NET_WM_STATE_FULLSCREEN) {
-            state(display, window, Change::Remove, atoms._NET_WM_STATE_FULLSCREEN, 0)?;
+            state(
+                display,
+                window,
+                Change::Remove,
+                atoms._NET_WM_STATE_FULLSCREEN,
+                0,
+            )?;
             if how == Spread::Normal {
                 // Revenue d'où elle venait — agrandie, si elle l'était :
                 // c'est ce que « revenir » veut dire d'un plein écran.
@@ -483,7 +498,12 @@ mod real {
                 // `WM_CHANGE_STATE` et non `_NET_WM_STATE_HIDDEN` : l'EWMH
                 // dit que ce drapeau-là se lit, et que réduire se demande
                 // par l'ICCCM.
-                tell(display, window, atoms.WM_CHANGE_STATE, [super::ICONIC, 0, 0, 0, 0])?;
+                tell(
+                    display,
+                    window,
+                    atoms.WM_CHANGE_STATE,
+                    [super::ICONIC, 0, 0, 0, 0],
+                )?;
             }
             Spread::Maximized | Spread::Normal => {
                 if iconic {
@@ -526,7 +546,13 @@ mod real {
     pub fn on_top(pane: Pane, above: bool) -> Result<(), OsError> {
         let (display, window) = target(pane)?;
         let change = if above { Change::Add } else { Change::Remove };
-        state(display, window, change, display.atoms._NET_WM_STATE_ABOVE, 0)?;
+        state(
+            display,
+            window,
+            change,
+            display.atoms._NET_WM_STATE_ABOVE,
+            0,
+        )?;
         flush(display)
     }
 
@@ -808,7 +834,11 @@ mod tests {
     fn frameless_asks_for_no_decorations_and_leaves_the_functions_alone() {
         let hints = motif_hints(Dressing::None);
         assert_eq!(hints[0], MWM_HINTS_DECORATIONS, "only decorations are said");
-        assert_eq!(hints[0] & 1, 0, "MWM_HINTS_FUNCTIONS would take resizing away");
+        assert_eq!(
+            hints[0] & 1,
+            0,
+            "MWM_HINTS_FUNCTIONS would take resizing away"
+        );
         assert_eq!(hints[2], 0, "no decorations at all");
     }
 

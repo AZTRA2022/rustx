@@ -13,7 +13,9 @@ use std::time::{Duration, Instant};
 use rustx_os::shortcut::{self, Shortcut};
 
 fn main() {
-    let keys = std::env::args().nth(1).unwrap_or_else(|| "Ctrl+Shift+R".to_string());
+    let keys = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "Ctrl+Shift+R".to_string());
 
     if !shortcut::supported() {
         println!("pas de raccourcis globaux ici : {}", std::env::consts::OS);

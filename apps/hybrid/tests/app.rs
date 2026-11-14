@@ -143,7 +143,11 @@ fn a_tailwind_class_written_in_a_page_reaches_the_screen() {
     let reported = report();
     let background = reported.get("hero_badge_background");
     assert!(
-        ["rgba(139, 92, 246, 0.1)", "oklab(0.606 0.096545 -0.230606 / 0.1)"].contains(&background),
+        [
+            "rgba(139, 92, 246, 0.1)",
+            "oklab(0.606 0.096545 -0.230606 / 0.1)"
+        ]
+        .contains(&background),
         "`bg-violet-500/10` did not reach the screen (got {background}):\n{}",
         report().raw()
     );

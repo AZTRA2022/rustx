@@ -40,9 +40,8 @@ impl Session {
     }
 
     fn send(&mut self, body: &str) -> &mut Self {
-        self.stream.extend_from_slice(
-            format!("Content-Length: {}\r\n\r\n{body}", body.len()).as_bytes(),
-        );
+        self.stream
+            .extend_from_slice(format!("Content-Length: {}\r\n\r\n{body}", body.len()).as_bytes());
         self
     }
 
@@ -125,10 +124,7 @@ impl Session {
 
     fn run(&self) -> Said {
         let mut output: Vec<u8> = Vec::new();
-        serve(
-            &mut std::io::Cursor::new(self.stream.clone()),
-            &mut output,
-        );
+        serve(&mut std::io::Cursor::new(self.stream.clone()), &mut output);
         Said(bodies(&output))
     }
 }
@@ -186,7 +182,12 @@ impl Said {
                     .items()
                     .iter()
                     .map(|found| Underline {
-                        line: found.get("range").get("start").get("line").as_index().unwrap_or(0),
+                        line: found
+                            .get("range")
+                            .get("start")
+                            .get("line")
+                            .as_index()
+                            .unwrap_or(0),
                         from: found
                             .get("range")
                             .get("start")
@@ -327,7 +328,10 @@ fn a_page_that_compiles_is_told_so_rather_than_left_alone() {
 
 #[test]
 fn a_mistake_that_is_fixed_leaves_nothing_behind() {
-    let said = Session::started().open(PAGE, BAD).replace(PAGE, GOOD).ended();
+    let said = Session::started()
+        .open(PAGE, BAD)
+        .replace(PAGE, GOOD)
+        .ended();
     let publications = said.publications(PAGE);
     assert_eq!(publications.len(), 2, "got {publications:?}");
     assert_eq!(publications[0].len(), 1);
@@ -488,10 +492,7 @@ fn a_document_closed_and_opened_again_is_read_from_its_first_byte() {
 #[test]
 fn two_documents_do_not_share_their_underlines() {
     let other = "file:///c:/project/app/other.rsx";
-    let said = Session::started()
-        .open(PAGE, BAD)
-        .open(other, GOOD)
-        .ended();
+    let said = Session::started().open(PAGE, BAD).open(other, GOOD).ended();
     assert_eq!(said.last(PAGE).map(|found| found.len()), Some(1));
     assert_eq!(said.last(other), Some(Vec::new()));
 }
@@ -693,7 +694,10 @@ fn every_half_typed_shape_a_rsx_passes_through_is_survived() {
         // And a question at the end of it, which is where a developer's
         // cursor is.
         let line = state.lines().count().saturating_sub(1);
-        let column = state.lines().next_back().map_or(0, |line| line.chars().count());
+        let column = state
+            .lines()
+            .next_back()
+            .map_or(0, |line| line.chars().count());
         session.request(
             1000 + line as i64,
             "textDocument/completion",
@@ -809,9 +813,7 @@ fn a_question_in_the_middle_of_a_burst_is_answered_about_the_text_as_it_is() {
     session.request(
         77,
         "textDocument/completion",
-        &format!(
-            r#"{{"textDocument":{{"uri":"{PAGE}"}},"position":{{"line":1,"character":12}}}}"#
-        ),
+        &format!(r#"{{"textDocument":{{"uri":"{PAGE}"}},"position":{{"line":1,"character":12}}}}"#),
     );
     let said = session.ended();
     assert!(said.answered(77), "the question was answered");

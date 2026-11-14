@@ -140,7 +140,10 @@ fn what_means_yes_is_what_javascript_means_by_it() {
     assert!(!Value::String(String::new()).truth());
     assert!(Value::String("non".into()).truth());
     assert!(Value::Number(1.0).truth());
-    assert!(Value::List(Vec::new()).truth(), "une liste vide est un objet");
+    assert!(
+        Value::List(Vec::new()).truth(),
+        "une liste vide est un objet"
+    );
 }
 
 // ---------------------------------------------------------------------

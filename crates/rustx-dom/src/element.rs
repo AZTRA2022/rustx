@@ -196,7 +196,10 @@ fn shows_the_same(ours: &Element, theirs: &Element) -> bool {
                     .all(|(ours, theirs)| shows_the_same(ours, theirs))
         }
         (
-            Element::Foreign { node: ours, id: here },
+            Element::Foreign {
+                node: ours,
+                id: here,
+            },
             Element::Foreign {
                 node: theirs,
                 id: there,
@@ -374,8 +377,19 @@ impl Event {
     /// en faire.
     pub fn from_value(value: &crate::Value) -> Self {
         use crate::Value;
-        let text = |key: &str| value.get(key).and_then(|held| held.as_str()).unwrap_or("").to_string();
-        let flag = |key: &str| value.get(key).and_then(|held| held.as_bool()).unwrap_or(false);
+        let text = |key: &str| {
+            value
+                .get(key)
+                .and_then(|held| held.as_str())
+                .unwrap_or("")
+                .to_string()
+        };
+        let flag = |key: &str| {
+            value
+                .get(key)
+                .and_then(|held| held.as_bool())
+                .unwrap_or(false)
+        };
         match value {
             Value::Record(_) => Self {
                 kind: text("kind"),

@@ -38,7 +38,11 @@ pub fn theme() -> Result<Theme, OsError> {
     if read != ERROR_SUCCESS {
         return Ok(Theme::Light);
     }
-    Ok(if light == 0 { Theme::Dark } else { Theme::Light })
+    Ok(if light == 0 {
+        Theme::Dark
+    } else {
+        Theme::Light
+    })
 }
 
 pub fn power() -> Result<Power, OsError> {
@@ -103,9 +107,7 @@ pub fn idle() -> Result<std::time::Duration, OsError> {
 /// même réponse le temps qu'elle est affichée.
 pub fn locked() -> Result<bool, OsError> {
     // SAFETY: aucun pointeur ; le bureau ouvert est refermé aussitôt.
-    match unsafe {
-        OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, DESKTOP_SWITCHDESKTOP)
-    } {
+    match unsafe { OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, DESKTOP_SWITCHDESKTOP) } {
         Ok(desktop) => {
             // SAFETY: le bureau qu'on vient d'ouvrir.
             let _ = unsafe { CloseDesktop(desktop) };

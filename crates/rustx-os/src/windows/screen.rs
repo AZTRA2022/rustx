@@ -37,9 +37,8 @@ unsafe extern "system" fn each(
     };
     // SAFETY: `cbSize` dit la taille de la structure étendue, ce que
     // cette API exige pour remplir aussi `szDevice`.
-    let known = unsafe {
-        GetMonitorInfoW(monitor, (&raw mut information).cast::<MONITORINFO>()).as_bool()
-    };
+    let known =
+        unsafe { GetMonitorInfoW(monitor, (&raw mut information).cast::<MONITORINFO>()).as_bool() };
     if known {
         let name = {
             let device = &information.szDevice;
@@ -70,14 +69,8 @@ pub fn screens() -> Result<Vec<Screen>, OsError> {
     let mut found: Vec<Screen> = Vec::new();
     // SAFETY: un pointeur vers `found`, qui vit jusqu'au retour de
     // l'appel ; `EnumDisplayMonitors` est synchrone.
-    let listed = unsafe {
-        EnumDisplayMonitors(
-            None,
-            None,
-            Some(each),
-            LPARAM((&raw mut found) as isize),
-        )
-    };
+    let listed =
+        unsafe { EnumDisplayMonitors(None, None, Some(each), LPARAM((&raw mut found) as isize)) };
     if !listed.as_bool() && found.is_empty() {
         return Err(OsError::Platform(format!(
             "the monitors could not be listed: {}",

@@ -27,7 +27,10 @@ fn the_machine_lists_at_least_one_screen_and_the_primary_comes_first() {
 fn every_screen_has_a_size_a_scale_and_a_work_area_inside_it() {
     for screen in screen::screens().expect("screens") {
         assert!(!screen.name.is_empty(), "{screen:?}");
-        assert!(screen.bounds.width > 0 && screen.bounds.height > 0, "{screen:?}");
+        assert!(
+            screen.bounds.width > 0 && screen.bounds.height > 0,
+            "{screen:?}"
+        );
         assert!(screen.scale >= 1.0, "{screen:?}");
         assert!(
             screen.work.x >= screen.bounds.x && screen.work.y >= screen.bounds.y,

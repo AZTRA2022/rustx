@@ -97,7 +97,11 @@ mod tests {
     fn the_default_route_is_the_one_to_nowhere_in_particular() {
         assert_eq!(default_route(TABLE), Some("wlp2s0"));
         assert_eq!(default_route("Iface\tDestination\n"), None);
-        assert_eq!(default_route(""), None, "an empty table has no header either");
+        assert_eq!(
+            default_route(""),
+            None,
+            "an empty table has no header either"
+        );
     }
 
     #[test]

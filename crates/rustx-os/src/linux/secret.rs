@@ -84,6 +84,8 @@ pub fn forget(service: &str, account: &str) -> Result<(), OsError> {
     if status.success() {
         Ok(())
     } else {
-        Err(OsError::Platform(format!("secret-tool clear failed ({status})")))
+        Err(OsError::Platform(format!(
+            "secret-tool clear failed ({status})"
+        )))
     }
 }

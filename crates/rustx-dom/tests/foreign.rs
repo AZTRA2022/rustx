@@ -133,8 +133,12 @@ fn a_foreign_node_that_leaves_the_tree_is_a_removal_of_its_container() {
 #[test]
 fn a_list_of_elements_may_be_written_inside_a_library_component() {
     let rows = vec![
-        Element::tag("li").child(Element::Text("one".to_string())).build(),
-        Element::tag("li").child(Element::Text("two".to_string())).build(),
+        Element::tag("li")
+            .child(Element::Text("one".to_string()))
+            .build(),
+        Element::tag("li")
+            .child(Element::Text("two".to_string()))
+            .build(),
     ];
     assert_eq!(
         into_foreign_child(rows.clone()),
@@ -182,4 +186,3 @@ fn a_prop_that_was_dropped_is_a_prop_patch_of_what_is_left() {
         }]
     );
 }
-

@@ -15,7 +15,11 @@ fn a_shortcut_is_read_from_how_it_is_written() {
     // autocollant : `"Ctrl+Shift+R"`. Lu ici, et non deviné.
     let (modifiers, key) = shortcut::parse("Ctrl+Shift+R").expect("une combinaison");
     assert_eq!(modifiers, shortcut::CONTROL | shortcut::SHIFT);
-    assert_eq!(key, u32::from(b'R'), "a letter's virtual key is its capital");
+    assert_eq!(
+        key,
+        u32::from(b'R'),
+        "a letter's virtual key is its capital"
+    );
 
     let (modifiers, key) = shortcut::parse("Alt+F4").expect("une combinaison");
     assert_eq!(modifiers, shortcut::ALT);
@@ -37,7 +41,10 @@ fn a_combination_without_a_key_is_refused_in_words() {
     let said = shortcut::parse("Ctrl+")
         .expect_err("a modifier on its own is not a shortcut")
         .to_string();
-    assert!(said.contains("Ctrl+"), "the refusal names what was written: {said}");
+    assert!(
+        said.contains("Ctrl+"),
+        "the refusal names what was written: {said}"
+    );
 
     let said = shortcut::parse("Ctrl+Frobnicate")
         .expect_err("there is no such key")
@@ -55,9 +62,7 @@ fn a_shortcut_somebody_else_has_is_refused_by_name() {
     let keys = "Ctrl+Shift+F13";
     let first = Shortcut::listen(keys).expect("personne ne devrait l'avoir");
     let second = Shortcut::listen(keys);
-    let said = second
-        .expect_err("the same combination twice")
-        .to_string();
+    let said = second.expect_err("the same combination twice").to_string();
     assert!(said.contains(keys), "the refusal names the key: {said}");
     drop(first);
 }

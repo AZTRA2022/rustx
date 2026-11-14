@@ -29,7 +29,10 @@ fn an_association_is_written_then_undone() {
     };
     assert!(read(&format!(".{}", association.extension)).contains(&association.id));
     let command = read(&format!(r"{}\shell\open\command", association.id));
-    assert!(command.contains(r#""C:\Program Files\Rustx Test\app.exe" "%1""#), "{command}");
+    assert!(
+        command.contains(r#""C:\Program Files\Rustx Test\app.exe" "%1""#),
+        "{command}"
+    );
 
     shell::dissociate(&association).expect("undone");
     assert!(!read(&format!(".{}", association.extension)).contains(&association.id));

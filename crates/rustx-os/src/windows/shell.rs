@@ -66,7 +66,10 @@ pub fn reveal(path: &Path) -> Result<(), OsError> {
     // SAFETY: idem.
     unsafe { ILFree(Some(item)) };
     shown.map_err(|error| {
-        OsError::Platform(format!("the Explorer did not open on {}: {error}", path.display()))
+        OsError::Platform(format!(
+            "the Explorer did not open on {}: {error}",
+            path.display()
+        ))
     })
 }
 
@@ -181,7 +184,10 @@ pub fn dissociate(association: &Association) -> Result<(), OsError> {
         // valeur par défaut.
         let result =
             unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, PCWSTR(key.as_ptr()), PCWSTR::null()) };
-        written(result, &format!(r"removing HKCU\Software\Classes\{extension}"))?;
+        written(
+            result,
+            &format!(r"removing HKCU\Software\Classes\{extension}"),
+        )?;
     }
     announce();
     Ok(())

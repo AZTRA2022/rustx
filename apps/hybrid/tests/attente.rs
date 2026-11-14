@@ -19,7 +19,12 @@ fn report() -> &'static Report {
 
 #[test]
 fn the_scenario_got_to_the_end() {
-    assert_eq!(report().get("done"), "yes", "full output:\n{}", report().raw());
+    assert_eq!(
+        report().get("done"),
+        "yes",
+        "full output:\n{}",
+        report().raw()
+    );
 }
 
 #[test]

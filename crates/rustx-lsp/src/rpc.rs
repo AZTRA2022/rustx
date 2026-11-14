@@ -204,9 +204,7 @@ impl<'a, R: BufRead + ?Sized> Frames<'a, R> {
                 // header and will be thrown away in its turn. A session
                 // survives this; a session that stopped reading did not.
                 None => Some("no Content-Length"),
-                Some(length) if length > LONGEST => {
-                    Some("Content-Length past all reason")
-                }
+                Some(length) if length > LONGEST => Some("Content-Length past all reason"),
                 Some(_) => None,
             },
         };

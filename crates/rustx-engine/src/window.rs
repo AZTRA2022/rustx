@@ -624,9 +624,7 @@ pub(crate) fn asked(message: &cef::ProcessMessage, from: Option<&cef::Browser>) 
     }
     let document = document();
     if document.is_empty() {
-        eprintln!(
-            "rustx: a window was asked for before the application had loaded its document"
-        );
+        eprintln!("rustx: a window was asked for before the application had loaded its document");
         return true;
     }
     let at = route(&text(4));

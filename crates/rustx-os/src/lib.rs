@@ -119,16 +119,16 @@ pub use error::OsError;
 // macOS three weeks later.
 #[cfg(test)]
 #[allow(dead_code)]
+#[path = "other/mod.rs"]
+mod elsewhere_also_compiles;
+#[cfg(test)]
+#[allow(dead_code)]
 #[path = "linux/mod.rs"]
 mod linux_also_compiles;
 #[cfg(test)]
 #[allow(dead_code)]
 #[path = "macos/mod.rs"]
 mod macos_also_compiles;
-#[cfg(test)]
-#[allow(dead_code)]
-#[path = "other/mod.rs"]
-mod elsewhere_also_compiles;
 
 #[cfg(test)]
 mod tests {
@@ -142,7 +142,9 @@ mod tests {
         // platform and the capability, because "unsupported" alone
         // sends the reader to the source.
         let refused = super::elsewhere_also_compiles::clipboard::text();
-        let said = refused.expect_err("this platform refuses for now").to_string();
+        let said = refused
+            .expect_err("this platform refuses for now")
+            .to_string();
         assert!(said.contains("the clipboard"), "got {said}");
         assert!(
             said.contains(std::env::consts::OS),

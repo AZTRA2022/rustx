@@ -118,7 +118,11 @@ mod tests {
         );
         assert_eq!(port_of(ports, "en0"), Some(Link::WiFi));
         assert_eq!(port_of(ports, "en5"), Some(Link::Ethernet));
-        assert_eq!(port_of(ports, "en9"), None, "a device not listed is not guessed");
+        assert_eq!(
+            port_of(ports, "en9"),
+            None,
+            "a device not listed is not guessed"
+        );
         // And the name alone would have been wrong:
         assert_eq!(link_from_name("en0"), Link::Ethernet);
     }

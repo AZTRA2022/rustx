@@ -488,7 +488,10 @@ fn a_page_is_offered_what_the_application_around_it_installed() {
     };
     // What makes a directory an application: a manifest and `app/`.
     written(root.join("Cargo.toml"), "[package]\nname = \"mon-app\"\n");
-    written(root.join("app/page.rsx"), "fn Page() -> Element { return <main></main>; }\n");
+    written(
+        root.join("app/page.rsx"),
+        "fn Page() -> Element { return <main></main>; }\n",
+    );
     written(
         root.join("package.json"),
         "{\"dependencies\": {\"recharts\": \"2.12.7\"}}",
@@ -520,7 +523,10 @@ fn a_page_is_offered_what_the_application_around_it_installed() {
 
     assert!(names.contains(&"LineChart"), "a library off npm: {names:?}");
     assert!(names.contains(&"Card"), "what shadcn add wrote: {names:?}");
-    assert!(names.contains(&"Editor"), "a component of its own: {names:?}");
+    assert!(
+        names.contains(&"Editor"),
+        "a component of its own: {names:?}"
+    );
 
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -579,7 +585,10 @@ fn two_kinds_offered_in_the_same_list_never_share_an_icon() {
     // distinction exists only in our own source.
     let lists = [
         // Offered after a `<`.
-        ("a tag name", vec![suggest::Kind::Tag, suggest::Kind::Component]),
+        (
+            "a tag name",
+            vec![suggest::Kind::Tag, suggest::Kind::Component],
+        ),
         // Offered inside a tag.
         (
             "inside a tag",

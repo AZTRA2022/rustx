@@ -132,7 +132,10 @@ mod tests {
         let both = NLM_CONNECTIVITY_IPV4_LOCALNETWORK.0 | NLM_CONNECTIVITY_IPV4_INTERNET.0;
         assert_eq!(reach_from(both), Reach::Online);
         assert_eq!(reach_from(NLM_CONNECTIVITY_IPV6_INTERNET.0), Reach::Online);
-        assert_eq!(reach_from(NLM_CONNECTIVITY_IPV4_LOCALNETWORK.0), Reach::Local);
+        assert_eq!(
+            reach_from(NLM_CONNECTIVITY_IPV4_LOCALNETWORK.0),
+            Reach::Local
+        );
         assert_eq!(reach_from(0), Reach::Offline);
     }
 
@@ -141,7 +144,10 @@ mod tests {
         assert_eq!(link_from_type(IF_TYPE_SOFTWARE_LOOPBACK), None);
         assert_eq!(link_from_type(IF_TYPE_TUNNEL), None);
         assert_eq!(link_from_type(IF_TYPE_IEEE80211), Some(Link::WiFi));
-        assert_eq!(link_from_type(IF_TYPE_ETHERNET_CSMACD), Some(Link::Ethernet));
+        assert_eq!(
+            link_from_type(IF_TYPE_ETHERNET_CSMACD),
+            Some(Link::Ethernet)
+        );
         assert_eq!(link_from_type(IF_TYPE_WWANPP), Some(Link::Cellular));
         assert_eq!(link_from_type(999), Some(Link::Other));
     }

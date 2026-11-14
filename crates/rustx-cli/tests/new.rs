@@ -155,7 +155,12 @@ fn a_new_project_ignores_what_the_build_writes() {
     let into = somewhere();
     new::write("mon-app", &into).expect("a project");
     let ignored = fs::read_to_string(into.join("mon-app").join(".gitignore")).expect("a file");
-    for line in ["/target", "/node_modules", "/.rustx/", "/assets/rustx-bundle.js"] {
+    for line in [
+        "/target",
+        "/node_modules",
+        "/.rustx/",
+        "/assets/rustx-bundle.js",
+    ] {
         assert!(
             ignored.lines().any(|written| written == line),
             "`{line}` is not ignored: {ignored}"
@@ -181,7 +186,10 @@ fn a_new_project_names_one_dependency_and_one_only() {
         .filter(|line| !line.trim().is_empty() && !line.trim_start().starts_with('#'))
         .collect();
     assert_eq!(dependencies.len(), 1, "got {dependencies:?}");
-    assert!(dependencies[0].starts_with("rustx ="), "got {dependencies:?}");
+    assert!(
+        dependencies[0].starts_with("rustx ="),
+        "got {dependencies:?}"
+    );
 }
 
 /// What a new project asks of the framework must be a version that
@@ -328,7 +336,10 @@ fn a_new_project_can_already_receive_a_shadcn_component() {
 
     // The one function every shadcn component has imported, and the
     // theme whose names its classes are.
-    assert!(root.join("lib").join("utils.ts").exists(), "no lib/utils.ts");
+    assert!(
+        root.join("lib").join("utils.ts").exists(),
+        "no lib/utils.ts"
+    );
     let css = fs::read_to_string(root.join("assets").join("tailwind.css")).expect("a stylesheet");
     assert!(
         css.contains("--primary:") && css.contains("--muted-foreground:"),
@@ -380,8 +391,8 @@ fn a_new_project_declares_what_its_own_files_import() {
 fn a_new_project_leaves_no_install_script_unapproved() {
     let into = somewhere();
     new::write("mon-app", &into).expect("a project");
-    let manifest = fs::read_to_string(into.join("mon-app").join("package.json"))
-        .expect("a package.json");
+    let manifest =
+        fs::read_to_string(into.join("mon-app").join("package.json")).expect("a package.json");
     assert!(
         manifest.contains("\"@parcel/watcher\""),
         "the one install script a fresh tree holds back: {manifest}"

@@ -48,7 +48,10 @@ fn main() {
         println!("la notification a été refusée : {why}");
     }
 
-    println!("the icon is in the tray ({} placed)", rustx_os::tray::shown());
+    println!(
+        "the icon is in the tray ({} placed)",
+        rustx_os::tray::shown()
+    );
     println!("right-click for the menu; \"Quit\" to finish.");
 
     let until = Instant::now() + Duration::from_secs(60);

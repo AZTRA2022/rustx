@@ -151,7 +151,10 @@ fn what_is_launched_is_a_copy_and_not_the_file_cargo_wrote() {
 
     let launched = dev::launchable(&project, &exe).expect("a copy to launch");
 
-    assert_ne!(launched, exe, "the file cargo wrote is the one it must rewrite");
+    assert_ne!(
+        launched, exe,
+        "the file cargo wrote is the one it must rewrite"
+    );
     assert_eq!(
         fs::read(&launched).expect("the copy is readable"),
         b"what cargo wrote",
@@ -185,7 +188,10 @@ fn every_turn_launches_its_own_copy_so_a_held_one_blocks_nothing() {
     fs::write(&exe, b"two").expect("a second build");
     let second = dev::launchable(&project, &exe).expect("a second copy");
 
-    assert_ne!(first, second, "the second turn wrote over the copy that is running");
+    assert_ne!(
+        first, second,
+        "the second turn wrote over the copy that is running"
+    );
     assert_eq!(
         fs::read(&second).expect("the second copy is readable"),
         b"two",
@@ -257,7 +263,10 @@ fn the_file_the_build_itself_writes_is_not_a_change() {
     // And the rule is that file, not every `.js`: a script a developer
     // writes is still a reason to rebuild.
     fs::write(project.join("assets").join("a-moi.js"), "console.log(1)").expect("a script");
-    assert!(watched.changed(), "a script the developer wrote is a change");
+    assert!(
+        watched.changed(),
+        "a script the developer wrote is a change"
+    );
 
     let _ = fs::remove_dir_all(&project);
 }

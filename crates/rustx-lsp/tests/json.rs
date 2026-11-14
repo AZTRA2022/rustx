@@ -24,7 +24,10 @@ fn items_under_an_envelope_are_tagged_too() {
         "file:///p.rsx",
     );
     assert!(tagged.contains("\"isIncomplete\":false"), "got {tagged}");
-    assert!(tagged.contains("\"__rustxUri\":\"file:///p.rsx\""), "got {tagged}");
+    assert!(
+        tagged.contains("\"__rustxUri\":\"file:///p.rsx\""),
+        "got {tagged}"
+    );
 }
 
 #[test]

@@ -187,7 +187,10 @@ fn every_prop_a_component_takes_is_offered_inside_its_tag() {
         }
     }
 
-    assert!(checked > 0, "no component of the laboratory names its props");
+    assert!(
+        checked > 0,
+        "no component of the laboratory names its props"
+    );
     assert!(
         missing.is_empty(),
         "{checked} tags read, and these props are wrong or absent: {missing:#?}"
@@ -266,10 +269,7 @@ fn an_icon_off_npm_offers_the_props_its_declaration_leads_to() {
         eprintln!("note: ../labo-rustx is not beside the repository; this proves nothing today");
         return;
     };
-    if !laboratory
-        .join("node_modules/lucide-react")
-        .is_dir()
-    {
+    if !laboratory.join("node_modules/lucide-react").is_dir() {
         eprintln!("note: lucide-react is not installed in the laboratory");
         return;
     }

@@ -57,7 +57,10 @@ pub(crate) fn tell(frame: &Frame, what: &str, values: &[Value]) {
     let Some(mut message) = saying(what, values) else {
         return;
     };
-    traced(&format!("fenêtre → page : {what} ({} valeur(s))", values.len()));
+    traced(&format!(
+        "fenêtre → page : {what} ({} valeur(s))",
+        values.len()
+    ));
     frame.send_process_message(ProcessId::RENDERER, Some(&mut message));
 }
 
@@ -131,7 +134,10 @@ pub fn told(message: &ProcessMessage) -> bool {
         traced(&format!("page: {name} arrived, and nobody is listening"));
         return false;
     };
-    traced(&format!("page: {name} arrived, {} listener(s)", hooks.len()));
+    traced(&format!(
+        "page: {name} arrived, {} listener(s)",
+        hooks.len()
+    ));
     for hook in &hooks {
         hook(values.clone());
     }
@@ -151,7 +157,10 @@ pub fn told(message: &ProcessMessage) -> bool {
 /// Publique parce que le test du pont le construit : c'est la seule
 /// façon de prouver le passage sans deux vrais processus.
 pub fn saying(what: &str, values: &[Value]) -> Option<ProcessMessage> {
-    message_named(&format!("{PREFIX}{}", what.trim_start_matches(PREFIX)), values)
+    message_named(
+        &format!("{PREFIX}{}", what.trim_start_matches(PREFIX)),
+        values,
+    )
 }
 
 /// Un message, sous le nom exact qu'on lui donne.

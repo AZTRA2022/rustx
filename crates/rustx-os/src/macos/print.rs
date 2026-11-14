@@ -92,6 +92,9 @@ mod tests {
 
     #[test]
     fn no_printer_at_all_is_an_empty_list() {
-        assert_eq!(printers_from("lpstat: No destinations added.\n"), Vec::new());
+        assert_eq!(
+            printers_from("lpstat: No destinations added.\n"),
+            Vec::new()
+        );
     }
 }

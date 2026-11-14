@@ -131,8 +131,8 @@ mod real {
     }
 
     fn target_class() -> Result<&'static AnyClass, OsError> {
-        let mut builder = ClassBuilder::new(c"RustxStatusTarget", NSObject::class())
-            .ok_or_else(|| {
+        let mut builder =
+            ClassBuilder::new(c"RustxStatusTarget", NSObject::class()).ok_or_else(|| {
                 OsError::Platform(
                     "an Objective-C class named RustxStatusTarget already exists".to_string(),
                 )
@@ -169,7 +169,10 @@ mod real {
     fn image(path: &Path) -> Result<Retained<AnyObject>, OsError> {
         let text = path.to_string_lossy();
         let Some(name) = ns_string(&text) else {
-            return Err(OsError::File(format!("{} is not a path AppKit can read", path.display())));
+            return Err(OsError::File(format!(
+                "{} is not a path AppKit can read",
+                path.display()
+            )));
         };
         // SAFETY: `alloc` then `initWithContentsOfFile:`, the documented
         // pair; `nil` back means the file was not an image.
@@ -181,7 +184,10 @@ mod real {
             Retained::from_raw(image)
         };
         let image = image.ok_or_else(|| {
-            OsError::File(format!("{} could not be read as an image by AppKit", path.display()))
+            OsError::File(format!(
+                "{} could not be read as an image by AppKit",
+                path.display()
+            ))
         })?;
         // SAFETY: a documented setter, on the main thread.
         unsafe {

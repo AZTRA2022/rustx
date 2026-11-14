@@ -181,7 +181,10 @@ fn a_remote_write_to_a_shared_value_lands_on_the_next_frame() {
         .join()
         .expect("the writing thread");
 
-    assert!(rows.get().is_empty(), "the write reached it without a frame");
+    assert!(
+        rows.get().is_empty(),
+        "the write reached it without a frame"
+    );
     apply_remote();
     assert_eq!(rows.get(), vec![4], "the write never landed");
     assert_eq!(

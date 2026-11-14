@@ -14,12 +14,12 @@
 //! au fond de l'écran. Ce qui part, c'est `WS_CAPTION` — la barre de
 //! titre et les trois boutons.
 
+use windows::Win32::Foundation::LRESULT;
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
-use windows::Win32::Foundation::LRESULT;
 use windows::Win32::UI::WindowsAndMessaging::{
     CallWindowProcW, GWL_STYLE, GWLP_WNDPROC, GetWindowLongPtrW, GetWindowRect, HTCAPTION,
     HWND_NOTOPMOST, HWND_TOPMOST, IsIconic, IsWindow, IsZoomed, NCCALCSIZE_PARAMS, SM_CXSCREEN,

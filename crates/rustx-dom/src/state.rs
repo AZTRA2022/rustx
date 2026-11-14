@@ -1018,9 +1018,7 @@ pub fn apply_remote() {
 
 /// How many writes this thread refused because its window had gone.
 pub fn remote_refused() -> u64 {
-    mailbox()
-        .refused
-        .load(std::sync::atomic::Ordering::Relaxed)
+    mailbox().refused.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// How many writes arrived for a component that had already left.

@@ -77,4 +77,3 @@ pub fn device(id: &str) -> Result<Device, OsError> {
         .find(|device| device.id == id)
         .ok_or_else(|| OsError::NoSuchDevice(id.to_string()))
 }
-

@@ -31,7 +31,11 @@ fn main() {
             .or_default()
             .push(export.name.clone());
     }
-    println!("{} names, from {} libraries:\n", found.len(), by_library.len());
+    println!(
+        "{} names, from {} libraries:\n",
+        found.len(),
+        by_library.len()
+    );
     for (library, mut names) in by_library {
         names.sort();
         println!("{library} ({})", names.len());

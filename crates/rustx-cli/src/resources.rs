@@ -452,8 +452,12 @@ fn write_app_bundle(exe: &Path, about: &About) -> Result<(), String> {
         .map_err(|error| format!("{} could not be made: {error}", macos_dir.display()))?;
 
     let copied = macos_dir.join(&binary_name);
-    std::fs::copy(exe, &copied)
-        .map_err(|error| format!("{} could not be copied into the bundle: {error}", copied.display()))?;
+    std::fs::copy(exe, &copied).map_err(|error| {
+        format!(
+            "{} could not be copied into the bundle: {error}",
+            copied.display()
+        )
+    })?;
 
     let plist_path = macos_dir
         .parent()
@@ -545,7 +549,11 @@ mod tests {
             description: "Une description".to_string(),
             publisher: "aztra".to_string(),
         };
-        let text = desktop_entry(Path::new("/opt/mon-app/mon-app"), &about, Some(Path::new("/opt/mon-app/icon.png")));
+        let text = desktop_entry(
+            Path::new("/opt/mon-app/mon-app"),
+            &about,
+            Some(Path::new("/opt/mon-app/icon.png")),
+        );
         assert!(text.starts_with("[Desktop Entry]\n"));
         assert!(text.contains("Name=Mon app\n"));
         assert!(text.contains("Comment=Une description\n"));
@@ -597,7 +605,10 @@ mod tests {
         write_app_bundle(&exe, &about).expect("a bundle");
 
         let bundled = room.join("Mon app.app/Contents/MacOS/mon-app");
-        assert!(bundled.is_file(), "the binary was not copied into the bundle");
+        assert!(
+            bundled.is_file(),
+            "the binary was not copied into the bundle"
+        );
         assert_eq!(
             std::fs::read(&bundled).unwrap(),
             b"not really a binary",

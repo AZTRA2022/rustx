@@ -136,9 +136,8 @@ fn an_attribute_string_has_no_escapes_just_like_in_jsx() {
 
 #[test]
 fn a_line_comment_between_children_is_not_text() {
-    let node = parse_one(
-        "<div>\n    // les trois boutons que le cadre dessinait\n    <b>ok</b>\n</div>",
-    );
+    let node =
+        parse_one("<div>\n    // les trois boutons que le cadre dessinait\n    <b>ok</b>\n</div>");
     let Node::Tag(tag) = node else { panic!() };
     assert_eq!(
         tag.children.len(),

@@ -57,12 +57,8 @@ pub(crate) fn default_printer() -> Option<String> {
     }
     let mut buffer = vec![0u16; length as usize];
     // SAFETY: un tampon de la longueur que Windows vient de dire.
-    let got = unsafe {
-        GetDefaultPrinterW(
-            Some(windows::core::PWSTR(buffer.as_mut_ptr())),
-            &mut length,
-        )
-    };
+    let got =
+        unsafe { GetDefaultPrinterW(Some(windows::core::PWSTR(buffer.as_mut_ptr())), &mut length) };
     if !got.as_bool() {
         return None;
     }
@@ -133,9 +129,7 @@ pub fn print(path: &Path, ask: bool) -> Result<(), OsError> {
         None
     } else {
         let name = default_printer().ok_or_else(|| {
-            OsError::Platform(
-                "there is no default printer to print to without asking".to_string(),
-            )
+            OsError::Platform("there is no default printer to print to without asking".to_string())
         })?;
         Some(wide(&format!("\"{name}\"")))
     };

@@ -13,15 +13,15 @@
 //! have never been compiled for a Mac nor run; only type-checked on
 //! Windows against `objc2` built for GNUstep. Each says so at its top.
 
-mod appkit;
 pub mod about;
+mod appkit;
 pub mod attention;
 pub mod audio;
 pub mod autostart;
-pub mod color;
 pub mod bluetooth;
 pub mod capture;
 pub mod clipboard;
+pub mod color;
 pub mod devices;
 pub mod dialog;
 pub mod instance;

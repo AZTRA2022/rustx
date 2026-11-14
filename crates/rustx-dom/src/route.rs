@@ -291,7 +291,10 @@ enum Kind<'a> {
     Static,
     Named(&'a str),
     /// `[...name]`, and `[[...name]]` when it may take nothing at all.
-    Rest { name: &'a str, optional: bool },
+    Rest {
+        name: &'a str,
+        optional: bool,
+    },
 }
 
 fn kind_of(segment: &str) -> Kind<'_> {

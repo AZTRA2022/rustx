@@ -87,7 +87,11 @@ fn an_empty_variable_is_not_a_directory() {
     let room = somewhere("empty-variable");
     let project = room.join("mon-app");
     fs::create_dir_all(&project).expect("a project");
-    fs::write(project.join("Cargo.toml"), "[package]\nname = \"mon-app\"\n").expect("a manifest");
+    fs::write(
+        project.join("Cargo.toml"),
+        "[package]\nname = \"mon-app\"\n",
+    )
+    .expect("a manifest");
 
     assert_eq!(
         target_directory_told(&project, Some("   ")),
@@ -257,7 +261,10 @@ fn what_is_watched_for_being_held_is_what_is_looked_in_for_the_binary() {
     let target = target_directory(&room);
     assert_eq!(
         target,
-        target_directory_told(&room, rustx_cli::build::target_from_environment().as_deref()),
+        target_directory_told(
+            &room,
+            rustx_cli::build::target_from_environment().as_deref()
+        ),
         "the only difference between the two is who reads the environment"
     );
     let _ = fs::remove_dir_all(&room);

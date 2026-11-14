@@ -473,8 +473,7 @@ fn names_in(text: &str) -> Vec<String> {
             continue;
         }
         let whole = std::mem::take(&mut word);
-        if whole.starts_with(|letter: char| letter.is_ascii_uppercase())
-            && !found.contains(&whole)
+        if whole.starts_with(|letter: char| letter.is_ascii_uppercase()) && !found.contains(&whole)
         {
             found.push(whole);
         }
@@ -766,10 +765,13 @@ mod tests {
 
     #[test]
     fn the_props_of_a_type_alias_are_read() {
-        let found = props_in("type CardProps = {
+        let found = props_in(
+            "type CardProps = {
   title: string;
   rows?: number;
-};", "Card");
+};",
+            "Card",
+        );
         let names: Vec<&str> = found.iter().map(|prop| prop.name.as_str()).collect();
         assert_eq!(names, vec!["title", "rows"]);
     }

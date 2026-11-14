@@ -89,7 +89,10 @@ mod tests {
         let what = What::new("Built", "the application compiled");
         let written = script(&what);
         assert!(written.contains("with title \"Built\""), "got {written}");
-        assert!(written.contains("display notification \"the application compiled\""), "got {written}");
+        assert!(
+            written.contains("display notification \"the application compiled\""),
+            "got {written}"
+        );
     }
 
     #[test]
@@ -113,10 +116,7 @@ mod tests {
 /// `UNNotificationAction` is the real answer, and it needs the
 /// application to be a bundle with a notification delegate registered
 /// before launch.
-pub fn ask(
-    _what: &What,
-    _actions: &[crate::notify::Action],
-) -> Result<Option<String>, OsError> {
+pub fn ask(_what: &What, _actions: &[crate::notify::Action]) -> Result<Option<String>, OsError> {
     Err(OsError::Unsupported(
         "buttons in a notification on macOS (`display notification` takes none, and          UserNotifications delivers the choice only to a bundled application's registered          delegate)",
     ))

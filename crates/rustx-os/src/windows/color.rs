@@ -33,7 +33,12 @@ pub fn pick(initial: Option<Rgb>) -> Result<Option<Rgb>, OsError> {
         lStructSize: std::mem::size_of::<CHOOSECOLORW>() as u32,
         rgbResult: COLORREF(initial.map(to_colorref).unwrap_or(0)),
         lpCustColors: custom.as_mut_ptr(),
-        Flags: CC_FULLOPEN | if initial.is_some() { CC_RGBINIT } else { Default::default() },
+        Flags: CC_FULLOPEN
+            | if initial.is_some() {
+                CC_RGBINIT
+            } else {
+                Default::default()
+            },
         ..Default::default()
     };
     // SAFETY: la structure est remplie et son tableau vit jusqu'au retour.
@@ -56,7 +61,11 @@ mod tests {
 
     #[test]
     fn colorref_is_blue_green_red() {
-        let orange = Rgb { r: 0xFF, g: 0x80, b: 0x10 };
+        let orange = Rgb {
+            r: 0xFF,
+            g: 0x80,
+            b: 0x10,
+        };
         assert_eq!(to_colorref(orange), 0x0010_80FF);
         assert_eq!(from_colorref(0x0010_80FF), orange);
     }

@@ -68,7 +68,10 @@ fn a_moment() {
 #[test]
 fn a_second_build_touches_nothing() {
     let room = room("twice");
-    let app = an_app(&room, "fn Page() -> Element {\n    return <p>hello</p>;\n}\n");
+    let app = an_app(
+        &room,
+        "fn Page() -> Element {\n    return <p>hello</p>;\n}\n",
+    );
     let out = room.join("out");
 
     compile_app(&app, &out).expect("the first build");
@@ -93,7 +96,10 @@ fn a_second_build_touches_nothing() {
 #[test]
 fn a_changed_page_is_written_again() {
     let room = room("changed");
-    let app = an_app(&room, "fn Page() -> Element {\n    return <p>hello</p>;\n}\n");
+    let app = an_app(
+        &room,
+        "fn Page() -> Element {\n    return <p>hello</p>;\n}\n",
+    );
     let out = room.join("out");
 
     compile_app(&app, &out).expect("the first build");

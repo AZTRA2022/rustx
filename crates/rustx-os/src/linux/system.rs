@@ -64,14 +64,20 @@ pub fn theme() -> Result<Theme, OsError> {
         "gsettings",
         &["get", "org.gnome.desktop.interface", "color-scheme"],
     );
-    let gtk = said("gsettings", &["get", "org.gnome.desktop.interface", "gtk-theme"]);
+    let gtk = said(
+        "gsettings",
+        &["get", "org.gnome.desktop.interface", "gtk-theme"],
+    );
     theme_from(scheme.as_deref(), gtk.as_deref()).ok_or(OsError::Unsupported(
         "reading the theme without `gsettings` (a GNOME-family desktop)",
     ))
 }
 
 /// Une batterie, depuis ce que son répertoire de `/sys` contient.
-pub(crate) fn battery_from(capacity: Option<&str>, status: Option<&str>) -> (Option<u8>, Option<bool>) {
+pub(crate) fn battery_from(
+    capacity: Option<&str>,
+    status: Option<&str>,
+) -> (Option<u8>, Option<bool>) {
     let level = capacity
         .and_then(|text| text.trim().parse::<u8>().ok())
         .filter(|level| *level <= 100);
@@ -150,11 +156,12 @@ pub fn locked() -> Result<bool, OsError> {
 
 /// La première variable de langue qui en dise une, dans l'ordre où
 /// POSIX les lit.
-pub(crate) fn locale_from(all: Option<&str>, messages: Option<&str>, lang: Option<&str>) -> Option<String> {
-    [all, messages, lang]
-        .into_iter()
-        .flatten()
-        .find_map(bcp47)
+pub(crate) fn locale_from(
+    all: Option<&str>,
+    messages: Option<&str>,
+    lang: Option<&str>,
+) -> Option<String> {
+    [all, messages, lang].into_iter().flatten().find_map(bcp47)
 }
 
 pub fn locale() -> Result<String, OsError> {
@@ -229,21 +236,33 @@ mod tests {
 
     #[test]
     fn gnome_42_says_dark_by_its_color_scheme() {
-        assert_eq!(theme_from(Some("'prefer-dark'"), Some("'Adwaita'")), Some(Theme::Dark));
+        assert_eq!(
+            theme_from(Some("'prefer-dark'"), Some("'Adwaita'")),
+            Some(Theme::Dark)
+        );
         assert_eq!(theme_from(Some("'prefer-light'"), None), Some(Theme::Light));
     }
 
     #[test]
     fn older_desktops_say_dark_by_the_theme_name() {
-        assert_eq!(theme_from(Some("'default'"), Some("'Adwaita-dark'")), Some(Theme::Dark));
+        assert_eq!(
+            theme_from(Some("'default'"), Some("'Adwaita-dark'")),
+            Some(Theme::Dark)
+        );
         assert_eq!(theme_from(None, Some("'Yaru'")), Some(Theme::Light));
         assert_eq!(theme_from(None, None), None, "nothing read is not light");
     }
 
     #[test]
     fn a_battery_is_read_from_its_sys_files() {
-        assert_eq!(battery_from(Some("87\n"), Some("Discharging\n")), (Some(87), Some(false)));
-        assert_eq!(battery_from(Some("40"), Some("Charging")), (Some(40), Some(true)));
+        assert_eq!(
+            battery_from(Some("87\n"), Some("Discharging\n")),
+            (Some(87), Some(false))
+        );
+        assert_eq!(
+            battery_from(Some("40"), Some("Charging")),
+            (Some(40), Some(true))
+        );
         assert_eq!(battery_from(Some("garbage"), None), (None, None));
     }
 
@@ -253,7 +272,10 @@ mod tests {
             locale_from(None, Some("de_DE.UTF-8"), Some("fr_FR.UTF-8")).as_deref(),
             Some("de-DE")
         );
-        assert_eq!(locale_from(Some("C"), None, Some("fr_FR")).as_deref(), Some("fr-FR"));
+        assert_eq!(
+            locale_from(Some("C"), None, Some("fr_FR")).as_deref(),
+            Some("fr-FR")
+        );
         assert_eq!(locale_from(None, None, None), None);
     }
 

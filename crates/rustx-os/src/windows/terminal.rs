@@ -19,8 +19,7 @@ use crate::terminal::{Output, Shell, first_on_path};
 pub fn shell() -> Result<Shell, OsError> {
     let (name, program) = first_on_path(&["pwsh", "powershell"]).ok_or_else(|| {
         OsError::Platform(
-            "neither `pwsh` nor `powershell` is on PATH, so there is no shell to run"
-                .to_string(),
+            "neither `pwsh` nor `powershell` is on PATH, so there is no shell to run".to_string(),
         )
     })?;
     Ok(Shell {

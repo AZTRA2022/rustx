@@ -23,9 +23,9 @@ compile_error!(
 
 mod app;
 mod bootstrap;
+pub mod bridge;
 mod cef_app;
 mod client;
-pub mod bridge;
 pub mod dom;
 pub mod dropped;
 mod error;

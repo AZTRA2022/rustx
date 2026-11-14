@@ -276,8 +276,14 @@ pub(crate) fn read_event(event: &V8Value) -> Event {
     let target = field(event, "target");
     Event {
         kind: String::new(),
-        value: target.as_ref().map(|target| text(target, "value")).unwrap_or_default(),
-        id: target.as_ref().map(|target| text(target, "id")).unwrap_or_default(),
+        value: target
+            .as_ref()
+            .map(|target| text(target, "value"))
+            .unwrap_or_default(),
+        id: target
+            .as_ref()
+            .map(|target| text(target, "id"))
+            .unwrap_or_default(),
         key: text(event, "key"),
         checked: target
             .as_ref()

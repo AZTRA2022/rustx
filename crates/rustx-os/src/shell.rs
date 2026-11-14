@@ -49,7 +49,11 @@ impl Association {
                 self.extension
             )));
         }
-        if self.id.is_empty() || self.id.chars().any(|c| c == '/' || c == '\\' || c.is_whitespace())
+        if self.id.is_empty()
+            || self
+                .id
+                .chars()
+                .any(|c| c == '/' || c == '\\' || c.is_whitespace())
         {
             return Err(OsError::Platform(format!(
                 "`{}` is not an identifier — letters, digits and dots, e.g. `MyEditor.Document`",
@@ -125,7 +129,10 @@ mod tests {
 
     #[test]
     fn a_path_becomes_a_percent_encoded_uri() {
-        assert_eq!(file_uri("/home/me/a b/é.txt"), "file:///home/me/a%20b/%C3%A9.txt");
+        assert_eq!(
+            file_uri("/home/me/a b/é.txt"),
+            "file:///home/me/a%20b/%C3%A9.txt"
+        );
         assert_eq!(file_uri("/tmp/x-y_z.~"), "file:///tmp/x-y_z.~");
     }
 }

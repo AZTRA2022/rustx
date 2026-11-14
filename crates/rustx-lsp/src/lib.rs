@@ -267,9 +267,7 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
         let continues_the_burst = method == "textDocument/didChange"
             && deferred.is_some()
             && deferred.as_deref() == uri_of_document.as_deref();
-        if !continues_the_burst
-            && let Some(uri) = deferred.take()
-        {
+        if !continues_the_burst && let Some(uri) = deferred.take() {
             published(output, &uri, &documents, &mut shadows, &mut downstream);
         }
 
@@ -522,7 +520,11 @@ fn published(
 /// a dialog, and "there is nothing to say about the inside of a tag" is
 /// not a failure.
 fn empty_for(method: &str) -> &'static str {
-    if method.ends_with("hover") { "null" } else { "[]" }
+    if method.ends_with("hover") {
+        "null"
+    } else {
+        "[]"
+    }
 }
 
 /// What the server offers out of its own head, or nothing when the
@@ -531,11 +533,7 @@ fn empty_for(method: &str) -> &'static str {
 /// `None` means "not mine": the caller then asks `rust-analyzer`
 /// through the position map, which is the right answer for a position in
 /// the developer's own Rust.
-fn offer(
-    method: &str,
-    params: &wire::Value,
-    documents: &documents::Documents,
-) -> Option<String> {
+fn offer(method: &str, params: &wire::Value, documents: &documents::Documents) -> Option<String> {
     // A hover or a definition on a tag name has nothing to say that the
     // tag itself does not: the markup half answers completion only.
     if method != "textDocument/completion" {
@@ -771,10 +769,11 @@ fn retargeted_edit(edit: &str, map: &rustx_compiler::map::PositionMap) -> Option
     let range = json::object_field(edit, "range")?;
     let start = json::object_field(range, "start")?;
     let end = json::object_field(range, "end")?;
-    let (start_line, start_character) =
-        (json::number(start, "line")?, json::number(start, "character")?);
-    let (end_line, end_character) =
-        (json::number(end, "line")?, json::number(end, "character")?);
+    let (start_line, start_character) = (
+        json::number(start, "line")?,
+        json::number(start, "character")?,
+    );
+    let (end_line, end_character) = (json::number(end, "line")?, json::number(end, "character")?);
     // LSP counts lines and characters from zero; the map, like a
     // developer, counts both from one.
     let (rsx_start_line, rsx_start_character) =

@@ -56,9 +56,7 @@ pub fn set(on: bool, name: &str) -> Result<(), OsError> {
         let removed = unsafe { RegDeleteValueW(key.0, PCWSTR(value.as_ptr())) };
         // Retirer ce qui n'y est pas n'est pas une panne : la case
         // était déjà décochée.
-        if removed != ERROR_SUCCESS
-            && removed != windows::Win32::Foundation::ERROR_FILE_NOT_FOUND
-        {
+        if removed != ERROR_SUCCESS && removed != windows::Win32::Foundation::ERROR_FILE_NOT_FOUND {
             removed
         } else {
             ERROR_SUCCESS

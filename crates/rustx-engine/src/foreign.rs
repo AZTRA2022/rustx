@@ -184,9 +184,7 @@ fn as_react_reads_them(props: &[(String, Value)]) -> Vec<(String, Value)> {
     props
         .iter()
         .map(|(name, value)| match (name.as_str(), value) {
-            ("style", Value::String(text)) => {
-                (name.clone(), rustx_dom::value::style_object(text))
-            }
+            ("style", Value::String(text)) => (name.clone(), rustx_dom::value::style_object(text)),
             _ => (name.clone(), value.clone()),
         })
         .collect()

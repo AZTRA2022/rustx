@@ -44,11 +44,7 @@ fn an_icon_appears_and_its_drop_removes_it() {
     let before = tray::shown();
     {
         let icon = Icon::new(&an_icon(), "rustx, en test").expect("l'icône est posée");
-        assert_eq!(
-            tray::shown(),
-            before + 1,
-            "the icon never reached the tray"
-        );
+        assert_eq!(tray::shown(), before + 1, "the icon never reached the tray");
         // Et le menu se pose sans que personne ne clique.
         icon.menu(&[
             Item::new("ouvrir", "Ouvrir la fenêtre"),
@@ -84,9 +80,8 @@ fn a_notification_does_not_block() {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let started = std::time::Instant::now();
-    let shown = notify::show(
-        notify::What::new("rustx", "Une notification de test.").icon(an_icon()),
-    );
+    let shown =
+        notify::show(notify::What::new("rustx", "Une notification de test.").icon(an_icon()));
     let waited = started.elapsed();
     assert!(shown.is_ok(), "la notification a été refusée : {shown:?}");
     assert!(
@@ -97,10 +92,13 @@ fn a_notification_does_not_block() {
 
 #[test]
 fn an_icon_file_that_is_not_an_ico_is_refused_in_words() {
-    let not_one = std::env::temp_dir().join(format!("rustx-not-an-icon-{}.ico", std::process::id()));
+    let not_one =
+        std::env::temp_dir().join(format!("rustx-not-an-icon-{}.ico", std::process::id()));
     std::fs::write(&not_one, b"\x89PNG\r\n\x1a\n and the rest").expect("un faux .ico");
     let refused = tray::readable(&not_one);
-    let said = refused.expect_err("a renamed PNG is not an icon").to_string();
+    let said = refused
+        .expect_err("a renamed PNG is not an icon")
+        .to_string();
     assert!(said.contains("icon"), "got {said}");
     let _ = std::fs::remove_file(&not_one);
 
@@ -116,8 +114,5 @@ fn a_platform_that_has_no_tray_says_so_before_being_asked() {
     assert_eq!(tray::supported(), cfg!(windows));
     // Les notifications sont aussi sous Linux, par `notify-send` —
     // écrit, pas éprouvé, et dit comme tel dans `linux/notify.rs`.
-    assert_eq!(
-        notify::supported(),
-        cfg!(any(windows, target_os = "linux"))
-    );
+    assert_eq!(notify::supported(), cfg!(any(windows, target_os = "linux")));
 }

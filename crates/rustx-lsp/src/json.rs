@@ -90,7 +90,11 @@ pub fn tag_items(list_result: &str, uri: &str) -> String {
     }
     rebuilt.push_str(&inside[at..]);
 
-    format!("{}{rebuilt}{}", &list_result[..=open], &list_result[close..])
+    format!(
+        "{}{rebuilt}{}",
+        &list_result[..=open],
+        &list_result[close..]
+    )
 }
 
 /// The reverse of [`tag_items`], on one item: the tag removed, and the
@@ -152,7 +156,13 @@ pub fn array_field<'a>(text: &'a str, name: &str) -> Option<&'a str> {
 
 /// `text` with the `{…}` or `[…]` value of `name` replaced by
 /// `replacement`, whole. `text` unchanged when there is no such field.
-pub fn replace_field(text: &str, name: &str, opening: char, closing: char, replacement: &str) -> String {
+pub fn replace_field(
+    text: &str,
+    name: &str,
+    opening: char,
+    closing: char,
+    replacement: &str,
+) -> String {
     match value_span(text, name, opening, closing) {
         Some((start, end)) => format!("{}{replacement}{}", &text[..start], &text[end..]),
         None => text.to_string(),

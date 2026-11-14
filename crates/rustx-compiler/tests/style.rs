@@ -111,7 +111,10 @@ fn a_style_built_with_format_is_passed_through() {
     let source = "fn P() -> Element {\n    \
          return <div style={format!(\"width: {width}px\")}>hi</div>;\n}\n";
     let rust = transpile(source).expect("transpilable").rust;
-    assert!(rust.contains("format !") || rust.contains("format!"), "got {rust}");
+    assert!(
+        rust.contains("format !") || rust.contains("format!"),
+        "got {rust}"
+    );
     assert!(rust.contains("width"), "got {rust}");
     assert_eq!(rust.lines().count(), source.lines().count());
 }

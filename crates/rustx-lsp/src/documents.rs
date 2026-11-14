@@ -90,7 +90,8 @@ impl Documents {
 
     /// `textDocument/didOpen`: the whole text, whatever was there before.
     pub fn opened(&mut self, uri: &str, text: String, version: i64) {
-        self.held.insert(uri.to_string(), Document { text, version });
+        self.held
+            .insert(uri.to_string(), Document { text, version });
     }
 
     /// `textDocument/didClose`: forgotten entirely.
@@ -197,8 +198,10 @@ pub fn changes_in(params: &Value) -> Vec<Change> {
             found.push(Change::Whole(text.to_string()));
             continue;
         }
-        let (Some(start), Some(end)) = (position_in(range.get("start")), position_in(range.get("end")))
-        else {
+        let (Some(start), Some(end)) = (
+            position_in(range.get("start")),
+            position_in(range.get("end")),
+        ) else {
             // A `range` that is not a range. Taking the text for the
             // whole document here is the mistake this module exists to
             // prevent, so the change is dropped and the document is
@@ -320,11 +323,7 @@ pub fn chars_to_utf16(line_text: &str, characters: usize) -> usize {
 pub fn character_in(text: &str, line: usize, character: usize) -> usize {
     let line_text = line_at(text, line);
     let at = utf16_to_byte(line_text, character);
-    line_text
-        .get(..at)
-        .unwrap_or(line_text)
-        .chars()
-        .count()
+    line_text.get(..at).unwrap_or(line_text).chars().count()
 }
 
 /// The reverse, for a position on its way out to an editor.
@@ -353,11 +352,7 @@ mod tests {
         vec![Change::Whole(text.to_string())]
     }
 
-    fn ranged(
-        start: (usize, usize),
-        end: (usize, usize),
-        text: &str,
-    ) -> Vec<Change> {
+    fn ranged(start: (usize, usize), end: (usize, usize), text: &str) -> Vec<Change> {
         vec![Change::Ranged {
             start: Position {
                 line: start.0,
@@ -395,13 +390,25 @@ mod tests {
         held.opened("u", "abcd".to_string(), 1);
         let changes = vec![
             Change::Ranged {
-                start: Position { line: 0, character: 0 },
-                end: Position { line: 0, character: 1 },
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: Position {
+                    line: 0,
+                    character: 1,
+                },
                 text: "X".to_string(),
             },
             Change::Ranged {
-                start: Position { line: 0, character: 3 },
-                end: Position { line: 0, character: 4 },
+                start: Position {
+                    line: 0,
+                    character: 3,
+                },
+                end: Position {
+                    line: 0,
+                    character: 4,
+                },
                 text: "Y".to_string(),
             },
         ];
@@ -420,7 +427,10 @@ mod tests {
     fn a_change_the_editor_has_already_replaced_is_ignored() {
         let mut held = Documents::new();
         held.opened("u", "one".to_string(), 7);
-        assert_eq!(held.changed("u", Some(6), &whole("stale")), Applied::Ignored);
+        assert_eq!(
+            held.changed("u", Some(6), &whole("stale")),
+            Applied::Ignored
+        );
         assert_eq!(held.text("u"), Some("one"));
         assert_eq!(held.changed("u", Some(8), &whole("fresh")), Applied::Fresh);
         assert_eq!(held.text("u"), Some("fresh"));

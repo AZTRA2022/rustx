@@ -90,11 +90,8 @@ fn an_open_that_keeps_failing_is_retried_before_it_is_refused() {
     // test found when it tried. What a test can pin is the policy and
     // its two numbers, which is what the clipboard's open is made of.
     let started = std::time::Instant::now();
-    let tried: Result<(), &str> = rustx_os::patience::retrying(
-        || Err("busy"),
-        clipboard::PATIENCE,
-        clipboard::BETWEEN,
-    );
+    let tried: Result<(), &str> =
+        rustx_os::patience::retrying(|| Err("busy"), clipboard::PATIENCE, clipboard::BETWEEN);
     let waited = started.elapsed();
 
     assert_eq!(tried, Err("busy"), "a refusal is what comes back");

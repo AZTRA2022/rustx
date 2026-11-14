@@ -208,9 +208,8 @@ impl Cursor<'_> {
             {
                 break;
             }
-            let a_line_comment = starting
-                && byte == b'/'
-                && self.bytes().get(self.index + 1) == Some(&b'/');
+            let a_line_comment =
+                starting && byte == b'/' && self.bytes().get(self.index + 1) == Some(&b'/');
             let a_block_comment = byte == b'/' && self.bytes().get(self.index + 1) == Some(&b'*');
             if (a_line_comment || a_block_comment)
                 && let Some(after) = comment_at(self.bytes(), self.index, self.end)

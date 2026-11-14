@@ -86,7 +86,12 @@ impl Drop for Own {
     }
 }
 
-extern "system" fn procedure(window: HWND, message: u32, w: WPARAM, l: LPARAM) -> windows::Win32::Foundation::LRESULT {
+extern "system" fn procedure(
+    window: HWND,
+    message: u32,
+    w: WPARAM,
+    l: LPARAM,
+) -> windows::Win32::Foundation::LRESULT {
     // SAFETY: le traitement par défaut, qui est tout ce que cette
     // fenêtre a à faire.
     unsafe { DefWindowProcW(window, message, w, l) }

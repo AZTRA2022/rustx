@@ -199,24 +199,35 @@ fn a_version_nobody_can_read_goes_by_the_cli_that_is_installed() {
 
 #[test]
 fn tailwind_4_is_told_its_sources_in_the_stylesheet_and_not_on_the_command_line() {
-    use rustx_compiler::bundle::{arguments_for, input_for, Dialect};
+    use rustx_compiler::bundle::{Dialect, arguments_for, input_for};
 
     // `--content` does not exist in 4: the sources are `@source` lines
     // in the stylesheet, and passing the flag is the error a developer
     // sees instead of a page.
-    let arguments = arguments_for(Dialect::Source, std::path::Path::new("in.css"), std::path::Path::new("out.css"));
+    let arguments = arguments_for(
+        Dialect::Source,
+        std::path::Path::new("in.css"),
+        std::path::Path::new("out.css"),
+    );
     assert!(
         !arguments.iter().any(|argument| argument == "--content"),
         "got {arguments:?}"
     );
-    let arguments = arguments_for(Dialect::Content, std::path::Path::new("in.css"), std::path::Path::new("out.css"));
+    let arguments = arguments_for(
+        Dialect::Content,
+        std::path::Path::new("in.css"),
+        std::path::Path::new("out.css"),
+    );
     assert!(
         arguments.iter().any(|argument| argument == "--content"),
         "3 has no other way to be told: {arguments:?}"
     );
 
     let generated = input_for(Dialect::Source, false).expect("a generated stylesheet");
-    assert!(generated.contains("@import \"tailwindcss\""), "got {generated}");
+    assert!(
+        generated.contains("@import \"tailwindcss\""),
+        "got {generated}"
+    );
     assert!(
         generated.contains("@source \"../app/**/*.rsx\""),
         "the pages must be scanned: {generated}"
@@ -229,7 +240,7 @@ fn tailwind_4_is_told_its_sources_in_the_stylesheet_and_not_on_the_command_line(
 
 #[test]
 fn an_applications_own_stylesheet_is_imported_and_not_replaced() {
-    use rustx_compiler::bundle::{input_for, Dialect};
+    use rustx_compiler::bundle::{Dialect, input_for};
 
     // On 3 it is handed to the command line as it is. On 4 it has to be
     // imported, because the `@source` lines the framework adds have to
@@ -360,7 +371,11 @@ fn tailwind_installed_with_nothing_to_run_it_is_said_and_not_skipped() {
     // it anywhere.
     let app = somewhere("tailwind-without-a-cli");
     write_package(&app, "{\"dependencies\": {\"tailwindcss\": \"^4.0.0\"}}");
-    install(&app, "tailwindcss", "{\"name\": \"tailwindcss\", \"version\": \"4.1.0\"}");
+    install(
+        &app,
+        "tailwindcss",
+        "{\"name\": \"tailwindcss\", \"version\": \"4.1.0\"}",
+    );
 
     let said = build(&app).expect_err("should refuse");
     assert!(said.contains("@tailwindcss/cli"), "got {said}");

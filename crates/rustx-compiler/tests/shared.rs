@@ -501,7 +501,11 @@ fn a_method_on_a_value_inside_an_expression_is_a_read_not_a_write() {
 ";
     let built = transpile(source).expect("transpiles");
     // A handler is re-tokenised, so the spacing is the tokeniser's.
-    let tight: String = built.rust.chars().filter(|each| !each.is_whitespace()).collect();
+    let tight: String = built
+        .rust
+        .chars()
+        .filter(|each| !each.is_whitespace())
+        .collect();
     assert!(
         tight.contains("label.get().clone()"),
         "the clone should be a read:
@@ -544,7 +548,11 @@ fn a_method_that_is_a_statement_of_its_own_is_still_a_write() {
 }
 ";
     let built = transpile(source).expect("transpiles");
-    let tight: String = built.rust.chars().filter(|each| !each.is_whitespace()).collect();
+    let tight: String = built
+        .rust
+        .chars()
+        .filter(|each| !each.is_whitespace())
+        .collect();
     assert_eq!(
         tight.matches("rows.update(|__v|{__v.push(").count(),
         2,

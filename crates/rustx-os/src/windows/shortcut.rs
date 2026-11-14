@@ -92,22 +92,12 @@ fn live(
     say: std::sync::mpsc::Sender<Result<u32, OsError>>,
 ) {
     let id = 1;
-    let asked = unsafe {
-        RegisterHotKey(
-            None,
-            id,
-            HOT_KEY_MODIFIERS(modifiers | NO_REPEAT),
-            key,
-        )
-    };
+    let asked = unsafe { RegisterHotKey(None, id, HOT_KEY_MODIFIERS(modifiers | NO_REPEAT), key) };
     if let Err(error) = asked {
         // La raison la plus fréquente, et de loin : quelqu'un d'autre
         // l'a. Le dire ainsi évite à un utilisateur de chercher dans
         // son propre logiciel ce qui n'y est pas.
-        let _ = say.send(Err(OsError::Busy(format!(
-            "{keys} ({})",
-            error.message()
-        ))));
+        let _ = say.send(Err(OsError::Busy(format!("{keys} ({})", error.message()))));
         return;
     }
 

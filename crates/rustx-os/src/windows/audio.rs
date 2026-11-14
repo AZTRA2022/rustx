@@ -18,11 +18,11 @@ use windows::Win32::Media::Audio::{
     DEVICE_STATE_ACTIVE, EDataFlow, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator, eCapture,
     eConsole, eRender,
 };
+use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
 use windows::Win32::System::Com::{
     CLSCTX_ALL, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
     CoTaskMemFree, STGM_READ,
 };
-use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
 
 use crate::audio::{Endpoint, Flow, Volume};
 use crate::error::OsError;
@@ -53,7 +53,9 @@ fn id_of(device: &IMMDevice) -> Result<String, OsError> {
     // SAFETY: l'interface est vivante ; la chaîne rendue est à nous et
     // libérée ici.
     unsafe {
-        let wide = device.GetId().map_err(|error| refused("a device id", error))?;
+        let wide = device
+            .GetId()
+            .map_err(|error| refused("a device id", error))?;
         let text = wide.to_string().unwrap_or_default();
         CoTaskMemFree(Some(wide.as_ptr().cast()));
         Ok(text)
@@ -166,6 +168,5 @@ pub fn set_volume(level: f64) -> Result<(), OsError> {
 pub fn set_muted(muted: bool) -> Result<(), OsError> {
     let master = master()?;
     // SAFETY: idem.
-    unsafe { master.SetMute(muted, std::ptr::null()) }
-        .map_err(|error| refused("muting", error))
+    unsafe { master.SetMute(muted, std::ptr::null()) }.map_err(|error| refused("muting", error))
 }

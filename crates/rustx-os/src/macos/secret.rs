@@ -92,8 +92,16 @@ mod real {
                 service.as_ptr().cast(),
                 account.len() as u32,
                 account.as_ptr().cast(),
-                if want_data { &mut length } else { std::ptr::null_mut() },
-                if want_data { &mut data } else { std::ptr::null_mut() },
+                if want_data {
+                    &mut length
+                } else {
+                    std::ptr::null_mut()
+                },
+                if want_data {
+                    &mut data
+                } else {
+                    std::ptr::null_mut()
+                },
                 &mut item,
             )
         };
@@ -133,7 +141,11 @@ mod real {
                 )
             };
             release(item);
-            return if status == 0 { Ok(()) } else { Err(refused("the new secret", status)) };
+            return if status == 0 {
+                Ok(())
+            } else {
+                Err(refused("the new secret", status))
+            };
         }
         let mut item: ItemRef = std::ptr::null_mut();
         // SAFETY: lengths and pointers of Rust strings that outlive the
@@ -151,7 +163,11 @@ mod real {
             )
         };
         release(item);
-        if status == 0 { Ok(()) } else { Err(refused("the secret", status)) }
+        if status == 0 {
+            Ok(())
+        } else {
+            Err(refused("the secret", status))
+        }
     }
 
     pub fn fetch(service: &str, account: &str) -> Result<Option<String>, OsError> {
@@ -171,7 +187,11 @@ mod real {
         // SAFETY: the item just found.
         let status = unsafe { SecKeychainItemDelete(item) };
         release(item);
-        if status == 0 { Ok(()) } else { Err(refused("removing the secret", status)) }
+        if status == 0 {
+            Ok(())
+        } else {
+            Err(refused("removing the secret", status))
+        }
     }
 }
 

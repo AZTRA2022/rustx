@@ -157,11 +157,11 @@ const OURS: &[&str] = &[
 /// Rust's keywords, the reserved ones included: a crate name is a
 /// module name, and `use crate::…` is already something else.
 const KEYWORDS: &[&str] = &[
-    "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum",
-    "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move",
-    "mut", "pub", "ref", "return", "self", "static", "struct", "super", "trait", "true", "type",
-    "union", "unsafe", "use", "where", "while", "abstract", "become", "box", "do", "final",
-    "macro", "override", "priv", "try", "typeof", "unsized", "virtual", "yield",
+    "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum", "extern",
+    "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub",
+    "ref", "return", "self", "static", "struct", "super", "trait", "true", "type", "union",
+    "unsafe", "use", "where", "while", "abstract", "become", "box", "do", "final", "macro",
+    "override", "priv", "try", "typeof", "unsized", "virtual", "yield",
 ];
 
 /// The crates every Rust program already has, which cargo refuses as a
@@ -324,7 +324,7 @@ fn tsconfig() -> String {
      \x20 },\n\
      \x20 \"include\": [\"components\", \"lib\"]\n\
      }\n"
-        .to_string()
+    .to_string()
 }
 
 /// What `npx shadcn add` reads before it writes anything.
@@ -360,7 +360,7 @@ fn components_json() -> String {
      \x20   \"hooks\": \"@/hooks\"\n\
      \x20 }\n\
      }\n"
-        .to_string()
+    .to_string()
 }
 
 /// The one function every shadcn component imports.
@@ -377,7 +377,7 @@ fn utils_ts() -> String {
      export function cn(...inputs: ClassValue[]) {\n\
      \x20 return twMerge(clsx(inputs));\n\
      }\n"
-        .to_string()
+    .to_string()
 }
 
 /// The stylesheet an application owns, and the theme shadcn reads.
@@ -478,7 +478,7 @@ fn tailwind_css() -> String {
      \x20   color: var(--foreground);\n\
      \x20 }\n\
      }\n"
-        .to_string()
+    .to_string()
 }
 
 /// The `main.rs` of the design document, and not one line more.

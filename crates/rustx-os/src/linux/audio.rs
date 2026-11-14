@@ -125,12 +125,10 @@ pub fn volume() -> Result<Volume, OsError> {
     let level = pactl(&["get-sink-volume", "@DEFAULT_SINK@"])?;
     let muted = pactl(&["get-sink-mute", "@DEFAULT_SINK@"])?;
     Ok(Volume {
-        level: read_level(&level).ok_or_else(|| {
-            OsError::Platform(format!("`{}` is not a volume", level.trim()))
-        })?,
-        muted: read_muted(&muted).ok_or_else(|| {
-            OsError::Platform(format!("`{}` is not a mute state", muted.trim()))
-        })?,
+        level: read_level(&level)
+            .ok_or_else(|| OsError::Platform(format!("`{}` is not a volume", level.trim())))?,
+        muted: read_muted(&muted)
+            .ok_or_else(|| OsError::Platform(format!("`{}` is not a mute state", muted.trim())))?,
     })
 }
 
@@ -182,7 +180,10 @@ mod tests {
                     front-right: 45875 /  70% / -9.33 dB";
         assert_eq!(read_level(said), Some(0.70));
         assert_eq!(read_level("Volume: mono: 0 / 0% / -inf dB"), Some(0.0));
-        assert_eq!(read_level("Volume: mono: 65536 / 100% / 0.00 dB"), Some(1.0));
+        assert_eq!(
+            read_level("Volume: mono: 65536 / 100% / 0.00 dB"),
+            Some(1.0)
+        );
         assert_eq!(read_level("no percentage here"), None);
     }
 

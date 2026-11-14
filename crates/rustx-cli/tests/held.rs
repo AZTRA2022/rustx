@@ -134,4 +134,3 @@ fn exclusive(path: &Path) -> fs::File {
         .open(path)
         .expect("the file this test just wrote")
 }
-

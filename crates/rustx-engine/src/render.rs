@@ -661,10 +661,8 @@ mod tests {
     /// leaves the page half-patched and the window with no explanation.
     #[test]
     fn a_visit_may_add_to_the_registry_and_take_from_it() {
-        let registry: RefCell<Vec<Rc<RefCell<u32>>>> = RefCell::new(vec![
-            Rc::new(RefCell::new(1)),
-            Rc::new(RefCell::new(2)),
-        ]);
+        let registry: RefCell<Vec<Rc<RefCell<u32>>>> =
+            RefCell::new(vec![Rc::new(RefCell::new(1)), Rc::new(RefCell::new(2))]);
 
         let mut seen = Vec::new();
         each_entry(&registry, |entry| {

@@ -90,7 +90,6 @@ fn run(scenario: &str, until: &str) -> Report {
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_monitor"))
         .arg(format!("--scenario={scenario}"))
-
         .arg(format!("--report={}", report_file.display()))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

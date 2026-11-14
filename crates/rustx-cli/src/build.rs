@@ -421,7 +421,11 @@ pub fn says_what_ships(exe: &Path) -> String {
     beside.sort();
 
     let listed = if beside.len() > 12 {
-        format!("{}, and {} more", beside[..12].join(", "), beside.len() - 12)
+        format!(
+            "{}, and {} more",
+            beside[..12].join(", "),
+            beside.len() - 12
+        )
     } else {
         beside.join(", ")
     };
@@ -440,7 +444,12 @@ pub fn says_what_ships(exe: &Path) -> String {
 
 /// The binary cargo wrote, where cargo wrote it.
 pub fn produced(binary: &str, release: bool, project: &Path) -> Option<PathBuf> {
-    produced_told(binary, release, project, target_from_environment().as_deref())
+    produced_told(
+        binary,
+        release,
+        project,
+        target_from_environment().as_deref(),
+    )
 }
 
 /// [`produced`], with the environment said out loud — see

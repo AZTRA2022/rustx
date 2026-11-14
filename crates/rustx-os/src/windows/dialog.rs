@@ -18,7 +18,8 @@
 use std::path::PathBuf;
 
 use windows::Win32::System::Com::{
-    CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize,
+    CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
+    CoUninitialize,
 };
 use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
 use windows::Win32::UI::Shell::{
@@ -112,7 +113,12 @@ fn dressed(
     let patterns = patterns_for(&ask.filters);
     let kept: Vec<(HSTRING, HSTRING)> = patterns
         .iter()
-        .map(|(name, pattern)| (HSTRING::from(name.as_str()), HSTRING::from(pattern.as_str())))
+        .map(|(name, pattern)| {
+            (
+                HSTRING::from(name.as_str()),
+                HSTRING::from(pattern.as_str()),
+            )
+        })
         .collect();
     let specs: Vec<COMDLG_FILTERSPEC> = kept
         .iter()
@@ -129,8 +135,7 @@ fn dressed(
         let path = HSTRING::from(start_in.as_os_str());
         // Un dossier de départ qui n'existe pas n'est pas une raison de
         // refuser le dialogue : Windows l'ouvre là où il l'a laissé.
-        if let Ok(folder) =
-            unsafe { SHCreateItemFromParsingName::<_, _, IShellItem>(&path, None) }
+        if let Ok(folder) = unsafe { SHCreateItemFromParsingName::<_, _, IShellItem>(&path, None) }
         {
             let _ = unsafe { dialog.SetFolder(&folder) };
         }
@@ -141,7 +146,11 @@ fn dressed(
 /// Ouvrir le dialogue et attendre. `Cancelled` quand il est fermé.
 fn shown(dialog: &IFileDialog) -> Result<(), DialogError> {
     let owner = unsafe { GetForegroundWindow() };
-    let owner = if owner.is_invalid() { None } else { Some(owner) };
+    let owner = if owner.is_invalid() {
+        None
+    } else {
+        Some(owner)
+    };
     match unsafe { dialog.Show(owner) } {
         Ok(()) => Ok(()),
         Err(error) if matches!(error.code().0, CANCELLED | ABORTED) => Err(DialogError::Cancelled),
@@ -161,8 +170,9 @@ fn made<T: Interface>(class: windows::core::GUID) -> Result<T, DialogError> {
 /// photo, qui n'ont pas de chemin et dont il n'y aurait rien à faire.
 fn path_of(item: &IShellItem) -> Result<PathBuf, DialogError> {
     let wide = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }.map_err(refused)?;
-    let path = unsafe { wide.to_string() }
-        .map_err(|_| DialogError::Platform("a path Windows did not write as valid UTF-16".to_string()))?;
+    let path = unsafe { wide.to_string() }.map_err(|_| {
+        DialogError::Platform("a path Windows did not write as valid UTF-16".to_string())
+    })?;
     unsafe { windows::Win32::System::Com::CoTaskMemFree(Some(wide.0 as *const _)) };
     Ok(PathBuf::from(path))
 }

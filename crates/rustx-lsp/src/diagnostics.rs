@@ -40,8 +40,7 @@ pub fn of(source: &str) -> Vec<Diagnostic> {
             // exactly the lines nobody tests.
             // Without its carriage return, so that a file with Windows
             // endings counts the same columns as one without.
-            let line_text =
-                crate::documents::line_at(source, line).trim_end_matches('\r');
+            let line_text = crate::documents::line_at(source, line).trim_end_matches('\r');
             let column = crate::documents::chars_to_utf16(line_text, from);
             let end = crate::documents::chars_to_utf16(line_text, from + characters);
             vec![Diagnostic {

@@ -77,18 +77,24 @@ pub fn set(on: bool, name: &str) -> Result<(), OsError> {
 
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| {
-            OsError::File(format!("{} could not be created: {error}", parent.display()))
+            OsError::File(format!(
+                "{} could not be created: {error}",
+                parent.display()
+            ))
         })?;
     }
     let exe = std::env::current_exe().map_err(|error| {
-        OsError::File(format!("this executable's own path could not be read: {error}"))
+        OsError::File(format!(
+            "this executable's own path could not be read: {error}"
+        ))
     })?;
     let mut file = std::fs::File::create(&path).map_err(|error| {
         OsError::File(format!("{} could not be written: {error}", path.display()))
     })?;
-    file.write_all(entry(name, &exe).as_bytes()).map_err(|error| {
-        OsError::File(format!("{} could not be written: {error}", path.display()))
-    })?;
+    file.write_all(entry(name, &exe).as_bytes())
+        .map_err(|error| {
+            OsError::File(format!("{} could not be written: {error}", path.display()))
+        })?;
     Ok(())
 }
 
@@ -103,7 +109,10 @@ mod tests {
     #[test]
     fn the_entry_names_the_executable_in_quotes() {
         let written = entry("mon-app", std::path::Path::new("/usr/bin/mon-app"));
-        assert!(written.contains("Exec=\"/usr/bin/mon-app\""), "got {written}");
+        assert!(
+            written.contains("Exec=\"/usr/bin/mon-app\""),
+            "got {written}"
+        );
         assert!(written.contains("Type=Application"), "got {written}");
         assert!(written.contains("Name=mon-app"), "got {written}");
     }

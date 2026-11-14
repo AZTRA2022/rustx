@@ -43,7 +43,13 @@ const TOOLS: &[&str] = &[
 /// Tailwind 4's own getting-started page, and it puts the command-line
 /// tool in `dependencies`. A bundle that imports it asks a browser to
 /// run a compiler.
-const TOOL_SCOPES: &[&str] = &["@tailwindcss/", "@esbuild/", "@swc/", "@parcel/", "@rollup/"];
+const TOOL_SCOPES: &[&str] = &[
+    "@tailwindcss/",
+    "@esbuild/",
+    "@swc/",
+    "@parcel/",
+    "@rollup/",
+];
 
 /// Is this package a tool of the build rather than a library of the
 /// page?

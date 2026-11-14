@@ -98,9 +98,8 @@ impl Canvas {
         }
         let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
         // SAFETY: une description remplie, et un pointeur que GDI écrit.
-        let bitmap = unsafe {
-            CreateDIBSection(Some(dc), &described, DIB_RGB_COLORS, &mut bits, None, 0)
-        };
+        let bitmap =
+            unsafe { CreateDIBSection(Some(dc), &described, DIB_RGB_COLORS, &mut bits, None, 0) };
         let Ok(bitmap) = bitmap else {
             // SAFETY: le contexte qu'on vient de créer.
             let _ = unsafe { DeleteDC(dc) };
@@ -214,12 +213,16 @@ pub fn window(pane: Pane) -> Result<Image, OsError> {
     // qu'une fenêtre Chromium est — se copie en noir. C'est le piège de
     // cet appel, et il ne se voit qu'à l'image.
     // SAFETY: une poignée vivante et un contexte de la bonne taille.
-    let drawn =
-        unsafe { PrintWindow(handle, canvas.dc, PRINT_WINDOW_FLAGS(PW_RENDERFULLCONTENT)) };
+    let drawn = unsafe { PrintWindow(handle, canvas.dc, PRINT_WINDOW_FLAGS(PW_RENDERFULLCONTENT)) };
     if !drawn.as_bool() {
         // La fenêtre a refusé de se dessiner : la copier depuis l'écran
         // reste possible, et donne la même image si rien ne la recouvre.
-        return self::area(Some(Area::between(rect.left, rect.top, rect.right, rect.bottom)));
+        return self::area(Some(Area::between(
+            rect.left,
+            rect.top,
+            rect.right,
+            rect.bottom,
+        )));
     }
     canvas.image()
 }

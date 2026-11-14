@@ -141,7 +141,10 @@ pub fn volume() -> Result<Volume, OsError> {
 pub fn set_volume(level: f64) -> Result<(), OsError> {
     said(
         "osascript",
-        &["-e", &format!("set volume output volume {}", percent(level))],
+        &[
+            "-e",
+            &format!("set volume output volume {}", percent(level)),
+        ],
     )
     .map(|_| ())
 }
@@ -186,7 +189,10 @@ mod tests {
         let outputs = devices_from(SAMPLE, Flow::Output);
         let names: Vec<&str> = outputs.iter().map(|each| each.name.as_str()).collect();
         assert!(names.contains(&"MacBook Pro Speakers"), "{names:?}");
-        assert!(names.contains(&"Focusrite Scarlett"), "an interface is both: {names:?}");
+        assert!(
+            names.contains(&"Focusrite Scarlett"),
+            "an interface is both: {names:?}"
+        );
         assert!(
             !names.contains(&"MacBook Pro Microphone"),
             "a microphone is no output: {names:?}"
@@ -206,7 +212,10 @@ mod tests {
 
     #[test]
     fn no_audio_at_all_is_an_empty_list_not_a_failure() {
-        assert_eq!(devices_from(r#"{"SPAudioDataType":[]}"#, Flow::Output), Vec::new());
+        assert_eq!(
+            devices_from(r#"{"SPAudioDataType":[]}"#, Flow::Output),
+            Vec::new()
+        );
     }
 
     #[test]
@@ -214,11 +223,17 @@ mod tests {
         let said = "output volume:70, input volume:33, alert volume:100, output muted:false";
         assert_eq!(
             read_volume(said),
-            Some(Volume { level: 0.70, muted: false })
+            Some(Volume {
+                level: 0.70,
+                muted: false
+            })
         );
         assert_eq!(
             read_volume("output volume:0, output muted:missing value"),
-            Some(Volume { level: 0.0, muted: true }),
+            Some(Volume {
+                level: 0.0,
+                muted: true
+            }),
             "no sound coming out reads as muted when macOS will not say"
         );
         assert_eq!(read_volume("nothing here"), None);

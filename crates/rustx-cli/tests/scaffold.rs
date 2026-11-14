@@ -20,8 +20,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use rustx_compiler::bundle;
 use rustx_cli::new;
+use rustx_compiler::bundle;
 
 // ---------------------------------------------------------------- setup
 
@@ -53,7 +53,11 @@ impl Scaffold {
         let into = somewhere(what);
         let written = new::write("mon-app", &into).expect("a project");
         let root = into.join("mon-app");
-        Self { into, root, written }
+        Self {
+            into,
+            root,
+            written,
+        }
     }
 
     fn read(&self, relative: &str) -> String {
@@ -348,7 +352,10 @@ fn the_gitignore_covers_what_the_build_writes_by_the_names_it_writes_it_under() 
 fn every_directory_the_bundler_scans_is_one_the_scaffold_made() {
     let project = Scaffold::new("globs");
     let globs = bundle::content_globs();
-    assert!(!globs.is_empty(), "there are no globs, so this proved nothing");
+    assert!(
+        !globs.is_empty(),
+        "there are no globs, so this proved nothing"
+    );
 
     for glob in at_top_level(&globs) {
         let root = glob
@@ -589,7 +596,10 @@ enum Json {
 impl Json {
     fn at(&self, key: &str) -> Option<&Json> {
         match self {
-            Json::Map(pairs) => pairs.iter().find(|(named, _)| named == key).map(|(_, it)| it),
+            Json::Map(pairs) => pairs
+                .iter()
+                .find(|(named, _)| named == key)
+                .map(|(_, it)| it),
             _ => None,
         }
     }
