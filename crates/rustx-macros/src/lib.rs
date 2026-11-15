@@ -343,10 +343,10 @@ fn generated_directory(manifest: &Path) -> PathBuf {
 /// instead, where `assets_dir` looks first.
 fn assets_of(manifest: &Path) -> Vec<(String, PathBuf)> {
     let root = manifest.join("assets");
+    let mut found = named_in_source(manifest);
     if !root.is_dir() {
-        return Vec::new();
+        return found;
     }
-    let mut found = Vec::new();
     let mut directories = vec![root.clone()];
     while let Some(directory) = directories.pop() {
         let Ok(entries) = std::fs::read_dir(&directory) else {
@@ -367,6 +367,80 @@ fn assets_of(manifest: &Path) -> Vec<(String, PathBuf)> {
                 .collect::<Vec<_>>()
                 .join("/");
             found.push((name, path));
+        }
+    }
+    found.sort();
+    found.dedup_by(|left, right| left.0 == right.0);
+    found
+}
+
+/// The files an application names in `Config` and keeps *outside*
+/// `assets/`.
+///
+/// `Config::icon("logo.ico")` and `Config::index("page.html")` are read
+/// at run time, and the runtime looks for them in the assets folder
+/// first and in the project folder second -- which on a shipped
+/// machine does not exist. So an application that put its icon beside
+/// `Cargo.toml` instead of under `assets/` had a window with the system
+/// icon and one line in the log, on every machine but the one that
+/// built it.
+///
+/// Rather than refusing the path, it travels: the file is carried under
+/// the name it was written with, which is the name `resolved_asset`
+/// then finds in the unpacked folder. A path under `assets/` is left to
+/// the walk above, and an absolute path is nobody's to carry.
+fn named_in_source(manifest: &Path) -> Vec<(String, PathBuf)> {
+    let mut found = Vec::new();
+    for source in rust_files(&manifest.join("src")) {
+        let Ok(text) = std::fs::read_to_string(&source) else {
+            continue;
+        };
+        for opening in [".icon(\"", ".index(\""] {
+            let mut rest = text.as_str();
+            while let Some(at) = rest.find(opening) {
+                rest = &rest[at + opening.len()..];
+                let Some(end) = rest.find('"') else { break };
+                let written = &rest[..end];
+                rest = &rest[end..];
+                if written.is_empty() {
+                    continue;
+                }
+                let path = PathBuf::from(written.replace('\\', "/"));
+                if path.is_absolute() {
+                    continue;
+                }
+                // Under `assets/` already: the walk carries it, and
+                // carrying it twice would mean two `include_bytes!` of
+                // the same megabyte.
+                if written.starts_with("assets/") || written.starts_with("./assets/") {
+                    continue;
+                }
+                let on_disk = manifest.join(&path);
+                if !on_disk.is_file() {
+                    continue;
+                }
+                found.push((written.replace('\\', "/"), on_disk));
+            }
+        }
+    }
+    found
+}
+
+/// Every `.rs` under a directory, which is where a `Config` is written.
+fn rust_files(directory: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut directories = vec![directory.to_path_buf()];
+    while let Some(here) = directories.pop() {
+        let Ok(entries) = std::fs::read_dir(&here) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                directories.push(path);
+            } else if path.extension().is_some_and(|kind| kind == "rs") {
+                found.push(path);
+            }
         }
     }
     found.sort();
@@ -686,6 +760,78 @@ fn modules_of(manifest: &Path) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    /// A file an application names in `Config` and keeps outside
+    /// `assets/` has to travel too: the runtime looks in the assets
+    /// folder and then in the project folder, and a shipped machine
+    /// has no project folder.
+    #[test]
+    fn a_file_named_outside_the_assets_folder_still_travels() {
+        let root =
+            std::env::temp_dir().join(format!("rustx-named-{}-{}", std::process::id(), line!()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).expect("a src");
+        std::fs::create_dir_all(root.join("assets")).expect("an assets");
+        std::fs::write(root.join("logo.ico"), b"icon").expect("an icon");
+        std::fs::write(root.join("page.html"), b"<p>").expect("a page");
+        std::fs::write(root.join("assets/inside.ico"), b"also").expect("an asset");
+        std::fs::write(
+            root.join("src/main.rs"),
+            "fn main() { Config::new(\"X\").icon(\"logo.ico\").index(\"page.html\"); }",
+        )
+        .expect("a main.rs");
+
+        let carried = assets_of(&root);
+        let names: Vec<&str> = carried.iter().map(|(name, _)| name.as_str()).collect();
+        assert!(names.contains(&"logo.ico"), "{names:?}");
+        assert!(names.contains(&"page.html"), "{names:?}");
+        // And the folder's own files are still there, under the name
+        // they have inside it.
+        assert!(names.contains(&"inside.ico"), "{names:?}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A path already under `assets/` is carried by the walk, and
+    /// carrying it twice would mean two `include_bytes!` of one file.
+    #[test]
+    fn a_file_named_inside_the_assets_folder_is_carried_once() {
+        let root =
+            std::env::temp_dir().join(format!("rustx-named-{}-{}", std::process::id(), line!()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).expect("a src");
+        std::fs::create_dir_all(root.join("assets")).expect("an assets");
+        std::fs::write(root.join("assets/icon.ico"), b"icon").expect("an icon");
+        std::fs::write(
+            root.join("src/main.rs"),
+            "fn main() { Config::new(\"X\").icon(\"assets/icon.ico\"); }",
+        )
+        .expect("a main.rs");
+
+        let carried = assets_of(&root);
+        let how_many = carried
+            .iter()
+            .filter(|(name, _)| name == "icon.ico")
+            .count();
+        assert_eq!(how_many, 1, "{carried:?}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A declared path that is not on disk is said once by the runtime
+    /// and must not break the build here.
+    #[test]
+    fn a_named_file_that_is_not_there_carries_nothing() {
+        let root =
+            std::env::temp_dir().join(format!("rustx-named-{}-{}", std::process::id(), line!()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).expect("a src");
+        std::fs::write(
+            root.join("src/main.rs"),
+            "fn main() { Config::new(\"X\").icon(\"nowhere.ico\"); }",
+        )
+        .expect("a main.rs");
+        assert!(assets_of(&root).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// `rust-analyzer` expands this attribute on every keystroke and
     /// gives up on an expansion that takes too long, so the bundler --
     /// a child process -- must not run there. These are the names the

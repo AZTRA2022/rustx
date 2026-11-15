@@ -279,8 +279,13 @@ fn an_id_that_was_sent_as_a_string_comes_back_as_a_string() {
 fn a_request_the_server_does_not_answer_is_refused_rather_than_ignored() {
     // An editor waits on a request until it times out. Silence is the one
     // answer that costs a developer a spinner.
+    // `rename` on purpose: it is the one request this server refuses
+    // to forward, because `rust-analyzer` answers it with edits whose
+    // columns belong to the generated file, and a column that is wrong
+    // by two characters rewrites the wrong part of somebody's page. A
+    // refusal is the honest answer; silence would be a spinner.
     let said = Session::started()
-        .request(42, "textDocument/foldingRange", "{}")
+        .request(42, "textDocument/rename", "{}")
         .ended();
     let answer = said.answer(42).expect("an answer to an unknown request");
     assert_eq!(answer.get("error").get("code").as_i64(), Some(-32601));

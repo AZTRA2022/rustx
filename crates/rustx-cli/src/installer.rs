@@ -196,10 +196,33 @@ pub fn inno_script(read: &build::Project, folder: &Path, binary: &str, pages: &P
             inno(read.about.description.trim())
         ));
     }
+    // The whole version resource, so that the file properties of the
+    // setup binary say what it is before anybody runs it -- which is
+    // also what a corporate software inventory reads, and what
+    // SmartScreen shows when it has no signature to show instead.
     setup.push_str(&format!(
         "VersionInfoVersion={}\n",
         numeric(&read.about.version)
     ));
+    setup.push_str(&format!(
+        "VersionInfoProductVersion={}\n",
+        numeric(&read.about.version)
+    ));
+    setup.push_str(&format!(
+        "VersionInfoProductName={}\n",
+        inno(&read.about.name)
+    ));
+    setup.push_str(&format!(
+        "VersionInfoProductTextVersion={}\n",
+        inno(&read.about.version)
+    ));
+    setup.push_str(&format!("VersionInfoOriginalFileName={base}-setup.exe\n"));
+    if !read.about.publisher.trim().is_empty() {
+        setup.push_str(&format!(
+            "VersionInfoCopyright={}\n",
+            inno(read.about.publisher.trim())
+        ));
+    }
     if !read.about.publisher.trim().is_empty() {
         setup.push_str(&format!(
             "VersionInfoCompany={}\n",

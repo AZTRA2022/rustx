@@ -200,6 +200,29 @@ wrap_app! {
                 let Some(command_line) = command_line else {
                     return;
                 };
+
+                // Always, and this one is a bug fix rather than a
+                // preference. A rustx page is a `file://` document, and
+                // Chromium gives every `file://` document an origin of
+                // its own -- so a subresource *fetch* from one is
+                // cross-origin and is refused. A stylesheet loads, an
+                // `<img src>` loads, and a `@font-face` does not,
+                // because a font is fetched with CORS and an image is
+                // not. The documentation told people to put a font in
+                // `assets/fonts/` and name it in `@font-face`, and what
+                // they got was the fallback family with nothing in the
+                // console to explain it.
+                //
+                // What this widens: a local page can read other local
+                // files through `fetch`. In this framework that is not
+                // a new power -- a page's own Rust can already read any
+                // file the user can -- and remote content never loads
+                // at all, so there is no third party to hand the
+                // ability to. See the security page.
+                for switch in LOCAL_SWITCHES {
+                    command_line.append_switch(Some(&CefString::from(*switch)));
+                }
+
                 if !software_rendering() {
                     return;
                 }
@@ -228,6 +251,16 @@ wrap_app! {
         }
     }
 }
+
+/// The switches a local-only application always wants.
+///
+/// `allow-file-access-from-files` is what makes a `@font-face`, a
+/// `fetch` and a worker written beside the document work from a
+/// `file://` page. Without it each of those is a cross-origin request
+/// from an opaque origin to another opaque origin, which Chromium
+/// refuses -- correctly, for a browser, and uselessly for an
+/// application whose every file is its own.
+pub const LOCAL_SWITCHES: &[&str] = &["allow-file-access-from-files"];
 
 /// The switches that take the GPU out of the picture.
 ///
@@ -358,7 +391,21 @@ fn platform_fonts() -> PlatformFonts {
 
 #[cfg(test)]
 mod laws {
-    use super::{SOFTWARE_SWITCHES, SOFTWARE_VALUES, platform_fonts};
+    use super::{LOCAL_SWITCHES, SOFTWARE_SWITCHES, SOFTWARE_VALUES, platform_fonts};
+
+    /// A font put in `assets/fonts/` and named in a `@font-face` is a
+    /// cross-origin fetch from a `file://` page, which Chromium
+    /// refuses unless this switch is passed -- so the documented way
+    /// to ship a font silently produced the fallback family instead.
+    /// Asserted here because the switch is one string in a list, and a
+    /// list is the kind of thing a later edit shortens.
+    #[test]
+    fn a_local_page_may_fetch_the_files_beside_it() {
+        assert!(
+            LOCAL_SWITCHES.contains(&"allow-file-access-from-files"),
+            "without this, a shipped @font-face does not load"
+        );
+    }
 
     /// `BrowserSettings::default()`'s own fallback for every one of
     /// these, on every platform, is "Times New Roman" — a page that

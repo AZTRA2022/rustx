@@ -297,11 +297,33 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
                 let completion_with_resolve = ",\"completionProvider\":{\"triggerCharacters\":\
                                   [\"<\",\" \",\"/\",\"{\",\".\",\":\"],\
                                   \"resolveProvider\":true}";
+                // Everything else `rust-analyzer` answers, promised
+                // only when there is a `rust-analyzer` to answer it.
+                //
+                // They are all the same round trip as `definition`,
+                // and they are correct for one reason worth writing
+                // down: a generated page keeps its own line numbers.
+                // `every_page_keeps_its_line_count` is a law of the
+                // compiler, so line *N* of the shadow is line *N* of
+                // the `.rsx`, and a range that comes back needs no
+                // translation at all. Columns are the only thing that
+                // moves, and only on the lines the rewrite rebuilt.
+                //
+                // Not here, and each for a reason:
+                // `rename` and `codeAction`, because both hand back
+                // edits with columns in them and a column that is
+                // wrong by two characters rewrites the wrong part of
+                // somebody's file; and `formatting`, because the text
+                // being formatted is generated Rust and the answer
+                // would be a `.rsx` reformatted as Rust.
+                let more = "\"hoverProvider\":true,\"definitionProvider\":true,\
+                            \"typeDefinitionProvider\":true,\"implementationProvider\":true,\
+                            \"referencesProvider\":true,\"documentHighlightProvider\":true,\
+                            \"documentSymbolProvider\":true,\"foldingRangeProvider\":true,\
+                            \"inlayHintProvider\":true,\
+                            \"signatureHelpProvider\":{\"triggerCharacters\":[\"(\",\",\"]}";
                 let assistance = if downstream.exists() {
-                    format!(
-                        "{completion_with_resolve},\"hoverProvider\":true,\
-                         \"definitionProvider\":true"
-                    )
+                    format!("{completion_with_resolve},{more}")
                 } else {
                     completion.to_string()
                 };
@@ -319,7 +341,30 @@ fn answer(input: &mut impl BufRead, output: &mut impl Write, downstream: Downstr
             // is the same three steps: the position becomes a position in
             // the shadow, the question goes downstream, and what comes
             // back is told where it really is.
-            "textDocument/completion" | "textDocument/hover" | "textDocument/definition" => {
+            // Whole-file questions: no position in them, so the
+            // shadow answers directly. `rust-analyzer` already holds
+            // the shadow's current text -- every question that swaps it
+            // puts it back -- so nothing has to be handed over first.
+            "textDocument/documentSymbol"
+            | "textDocument/foldingRange"
+            | "textDocument/inlayHint" => {
+                let answer =
+                    safely(|| about_the_file(&method, &body, &shadows, downstream.held(&shadows)))
+                        .flatten()
+                        .unwrap_or_else(|| "[]".to_string());
+                rpc::write(
+                    output,
+                    &format!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{answer}}}"),
+                );
+            }
+            "textDocument/completion"
+            | "textDocument/hover"
+            | "textDocument/definition"
+            | "textDocument/typeDefinition"
+            | "textDocument/implementation"
+            | "textDocument/references"
+            | "textDocument/documentHighlight"
+            | "textDocument/signatureHelp" => {
                 // The markup first: it needs nothing but the text, so
                 // it answers while `rust-analyzer` is still loading, and
                 // it answers for positions that have no counterpart in
@@ -520,11 +565,47 @@ fn published(
 /// a dialog, and "there is nothing to say about the inside of a tag" is
 /// not a failure.
 fn empty_for(method: &str) -> &'static str {
-    if method.ends_with("hover") {
+    // A client reads `null` and `[]` differently, and handing back the
+    // wrong empty is how a popup gets stuck on screen: VS Code keeps
+    // the last signature help it was shown until it is told `null`,
+    // and reads `[]` as "an answer with no items in it".
+    if method.ends_with("hover") || method.ends_with("signatureHelp") {
         "null"
     } else {
         "[]"
     }
+}
+
+/// Ask `rust-analyzer` a question about the whole file.
+///
+/// `documentSymbol`, `foldingRange` and `inlayHint` carry no position
+/// -- the first two carry nothing but a document and the third a range
+/// -- so the question goes over with the shadow's URI in place of the
+/// page's, and what comes back needs only the URI put back. The lines
+/// are already the page's own: see the note in `initialize`.
+fn about_the_file(
+    method: &str,
+    body: &str,
+    shadows: &std::collections::HashMap<String, shadow::Shadow>,
+    downstream: Option<&mut downstream::Server>,
+) -> Option<String> {
+    let params = json::object_field(body, "params")?;
+    let server = downstream?;
+    // The URI as the client wrote it, taken from the text rather than
+    // parsed, so that what goes downstream is the client's own
+    // parameters with one string changed.
+    let uri = {
+        let value = wire::parse(params)?;
+        value.get("textDocument").get("uri").as_str()?.to_string()
+    };
+    let shadow = shadows.get(&uri)?;
+    let asked = params.replace(&json::escape(&uri), &json::escape(&shadow.uri));
+    let answer = server.ask(method, &asked)?;
+    let result = cut_result(&answer)?;
+    if result == "null" {
+        return None;
+    }
+    Some(result.replace(&json::escape(&shadow.uri), &json::escape(&uri)))
 }
 
 /// What the server offers out of its own head, or nothing when the
