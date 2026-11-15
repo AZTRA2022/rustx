@@ -19,6 +19,7 @@
 //! numbers of the `.rsx` (§7.3), so the error lands where they are
 //! looking.
 
+use rustx_compiler::build::modules_of;
 use std::path::{Path, PathBuf};
 
 use proc_macro::TokenStream;
@@ -109,7 +110,9 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
             })
             .collect();
 
-        let generated = slashed(&out.join(rustx_compiler::build::PAGES));
+        let file = out.join(rustx_compiler::build::PAGES);
+        let generated = slashed(&file);
+        let pages = pages_brought_in(&file, &generated);
 
         // What the application wrote beside its pages. A page is in the
         // same crate as the rest of the application, so the public
@@ -174,7 +177,7 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
                     #[allow(unused_imports)]
                     pub(crate) use rustx::tokio;
 
-                    include!(#generated);
+                    #pages
                     #(#watched)*
                 }
             },
@@ -559,6 +562,53 @@ fn an_editor(program: Option<&str>, told: Option<&str>) -> bool {
     program.contains("rust-analyzer") || program.contains("proc-macro-srv")
 }
 
+/// Les pages, telles que le code engendré les apporte.
+///
+/// Un `include!` est ce qu'il faut à une vraie compilation : une erreur
+/// dans une page tombe dans le fichier engendré, à sa ligne, et cargo
+/// surveille ce fichier.
+///
+/// Mais ce fichier est sous `target/`, que tout `.gitignore` ignore, et
+/// le VFS de `rust-analyzer` suit `.gitignore` : il ne le charge jamais,
+/// l'`include!` échoue, et le corps entier de l'application se retrouve
+/// souligné sous un seul `macro-error: failed to load file`. Dans
+/// l'éditeur, les pages sont donc recopiées dans l'expansion, où il n'y
+/// a aucun fichier à charger — et personne n'a de réglage à poser dans
+/// son éditeur pour que son application s'affiche sans rouge.
+///
+/// Le repli est l'`include!` d'origine : un fichier que l'on n'arrive
+/// pas à lire garde le message qu'il avait, qui dit de construire
+/// l'application une première fois.
+fn pages_brought_in(file: &Path, path: &str) -> TokenStream2 {
+    if inside_an_editor()
+        && let Ok(source) = std::fs::read_to_string(file)
+        && let Ok(tokens) = rooted_at(&source, file).parse::<TokenStream2>()
+    {
+        return tokens;
+    }
+    quote! { include!(#path); }
+}
+
+/// Le même fichier, dont les `include!` tiennent encore debout ailleurs.
+///
+/// Le fichier engendré inclut chaque page à côté de lui, par son seul
+/// nom (`include!("page.rs")`), et un `include!` se résout depuis le
+/// dossier du fichier qui l'écrit. Recopié dans l'expansion, ce nom se
+/// mettrait soudain à désigner `src/page.rs`, que personne n'a écrit.
+/// Chacun est donc rendu absolu avant d'être recopié.
+///
+/// shortcut: remplace `include!("` partout dans le texte, donc une page
+/// qui écrit elle-même un `include!` relatif se verrait réécrire avec la
+/// mauvaise base -- à reprendre si une page a un jour besoin d'inclure
+/// un fichier à elle.
+fn rooted_at(source: &str, file: &Path) -> String {
+    let Some(directory) = file.parent() else {
+        return source.to_string();
+    };
+    let directory = slashed(directory);
+    source.replace("include!(\"", &format!("include!(\"{directory}/"))
+}
+
 /// A path an `include!` will take, on a system whose separator it will
 /// not.
 fn slashed(path: &Path) -> String {
@@ -717,45 +767,6 @@ fn rename_in(attribute: TokenStream2) -> Option<String> {
         }
     }
     None
-}
-
-/// The modules the application declares beside its entry point.
-///
-/// Read from `src/main.rs` (or `src/lib.rs`), because an attribute macro
-/// is given the function it is written on and not the file around it,
-/// and `Span::source_file` is not stable. A `mod` is declared on a line
-/// of its own in every Rust file anyone writes, which is what makes
-/// reading it this way honest rather than clever.
-fn modules_of(manifest: &Path) -> Vec<String> {
-    let mut found = Vec::new();
-    for entry in ["src/main.rs", "src/lib.rs"] {
-        let Ok(source) = std::fs::read_to_string(manifest.join(entry)) else {
-            continue;
-        };
-        for line in source.lines() {
-            let line = line.trim();
-            if line.starts_with("//") {
-                continue;
-            }
-            let declaration = line.strip_prefix("pub ").unwrap_or(line);
-            let Some(rest) = declaration.strip_prefix("mod ") else {
-                continue;
-            };
-            let Some(name) = rest.strip_suffix(';') else {
-                continue;
-            };
-            let name = name.trim();
-            if name
-                .chars()
-                .all(|letter| letter.is_alphanumeric() || letter == '_')
-                && !name.is_empty()
-                && !found.iter().any(|already| already == name)
-            {
-                found.push(name.to_string());
-            }
-        }
-    }
-    found
 }
 
 #[cfg(test)]
@@ -1054,5 +1065,25 @@ mod pages;
     fn a_path_for_an_include_is_written_with_forward_slashes() {
         let path = Path::new("target").join("rustx-pages").join("pages.rs");
         assert_eq!(slashed(&path), "target/rustx-pages/pages.rs");
+    }
+
+    /// Une page incluse par son seul nom suit le fichier engendré
+    /// lorsqu'on le recopie ailleurs.
+    ///
+    /// Sans cela, `include!("page.rs")` recopié dans l'expansion de
+    /// `#[rustx::main]` désigne `src/page.rs`, que personne n'a écrit :
+    /// c'est l'erreur qu'un développeur voyait dans son éditeur.
+    #[test]
+    fn a_page_included_beside_its_table_is_found_from_anywhere() {
+        let file = Path::new("tmp")
+            .join("video-editor")
+            .join("target")
+            .join("rustx-pages")
+            .join("pages.rs");
+        let rewritten = rooted_at("mod page_0 {\n    include!(\"page.rs\");\n}\n", &file);
+        assert!(
+            rewritten.contains("include!(\"tmp/video-editor/target/rustx-pages/page.rs\")"),
+            "got {rewritten}"
+        );
     }
 }
