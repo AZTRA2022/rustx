@@ -79,8 +79,10 @@ pub fn show(pane: Pane, credits: &Credits) -> Result<(), OsError> {
     crate::platform::about::show(pane, credits)
 }
 
-// Lues par `windows/` et `macos/` ; Linux refuse le panneau.
-#[cfg_attr(target_os = "linux", allow(dead_code))]
+// Lues par `windows/` seulement : macOS passe la version et le
+// copyright au panneau comme deux cles separees, et Linux refuse le
+// panneau.
+#[cfg_attr(not(windows), allow(dead_code))]
 /// Les deux lignes sous le nom, telles que les deux systèmes les
 /// veulent : la version, puis le copyright, chacune seulement si elle
 /// existe.

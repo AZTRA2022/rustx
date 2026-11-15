@@ -265,6 +265,10 @@ mod real {
 
         /// Not on macOS: notifications do not go through an icon here
         /// (see the module doc), so an invisible one has nothing to do.
+        ///
+        /// Personne ne l'appelle ici : ce nom existe pour que l'API soit
+        /// la meme d'une plateforme a l'autre.
+        #[allow(dead_code)]
         pub fn hidden() -> Result<Self, OsError> {
             Err(OsError::Unsupported(
                 "an invisible tray icon on macOS — notifications go through `osascript`, \
