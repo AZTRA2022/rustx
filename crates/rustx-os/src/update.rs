@@ -647,7 +647,7 @@ mod tests {
     const ANSWER: &str = r#"{
       "tag_name": "v1.10.0",
       "name": "1.10.0",
-      "body": "Faster start.\nmon-app-1.10.0-windows.zip 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+      "body": "Faster start.\nmon-app-1.10.0-windows.zip 9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08\nmon-app-1.10.0-linux.zip 9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08\nmon-app-1.10.0-macos.zip 9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08",
       "assets": [
         { "name": "mon-app-1.10.0-linux.zip", "size": 11, "browser_download_url": "https://example.test/linux.zip" },
         { "name": "mon-app-1.10.0-windows.zip", "size": 22, "browser_download_url": "https://example.test/windows.zip" },

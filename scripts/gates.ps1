@@ -92,11 +92,19 @@ function Test-Wanted {
 # Run a command and hand back its exit code and its output, without
 # letting a native program's stderr be mistaken for a PowerShell error.
 function Invoke-Gate {
-  param([string] $Command)
+  param([string] $Command, [switch] $Quiet)
   $output = & cmd /c "$Command 2>&1"
+  $code = $LASTEXITCODE
+  $text = ($output | Out-String)
+  # A gate that fails has to show why: the note it prints says "see the
+  # output above", and without this there was nothing above it.
+  if ($code -ne 0 -and -not $Quiet) {
+    Write-Host "  > $Command" -ForegroundColor DarkGray
+    Write-Host $text
+  }
   return [pscustomobject] @{
-    Code   = $LASTEXITCODE
-    Output = ($output | Out-String)
+    Code   = $code
+    Output = $text
   }
 }
 
@@ -106,7 +114,7 @@ function Invoke-Gate {
 # written on, so asking rustup is not enough -- the program has to run.
 function Test-Usable {
   param([string] $Program, [string] $Arguments = '--version')
-  $probe = Invoke-Gate "$Program $Arguments"
+  $probe = Invoke-Gate "$Program $Arguments" -Quiet
   return ($probe.Code -eq 0)
 }
 

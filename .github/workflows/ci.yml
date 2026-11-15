@@ -182,7 +182,7 @@ jobs:
       - name: Package the example application
         shell: bash
         working-directory: apps/counter
-        run: cargo run -p rustx-cli --bin rustx -- package --release --out ../../dist
+        run: cargo run -p rustx-cli --bin rustx -- package --out ../../dist
 
       # What each platform must have produced. A missing file fails
       # here, with the directory listed, rather than leaving a green
@@ -285,12 +285,14 @@ jobs:
       - run: npm ci
         working-directory: site
 
-      - name: It typechecks
-        run: npx tsc --noEmit
-        working-directory: site
-
       # Every `.mdx` page is compiled here, so a broken component or a
-      # malformed page fails the build rather than the reader.
+      # malformed page fails the build rather than the reader. It runs
+      # before the typecheck because it is what writes `next-env.d.ts`,
+      # which is where the `.webp` imports get their declarations.
       - name: Every page builds
         run: npx next build
+        working-directory: site
+
+      - name: It typechecks
+        run: npx tsc --noEmit
         working-directory: site
