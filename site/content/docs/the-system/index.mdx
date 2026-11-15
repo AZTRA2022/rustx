@@ -8,11 +8,15 @@ nor place an icon next to the clock.
 This is what `rustx-os` does, and it is written in a page like the rest.
 
 ```rust
-use rustx::{autostart, clipboard, devices, dialog, instance, notify, shortcut, terminal, tray};
+use rustx::{autostart, clipboard, data, devices, dialog, instance, menu, notify, shortcut, terminal, tray, update};
 ```
 
-Those nine are on the facade under a short name, so a page writes
+Those are on the facade under a short name, so a page writes
 `clipboard::text()` without declaring anything in its `Cargo.toml`.
+[`data`](/docs/the-system/app-data) and
+[`update`](/docs/tooling/packaging) are there and not under `rustx::os`
+for one reason: they need the application's own name and version, which
+the facade already knows and the layer below it does not.
 
 The other capabilities are reached through `rustx::os`:
 
@@ -30,10 +34,10 @@ on which operating system.
 
 ### Ask before you draw the button
 
-Ten of these modules answer `supported()`, so that a missing feature is
-a button you do not draw rather than an error to read: `about`,
-`autostart`, `clipboard`, `dialog`, `instance`, `notify`, `shortcut`,
-`tray`, `window`, and `os::window`'s own.
+Eleven of these modules answer `supported()`, so that a missing feature
+is a button you do not draw rather than an error to read: `about`,
+`autostart`, `clipboard`, `dialog`, `instance`, `menu`, `notify`,
+`shortcut`, `tray`, `window`, and `os::window`'s own.
 
 ```rust
 return <div>
@@ -116,7 +120,8 @@ the variant, not the prose, when you are matching on a failure.
 | [The machine's state](/docs/the-system/the-machine) | theme, battery, idle, locale, time zone, the network |
 | [The terminal](/docs/the-system/the-terminal) | run a script with no console window, or open one |
 | [Secrets](/docs/the-system/secrets) | a token in the system's credential store |
-| [Printing](/docs/the-system/printing) | a file to the printer, with the dialog or without |
+| [Printing](/docs/the-system/printing) | a file to the printer, with the dialog or without, and the window through Chromium |
+| [Menus](/docs/the-system/menus) | a context menu drawn by the system, and the bar macOS needs |
 | [The file manager](/docs/the-system/the-file-manager) | show in folder, recent documents, own an extension |
 | [The taskbar](/docs/the-system/the-taskbar) | flash, progress, a badge, and the About panel |
 | [Platforms](/docs/the-system/platforms) | what is written, what has been run, and the difference |

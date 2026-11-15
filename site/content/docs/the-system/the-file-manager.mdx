@@ -12,6 +12,8 @@ use rustx::os::shell;
 
 shell::reveal(&exported)?;            // open the folder, file selected
 shell::remember_recent(&saved)?;      // add it to the recent documents
+shell::open_url("https://rustx.dev")?; // hand a link to the user's browser
+shell::register_scheme(&scheme)?;     // answer myapp://…
 ```
 
 `shell` is reached through `rustx::os` — see
@@ -110,17 +112,78 @@ let Ok(_only) = instance::Only::one("com.example.my-editor") else {
 };
 ```
 
-That combination works. What is **not** written is a URL scheme —
-`myapp://…` — so a deep link from a browser or another application has
-no path in. It is in [what's left](/docs/whats-left).
+That combination works, and it is the same combination a URL scheme
+needs.
+
+## A link in the user's browser
+
+```rust
+rustx::shell::open_url("https://rustx.dev/docs")?;
+rustx::shell::open_url("mailto:support@example.test?subject=Crash")?;
+```
+
+The address goes to the system, which gives it to the browser the user
+chose. The page is drawn by Chrome or Safari or Firefox, in their
+process, with their sandbox, and the application is not involved — which
+is why this is not in conflict with the rule that
+[a rustx window loads only local content](/docs/the-system/security).
+Nothing remote ever enters this process.
+
+Three schemes and no others: `https`, `http` and `mailto`. The refusal
+of the rest is the security answer rather than its absence. `file://`
+would turn "open this link" into "read a local file", and a scheme of
+somebody else's choosing is an arbitrary program started with an
+argument from a page. An application that wants to open a file has
+`reveal`; one that wants to start a program has
+[`terminal`](/docs/the-system/the-terminal).
+
+## Owning a URL scheme
+
+```rust
+use rustx::shell::Scheme;
+
+let scheme = Scheme {
+    scheme: "myapp".to_string(),              // no colon, no slashes
+    name: "My App".to_string(),               // what the system shows the user
+    program: std::env::current_exe()?,
+};
+rustx::shell::register_scheme(&scheme)?;
+```
+
+This is Electron's `setAsDefaultProtocolClient` and Tauri's deep link.
+After it, `myapp://invoice/42` in a browser, an e-mail or another
+application starts this one with the whole address as its first
+argument — and with [a single instance](/docs/the-system/a-single-instance)
+held, a second start hands the address to the copy that is already
+running instead, which is what makes a link open the window that is
+already there rather than a new one.
+
+Per user, never for the machine: a system-wide handler needs
+administrator rights, and a desktop application that asks for them to
+register a link is one people stop installing.
+
+Ten schemes are refused by name — `http`, `https`, `file`, `mailto`,
+`ftp`, `data`, `javascript`, `about`, `tel`, `sms` — because taking one
+would break the browser, the mail client or the file manager for the
+whole user account. So is anything that is not a scheme by RFC 3986's
+rules: a letter, then letters, digits, `+`, `-` and `.`.
+
+`unregister_scheme` undoes it, and a scheme that was never registered
+is not an error.
 
 ## Platforms
 
 | | |
 |---|---|
-| **Windows** | written and run. Explorer for `reveal`, `shell32`'s recent documents, `HKCU\Software\Classes` for associations |
-| **Linux** | written, never run. The file manager is reached over D-Bus, and the recent list is `recently-used.xbel` |
-| **macOS** | written, never compiled for a Mac |
+| **Windows** | written and run. Explorer for `reveal`, `shell32`'s recent documents, `HKCU\Software\Classes` for associations and schemes, `ShellExecuteW` for a link |
+| **Linux** | written, never run. The file manager is reached over D-Bus, the recent list is `recently-used.xbel` (and is refused), and a scheme is a `.desktop` file with `x-scheme-handler/` plus `xdg-mime default`. A link is `xdg-open` |
+| **macOS** | written, never compiled for a Mac. `open` for both a link and `reveal`; a scheme is `CFBundleURLTypes` patched into the running bundle's `Info.plist`, then `lsregister -f` |
+
+A file **association** on macOS is still refused, and for a reason that
+does not apply to a scheme: an association is declared by the bundle
+(`CFBundleDocumentTypes`) and `LSSetDefaultRoleHandlerForContentType`
+can only make an application the default for a type its bundle already
+declares.
 
 `crates/rustx-os/tests/shell.rs` writes a real association, reads it
 back out of the registry with `reg query`, and undoes it. `reveal` is

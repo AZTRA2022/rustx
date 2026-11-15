@@ -61,16 +61,18 @@ returns plain values (null, boolean, number, string, list, object).
 | paired Bluetooth devices | the Web Bluetooth API | a plugin | [`os::bluetooth`](/docs/the-system/devices) |
 | a colour picker | `<input type="color">` | — | [`os::color`](/docs/the-system/file-dialogs) — the system's, with its eyedropper |
 | secure storage | `safeStorage` | the stronghold plugin or a keyring | [`os::secret`](/docs/the-system/secrets) |
-| file associations | `app.setAsDefaultProtocolClient` | the deep-link plugin | [`os::shell::associate`](/docs/the-system/the-file-manager) for an extension. A URL scheme is **not written** |
-| the app's data folder | `app.getPath("userData")` | the path API | none. See [app data](/docs/the-system/app-data) |
-| opening the system browser | `shell.openExternal` | the opener plugin | not written, and deliberately: see [security](/docs/the-system/security) |
-| application menu, context menu | `Menu` | the menu API | not written |
-| auto-update | `autoUpdater` | the updater plugin | not written |
-| installer, signing | electron-builder and others | `tauri build` | not written. See [packaging](/docs/tooling/packaging) |
-| printing the window's own contents | `webContents.print` | the web view's | not written. Chromium has the preview; nothing exposes it |
+| file associations, URL scheme | `app.setAsDefaultProtocolClient` | the deep-link plugin | [`shell::associate`](/docs/the-system/the-file-manager) for an extension, [`shell::register_scheme`](/docs/the-system/the-file-manager) for `myapp://…` |
+| the app's data folder | `app.getPath("userData")` | the path API | [`rustx::data`](/docs/the-system/app-data) — `read`, `write`, `list`, and a `cache` and `logs` folder beside it |
+| opening the system browser | `shell.openExternal` | the opener plugin | [`shell::open_url`](/docs/the-system/the-file-manager). `https`, `http` and `mailto`; the rest is refused by name |
+| application menu, context menu | `Menu` | the menu API | [`menu::popup`](/docs/the-system/menus) for a context menu (not on Linux: nothing native exists there). The bar is drawn in the page, and `menu::application()` installs the one macOS needs |
+| auto-update | `autoUpdater` | the updater plugin | [`rustx::update::from_github`](/docs/tooling/packaging) — a release page, no update server |
+| installer, signing | electron-builder and others | `tauri build` | [`rustx package`](/docs/tooling/packaging): the folder, a `.zip`, a setup `.exe` / `.dmg` / `install.sh`, and `signtool`/`codesign` when asked. No notarisation |
+| printing the window's own contents | `webContents.print` | the web view's | [`window::print`](/docs/the-system/printing), and `print_to_pdf` for a file. Chromium's own preview |
 
-"Not written" means that nothing in the framework's crates does it. You can still
-call the platform from your own Rust with a crate of your choice.
+"Not written" means that nothing in the framework's crates does it. You can
+still call the platform from your own Rust with a crate of your choice. Where a
+cell says a platform refuses, the refusal names the platform and the capability
+rather than failing silently — see [platforms](/docs/the-system/platforms).
 
 ## Configuration and security
 
@@ -95,7 +97,7 @@ call the platform from your own Rust with a crate of your choice.
 | `<Link>`, `useRouter` | `router::navigate`, `back`, `replace`, `current`. See [navigating](/docs/the-router/navigating) |
 | the `app/` router, `[id]`, `(group)`, `loading`, `error` | the same names. See [special files](/docs/the-router/special-files) |
 | `fetch` in an effect | a Rust HTTP client in an `async` block. See [network calls](/docs/async/network-calls) |
-| `localStorage` | a file. See [app data](/docs/the-system/app-data) |
+| `localStorage` | [`rustx::data`](/docs/the-system/app-data), which is a file in the folder the system keeps for this application |
 | Tailwind, shadcn/ui, Recharts | the same libraries, as capitalized tags. See [JavaScript libraries](/docs/javascript-libraries) |
 | Server Components, `use client`, Server Actions | none. There is no server |
 | `next/image`, `next/font`, `next/link` | none. See [assets](/docs/getting-started/assets) |

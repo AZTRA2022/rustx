@@ -23,16 +23,32 @@ document and wants it on paper needs.
 
 It is **not** the printing of the window's own contents. That belongs to
 Chromium, which has its own preview, its own page layout and its own CSS
-page breaks, and `BrowserHost::print()` opens it. Calling that is the
-engine's job, not this crate's: `rustx-os` knows nothing about the DOM,
-and that boundary holds here as everywhere else in the layer.
+page breaks. That one lives in `rustx::window`, below, because the thing
+that knows what the page looks like is the engine: `rustx-os` knows
+nothing about the DOM, and that boundary holds here as everywhere else
+in the layer.
 
-<Callout type="warn" title="There is no call that prints the window">
-Neither `rustx::window` nor `rustx::os::print` exposes Chromium's print
-preview today. A page that wants to print what it is showing has to
-produce a file — a PDF written by Rust — and print that. This is a gap,
-and it is in [what's left](/docs/whats-left).
-</Callout>
+## Printing the window
+
+```rust
+rustx::window::print();                               // the engine's print dialog
+rustx::window::print_to_pdf(std::path::Path::new("report.pdf"));  // no dialog
+```
+
+`print` opens Chromium's own preview — the system's printers, the
+system's paper sizes, and the preview a user already knows — and it is
+the same on Windows, macOS and Linux, because it is Chromium's and not
+ours. `print_to_pdf` shows nothing and writes the file: that is the
+"save as PDF" button, and the report produced with nobody watching.
+
+Both return before the work is finished. Printing a page is
+asynchronous in Chromium, and the PDF exists when the engine has
+written it, not when `print_to_pdf` has returned. Nothing calls back:
+if a page needs to know, it watches for the file.
+
+`@media print` in the page's style sheet is what decides how it looks
+on paper — the same rule as on the web, and the reason a dark page does
+not print as a black rectangle.
 
 ## The dialog, or the queue
 

@@ -65,9 +65,28 @@ what the file does, not that anyone has seen it do it.
 | `shortcut` | **refuses.** Needs a desktop portal over D-Bus | written — Carbon's `RegisterEventHotKey`, never compiled for a Mac |
 | `tray` | **refuses.** Needs a `StatusNotifierItem` over D-Bus | written — `NSStatusItem`, never compiled for a Mac |
 | `about` | **refuses.** Linux has no system About panel: `GtkAboutDialog` is GTK's, and no desktop protocol defines one | written — the standard panel |
+| `menu` | **refuses.** X11 and Wayland have no menu; a toolkit draws one, and linking GTK for it would cost the whole of GTK and a second event loop. Draw it in the page | written — `NSMenu`, never compiled for a Mac |
+| `data` | written — the XDG base directories | written — `~/Library/{Application Support,Caches,Logs}` |
+| `update` | written. The HTTP under it is `curl`, then `wget` | the same |
 | `attention`, `audio`, `bluetooth`, `capture`, `color`, `net`, `print`, `screen`, `secret`, `shell`, `system`, `terminal` | written | written |
 
-The two rows that say **refuses** are not oversights. A `.desktop` file
+`shell` grew two of its own since that row was written:
+`register_scheme` is a `.desktop` file with `x-scheme-handler/` on Linux
+and `CFBundleURLTypes` plus `lsregister` on macOS, and `open_url` is
+`xdg-open` and `open`. A file **association** on macOS is still refused,
+because an association is declared by the bundle rather than at run
+time.
+
+HTTP is the one capability with a different shape per platform rather
+than a different implementation: Windows has WinHTTP, which every
+Windows machine ships as a library, and macOS and Linux have no
+equivalent that can be called without linking something — so there it
+runs `curl`, then `wget`, and reads the answer on a pipe. That buys the
+system's certificate store, the system's proxy settings and the system's
+own security updates, and costs one process per request. A machine with
+neither is told to install either.
+
+The rows that say **refuses** are not oversights. A `.desktop` file
 or a call to `notify-send` is a file or a command, which is why the rows
 above them were cheap; a global shortcut and a tray icon each need a
 live D-Bus attachment that the process has to hold open, which is a

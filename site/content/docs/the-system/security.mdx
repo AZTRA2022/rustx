@@ -33,10 +33,15 @@ rustx: refused to load https://example.com/
 
 ## What follows
 
-**A link to the web does nothing.** `<a href="https://example.com">` is a
-navigation, so it is cancelled and the message is printed. rustx has no
-function that opens the system browser. An application that needs one calls the
-system itself, with a crate of its choice.
+**A link to the web does nothing *in the window*.** `<a href="https://example.com">`
+is a navigation, so it is cancelled and the message is printed. To open
+it where links belong, hand it to the system:
+[`shell::open_url`](/docs/the-system/the-file-manager) gives the address
+to the browser the user chose, which draws the page in its own process
+with its own sandbox. Nothing remote enters this one, so the rule above
+is unchanged — and `file://` and a scheme of somebody else's choosing
+are refused by name, because a page that could pick the scheme could
+pick the program.
 
 **An iframe to a remote site gets no natives.** The frame is checked at the
 renderer.
@@ -98,11 +103,15 @@ Secret Service — encrypted with the user's session. That is where a
 token the user signed in for belongs, and not in a file beside the
 executable.
 
-What is still not written is a **sign-in helper**: no OAuth flow, no
-loopback listener, no hand-off to the system browser. rustx has no
-function that opens the system browser at all, by design — opening one
-is a navigation, and navigations are what the rule above refuses. An
-application that signs in does the flow itself, with a crate of its
-choice, and puts the result in `secret`.
+What is still not written is a **sign-in helper**: no OAuth flow and no
+loopback listener. The two pieces such a flow needs do exist —
+[`shell::open_url`](/docs/the-system/the-file-manager) sends the user to
+the provider in their own browser, and
+[`shell::register_scheme`](/docs/the-system/the-file-manager) lets the
+redirect come back as `myapp://callback?code=…` into the window that is
+already open — but nothing wires them together, verifies a state
+parameter or exchanges a code. An application that signs in does the
+flow itself, with a crate of its choice, and puts the result in
+`secret`.
 
 See [what's left](/docs/whats-left).

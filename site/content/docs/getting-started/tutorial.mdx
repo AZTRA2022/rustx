@@ -243,8 +243,17 @@ target\release\notes.exe
 ```
 
 To give it to someone, you need more than the `.exe`: the engine's files sit
-beside it, and there is no installer. Read [packaging](/docs/tooling/packaging)
-before you do. It lists what to copy and what to test first.
+beside it, and the program does not start without them. `rustx package` copies
+them for you:
+
+```sh
+rustx package
+```
+
+That writes `dist/notes-0.1.0-windows/` and the same folder as a `.zip`, and
+makes an installer when Inno Setup is on the machine. Read
+[packaging](/docs/tooling/packaging) before you hand it over — it says what to
+test first, and how an application updates itself afterwards.
 
 ## Where to go next
 

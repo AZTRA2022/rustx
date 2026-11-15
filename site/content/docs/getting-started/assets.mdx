@@ -35,12 +35,11 @@ return <img src="logo.png" alt="" width="48" height="48" />;
 
 That reads `assets/logo.png`.
 
-<Callout type="warn" title="Write an index.html to use relative paths">
 An application with **no** `assets/index.html` is given a generated document,
-written in the system's temporary folder. A relative path then resolves
-against that folder, and your `assets/logo.png` is not in it. As soon as the
-application loads a file of its own, add the document:
-</Callout>
+written in the system's temporary folder — and it carries a
+`<base href="file:///…/assets/">`, so a relative path still resolves against
+your `assets/` and `logo.png` above still works. Write the document when you
+want a `<meta>`, a `<link>` or a title of your own:
 
 ```html
 <!doctype html>
@@ -112,6 +111,21 @@ The window's logo is a different thing: an `.ico`, named with
 
 ## When you ship
 
-The executable does not carry `assets/`. It looks for the files in the project
-folder it was built in. See [packaging](/docs/tooling/packaging) before you
-copy a build to another machine.
+The executable **does** carry `assets/`. `#[rustx::main]` walks the folder at
+compile time and puts every file in the binary with `include_bytes!`, so a
+build hands to somebody else has its document, its bundle, its icon and its
+images, whether or not the folder travels with it.
+
+At run time the framework looks in this order:
+
+1. `assets/` beside the executable, if it is there — which is what
+   `rustx package` copies, and what lets somebody swap a logo or patch the
+   document in a shipped release without a compiler;
+2. the copy inside the binary, unpacked once into the engine's own folder and
+   rewritten only when the bytes differ;
+3. the project folder, which is the `rustx dev` case.
+
+This used to be the third line only, and it was the worst defect this page
+had: a release folder copied to a machine where the project did not exist
+opened a blank window, because the paths pointed at the machine that built it.
+See [packaging](/docs/tooling/packaging) for what else a release needs.
