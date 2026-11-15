@@ -23,7 +23,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::{build, zip};
+use crate::{build, installer, zip};
 
 /// What was asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,6 +58,8 @@ pub struct Packaged {
     /// Whether `signtool` signed the binary, and what it said if it was
     /// asked to and could not.
     pub signed: Option<Result<String, String>>,
+    /// The installer, or the reason there is not one.
+    pub installer: installer::Made,
 }
 
 /// The name of the manifest this writes, and the updater reads.
@@ -104,6 +106,9 @@ pub fn run(project: &Path, options: &Options) -> Result<Packaged, String> {
     let mut gathered: Vec<(String, PathBuf)> = Vec::new();
     gather_beside(&from, &exe, &mut gathered)?;
     gather_assets(project, &mut gathered)?;
+    if cfg!(target_os = "macos") {
+        in_a_bundle(&mut gathered, &read.about.name, &read.binary);
+    }
 
     let mut bytes = 0_u64;
     for (name, path) in &gathered {
@@ -124,11 +129,20 @@ pub fn run(project: &Path, options: &Options) -> Result<Packaged, String> {
             .unwrap_or(0);
     }
 
-    let signed = signing(&into.join(exe.file_name().unwrap_or_default()));
+    if cfg!(target_os = "macos") {
+        finish_the_bundle(&into, &read)?;
+    }
+
+    let signed = sign(&into.join(exe.file_name().unwrap_or_default()));
 
     let manifest = manifest_of(&read, &into, &gathered)?;
     std::fs::write(into.join(MANIFEST), manifest)
         .map_err(|error| format!("the release manifest could not be written ({error}).",))?;
+
+    // Before the archive, so that whatever the installer step leaves
+    // inside the folder -- on Linux, the desktop entry and the install
+    // script -- is in the `.zip` a release page holds.
+    let made = installer::make(&read, &into, &read.binary);
 
     let archive = if options.archive {
         let path = into.parent().unwrap_or(&into).join(format!("{folder}.zip"));
@@ -139,6 +153,7 @@ pub fn run(project: &Path, options: &Options) -> Result<Packaged, String> {
     };
 
     Ok(Packaged {
+        installer: made,
         directory: into,
         archive,
         files: gathered.len() + 1,
@@ -227,6 +242,165 @@ fn gather_assets(project: &Path, into: &mut Vec<(String, PathBuf)>) -> Result<()
     Ok(())
 }
 
+/// On macOS the folder is not the application: a bundle is.
+///
+/// A loose binary on a Mac has no name in the Dock, no icon, no
+/// `Info.plist` and no way to be dragged into Applications, and CEF
+/// looks for `Chromium Embedded Framework.framework` inside
+/// `Contents/Frameworks`. So the gathered names are rewritten into the
+/// layout Apple and CEF both document, and nothing is copied twice.
+///
+/// The binary stays beside its `assets/`, which is `Contents/MacOS`:
+/// the runtime reads them from the executable's own directory, and
+/// putting them in `Contents/Resources` where Apple would want them
+/// would mean a bundle whose pages do not load.
+fn in_a_bundle(gathered: &mut [(String, PathBuf)], name: &str, binary: &str) {
+    let app = format!("{name}.app");
+    for (held, _) in gathered.iter_mut() {
+        let first = held.split('/').next().unwrap_or(held).to_string();
+        *held = if first.ends_with(".framework") || first.eq_ignore_ascii_case("Frameworks") {
+            let rest = held.strip_prefix("Frameworks/").unwrap_or(held);
+            format!("{app}/Contents/Frameworks/{rest}")
+        } else if held.as_str() == binary {
+            format!("{app}/Contents/MacOS/{binary}")
+        } else {
+            format!("{app}/Contents/MacOS/{held}")
+        };
+    }
+}
+
+/// The five helper suffixes CEF names on macOS.
+///
+/// Chromium starts each kind of subprocess from its own bundle so that
+/// the system can give them different entitlements, and it finds them
+/// by this exact name. They are copies of the application's own binary
+/// because a rustx executable already starts itself as its helpers --
+/// there is no second program to build.
+const HELPERS: [&str; 5] = ["", " (GPU)", " (Plugin)", " (Renderer)", " (Alerts)"];
+
+/// `Info.plist` for the bundle and for each helper.
+///
+/// `"true"` and `"false"` become `<true/>` and `<false/>`: a boolean
+/// written as a string is read as true whatever it says, which would
+/// make `LSUIElement` impossible to turn off.
+fn info_plist(pairs: &[(&str, &str)]) -> String {
+    let mut text = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \
+         \"-//Apple//DTD PLIST 1.0//EN\" \
+         \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+         <plist version=\"1.0\">\n<dict>\n",
+    );
+    for (key, value) in pairs {
+        let held = if *value == "true" || *value == "false" {
+            format!("  <{value}/>\n")
+        } else {
+            format!("  <string>{}</string>\n", escaped_xml(value))
+        };
+        text.push_str(&format!("  <key>{}</key>\n{held}", escaped_xml(key)));
+    }
+    text.push_str("</dict>\n</plist>\n");
+    text
+}
+
+fn escaped_xml(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// What the copy loop could not copy: the property lists, the icon, and
+/// the helper bundles.
+fn finish_the_bundle(into: &Path, read: &build::Project) -> Result<(), String> {
+    let name = &read.about.name;
+    let slug = slug(name);
+    let contents = into.join(format!("{name}.app")).join("Contents");
+    let binary = contents.join("MacOS").join(&read.binary);
+    if !binary.is_file() {
+        return Err(format!(
+            "{} is not there, so the bundle has no executable.",
+            binary.display()
+        ));
+    }
+
+    let icon = read
+        .icon
+        .as_deref()
+        .filter(|path| path.extension().is_some_and(|kind| kind == "icns"));
+    let icon_name = format!("{slug}.icns");
+    if let Some(icon) = icon {
+        let resources = contents.join("Resources");
+        std::fs::create_dir_all(&resources)
+            .map_err(|error| format!("{} could not be made ({error}).", resources.display()))?;
+        std::fs::copy(icon, resources.join(&icon_name))
+            .map_err(|error| format!("{} could not be copied ({error}).", icon.display()))?;
+    }
+
+    let version = read.about.version.clone();
+    let identifier = format!("dev.rustx.{slug}");
+    let mut keys: Vec<(&str, &str)> = vec![
+        ("CFBundleDevelopmentRegion", "en"),
+        ("CFBundleDisplayName", name),
+        ("CFBundleExecutable", &read.binary),
+        ("CFBundleIdentifier", &identifier),
+        ("CFBundleInfoDictionaryVersion", "6.0"),
+        ("CFBundleName", name),
+        ("CFBundlePackageType", "APPL"),
+        ("CFBundleShortVersionString", &version),
+        ("CFBundleVersion", &version),
+        ("LSMinimumSystemVersion", "11.0"),
+        ("NSHighResolutionCapable", "true"),
+        ("NSSupportsAutomaticGraphicsSwitching", "true"),
+    ];
+    if icon.is_some() {
+        keys.push(("CFBundleIconFile", &icon_name));
+    }
+    write_text(&contents.join("Info.plist"), &info_plist(&keys))?;
+
+    // The helpers. Each is a bundle of its own holding a copy of this
+    // same binary, which is what CEF opens for a renderer or the GPU.
+    let frameworks = contents.join("Frameworks");
+    for suffix in HELPERS {
+        let helper = format!("{name} Helper{suffix}");
+        let inside = frameworks.join(format!("{helper}.app")).join("Contents");
+        let where_to = inside.join("MacOS");
+        std::fs::create_dir_all(&where_to)
+            .map_err(|error| format!("{} could not be made ({error}).", where_to.display()))?;
+        std::fs::copy(&binary, where_to.join(&helper))
+            .map_err(|error| format!("{helper} could not be copied ({error})."))?;
+        let kind = suffix.trim().trim_matches(['(', ')']).to_ascii_lowercase();
+        let helper_id = if kind.is_empty() {
+            format!("{identifier}.helper")
+        } else {
+            format!("{identifier}.helper.{kind}")
+        };
+        let keys: Vec<(&str, &str)> = vec![
+            ("CFBundleDisplayName", &helper),
+            ("CFBundleExecutable", &helper),
+            ("CFBundleIdentifier", &helper_id),
+            ("CFBundleInfoDictionaryVersion", "6.0"),
+            ("CFBundleName", &helper),
+            ("CFBundlePackageType", "APPL"),
+            ("CFBundleShortVersionString", &version),
+            ("CFBundleVersion", &version),
+            // Not in the Dock and not in the window switcher: a helper
+            // process is not an application the user opened.
+            ("LSUIElement", "true"),
+            ("NSHighResolutionCapable", "true"),
+        ];
+        write_text(&inside.join("Info.plist"), &info_plist(&keys))?;
+    }
+    Ok(())
+}
+
+fn write_text(path: &Path, text: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("{} could not be made ({error}).", parent.display()))?;
+    }
+    std::fs::write(path, text)
+        .map_err(|error| format!("{} could not be written ({error}).", path.display()))
+}
+
 /// `signtool`, if the machine has one and the project asked for it.
 ///
 /// Three environment variables and no configuration file, because
@@ -241,7 +415,7 @@ fn gather_assets(project: &Path, into: &mut Vec<(String, PathBuf)>) -> Result<()
 /// certificate. With one of them set and no `signtool` on the PATH, it
 /// is an error with the reason, because a developer who asked for a
 /// signature and got silence would ship unsigned without knowing.
-fn signing(exe: &Path) -> Option<Result<String, String>> {
+pub fn sign(exe: &Path) -> Option<Result<String, String>> {
     let pfx = std::env::var("RUSTX_SIGN_PFX").ok();
     let subject = std::env::var("RUSTX_SIGN_SUBJECT").ok();
     if pfx.is_none() && subject.is_none() {
@@ -335,7 +509,7 @@ fn quoted(text: &str) -> String {
 
 /// A name as a folder name: lowercase, one dash where anything that is
 /// not a letter or a digit was.
-fn slug(name: &str) -> String {
+pub fn slug(name: &str) -> String {
     let mut out = String::new();
     for character in name.chars() {
         if character.is_ascii_alphanumeric() {
@@ -372,6 +546,21 @@ pub fn says_what_it_made(packaged: &Packaged) -> String {
         Some(Ok(how)) => said.push_str(&format!("rustx: {how}\n")),
         Some(Err(why)) => said.push_str(&format!("rustx: {why}\n")),
         None => {}
+    }
+    if let Some(installer) = &packaged.installer.path {
+        let size = std::fs::metadata(installer).map(|it| it.len()).unwrap_or(0);
+        said.push_str(&format!(
+            "rustx: {} ({:.1} MB)
+",
+            packaged.installer.note,
+            size as f64 / 1_048_576.0
+        ));
+    } else if !packaged.installer.note.is_empty() {
+        said.push_str(&format!(
+            "rustx: {}
+",
+            packaged.installer.note
+        ));
     }
     said.push_str(
         "rustx: the folder is the application. It runs from anywhere, including a \
@@ -429,6 +618,39 @@ mod tests {
         ));
         assert!(!build::runtime_directory("deps"));
         assert!(!build::runtime_directory("build"));
+    }
+
+    /// The one piece of the macOS bundle that can be checked from a
+    /// machine that is not a Mac: where each gathered name lands.
+    #[test]
+    fn a_bundle_puts_the_framework_in_frameworks_and_the_rest_beside_the_binary() {
+        let mut gathered = vec![
+            ("counter".to_string(), PathBuf::from("/b/counter")),
+            (
+                "Chromium Embedded Framework.framework/Resources/icudtl.dat".to_string(),
+                PathBuf::from("/b/x"),
+            ),
+            ("assets/index.html".to_string(), PathBuf::from("/b/y")),
+            ("Frameworks/libEGL.dylib".to_string(), PathBuf::from("/b/z")),
+        ];
+        in_a_bundle(&mut gathered, "My App", "counter");
+        let names: Vec<&str> = gathered.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                "My App.app/Contents/MacOS/counter",
+                "My App.app/Contents/Frameworks/Chromium Embedded Framework.framework/Resources/icudtl.dat",
+                "My App.app/Contents/MacOS/assets/index.html",
+                "My App.app/Contents/Frameworks/libEGL.dylib",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_boolean_in_a_property_list_is_a_tag_and_not_a_string() {
+        let text = info_plist(&[("LSUIElement", "true"), ("CFBundleName", "A & B")]);
+        assert!(text.contains("<key>LSUIElement</key>\n  <true/>"), "{text}");
+        assert!(text.contains("<string>A &amp; B</string>"), "{text}");
     }
 
     #[test]
@@ -493,7 +715,7 @@ mod tests {
         if std::env::var_os("RUSTX_SIGN_PFX").is_none()
             && std::env::var_os("RUSTX_SIGN_SUBJECT").is_none()
         {
-            assert!(signing(Path::new("nothing.exe")).is_none());
+            assert!(sign(Path::new("nothing.exe")).is_none());
         }
     }
 }

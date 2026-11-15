@@ -282,6 +282,22 @@ pub mod system {
     }
 }
 
+pub mod menu {
+    use crate::error::OsError;
+    use crate::tray::Item;
+    use crate::window::Pane;
+
+    pub fn supported() -> bool {
+        false
+    }
+    pub fn popup(_pane: Pane, _items: &[Item], _at: (i32, i32)) -> Result<Option<String>, OsError> {
+        Err(OsError::Unsupported("menus"))
+    }
+    pub fn application() -> Result<(), OsError> {
+        Ok(())
+    }
+}
+
 pub mod shell {
     use std::path::Path;
 

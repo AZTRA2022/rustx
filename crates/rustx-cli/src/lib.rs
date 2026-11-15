@@ -13,6 +13,7 @@ pub mod arguments;
 pub mod build;
 pub mod dev;
 pub mod help;
+pub mod installer;
 pub mod new;
 pub mod package;
 pub mod resources;

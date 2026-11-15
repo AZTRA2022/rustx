@@ -20,6 +20,7 @@ pub mod dialog;
 pub mod http;
 pub mod instance;
 pub mod media;
+pub mod menu;
 pub mod net;
 pub mod notify;
 pub mod print;

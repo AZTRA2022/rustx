@@ -82,6 +82,7 @@ pub mod dialog;
 pub mod digest;
 pub mod error;
 pub mod instance;
+pub mod menu;
 pub mod net;
 pub mod notify;
 pub mod patience;

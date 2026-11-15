@@ -67,7 +67,7 @@ pub use rustx_os::OsError;
 /// rather than for a page.
 pub use rustx_os::{
     about, attention, audio, autostart, bluetooth, capture, clipboard, color, devices, dialog,
-    instance, net, notify, print, screen, secret, shell, shortcut, system, terminal, tray,
+    instance, menu, net, notify, print, screen, secret, shell, shortcut, system, terminal, tray,
 };
 
 /// The layer that talks to the system, in full.
