@@ -4,7 +4,7 @@ publish = false
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "A tiny video editor's shell: a timeline of mock clips, trim, a color filter, subtitles, and a simulated render — no ffmpeg process actually runs."
+description = "A tiny video editor over ffmpeg: real files, real durations, a real decoded frame for the preview, and a render that writes a playable file."
 
 [dependencies]
 rustx = { package = "rustx-app", path = "../../crates/rustx" }
