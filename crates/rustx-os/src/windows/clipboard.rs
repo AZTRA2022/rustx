@@ -379,18 +379,41 @@ fn read_dib(bytes: &[u8]) -> Result<Image, OsError> {
     }
     let stride = width as usize * 4;
     let wanted = stride * height as usize;
-    // A `BI_BITFIELDS` header is followed by three masks; a
-    // palette, which a 32-bit image does not have, would be here
-    // too. The rows are at the end, which is where they are read
-    // from.
-    let from = bytes.len().checked_sub(wanted).ok_or_else(|| {
-        OsError::Platform(format!(
-            "the image on the clipboard says it is {width}×{height} and carries \
-             {} bytes, which is not enough",
-            bytes.len().saturating_sub(size)
-        ))
-    })?;
-    let rows = &bytes[from..];
+    // Where the rows begin: after the header, and after the three
+    // masks a `BI_BITFIELDS` image puts between the two when its
+    // header is the old 40-byte one -- a `BITMAPV4HEADER` or a
+    // `BITMAPV5HEADER` holds its masks inside itself, which is what
+    // `size` already counts.
+    //
+    // Measured from the front and not from the back. Taking the last
+    // `wanted` bytes was wrong in a way the test caught and a user
+    // never would: a truncated image still holds more bytes than its
+    // rows need, because its header is forty of them, so the last
+    // `wanted` bytes of a short bitmap are the tail of the header
+    // followed by most of the rows. It was accepted, and the picture
+    // that came out had a strip of header along one edge and
+    // everything else shifted by it.
+    if size < head || size > bytes.len() {
+        return Err(OsError::Platform(format!(
+            "the image on the clipboard declares a {size}-byte header, and the whole \
+             of it is {} bytes",
+            bytes.len()
+        )));
+    }
+    let masks = if compression == 3 && size == head {
+        12
+    } else {
+        0
+    };
+    let from = size + masks;
+    let available = bytes.len().saturating_sub(from);
+    if available < wanted {
+        return Err(OsError::Platform(format!(
+            "the image on the clipboard says it is {width}x{height}, which is {wanted} \
+             bytes of pixels, and it carries {available}: not enough"
+        )));
+    }
+    let rows = &bytes[from..from + wanted];
 
     let mut bgra = Vec::with_capacity(wanted);
     if upside_down {

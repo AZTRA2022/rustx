@@ -24,6 +24,14 @@ pub fn text() -> String {
          \x20                     the build that ships, and what ships beside it\n\
          \x20 rustx run           build and run once, without watching\n\
          \x20 rustx run --release the same, from the release build\n\
+         \x20 rustx package       the folder that ships: the binary, the engine's own\n\
+         \x20                     runtime, the assets, a manifest, and a .zip of it\n\
+         \x20 rustx package --debug\n\
+         \x20                     the same, from the debug build\n\
+         \x20 rustx package --no-zip\n\
+         \x20                     the folder and no archive\n\
+         \x20 rustx package --out <dir>\n\
+         \x20                     somewhere other than `dist/`\n\
          \x20 rustx --version     the version of this command line\n\
          \x20 rustx --help        this\n\
          \n\
@@ -49,6 +57,22 @@ pub fn text() -> String {
          then `[build] target-dir` in a `.cargo/config.toml` at or above the\n\
          project, then `target/` at the root of the workspace. This command line\n\
          reads the same three in the same order, so it looks where cargo wrote.\n\
+         \n\
+         `rustx package` builds in release, stamps the binary, and copies into\n\
+         one folder everything the program reads at run time: the `.exe`, the\n\
+         engine's own runtime -- `libcef.dll`, the `.pak` files, `icudtl.dat`,\n\
+         `locales/` -- and the application's own `assets/`. It writes\n\
+         `rustx-release.json` beside them, which names the version and carries\n\
+         the SHA-256 of every file, and a `.zip` of the whole folder unless it\n\
+         is told not to. That folder runs from anywhere, including a machine\n\
+         that has never built it; the one path it prints is the archive, or\n\
+         the folder when there is no archive.\n\
+         \n\
+         It signs the binary when, and only when, the environment asks:\n\
+         RUSTX_SIGN_PFX with RUSTX_SIGN_PASSWORD for a certificate file, or\n\
+         RUSTX_SIGN_SUBJECT for one already in the machine's store. With\n\
+         neither, nothing is signed and nothing is said. With one of them and\n\
+         no `signtool` on the PATH, it says so rather than shipping unsigned.\n\
          \n\
          It needs cargo on the PATH, and nothing else: no node, no npm, no\n\
          Python, no shell. A project that reaches for a JavaScript library needs\n\

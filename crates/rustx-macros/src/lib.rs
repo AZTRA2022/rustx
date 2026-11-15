@@ -222,6 +222,32 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
+    // And everything under `assets/`, carried inside the executable.
+    //
+    // This is the one that made a built application only work on the
+    // machine that built it: the document, the bundle, the window's
+    // icon and every image a page named were read at run time from the
+    // directory cargo compiled in. Copying the `.exe` anywhere else --
+    // which is what shipping is -- gave a blank window.
+    //
+    // `include_bytes!` is also what tells cargo the file is part of the
+    // crate, so editing an asset rebuilds the application.
+    let assets = assets_of(&manifest);
+    let assets = if assets.is_empty() {
+        TokenStream2::new()
+    } else {
+        let entries: Vec<TokenStream2> = assets
+            .iter()
+            .map(|(name, path)| {
+                let path = slashed(path);
+                quote! { (#name, include_bytes!(#path) as &[u8]) }
+            })
+            .collect();
+        quote! {
+            rustx::install_assets(&[#(#entries),*]);
+        }
+    };
+
     let body = body.stream();
 
     // The body on the framework's own runtime, since the `async` came
@@ -247,6 +273,7 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
 
         #signature {
             #prelude
+            #assets
             #javascript
             #body
         }
@@ -285,6 +312,52 @@ fn compile(app: &Path, out: &Path, routed: bool) -> Result<(), String> {
 /// very same one.
 fn generated_directory(manifest: &Path) -> PathBuf {
     rustx_compiler::build::generated_directory(manifest)
+}
+
+/// Every file under `assets/`, as (name inside `assets/`, path on
+/// disk).
+///
+/// Sorted, so that two builds of the same tree emit the same table and
+/// the table is a thing a test can read. Directories are walked, and
+/// the name always uses forward slashes: it is a file name on this
+/// machine and a piece of a URL in the document.
+///
+/// What is deliberately left out: nothing. An application that puts a
+/// 40 MB video in `assets/` gets a 40 MB executable, which is the
+/// honest answer -- the alternative is a file that is sometimes there
+/// and sometimes not, decided by a size limit nobody wrote down. An
+/// application that does not want that puts the file beside the binary
+/// instead, where `assets_dir` looks first.
+fn assets_of(manifest: &Path) -> Vec<(String, PathBuf)> {
+    let root = manifest.join("assets");
+    if !root.is_dir() {
+        return Vec::new();
+    }
+    let mut found = Vec::new();
+    let mut directories = vec![root.clone()];
+    while let Some(directory) = directories.pop() {
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                directories.push(path);
+                continue;
+            }
+            let Ok(relative) = path.strip_prefix(&root) else {
+                continue;
+            };
+            let name = relative
+                .components()
+                .map(|piece| piece.as_os_str().to_string_lossy().to_string())
+                .collect::<Vec<_>>()
+                .join("/");
+            found.push((name, path));
+        }
+    }
+    found.sort();
+    found
 }
 
 /// Every `.rsx` under `app/`, in a stable order.
@@ -670,6 +743,58 @@ mod tests {
 
     /// An `include!` path is written with forward slashes whatever the
     /// platform's separator is: `rustc` reads the path, not the shell.
+    /// The modules a page is allowed to name, read out of the crate's
+    /// own `main.rs` or `lib.rs`.
+    ///
+    /// The last helper of this crate with no test. It reads source text
+    /// rather than tokens, so every one of its rules is a guess about
+    /// how somebody writes a line: `pub mod`, a comment, a `mod` with a
+    /// body, a name with a hyphen in it.
+    #[test]
+    fn every_module_the_crate_declares_is_offered_to_a_page() {
+        let directory = std::env::temp_dir().join(format!(
+            "rustx-macros-modules-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|since| since.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(directory.join("src")).expect("a directory");
+        std::fs::write(
+            directory.join("src").join("main.rs"),
+            "mod pages;
+pub mod kinds;
+// mod commented;
+mod inline { }
+mod pages;
+",
+        )
+        .expect("a main.rs");
+
+        let found = modules_of(&directory);
+
+        assert!(found.contains(&"pages".to_string()), "{found:?}");
+        assert!(
+            found.contains(&"kinds".to_string()),
+            "`pub mod` is a module too: {found:?}"
+        );
+        assert!(
+            !found.contains(&"commented".to_string()),
+            "a commented-out declaration is not a declaration: {found:?}"
+        );
+        assert!(
+            !found.contains(&"inline".to_string()),
+            "a module with its body in the file is not a file: {found:?}"
+        );
+        assert_eq!(
+            found.iter().filter(|name| *name == "pages").count(),
+            1,
+            "named twice, offered twice: {found:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
     #[test]
     fn a_path_for_an_include_is_written_with_forward_slashes() {
         let path = Path::new("target").join("rustx-pages").join("pages.rs");

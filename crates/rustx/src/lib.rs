@@ -84,6 +84,169 @@ pub use rustx_engine::{
     on_context_created, on_frame, poster, register_native, render, router, task, window,
 };
 
+/// Where this application keeps its own files, and what it writes
+/// there.
+///
+/// The same functions as [`rustx::os::data`](rustx_os::data), with the
+/// application's name already filled in -- which is the whole
+/// difference: `rustx::data::write("settings.json", …)` is what a page
+/// writes, and the folder it lands in is named after
+/// `Config::new("…")`.
+///
+/// ```ignore
+/// let seen = rustx::data::read_text("seen.json")?.unwrap_or_default();
+/// rustx::data::write_text("seen.json", &fresh)?;
+/// ```
+///
+/// This is what `localStorage` is for on the web and what
+/// `app.getPath("userData")` is for in Electron. It is not the
+/// engine's profile folder: that one belongs to Chromium, and an
+/// application that writes in it is one Chromium may clear.
+pub mod data {
+    use std::path::PathBuf;
+
+    use rustx_os::OsError;
+
+    /// The name the folder is under: the application's own, as
+    /// `Config::new` was given it.
+    fn app() -> String {
+        let named = rustx_engine::window::about().name;
+        if named.is_empty() {
+            // Before `App::new` has run -- a test, a tool -- there is
+            // no title yet. A folder nobody chose is better than a
+            // panic, and it is the same one every time.
+            "rustx-app".to_string()
+        } else {
+            named
+        }
+    }
+
+    /// What the user would mind losing.
+    pub fn directory() -> Result<PathBuf, OsError> {
+        rustx_os::data::directory(&app())
+    }
+
+    /// What can be deleted at any moment.
+    pub fn cache() -> Result<PathBuf, OsError> {
+        rustx_os::data::cache(&app())
+    }
+
+    /// Where to write what somebody will be asked to send.
+    pub fn logs() -> Result<PathBuf, OsError> {
+        rustx_os::data::logs(&app())
+    }
+
+    /// The path of one file in [`directory`], without touching it.
+    pub fn path(name: &str) -> Result<PathBuf, OsError> {
+        rustx_os::data::path(&app(), name)
+    }
+
+    /// The bytes of a file, or `None` when it has never been written.
+    pub fn read(name: &str) -> Result<Option<Vec<u8>>, OsError> {
+        rustx_os::data::read(&app(), name)
+    }
+
+    /// The same, as text.
+    pub fn read_text(name: &str) -> Result<Option<String>, OsError> {
+        rustx_os::data::read_text(&app(), name)
+    }
+
+    /// Write a file, whole or not at all.
+    pub fn write(name: &str, bytes: &[u8]) -> Result<(), OsError> {
+        rustx_os::data::write(&app(), name, bytes)
+    }
+
+    /// The same, from text.
+    pub fn write_text(name: &str, text: &str) -> Result<(), OsError> {
+        rustx_os::data::write_text(&app(), name, text)
+    }
+
+    /// Forget a file. One that was never written is not an error.
+    pub fn remove(name: &str) -> Result<(), OsError> {
+        rustx_os::data::remove(&app(), name)
+    }
+
+    /// What this application has saved, by name.
+    pub fn list() -> Result<Vec<String>, OsError> {
+        rustx_os::data::list(&app())
+    }
+}
+
+/// Updating the application from its own release page.
+///
+/// [`rustx::os::update`](rustx_os::update) with the application's name
+/// filled in, and `current` read from the crate that is running rather
+/// than passed in -- which is the one thing the facade can do and the
+/// layer below it cannot.
+///
+/// ```ignore
+/// // In a handler, or a task: it reaches the network.
+/// match rustx::update::from_github("aztra/mon-app")? {
+///     rustx::update::Outcome::UpToDate => note = "up to date".to_string(),
+///     rustx::update::Outcome::Installed(release) => {
+///         note = format!("{} is installed. Restart to use it.", release.version);
+///     }
+/// }
+/// ```
+///
+/// Nothing here happens on its own, and nothing restarts the
+/// application for you: when it is safe to restart is a question about
+/// unsaved work, which only the application can answer. [`restart`]
+/// does it when the answer is yes.
+pub mod update {
+    use rustx_os::OsError;
+    pub use rustx_os::update::{Outcome, Release, clean, restart};
+
+    fn app() -> String {
+        let named = rustx_engine::window::about().name;
+        if named.is_empty() {
+            "rustx-app".to_string()
+        } else {
+            named
+        }
+    }
+
+    /// The version this build says it is -- `Config::version(…)`, which
+    /// `rustx build` also stamps into the binary.
+    fn running() -> String {
+        rustx_engine::window::about().version
+    }
+
+    /// Is there a newer release than the one running?
+    ///
+    /// `repository` is `owner/name`, as the address bar writes it. The
+    /// answer is `None` both when the newest release is this one and
+    /// when it has no archive for this machine.
+    pub fn newest(repository: &str) -> Result<Option<Release>, OsError> {
+        let Some(release) = rustx_os::update::latest(repository, &app())? else {
+            return Ok(None);
+        };
+        Ok(release.is_newer_than(&running()).then_some(release))
+    }
+
+    /// Check, download and install -- and do nothing at all when there
+    /// is nothing newer.
+    ///
+    /// It blocks: it talks to a release page and may move three hundred
+    /// megabytes. In a page that means inside a `task(…)` or an
+    /// `async` block, like every other piece of work that waits.
+    pub fn from_github(repository: &str) -> Result<Outcome, OsError> {
+        rustx_os::update::from_github(repository, &app(), &running(), &mut |_, _| {})
+    }
+
+    /// The same, with the bytes so far and the bytes expected handed to
+    /// `progress` as the download lands -- which is what a page draws a
+    /// bar from. It is called on the thread that called this, so the
+    /// number crosses to the screen the way everything else does: by
+    /// being posted.
+    pub fn from_github_watching(
+        repository: &str,
+        progress: &mut dyn FnMut(u64, u64),
+    ) -> Result<Outcome, OsError> {
+        rustx_os::update::from_github(repository, &app(), &running(), progress)
+    }
+}
+
 /// What can go wrong while an application starts.
 pub type Error = rustx_engine::EngineError;
 
@@ -108,7 +271,19 @@ thread_local! {
     static BUNDLE: Cell<Option<&'static str>> = const { Cell::new(None) };
     /// The stylesheet Tailwind wrote from the classes the pages use.
     static STYLESHEET: Cell<Option<&'static str>> = const { Cell::new(None) };
+    /// Everything under `assets/`, as the attribute read it at compile
+    /// time, so that an application carries its own files rather than
+    /// reading them from the folder it was built in.
+    static ASSETS: Cell<&'static [Asset]> = const { Cell::new(&[]) };
+    /// Where those files were put on this machine, worked out once.
+    static ASSETS_DIR: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
 }
+
+/// One file of `assets/`, carried inside the executable.
+///
+/// The path is relative to `assets/` and always written with forward
+/// slashes, because it is both a file name and a piece of a URL.
+pub type Asset = (&'static str, &'static [u8]);
 
 /// Wait for a future to the end, from `main`.
 ///
@@ -125,6 +300,116 @@ pub fn block_on<T>(work: impl std::future::Future<Output = T>) -> T {
 #[doc(hidden)]
 pub fn install_manifest_dir(directory: &str) {
     MANIFEST_DIR.with(|held| *held.borrow_mut() = Some(PathBuf::from(directory)));
+}
+
+/// Said by `#[rustx::main]`: every file under `assets/`, with its
+/// contents, as they were when the application was compiled.
+///
+/// This is what makes a built application work anywhere. The document,
+/// the JavaScript bundle, the window's icon and every image a page
+/// names used to be read from the directory cargo happened to compile
+/// in -- so the application ran on the machine that built it and showed
+/// a blank window everywhere else. They travel inside the executable
+/// now.
+#[doc(hidden)]
+pub fn install_assets(assets: &'static [Asset]) {
+    ASSETS.with(|held| held.set(assets));
+}
+
+/// Where this application's `assets/` are, on this machine.
+///
+/// Three places, in this order, and the reason for the order is in
+/// each:
+///
+/// 1. **Beside the executable.** A packaged application has its files
+///    there, and so does one whose `assets/` somebody has edited after
+///    shipping it -- a logo swapped for a customer, a document patched
+///    on a machine that cannot rebuild. What is on disk beside the
+///    program wins over what is inside it.
+/// 2. **Unpacked from the executable**, into
+///    `%LOCALAPPDATA%\rustx\<title>\assets` (or the system's
+///    temporary folder when there is no such place). Written once and
+///    then only when the bytes differ, so a start that changes nothing
+///    writes nothing.
+/// 3. **The directory it was compiled in**, which is what `rustx dev`
+///    is: the files are right there, and reading them means an edit
+///    shows up without a rebuild.
+pub fn assets_dir() -> PathBuf {
+    if let Some(known) = ASSETS_DIR.with(|held| held.borrow().clone()) {
+        return known;
+    }
+    let found = found_assets_dir();
+    ASSETS_DIR.with(|held| *held.borrow_mut() = Some(found.clone()));
+    found
+}
+
+fn found_assets_dir() -> PathBuf {
+    let beside = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|directory| directory.join("assets")));
+    if let Some(beside) = beside
+        && beside.is_dir()
+    {
+        return beside;
+    }
+
+    let carried = ASSETS.with(|held| held.get());
+    if !carried.is_empty()
+        && let Some(unpacked) = unpacked_assets(carried)
+    {
+        return unpacked;
+    }
+
+    manifest_dir().join("assets")
+}
+
+/// Write the carried files out, and say where they are.
+///
+/// Only what differs: a file whose bytes are already on disk is left
+/// alone, so the folder's timestamps mean something and a start costs
+/// nothing. A file that cannot be written is skipped rather than fatal
+/// -- an application whose icon could not be unpacked should still open
+/// its window.
+fn unpacked_assets(carried: &'static [Asset]) -> Option<PathBuf> {
+    let directory = unpacking_directory()?;
+    for (name, bytes) in carried {
+        let path = directory.join(name);
+        if let Ok(already) = std::fs::read(&path)
+            && already == *bytes
+        {
+            continue;
+        }
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&path, bytes);
+    }
+    Some(directory)
+}
+
+fn unpacking_directory() -> Option<PathBuf> {
+    let slug = rustx_engine::window::about().name;
+    let slug = slugged(if slug.is_empty() { "rustx-app" } else { &slug });
+    let root = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    let directory = root.join("rustx").join(slug).join("assets");
+    std::fs::create_dir_all(&directory).ok()?;
+    Some(directory)
+}
+
+/// A title as a folder name: lowercase, and one dash where anything
+/// that is not a letter or a digit was.
+fn slugged(title: &str) -> String {
+    let mut out = String::new();
+    for character in title.chars() {
+        if character.is_ascii_alphanumeric() {
+            out.push(character.to_ascii_lowercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    out.trim_matches('-').to_string()
 }
 
 /// Said by `#[rustx::main]`, with the table the build script generated.
@@ -483,7 +768,7 @@ impl App {
         rustx_engine::window::declare(
             config
                 .icon
-                .map(|icon| manifest_dir().join(icon))
+                .map(|icon| resolved_asset(&icon))
                 .or_else(default_icon),
             config.about,
         );
@@ -493,8 +778,8 @@ impl App {
         }
 
         let index = match config.index {
-            Some(index) => index,
-            None => document_for(&manifest_dir(), &config.title)?,
+            Some(index) => resolved_asset(&index),
+            None => document_for(&assets_dir(), &config.title)?,
         };
 
         Ok(Self {
@@ -793,8 +1078,33 @@ fn install_shared_native() {
 /// is a file the framework finds, and an application that wants another
 /// one says which with `Config::icon`.
 fn default_icon() -> Option<PathBuf> {
-    let obvious = manifest_dir().join("assets").join("icon.ico");
+    let obvious = assets_dir().join("icon.ico");
     obvious.exists().then_some(obvious)
+}
+
+/// A path an application wrote in its `Config`, resolved where the
+/// files actually are.
+///
+/// `Config::icon("assets/icon.ico")` and
+/// `Config::index("assets/index.html")` are written relative to the
+/// project, because that is where the developer is looking when they
+/// write them. At run time `assets/` may be beside the executable or
+/// unpacked out of it, so the `assets/` in front is replaced by
+/// wherever `assets/` is. An absolute path is the application being
+/// explicit, and is taken as it is.
+fn resolved_asset(written: &Path) -> PathBuf {
+    if written.is_absolute() {
+        return written.to_path_buf();
+    }
+    let relative = written
+        .strip_prefix("assets")
+        .or_else(|_| written.strip_prefix("./assets"))
+        .unwrap_or(written);
+    let inside = assets_dir().join(relative);
+    if inside.exists() {
+        return inside;
+    }
+    manifest_dir().join(written)
 }
 
 /// `rustx_about()`: what the application says it is.

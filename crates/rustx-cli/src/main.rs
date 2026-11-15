@@ -41,6 +41,11 @@ fn main() {
             eprintln!("{said}");
             2
         }
+        arguments::Command::Package {
+            debug,
+            archive,
+            out,
+        } => package(debug, archive, out),
         arguments::Command::Build { release } => make_it(release, false),
         arguments::Command::Run { release } => make_it(release, true),
         arguments::Command::Dev => {
@@ -100,6 +105,41 @@ fn make(name: &str) -> i32 {
         }
         Err(why) => {
             eprintln!("{why}");
+            1
+        }
+    }
+}
+
+/// `rustx package`.
+///
+/// One path on stdout -- the folder, or the archive when there is one
+/// -- because a script reads it; everything a person needs on stderr.
+fn package(debug: bool, archive: bool, out: Option<String>) -> i32 {
+    let here = match here() {
+        Ok(here) => here,
+        Err(why) => {
+            eprintln!("{why}");
+            return 1;
+        }
+    };
+    let options = rustx_cli::package::Options {
+        debug,
+        archive,
+        out: out.map(PathBuf::from),
+    };
+    match rustx_cli::package::run(&here, &options) {
+        Ok(packaged) => {
+            match &packaged.archive {
+                Some(archive) => println!("{}", archive.display()),
+                None => println!("{}", packaged.directory.display()),
+            }
+            eprint!("{}", rustx_cli::package::says_what_it_made(&packaged));
+            0
+        }
+        Err(why) => {
+            if !why.is_empty() {
+                eprintln!("{why}");
+            }
             1
         }
     }

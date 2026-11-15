@@ -22,6 +22,7 @@ pub mod clipboard;
 pub mod color;
 pub mod devices;
 pub mod dialog;
+pub mod http;
 pub mod instance;
 pub mod net;
 pub mod notify;

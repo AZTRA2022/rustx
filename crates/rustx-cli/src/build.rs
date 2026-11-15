@@ -398,6 +398,67 @@ pub fn ships_with(name: &str) -> bool {
 /// no `rustx package` yet, and saying which of Chromium's files a
 /// particular application could do without is a claim this cannot
 /// verify. What it can say, exactly, is what is there.
+/// Is this, beside the binary, part of the application rather than
+/// part of the build?
+///
+/// `ships_with` answers the looser question — "is this cargo's own
+/// bookkeeping" — and was written for a sentence that lists what a
+/// developer should copy. A package cannot be built on that answer: a
+/// workspace builds every one of its binaries into the same directory,
+/// so the first package made that way carried another application's
+/// `.exe`, CEF's `CMakeLists.txt` and its `bootstrap.exe`, none of
+/// which this program loads.
+///
+/// So this one is a list of what Chromium actually reads, and
+/// everything else is left behind:
+///
+/// - the libraries (`.dll`, `.so`, `.dylib`) and the frameworks;
+/// - the resources: `.pak`, `icudtl.dat`, `v8_context_snapshot.bin`,
+///   and SwiftShader's own `.json`;
+/// - `locales/`, which is one `.pak` per language;
+/// - `CREDITS.html`, which is Chromium's licence attribution and is
+///   kept on purpose: the engine is BSD-licensed software with a
+///   hundred third-party notices in it, and shipping the file is how
+///   that obligation is met;
+/// - the application's own binary, which the caller names.
+///
+/// What is deliberately not here: any other `.exe`. The helper
+/// processes of a rustx application are the application itself, started
+/// again with different arguments — there is no second executable to
+/// ship.
+pub fn runtime_file(name: &str, binary: &str) -> bool {
+    if name.eq_ignore_ascii_case(binary) {
+        return true;
+    }
+    if name.eq_ignore_ascii_case("CREDITS.html") {
+        return true;
+    }
+    let lowered = name.to_ascii_lowercase();
+    if lowered == "vk_swiftshader_icd.json" {
+        return true;
+    }
+    [
+        ".dll",
+        ".pak",
+        ".dat",
+        ".bin",
+        ".so",
+        ".dylib",
+        ".framework",
+    ]
+    .iter()
+    .any(|end| lowered.ends_with(end))
+}
+
+/// The directories beside the binary that travel whole.
+pub fn runtime_directory(name: &str) -> bool {
+    let lowered = name.to_ascii_lowercase();
+    matches!(
+        lowered.as_str(),
+        "locales" | "swiftshader" | "resources" | "frameworks"
+    ) || lowered.ends_with(".framework")
+}
+
 pub fn says_what_ships(exe: &Path) -> String {
     let Some(directory) = exe.parent() else {
         return String::new();

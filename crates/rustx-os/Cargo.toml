@@ -12,6 +12,12 @@ description = "What the web cannot do: the clipboard, native dialogs, the tray, 
 keywords = ["clipboard", "notification", "tray", "dialog", "terminal"]
 categories = ["os", "os::windows-apis", "gui"]
 
+[dependencies]
+# Reading the archive the updater downloads. Deflate only, and the zip
+# format itself is read in `unzip.rs`: the writer is in `rustx-cli`,
+# and between them they are the two halves of `rustx package`.
+flate2 = "1"
+
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.62"
 features = [
@@ -51,6 +57,10 @@ features = [
     "Win32_Graphics_Printing",
     "Win32_System_Variant",
     "Win32_Storage_Xps",
+    # The updater: the system's own HTTP client, so that checking a
+    # GitHub release page costs no dependency and no TLS stack of our
+    # own.
+    "Win32_Networking_WinHttp",
 ]
 
 # La fenêtre, sous Linux : le protocole X11 lui-même, écrit en Rust.

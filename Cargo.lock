@@ -1038,8 +1038,10 @@ dependencies = [
 name = "rustx-cli"
 version = "0.3.0"
 dependencies = [
+ "flate2",
  "rustx-compiler",
  "rustx-dom",
+ "rustx-os",
 ]
 
 [[package]]
@@ -1086,6 +1088,7 @@ dependencies = [
 name = "rustx-os"
 version = "0.3.0"
 dependencies = [
+ "flate2",
  "objc2",
  "windows",
  "x11rb",

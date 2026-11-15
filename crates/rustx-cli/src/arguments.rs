@@ -25,6 +25,12 @@ pub enum Command {
     Run {
         release: bool,
     },
+    /// `rustx package`: the folder that ships, and the archive of it.
+    Package {
+        debug: bool,
+        archive: bool,
+        out: Option<String>,
+    },
     Help,
     /// `rustx --version`: the one question every command line is asked
     /// and the only one whose answer a script reads.
@@ -39,7 +45,7 @@ pub enum Command {
 }
 
 /// Every command there is, in the order the help lists them.
-pub const COMMANDS: &[&str] = &["new", "dev", "build", "run", "help", "version"];
+pub const COMMANDS: &[&str] = &["new", "dev", "build", "run", "package", "help", "version"];
 
 /// Read the arguments, without the program's own name.
 pub fn read(arguments: &[String]) -> Command {
@@ -63,6 +69,7 @@ pub fn read(arguments: &[String]) -> Command {
         "dev" => nothing_after("dev", rest).unwrap_or(Command::Dev),
         "build" => with_a_profile("build", rest, |release| Command::Build { release }),
         "run" => with_a_profile("run", rest, |release| Command::Run { release }),
+        "package" => a_package(rest),
         "help" => Command::Help,
         "version" => Command::Version,
         other => Command::Unknown((*other).to_string()),
@@ -120,6 +127,59 @@ fn with_a_profile(command: &str, rest: &[&str], make: impl Fn(bool) -> Command) 
         }
     }
     make(release)
+}
+
+/// `rustx package [--debug] [--no-zip] [--out <dir>]`.
+///
+/// `--release` is not a flag here, it is the default: a package is what
+/// ships, and nobody ships a debug build of a browser engine by
+/// accident. `--debug` says the opposite out loud, for handing a
+/// colleague the build you are looking at.
+fn a_package(rest: &[&str]) -> Command {
+    let mut debug = false;
+    let mut archive = true;
+    let mut out: Option<String> = None;
+    let mut expecting_out = false;
+
+    for word in rest {
+        if expecting_out {
+            if word.starts_with('-') {
+                return Command::Misused(format!(
+                    "`rustx package --out` takes a directory, and `{word}` is an \
+                     option. `rustx package --out dist` writes into `dist`."
+                ));
+            }
+            out = Some((*word).to_string());
+            expecting_out = false;
+            continue;
+        }
+        match *word {
+            "--debug" => debug = true,
+            "--release" => {
+                return Command::Misused(
+                    "`rustx package` builds in release, which is what a package is, so \
+                     there is nothing for `--release` to do. `rustx package --debug` is \
+                     the other one."
+                        .to_string(),
+                );
+            }
+            "--no-zip" => archive = false,
+            "--out" => expecting_out = true,
+            other => return Command::Misused(about("package", other)),
+        }
+    }
+    if expecting_out {
+        return Command::Misused(
+            "`rustx package --out` was given nothing to write into. `rustx package \
+             --out dist` writes the folder and the archive into `dist`."
+                .to_string(),
+        );
+    }
+    Command::Package {
+        debug,
+        archive,
+        out,
+    }
 }
 
 /// `rustx dev`: the command, and that is all of it.

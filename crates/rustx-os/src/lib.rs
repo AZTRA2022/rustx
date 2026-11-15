@@ -76,13 +76,21 @@ pub mod bluetooth;
 pub mod capture;
 pub mod clipboard;
 pub mod color;
+pub mod data;
 pub mod devices;
 pub mod dialog;
+pub mod digest;
 pub mod error;
 pub mod instance;
 pub mod net;
 pub mod notify;
 pub mod patience;
+// Used by the Unix platforms. On Windows it is still compiled, because
+// those platforms' modules are type-checked here (see
+// `*_also_compiles` below) -- so it is reachable from the tests and
+// from nowhere else, which is what the allow says.
+#[cfg_attr(windows, allow(dead_code))]
+pub(crate) mod piped;
 pub mod print;
 pub mod screen;
 pub mod secret;
@@ -91,6 +99,8 @@ pub mod shortcut;
 pub mod system;
 pub mod terminal;
 pub mod tray;
+pub mod unzip;
+pub mod update;
 pub mod window;
 
 // One directory per operating system, and one file per capability

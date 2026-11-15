@@ -11,6 +11,26 @@
 //! splitting it would invite somebody to fill one of the files for a
 //! platform nobody has.
 
+pub mod http {
+    use std::path::Path;
+
+    use crate::error::OsError;
+
+    // Not a refusal: this platform is neither Windows, Linux nor
+    // macOS, and whatever it is, it is a Unix-like system that almost
+    // certainly has `curl`. So it gets the same client program the two
+    // Unixes do, and the message when it has neither client names
+    // both -- which is a sentence somebody can act on, unlike "not
+    // supported".
+    #[allow(unused_imports)]
+    pub use crate::piped::{download, get};
+
+    // Kept so the shape of this module matches the others even when
+    // nothing above is used.
+    #[allow(dead_code)]
+    fn unused(_: &Path, _: &OsError) {}
+}
+
 pub mod clipboard {
     use crate::clipboard::Image;
     use crate::error::OsError;

@@ -344,3 +344,80 @@ fn a_machine_without_cargo_is_told_what_is_missing_and_where_to_get_it() {
         "the one command that answers the question is not given: {said}"
     );
 }
+
+// ------------------------------------------------------ rustx package
+
+/// `rustx package` is release by default, with an archive, into
+/// `dist/`. Each of those three is a decision, so each is a test.
+#[test]
+fn package_builds_the_release_and_zips_it_without_being_asked() {
+    assert_eq!(
+        read("package"),
+        Command::Package {
+            debug: false,
+            archive: true,
+            out: None
+        }
+    );
+}
+
+#[test]
+fn package_takes_debug_no_zip_and_an_output_directory() {
+    assert_eq!(
+        read("package --debug"),
+        Command::Package {
+            debug: true,
+            archive: true,
+            out: None
+        }
+    );
+    assert_eq!(
+        read("package --no-zip"),
+        Command::Package {
+            debug: false,
+            archive: false,
+            out: None
+        }
+    );
+    assert_eq!(
+        read("package --out build/windows"),
+        Command::Package {
+            debug: false,
+            archive: true,
+            out: Some("build/windows".to_string())
+        }
+    );
+}
+
+/// `--release` is what every developer will type, because `cargo` and
+/// `rustx build` both take it. It is not ignored and it is not
+/// accepted: it is answered.
+#[test]
+fn package_says_why_release_is_not_a_flag_it_takes() {
+    let Command::Misused(said) = read("package --release") else {
+        panic!("`rustx package --release` was accepted in silence");
+    };
+    assert!(said.contains("release"), "got {said}");
+    assert!(said.contains("--debug"), "the other one is named: {said}");
+}
+
+#[test]
+fn package_out_without_a_directory_is_said_rather_than_guessed() {
+    let Command::Misused(said) = read("package --out") else {
+        panic!("`--out` with nothing after it was accepted");
+    };
+    assert!(said.contains("--out"), "got {said}");
+
+    let Command::Misused(said) = read("package --out --no-zip") else {
+        panic!("`--out --no-zip` read a flag as a directory");
+    };
+    assert!(said.contains("--no-zip"), "got {said}");
+}
+
+#[test]
+fn a_misspelled_package_flag_comes_back_with_the_word_in_it() {
+    let Command::Misused(said) = read("package --zipp") else {
+        panic!("an unknown flag was ignored");
+    };
+    assert!(said.contains("--zipp"), "got {said}");
+}
