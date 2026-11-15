@@ -494,7 +494,7 @@ fn nothing_the_scaffold_installs_as_a_tool_reaches_the_page() {
 /// Splitting naively gave `tsx`, `js` and `jsx}` as directories to look
 /// for, which is how this test found that the list `bundle::content_globs`
 /// hands to Tailwind 3's `--content` flag cannot be read by it either —
-/// see `docs/stability/cli-and-distribution.md`, *Found elsewhere*.
+/// found while packaging a project built from the published crate.
 fn at_top_level(list: &str) -> Vec<String> {
     let mut globs = Vec::new();
     let mut current = String::new();

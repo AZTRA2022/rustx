@@ -57,7 +57,8 @@ fn a_line_inside_a_region_maps_to_the_start_of_that_region() {
     //
     // Landing on the exact line inside a region would mean placing each
     // emitted child on the line its source started on; the region is one
-    // expression today. See docs/dette-connue.md.
+    // expression today: a `for` is a statement, and `.map(…).collect()`
+    // is the idiom that fits where an expression is wanted.
     let source =
         "fn App() -> Element {\n    return <ul>\n        <li>{bad()}</li>\n    </ul>;\n}\n";
     let out = transpile(source).unwrap();

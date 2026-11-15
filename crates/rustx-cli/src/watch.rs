@@ -103,7 +103,7 @@ fn worth_walking(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
         return false;
     };
-    !matches!(name, "target" | "node_modules" | ".git" | ".superpowers") && !name.starts_with('.')
+    !matches!(name, "target" | "node_modules" | ".git") && !name.starts_with('.')
 }
 
 /// Waiting for the typing to stop.

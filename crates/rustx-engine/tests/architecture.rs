@@ -1,7 +1,7 @@
 //! The combinations the stability brief names, driven without a window.
 //!
 //! Every test in this file is one of the six shapes §5 of
-//! `STABILITY.md` asks for by name, as it applies to the runtime:
+//! the runtime is held to:
 //! nested components with shared state, navigation while asynchronous
 //! tasks are running, effects depending on several reactive values,
 //! several routes sharing application-level state, rapid successive
@@ -22,7 +22,7 @@
 //! produced were applied, that React was told about a boundary, that a
 //! handler is attached to the right node. Those are the scenarios that
 //! start a real window through `mod common`, and
-//! `docs/stability/runtime.md` says which of them this machine can run.
+//! Which of them a given machine can run depends on its own hardware.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;

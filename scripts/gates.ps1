@@ -1,10 +1,9 @@
 # The quality gates, run on this machine.
 #
-# `STABILITY.md` section 6 asks for measurable gates rather than a
-# feeling that things are probably fine, and for them to run in CI
-# wherever possible. `.github/workflows/ci.yml` is that CI; this script
-# is the same gates run locally, and it exists because a gate nobody
-# can run before pushing is a gate that is discovered red.
+# Measurable gates rather than a feeling that things are probably fine.
+# `.github/workflows/ci.yml` runs the same set; this script is them run
+# locally, and it exists because a gate nobody can run before pushing
+# is a gate that is discovered red.
 #
 # It must be PowerShell and not a shell script: Git Bash puts its own
 # `/usr/bin/link` ahead of MSVC's `link.exe` on the `PATH`, so every
@@ -375,7 +374,7 @@ if ($failed -gt 0) {
 }
 if ($skipped -gt 0) {
   # Deliberately not a pass. A gate that did not run has not been met,
-  # and saying otherwise is the thing STABILITY.md section 6 forbids.
+  # and saying otherwise is the one thing a gate must never do.
   Write-Host "$passed gate(s) passed; $skipped could not run here." -ForegroundColor Yellow
   Write-Host 'Every gate that ran is green. The skipped ones remain unverified.' -ForegroundColor Yellow
   exit 0

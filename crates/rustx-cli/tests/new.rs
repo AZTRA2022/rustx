@@ -345,7 +345,7 @@ fn a_new_project_can_already_receive_a_shadcn_component() {
         css.contains("--primary:") && css.contains("--muted-foreground:"),
         "`bg-primary` and `text-muted-foreground` are names of these: {css}"
     );
-    // And the font. `BUG.md` carried "the font family does not apply,
+    // And the font. The bug log carried "the font family does not apply,
     // it is the default one" for a long time: the engine's side of that
     // was fixed in `14f8a27` (Chromium's fallback for an empty generic
     // family is Times New Roman on every platform), but a fresh project

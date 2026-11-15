@@ -885,7 +885,7 @@ mod tests {
     /// exactly as written, so the developer got their own error *and*
     /// `error[E0752]: main function is not allowed to be async`, which
     /// is about nothing they did and points at `src/main.rs`. Item 21 of
-    /// `docs/manques-du-framework.md`.
+    /// the log of gaps.
     #[test]
     fn the_async_comes_off_the_signature() {
         let signature: TokenStream2 = "async fn main()".parse().expect("parses");

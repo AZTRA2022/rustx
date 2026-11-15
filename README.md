@@ -1,11 +1,5 @@
 # rustx
 
-> **This is the reference version, and the one that is kept current.**
-> The original French page is kept as it was written, at
-> [`README.fr.md`](README.fr.md). Where the two disagree, this one is
-> right: the French page is no longer updated and may name a version or
-> an API that has moved.
-
 Native software, written in Rust, drawn by a browser engine.
 
 Components are written in `.rsx` files — JSX's syntax, Rust's language —
@@ -765,9 +759,10 @@ you could have written by hand.
 | [`site/`](site) | the documentation site, and the source of every page linked above |
 | [`editors/vscode`](editors/vscode) | the extension |
 | [`scripts/gates.ps1`](scripts/gates.ps1) | the quality gates, nine of them |
-| [`docs/stability/`](docs/stability) | what each subsystem was measured at, and what is still open |
-| [`BUG.md`](BUG.md) | what is known broken |
-| [`STABILITY.md`](STABILITY.md) | the brief the current work answers to |
+
+What is known to be missing or broken is on one page of the
+documentation rather than in a file here: [what's
+left](https://rustx.dev/docs/whats-left).
 
 The gates run with `powershell -File scripts/gates.ps1`, and
 `-List` prints them. `.github/workflows/ci.yml` runs the same ones, plus

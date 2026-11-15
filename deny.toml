@@ -1,6 +1,6 @@
 # What this project will accept from its dependency tree.
 #
-# `STABILITY.md` §3 asks for dependency integrity and §6 for a
+# Dependency integrity, and a
 # dependency audit. This file is both, made into something a machine
 # checks: `cargo deny check` reads it, `scripts/gates.ps1 -Only deps`
 # runs that, and CI runs the same.

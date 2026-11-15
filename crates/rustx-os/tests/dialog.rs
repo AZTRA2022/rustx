@@ -1,9 +1,9 @@
-//! Les dialogues de fichiers natifs.
+//! The system's own file dialogs.
 //!
-//! Un dialogue modal attend une main humaine, donc ce qui est prouvé
-//! ici est tout ce qui l'entoure : la conversion des filtres, les mots
-//! des refus, et la forme de ce qu'on demande. Le dialogue lui-même se
-//! regarde avec `cargo run -p rustx-os --example choose_a_file`.
+//! A modal dialog waits for a human hand, so what is proved here is
+//! everything around it: the filters becoming patterns, the words of
+//! each refusal, and the shape of what is asked for. The dialog itself
+//! is looked at with `cargo run -p rustx-os --example choose_a_file`.
 
 use rustx_os::dialog::{self, Ask, DialogError};
 
@@ -14,13 +14,13 @@ fn the_filters_become_patterns_every_system_reads() {
             "Images".to_string(),
             vec!["png".to_string(), ".jpg".to_string(), "*.gif".to_string()],
         ),
-        ("Texte".to_string(), vec!["txt".to_string()]),
+        ("Text".to_string(), vec!["txt".to_string()]),
     ];
     assert_eq!(
         dialog::patterns_for(&asked),
         vec![
             ("Images".to_string(), "*.png;*.jpg;*.gif".to_string()),
-            ("Texte".to_string(), "*.txt".to_string()),
+            ("Text".to_string(), "*.txt".to_string()),
         ],
         "the pattern is the same however the extension is written"
     );
@@ -29,46 +29,50 @@ fn the_filters_become_patterns_every_system_reads() {
 
 #[test]
 fn what_is_asked_is_what_is_written() {
-    // `Ask` est écrit à la main dans une page, donc il se lit.
-    let ask = Ask::new("Choisir une image")
+    // `Ask` is written by hand in a page, so it has to read well.
+    let ask = Ask::new("Choose an image")
         .filter("Images", ["png"])
         .starting_in("C:/Users")
-        .named("sans-titre.png")
+        .named("untitled.png")
         .many();
-    assert_eq!(ask.title, "Choisir une image");
+    assert_eq!(ask.title, "Choose an image");
     assert_eq!(ask.filters.len(), 1);
     assert_eq!(ask.start_in, Some(std::path::PathBuf::from("C:/Users")));
-    assert_eq!(ask.named.as_deref(), Some("sans-titre.png"));
+    assert_eq!(ask.named.as_deref(), Some("untitled.png"));
     assert!(ask.many);
-    // Et rien n'est demandé par défaut.
-    let plain = Ask::new("Ouvrir");
+    // And nothing is asked for by default.
+    let plain = Ask::new("Open");
     assert!(plain.filters.is_empty() && plain.start_in.is_none() && !plain.many);
 }
 
 #[test]
 fn a_cancelled_dialog_is_cancelled_and_not_a_failure() {
-    // Nommé, et dit en français clair : une application qui journalise
-    // une panne à chaque fois qu'un utilisateur ferme un dialogue est
-    // une application dont les journaux ne servent plus à rien.
+    // Named, and said plainly: an application that logs a failure every
+    // time somebody closes a dialog is an application whose log is of
+    // no further use.
+    //
+    // This assertion is why the `test` gate was red: the message was
+    // translated to English and the sentence being looked for was left
+    // in French, so a cancelled dialog read as a failing test.
     let said = DialogError::Cancelled.to_string();
-    assert!(said.contains("fermé"), "got {said}");
-    assert!(!said.contains("erreur"), "got {said}");
+    assert!(said.contains("closed"), "got {said}");
+    assert!(!said.contains("error"), "got {said}");
 }
 
 #[test]
 fn a_platform_that_cannot_do_it_says_which_file_to_write() {
-    // Le refus d'une plateforme non écrite nomme la plateforme *et* le
-    // fichier : c'est une liste de travail, pas une excuse.
-    let said = DialogError::Unsupported("le dialogue de fichiers").to_string();
-    assert!(said.contains("le dialogue de fichiers"), "got {said}");
+    // The refusal of a platform that is not written names the platform
+    // *and* the file: that is a list of work, not an excuse.
+    let said = DialogError::Unsupported("the file dialog").to_string();
+    assert!(said.contains("the file dialog"), "got {said}");
     assert!(said.contains(std::env::consts::OS), "got {said}");
     assert!(said.contains("dialog.rs"), "got {said}");
 }
 
 #[test]
 fn this_platform_says_whether_it_has_one() {
-    // Windows en a un ; ailleurs, `false` tant que le fichier n'est pas
-    // écrit — ce qu'une page lit pour ne pas dessiner un bouton qui
-    // refuserait.
+    // Windows has one; elsewhere `false` until the file is written --
+    // which is what a page reads so that it does not draw a button
+    // that would refuse.
     assert_eq!(dialog::supported(), cfg!(windows));
 }

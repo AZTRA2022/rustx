@@ -1110,7 +1110,7 @@ fn a_comment_before_a_read_leaves_it_a_read() {
 /// A cell read in the component's own body, between the declaration and
 /// the `return`.
 ///
-/// Item 4 of `docs/manques-du-framework.md`, which had no test of its
+/// Item 4 of the log of gaps, which had no test of its
 /// own: reads in the markup and in handlers were rewritten and reads in
 /// the body were not, which is the most natural of the three to write.
 /// The code after the declaration was chosen by whole spans

@@ -94,6 +94,7 @@ pose les fichiers dans `components/ui/`, là où ils sont déjà.
 - **Pas de favicon ni d'image OG fixe.** L'image OG est engendrée par
   `/og`, mais `app/favicon.ico` et `app/opengraph-image.png` restent à
   dessiner — ceux de shadcn ont été retirés.
-- **Pas de page « ce qui reste » tenue automatiquement.**
-  `content/docs/ce-qui-reste.mdx` est écrite à la main depuis
-  `docs/manques-du-framework.md` ; les deux peuvent diverger.
+- **No automatically maintained "what's left" page.**
+  `content/docs/whats-left.mdx` is written by hand, and it is now the
+  only record of what is missing — so an entry that closes has to be
+  taken out of it by whoever closed the thing.

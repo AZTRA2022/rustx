@@ -1,8 +1,7 @@
 # The gates, on every push.
 #
-# `STABILITY.md` section 6 asks for measurable quality gates and for
-# them to run in CI wherever possible. `scripts/gates.ps1` is the same
-# set of gates run by hand; this file is where they are enforced.
+# `scripts/gates.ps1` is the same set of gates run by hand; this file
+# is where they are enforced.
 #
 # Three things are worth knowing about the shape of this file.
 #

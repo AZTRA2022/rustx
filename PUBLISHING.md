@@ -2,11 +2,11 @@
 
 Eight crates go to crates.io, and they depend on each other, so they go
 in an order. Each one's manifest asks for its siblings by an exact
-version — `rustx-dom = { path = "../rustx-dom", version = "0.3.0" }` —
+version — `rustx-dom = { path = "../rustx-dom", version = "0.4.0" }` —
 so a crate cannot be published before the siblings it names are there.
 `cargo package` says so plainly when you get it wrong:
 
-    failed to select a version for the requirement `rustx-compiler = "^0.3.0"`
+    failed to select a version for the requirement `rustx-compiler = "^0.4.0"`
     candidate versions found which didn't match: 0.2.0, 0.1.1, 0.1.0
 
 ## The order
