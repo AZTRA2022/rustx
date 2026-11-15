@@ -26,6 +26,20 @@
   src: url("fonts/inter-600.woff2") format("woff2");
 }
 
+/* The tokens, and the one line of layout concept they serve: an
+   editing suite at night, four greys of near-black with hairline rules
+   between them and one violet that only ever means "this one, now".
+
+   Two sets live here. The first is this application's own — `chrome`,
+   `panel`, `track`, `line`, `mark` — and the second is the set every
+   shadcn component names (`--primary`, `--border`, `--input`, …),
+   pointed at the first. That is the whole of the theming: the
+   components are the material and this file is the look, so a `Button`
+   lands in the suite's palette without a word of its source changing.
+
+   The violet is `mark` and not `accent` on purpose: shadcn spends
+   `accent` on a hover surface, and the two would have been one
+   utility. */
 :root {
   /* Four greys, darkest first: the window, the panel frames, the
      timeline's track bed, and the hairline between them. Every one of
@@ -44,10 +58,32 @@
   /* One accent, and it means "this one, now": the selection, the
      playhead, the render button. The two below are not accents — they
      are what a state is, and they are used nowhere else. */
-  --accent: #6f5bf5;
-  --accent-soft: #231e45;
+  --mark: #6f5bf5;
+  --mark-soft: #231e45;
   --danger: #e06c75;
   --good: #7fd49a;
+
+  /* What shadcn's own classes name. Nothing new is invented here: each
+     one is one of the eleven above. */
+  --background: var(--chrome);
+  --foreground: var(--text);
+  --card: var(--panel);
+  --card-foreground: var(--text);
+  --popover: var(--panel);
+  --popover-foreground: var(--text);
+  --primary: var(--mark);
+  --primary-foreground: #ffffff;
+  --secondary: var(--track);
+  --secondary-foreground: var(--text);
+  --muted-surface: var(--track);
+  --muted-foreground: var(--muted);
+  --accent: var(--track);
+  --accent-foreground: var(--text);
+  --destructive: var(--danger);
+  --destructive-foreground: #ffffff;
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--mark);
 }
 
 @theme inline {
@@ -58,10 +94,43 @@
   --color-text: var(--text);
   --color-muted: var(--muted);
   --color-faint: var(--faint);
-  --color-accent: var(--accent);
-  --color-accent-soft: var(--accent-soft);
+  --color-mark: var(--mark);
+  --color-mark-soft: var(--mark-soft);
   --color-danger: var(--danger);
   --color-good: var(--good);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* A suite has no rounded cards and no drop shadows. shadcn asks for
+     `rounded-md` and `shadow-sm` by name, so the answer is given once,
+     here, instead of `rounded-none shadow-none` on every tag. */
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
+  --shadow-2xs: none;
+  --shadow-xs: none;
 
   --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
 }
@@ -114,13 +183,13 @@ input[type="range"]:focus {
 }
 
 input[type="range"]:hover::-webkit-slider-thumb {
-  background: var(--accent);
+  background: var(--mark);
 }
 
 /* Operated with a keyboard as well as a mouse. One rule rather than a
    focus class on every control, because every control wants the same
    answer. */
 :focus-visible {
-  outline: 1px solid var(--accent);
+  outline: 1px solid var(--mark);
   outline-offset: 1px;
 }

@@ -2,9 +2,26 @@
   "name": "video-editor",
   "private": true,
   "version": "0.1.0",
-  "description": "Tailwind, and nothing else: this application's interface is .rsx and Rust, so it needs the stylesheet and not a bundle. rustx runs the command line below over app/ and src/ and puts the sheet in the document.",
+  "description": "What this editor is made of: shadcn/ui on Tailwind v4 for the panels and the controls, lucide-react for the icons. rustx writes the entry point and builds the bundle; the editor itself is .rsx and Rust.",
+  "dependencies": {
+    "@radix-ui/react-separator": "^1.2.0",
+    "@radix-ui/react-slot": "^1.5.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.66.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "tailwind-merge": "^3.7.0"
+  },
   "devDependencies": {
     "@tailwindcss/cli": "^4.3.3",
-    "tailwindcss": "^4.3.3"
+    "@types/node": "^26.6.6",
+    "@types/react": "^18.3.31",
+    "esbuild": "0.23.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2"
+  },
+  "allowScripts": {
+    "esbuild@0.23.1": true
   }
 }

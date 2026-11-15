@@ -253,104 +253,37 @@ fn carry_on() {
 
 // ---- the icons --------------------------------------------------------
 
-// Lucide (https://lucide.dev), under the ISC licence, with the geometry
-// copied rather than the package installed: fifteen icons is fifteen
-// `d` attributes, and the alternative was a dependency for a kilobyte
-// of path data. The set's own conventions are kept — a 24 by 24 box, no
-// fill, `currentColor`, two units of stroke, round caps — so an icon
-// takes its size and its colour from whatever holds it.
-fn Glyph(name: String) -> Element {
-    let shape: Vec<Element> = match name.as_str() {
-        "film" => vec![
-            Line("M7 3v18".to_string()),
-            Line("M3 7.5h4".to_string()),
-            Line("M3 12h18".to_string()),
-            Line("M3 16.5h4".to_string()),
-            Line("M17 3v18".to_string()),
-            Line("M17 7.5h4".to_string()),
-            Line("M17 16.5h4".to_string()),
-            Box("2".to_string(), "3".to_string(), "20".to_string(), "18".to_string()),
-        ],
-        "monitor" => vec![
-            Box("2".to_string(), "3".to_string(), "20".to_string(), "14".to_string()),
-            Line("M8 21h8".to_string()),
-            Line("M12 17v4".to_string()),
-        ],
-        "sliders" => vec![
-            Line("M21 4h-7".to_string()),
-            Line("M10 4H3".to_string()),
-            Line("M21 12h-9".to_string()),
-            Line("M8 12H3".to_string()),
-            Line("M21 20h-5".to_string()),
-            Line("M12 20H3".to_string()),
-            Line("M14 2v4".to_string()),
-            Line("M8 10v4".to_string()),
-            Line("M16 18v4".to_string()),
-        ],
-        "download" => vec![
-            Line("M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4".to_string()),
-            Line("m7 10 5 5 5-5".to_string()),
-            Line("M12 15V3".to_string()),
-        ],
-        "folder-open" => vec![Line(
-            "m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 \
-             1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 \
-             2 0 0 1 2 2v2"
-                .to_string(),
-        )],
-        "plus" => vec![Line("M5 12h14".to_string()), Line("M12 5v14".to_string())],
-        "chevron-left" => vec![Line("m15 18-6-6 6-6".to_string())],
-        "chevron-right" => vec![Line("m9 18 6-6-6-6".to_string())],
-        "trash" => vec![
-            Line("M3 6h18".to_string()),
-            Line("M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6".to_string()),
-            Line("M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2".to_string()),
-            Line("M10 11v6".to_string()),
-            Line("M14 11v6".to_string()),
-        ],
-        "play" => vec![Line("M6 3v18l14-9z".to_string())],
-        "pause" => vec![
-            Box("6".to_string(), "4".to_string(), "4".to_string(), "16".to_string()),
-            Box("14".to_string(), "4".to_string(), "4".to_string(), "16".to_string()),
-        ],
-        "stop" => vec![Box(
-            "4".to_string(),
-            "4".to_string(),
-            "16".to_string(),
-            "16".to_string(),
-        )],
-        "skip-back" => vec![
-            Line("M19 20 9 12l10-8z".to_string()),
-            Line("M5 19V5".to_string()),
-        ],
-        "skip-forward" => vec![
-            Line("M5 4l10 8-10 8z".to_string()),
-            Line("M19 5v14".to_string()),
-        ],
-        "volume" => vec![
-            Line("M11 5 6 9H2v6h4l5 4z".to_string()),
-            Line("M15.54 8.46a5 5 0 0 1 0 7.07".to_string()),
-            Line("M19.07 4.93a10 10 0 0 1 0 14.14".to_string()),
-        ],
-        "muted" => vec![
-            Line("M11 5 6 9H2v6h4l5 4z".to_string()),
-            Line("m22 9-6 6".to_string()),
-            Line("m16 9 6 6".to_string()),
-        ],
-        _ => vec![Line("M12 3a9 9 0 1 0 9 9".to_string())],
+// lucide-react, written as a tag.
+//
+// `lucide-react` is in this application's `package.json`, so the
+// framework bundles it and a page writes its components by the name
+// the entry point gives the package — the same path `recharts::` takes
+// in `apps/hybrid`. No `.tsx` of ours is involved: an icon is one tag.
+//
+// They go through one function because what the interface asks for is
+// a word ("the icon for play"), and because the size is then decided
+// once here rather than on thirty tags.
+fn Icon(name: String) -> Element {
+    let size = "h-3.5 w-3.5 shrink-0";
+
+    return match name.as_str() {
+        "film" => <lucideReact::Film className={size} />,
+        "monitor" => <lucideReact::MonitorPlay className={size} />,
+        "sliders" => <lucideReact::SlidersHorizontal className={size} />,
+        "download" => <lucideReact::Download className={size} />,
+        "folder-open" => <lucideReact::FolderOpen className={size} />,
+        "plus" => <lucideReact::Plus className={size} />,
+        "chevron-left" => <lucideReact::ChevronLeft className={size} />,
+        "chevron-right" => <lucideReact::ChevronRight className={size} />,
+        "trash" => <lucideReact::Trash2 className={size} />,
+        "play" => <lucideReact::Play className={size} />,
+        "pause" => <lucideReact::Pause className={size} />,
+        "stop" => <lucideReact::Square className={size} />,
+        "skip-back" => <lucideReact::SkipBack className={size} />,
+        "skip-forward" => <lucideReact::SkipForward className={size} />,
+        "volume" => <lucideReact::Volume2 className={size} />,
+        _ => <lucideReact::VolumeX className={size} />,
     };
-
-    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-        strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
-        className="h-3.5 w-3.5 shrink-0">{shape}</svg>;
-}
-
-fn Line(d: String) -> Element {
-    return <path d={d} />;
-}
-
-fn Box(x: String, y: String, width: String, height: String) -> Element {
-    return <rect x={x} y={y} width={width} height={height} rx="1" />;
 }
 
 // ---- the frame around everything --------------------------------------
@@ -360,7 +293,7 @@ fn Box(x: String, y: String, width: String, height: String) -> Element {
 fn PanelTitle(icon: String, name: String, aside: String) -> Element {
     return <div className="flex h-7 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
         <span className="flex items-center gap-1.5 text-muted">
-            {Glyph(icon)}
+            {Icon(icon)}
             <span className="text-[10px] font-semibold uppercase tracking-[0.14em]">{name}</span>
         </span>
         <span className="truncate text-[10px] tabular-nums text-faint">{aside}</span>
@@ -368,27 +301,41 @@ fn PanelTitle(icon: String, name: String, aside: String) -> Element {
 }
 
 fn Toolbar() -> Element {
-    let button = "flex h-6 items-center gap-1.5 border border-line bg-track px-2 text-[11px] \
-                  text-text hover:border-faint hover:text-white";
+    // A shadcn `Button`, in a suite. The component brings the shape,
+    // the focus ring and the disabled state; the classes bring the
+    // twenty-four pixels of height and the eleven-pixel type that a
+    // dense toolbar is made of. That is the division all the way
+    // down: the components are the material, this file is the look.
+    let button = "h-6 gap-1.5 border-line bg-track px-2 text-[11px] text-text \
+                  hover:border-faint hover:bg-track hover:text-white";
 
     return <div className="flex h-10 shrink-0 items-center gap-2 border-b border-line bg-panel px-3">
         <span className="flex items-center gap-2 pr-1 text-white">
-            {Glyph("film".to_string())}
+            {Icon("film".to_string())}
             <span className="text-[12px] font-semibold tracking-tight">Altlassian Raw</span>
         </span>
-        <span className="h-4 w-px bg-line"></span>
-        <button id="open" onClick={move |_| open_files()} className={button.to_string()}>
-            {Glyph("folder-open".to_string())}
+        <Separator orientation="vertical" className="h-4 bg-line" />
+        <Button id="open" variant="outline" size="sm" className={button.to_string()}
+            onClick={move |_| open_files()}>
+            {Icon("folder-open".to_string())}
             <span>Import media…</span>
-        </button>
+        </Button>
+        // A tag the engine mounts, in a row of React ones, and
+        // deliberately: a handler on a component is handed React's own
+        // event through the bridge, and `event.value` — what a page
+        // writes everywhere else — is what the engine's own tags give.
+        // `apps/hybrid` keeps a plain input in its card for the same
+        // reason. shadcn's `Input` is a styled input and nothing more,
+        // so its class list is the whole of what it was for.
         <input id="typed" placeholder="or paste a file path"
             value={typed.clone()}
             onInput={move |event| typed = event.value}
-            className="h-6 w-72 border border-line bg-chrome px-2 text-[11px] text-text placeholder:text-faint focus:border-accent focus:outline-none" />
-        <button id="add-typed" onClick={move |_| add_typed()} className={button.to_string()}>
-            {Glyph("plus".to_string())}
+            className="h-6 w-72 border border-line bg-chrome px-2 text-[11px] text-text placeholder:text-faint focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mark" />
+        <Button id="add-typed" variant="outline" size="sm" className={button.to_string()}
+            onClick={move |_| add_typed()}>
+            {Icon("plus".to_string())}
             <span>Add</span>
-        </button>
+        </Button>
         <span className="flex-1"></span>
         <span className="text-[10px] uppercase tracking-[0.14em] text-faint">{sequence_label()}</span>
     </div>;
@@ -500,13 +447,13 @@ fn Transport() -> Element {
         {Key("skip-forward".to_string(), "Go to out point (End)".to_string(), "to-out".to_string(), has, "end".to_string())}
         {Key("stop".to_string(), "Stop and return to the in point".to_string(), "stop".to_string(), has, "stop".to_string())}
 
-        <span className="w-8 pl-1 text-[10px] tabular-nums text-accent">{speed}</span>
+        <span className="w-8 pl-1 text-[10px] tabular-nums text-mark">{speed}</span>
         <span className="flex-1"></span>
 
         <span className="text-[11px] tabular-nums text-white">{clock(played)}</span>
         <span className="pl-1 text-[11px] tabular-nums text-faint">{format!("/ {}", clock(out_of(selected)))}</span>
 
-        <span className="mx-2 h-4 w-px bg-line"></span>
+        <Separator orientation="vertical" className="mx-2 h-4 bg-line" />
         {Key(
             if muted { "muted".to_string() } else { "volume".to_string() },
             "Mute (M)".to_string(),
@@ -524,30 +471,23 @@ fn Transport() -> Element {
 // every one of them carries its name for a screen reader and for the
 // tooltip — which is also where the keyboard shortcut is written.
 fn Key(icon: String, name: String, id: String, enabled: bool, does: String) -> Element {
-    let style = format!(
-        "flex h-7 w-8 items-center justify-center border border-line bg-track {}",
-        match enabled {
-            true => "text-text hover:border-faint hover:text-white",
-            false => "text-[#3f424b]",
-        }
-    );
-
-    return <button id={id} className={style} title={name.clone()} aria-label={name}
-        onClick={move |_| {
-            if enabled {
-                act(does.clone());
-            }
-        }}>{Glyph(icon)}</button>;
+    return <Button id={id} variant="outline" size="icon"
+        className="h-7 w-8 border-line bg-track text-text hover:border-faint hover:bg-track hover:text-white"
+        title={name.clone()} aria-label={name} disabled={!enabled}
+        onClick={move |_| act(does.clone())}>
+        {Icon(icon)}
+    </Button>;
 }
 
 // Play and pause are one button, because they are one thing.
 fn PlayKey(enabled: bool) -> Element {
+    // The one place the accent is allowed on a control: the button
+    // that starts the thing the window is for.
     let style = format!(
-        "flex h-7 w-10 items-center justify-center border {}",
-        match (enabled, paused) {
-            (false, _) => "border-line bg-track text-[#3f424b]",
-            (true, true) => "border-accent bg-accent text-white",
-            (true, false) => "border-accent bg-accent-soft text-white",
+        "h-7 w-10 border text-white {}",
+        match paused {
+            true => "border-mark bg-mark hover:bg-mark",
+            false => "border-mark bg-mark-soft hover:bg-mark-soft",
         }
     );
     let name = match paused {
@@ -555,14 +495,10 @@ fn PlayKey(enabled: bool) -> Element {
         false => "Pause (space)".to_string(),
     };
 
-    return <button id="play" className={style} title={name.clone()} aria-label={name}
-        onClick={move |_| {
-            if enabled {
-                act("space".to_string());
-            }
-        }}>
-        {Glyph(if paused { "play".to_string() } else { "pause".to_string() })}
-    </button>;
+    return <Button id="play" size="icon" className={style} title={name.clone()} aria-label={name}
+        disabled={!enabled} onClick={move |_| act("space".to_string())}>
+        {Icon(if paused { "play".to_string() } else { "pause".to_string() })}
+    </Button>;
 }
 
 // ---- the timeline -----------------------------------------------------
@@ -630,7 +566,7 @@ fn ClipBlock(index: usize, clip: ffmpeg::Clip, total: f64) -> Element {
     // declaration is computed rather than written as a class.
     let box_style = format!("width: {:.3}%", (clip.length() / total) * 100.0);
     let skin = match active {
-        true => "border border-accent bg-accent-soft",
+        true => "border border-mark bg-mark-soft",
         false => "border border-line bg-[#1d1c24] hover:border-faint",
     };
     let frame_style = format!(
@@ -666,7 +602,7 @@ fn ClipBlock(index: usize, clip: ffmpeg::Clip, total: f64) -> Element {
 fn Playhead() -> Element {
     let at = (sequence_position() / sequence_seconds() * 100.0).clamp(0.0, 100.0);
 
-    return <span className="pointer-events-none absolute top-0 h-full w-px bg-accent" style={format!("left: {at:.3}%")}></span>;
+    return <span className="pointer-events-none absolute top-0 h-full w-px bg-mark" style={format!("left: {at:.3}%")}></span>;
 }
 
 // ---- the right-hand column --------------------------------------------
@@ -680,16 +616,19 @@ fn Controls() -> Element {
 
 fn Effects() -> Element {
     let Some(clip) = clip_at(selected) else {
-        return <div className="flex min-h-0 flex-1 flex-col">
+        return <Card className="flex min-h-0 flex-1 flex-col border-0 bg-panel">
             {PanelTitle("sliders".to_string(), "Effect controls".to_string(), String::new())}
             <p className="p-3 text-[11px] leading-relaxed text-faint">
                 {"Nothing is selected. Import a file, then trim it here and give it a colour and a subtitle."}
             </p>
-        </div>;
+        </Card>;
     };
     let index = selected.min(clips.len() - 1);
 
-    return <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+    // A shadcn `Card` with its corners and its shadow taken off by
+    // the theme, which is what a panel in a suite is: a frame with a
+    // hairline round it.
+    return <Card className="flex min-h-0 flex-1 flex-col overflow-y-auto border-0 bg-panel">
         {PanelTitle("sliders".to_string(), "Effect controls".to_string(), format!("clip {}", index + 1))}
 
         <div className="border-b border-line px-3 py-2">
@@ -740,7 +679,7 @@ fn Effects() -> Element {
             <div className="pb-1.5 text-[10px] uppercase tracking-[0.14em] text-faint">Subtitle</div>
             <input id="subtitle" placeholder="burned in by ffmpeg" value={clip.subtitle.clone()}
                 onInput={move |event| set_subtitle(index, event.value.clone())}
-                className="h-6 w-full border border-line bg-chrome px-2 text-[11px] text-text placeholder:text-faint focus:border-accent focus:outline-none" />
+                className="h-6 w-full border border-line bg-chrome px-2 text-[11px] text-text placeholder:text-faint focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mark" />
         </div>
 
         <div className="flex gap-1 px-3 py-2">
@@ -748,7 +687,7 @@ fn Effects() -> Element {
             {OrderButton("chevron-right".to_string(), "Move right".to_string(), "move-right".to_string(), index + 1 < clips.len(), 1)}
             {OrderButton("trash".to_string(), "Remove".to_string(), "remove".to_string(), true, 0)}
         </div>
-    </div>;
+    </Card>;
 }
 
 // Warm and cool are `colortemperature`, and CSS has nothing that does
@@ -792,76 +731,64 @@ fn Trim(
 
 // Set in / set out, from wherever the playhead is.
 fn Mark_(label: String, id: String, does: String) -> Element {
-    return <button id={id} onClick={move |_| act(does.clone())}
-        className="h-6 flex-1 border border-line bg-track text-[11px] text-muted hover:border-faint hover:text-text">
+    return <Button id={id} variant="outline" size="sm" onClick={move |_| act(does.clone())}
+        className="h-6 flex-1 border-line bg-track text-muted hover:border-faint hover:bg-track hover:text-text text-[11px]">
         {label}
-    </button>;
+    </Button>;
 }
 
 fn FilterButton(index: usize, name: String, active_name: String) -> Element {
     let active = name == active_name;
     let apply = name.clone();
     let chip = format!(
-        "h-6 flex-1 text-[11px] capitalize {}",
+        "h-6 flex-1 px-0 text-[11px] capitalize {}",
         match active {
-            true => "border border-accent bg-accent-soft text-white",
-            false => "border border-line bg-track text-muted hover:border-faint hover:text-text",
+            true => "border-mark bg-mark-soft text-white hover:bg-mark-soft hover:text-white",
+            false => "border-line bg-track text-muted hover:border-faint hover:bg-track hover:text-text",
         }
     );
 
-    return <button className={chip} onClick={move |_| {
+    return <Button variant="outline" size="sm" className={chip} onClick={move |_| {
         edit(index, |clip| clip.look = apply.clone())
-    }}>{name}</button>;
+    }}>{name}</Button>;
 }
 
 // The three that change the order of the sequence. `by` is where the
 // clip goes: one place left, one place right, or nowhere, which is the
 // one that removes it.
 fn OrderButton(icon: String, label: String, id: String, enabled: bool, by: i64) -> Element {
-    let style = format!(
-        "flex h-6 flex-1 items-center justify-center gap-1 border border-line bg-track text-[11px] {}",
-        match enabled {
-            true => "text-muted hover:border-faint hover:text-text",
-            false => "text-[#3f424b]",
-        }
-    );
-
-    return <button id={id} className={style} title={label.clone()} aria-label={label.clone()}
-        onClick={move |_| {
-            if !enabled {
-                return;
-            }
-            match by {
-                0 => remove_clip(),
-                by => shift(by),
-            }
+    return <Button id={id} variant="outline" size="sm" disabled={!enabled}
+        className="h-6 flex-1 gap-1 px-1 border-line bg-track text-muted hover:border-faint hover:bg-track hover:text-text text-[11px]"
+        title={label.clone()} aria-label={label.clone()}
+        onClick={move |_| match by {
+            0 => remove_clip(),
+            by => shift(by),
         }}>
-        {Glyph(icon)}
+        {Icon(icon)}
         <span>{label}</span>
-    </button>;
+    </Button>;
 }
 
 fn Export() -> Element {
     let filled = format!("width: {:.1}%", progress);
     let render = match rendering {
-        true => "flex h-7 w-full items-center justify-center gap-1.5 bg-accent-soft text-[11px] text-white",
-        false => "flex h-7 w-full items-center justify-center gap-1.5 bg-accent text-[11px] \
-                  font-semibold text-white hover:brightness-110",
+        true => "h-7 w-full gap-1.5 bg-mark-soft text-[11px] text-white hover:bg-mark-soft",
+        false => "h-7 w-full gap-1.5 bg-mark text-[11px] font-semibold text-white hover:brightness-110",
     };
 
-    return <div className="shrink-0 border-t border-line">
+    return <Card className="shrink-0 rounded-none border-0 border-t border-line bg-panel">
         {PanelTitle("download".to_string(), "Export".to_string(), String::new())}
         <div className="px-3 py-2">
-            <button id="render" onClick={move |_| start_render()} className={render.to_string()}>
-                {Glyph("download".to_string())}
+            <Button id="render" className={render.to_string()} onClick={move |_| start_render()}>
+                {Icon("download".to_string())}
                 <span>{if rendering { "Rendering…" } else { "Render sequence" }}</span>
-            </button>
+            </Button>
             <div className="mt-2 h-[3px] bg-track">
-                <div id="progress" className="h-full bg-accent" style={filled}></div>
+                <div id="progress" className="h-full bg-mark" style={filled}></div>
             </div>
             {Written()}
         </div>
-    </div>;
+    </Card>;
 }
 
 fn Written() -> Element {
@@ -873,11 +800,11 @@ fn Written() -> Element {
 
     return <div className="pt-2">
         <div id="output" className="truncate text-[10px] text-good">{output.clone()}</div>
-        <button id="reveal" onClick={move |_| reveal_output()}
-            className="mt-1.5 flex h-6 w-full items-center justify-center gap-1.5 border border-line bg-track text-[11px] text-muted hover:border-faint hover:text-text">
-            {Glyph("folder-open".to_string())}
+        <Button id="reveal" variant="outline" size="sm" onClick={move |_| reveal_output()}
+            className="mt-1.5 h-6 w-full gap-1.5 border-line bg-track text-muted hover:border-faint hover:bg-track hover:text-text text-[11px]">
+            {Icon("folder-open".to_string())}
             <span>Show in folder</span>
-        </button>
+        </Button>
     </div>;
 }
 
