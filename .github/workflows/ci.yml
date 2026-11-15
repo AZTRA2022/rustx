@@ -142,13 +142,13 @@ jobs:
         run: |
           cargo test -p rustx-compiler
           cargo test -p rustx-dom
-          cargo test -p rustx-macros
+          cargo test -p rustx-macro
           cargo test -p rustx-lsp
 
       - name: No clippy warning in them either
         run: |
           cargo clippy -p rustx-os -p rustx-compiler -p rustx-dom \
-            -p rustx-macros -p rustx-lsp --all-targets -- -D warnings
+            -p rustx-macro -p rustx-lsp --all-targets -- -D warnings
 
   # ----------------------------------------------------------- installers
   #

@@ -176,7 +176,9 @@ fn a_truncated_page_does_not_pass_the_law_that_would_catch_it() {
     // page and went unnoticed because nothing read it.
     let mut cut = 0;
     for page in every_page() {
-        let source = std::fs::read_to_string(&page).expect("a page reads");
+        let source = std::fs::read_to_string(&page)
+            .expect("a page reads")
+            .replace("\r\n", "\n");
         let Some(at) = source.find(");\n") else {
             continue;
         };

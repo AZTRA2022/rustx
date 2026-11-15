@@ -191,8 +191,8 @@ pub mod data {
 ///
 /// Nothing here happens on its own, and nothing restarts the
 /// application for you: when it is safe to restart is a question about
-/// unsaved work, which only the application can answer. [`restart`]
-/// does it when the answer is yes.
+/// unsaved work, which only the application can answer.
+/// [`update::restart`] does it when the answer is yes.
 pub mod update {
     use rustx_os::OsError;
     pub use rustx_os::update::{Outcome, Release, clean, restart};
