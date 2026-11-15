@@ -42,7 +42,7 @@ Three things do not go through `Display`:
 | `disabled` | the attribute, present, with no value |
 | `disabled={flag}` | present when `flag`, **removed** when not |
 | `onClick={…}` | a handler, never an attribute |
-| `style={{ … }}` | read at compile time — see [Style](#style) |
+| `style={{ … }}` | read at compile time; a value may be computed — see [Style](#style) |
 
 A **boolean** attribute — `disabled`, `checked`, `readOnly`, `required`,
 `hidden`, `multiple`, `selected`, `open`, `muted`, `loop` and the rest —
@@ -131,32 +131,41 @@ return <div style={{
 
 An unknown property name is refused by the compiler, with the closest name.
 
-### A style object holds strings, and only strings
+### The object is read at compile time, and a value may still be computed
 
 `style={{ … }}` is read **at compile time**: the object never exists at
-runtime, and what reaches the element is one CSS declaration string
-already built. That is what makes an unknown property a compile error
-instead of a line that silently does nothing — and it is also why every
-value in it has to be a quoted string.
+runtime. That is what makes an unknown property a compile error instead
+of a line that silently does nothing.
+
+A value does not have to be a literal. When one is not, the object
+becomes the `format!` you would have written by hand:
 
 ```rust
-style={{ width: "240px" }}      // yes
-style={{ width: 240 }}          // no — which unit?
-style={{ width: format!("{w}px") }}  // no — there is no runtime here
+style={{ width: "240px" }}             // yes
+style={{ width: format!("{w}px") }}    // yes
+style={{ width: wide, color: "red" }}  // yes
+style={{ width: 240 }}                 // no — which unit?
 ```
 
-`width: 240` is refused because React adds `px` to some properties and
-not to others, and rustx will not guess which.
+That last one is refused because React adds `px` to some properties and
+not to others, and rustx will not guess which. Write `"240px"`.
 
-### A style that changes
+The two that compute become one declaration built when the element is
+drawn — `format!("width: {}; color: red", wide)` — so there is nothing
+to think about: the property names are still checked, and the values
+are ordinary Rust.
 
-Write the whole style as **one expression**. An expression that is not
-an object is passed through untouched, so it is an ordinary attribute
-and may be computed however you like:
+### A style that changes, written as one expression
+
+An expression that is not an object is passed through untouched, so it
+is an ordinary attribute:
 
 ```rust
 return <div style={format!("width: {}%; opacity: {}", percent, fade)}>…</div>;
 ```
+
+Use this when the whole declaration varies — when which properties
+there are depends on something, not just their values.
 
 Or give the element a `className` and let the stylesheet decide — which
 is usually the better answer, because a class can be a transition, a

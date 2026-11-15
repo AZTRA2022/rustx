@@ -1,6 +1,6 @@
 //! `style={{ … }}`, the way TSX writes it.
 
-use rustx_compiler::attributes::style_string;
+use rustx_compiler::attributes::{Styles, style_string, style_value};
 use rustx_compiler::emit::{Context, emit};
 use rustx_compiler::parse::parse_jsx;
 use rustx_compiler::scan::find_jsx;
@@ -120,17 +120,58 @@ fn a_style_built_with_format_is_passed_through() {
 }
 
 #[test]
-fn a_style_object_given_a_computed_value_is_refused_where_it_was_written() {
-    // And the refusal has to be about the value, because the fix is to
-    // write the whole style as one expression instead.
+fn a_style_object_may_hold_a_computed_value() {
+    // This used to be refused, and the advice given was to write
+    // `"format!(…)px"` -- which cannot be followed, because the object
+    // is read at compile time and a string is a string. The object is
+    // read into the `format!` the developer would have written.
     let source = "fn P() -> Element {\n    \
          return <div style={{ width: format!(\"{w}px\") }}>hi</div>;\n}\n";
-    let refusal = transpile(source).expect_err("a style object takes literals only");
-    let said = format!("{refusal:?}");
-    // And it points at the thing that works, rather than telling them
-    // to quote the `format!` -- which is what it used to do.
+    let rust = transpile(source).expect("a computed style compiles").rust;
+    // A pretty-printed token stream writes `format !`, so the macro is
+    // looked for by name rather than by its punctuation.
+    assert!(rust.contains("format"), "got {rust}");
+    assert!(rust.contains("width: {}"), "got {rust}");
+    assert!(rust.contains("{w}px"), "got {rust}");
+}
+
+#[test]
+fn a_computed_value_beside_a_literal_one_keeps_both() {
+    let made = style_value("{ width: wide, color: \"red\" }").expect("a style");
+    assert_eq!(
+        made,
+        Styles::Computed("format!(\"width: {}; color: red\", wide)".to_string())
+    );
+}
+
+/// A `format!` reads `{` as the start of a placeholder, so a literal
+/// that carries one has to be doubled -- and a declaration that never
+/// becomes a pattern must not be.
+#[test]
+fn a_brace_inside_a_literal_value_survives_either_way() {
+    let plain = style_value("{ background: \"image-set(a {1x})\" }").expect("a style");
+    assert_eq!(
+        plain,
+        Styles::Text("background: image-set(a {1x})".to_string())
+    );
+
+    let mixed = style_value("{ background: \"image-set(a {1x})\", width: wide }").expect("a style");
+    let Styles::Computed(source) = mixed else {
+        panic!("a computed style was expected, got {mixed:?}");
+    };
     assert!(
-        said.contains("one expression") || said.contains("className"),
-        "the refusal should say what to write instead: {said}"
+        source.contains("{{1x}}"),
+        "the brace was not doubled: {source}"
+    );
+}
+
+/// A number is still refused, and for the original reason: React adds
+/// `px` to some properties and not to others.
+#[test]
+fn a_numeric_value_is_still_refused_now_that_expressions_are_allowed() {
+    let complaint = style_value("{ width: 10 }").expect_err("should be refused");
+    assert!(
+        complaint.contains("width") && complaint.contains("px"),
+        "got {complaint}"
     );
 }

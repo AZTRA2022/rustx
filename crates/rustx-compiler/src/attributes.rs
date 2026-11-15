@@ -605,13 +605,54 @@ fn distance(left: &str, right: &str) -> usize {
 /// The error is the complaint, ready to be put in front of the
 /// developer by the caller that knows where the attribute sits.
 pub fn style_string(object: &str) -> Result<String, String> {
+    match style_value(object)? {
+        Styles::Text(text) => Ok(text),
+        Styles::Computed(_) => Err(
+            "this style holds a computed value, which is a Rust expression rather than \
+             a string"
+                .to_string(),
+        ),
+    }
+}
+
+/// What a `style={{ … }}` turns into.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Styles {
+    /// Every value was a literal, so the whole declaration is known
+    /// now: `display: flex; gap: 12px`.
+    Text(String),
+    /// At least one value was computed, so the declaration is built
+    /// when the element is drawn. The string is Rust source -- a
+    /// `format!` -- for the caller to parse and emit.
+    Computed(String),
+}
+
+/// Read the object, and say whether the answer is a string or an
+/// expression.
+///
+/// A computed value used to be refused, and the advice given was to
+/// write `"format!(…)px"` -- which cannot be followed, because the
+/// object is read at compile time and a string is a string. The object
+/// is now read into the `format!` the developer would have written:
+///
+/// ```text
+/// style={{ width: wide, color: "red" }}
+///   ->  format!("width: {}; color: red", wide)
+/// ```
+///
+/// A bare number is still refused, and for the original reason: React
+/// appends `px` to some properties and not to others (`width: 10` is
+/// pixels, `flexGrow: 10` is not), and a framework that guessed would
+/// be wrong in a way nobody can see on screen.
+pub fn style_value(object: &str) -> Result<Styles, String> {
     let inside = object
         .trim()
         .strip_prefix('{')
         .and_then(|rest| rest.strip_suffix('}'))
         .ok_or_else(|| "a style has to be an object: style={{ … }}".to_string())?;
 
-    let mut declarations = Vec::new();
+    let mut pattern = Vec::new();
+    let mut computed = Vec::new();
     for entry in top_level_commas(inside) {
         let entry = entry.trim();
         if entry.is_empty() {
@@ -623,41 +664,55 @@ pub fn style_string(object: &str) -> Result<String, String> {
         let property = css_name(name.trim().trim_matches('"'));
         let value = value.trim();
 
-        let Some(text) = value
+        if let Some(text) = value
             .strip_prefix('"')
             .and_then(|rest| rest.strip_suffix('"'))
-        else {
-            // Two different mistakes reach here, and they want two
-            // different sentences. `width: 20` is a unit the developer
-            // left off, and the advice is to write it. `width:
-            // format!(…)` is a computed value, and telling *that*
-            // developer to write `"format!(…)px"` -- which is what this
-            // said to everybody -- is advice that cannot be followed:
-            // the object is read at compile time and holds literals
-            // only. What they want is the whole style as one
-            // expression, which is passed through untouched.
-            let literal = value
-                .chars()
-                .all(|each| each.is_ascii_digit() || each == '.' || each == '-');
-            return Err(if literal {
-                format!(
-                    "`{property}` is given `{value}`, and a style value has to be a string — \
-                     write \"{value}px\" if you meant pixels. React adds `px` to some \
-                     properties and not to others, and rustx will not guess which."
-                )
-            } else {
-                format!(
-                    "`{property}` is given `{value}`, and a style object holds quoted \
-                     strings only — it is read at compile time, so nothing computed can \
-                     go in one. For a value that changes, write the whole style as one \
-                     expression: style={{format!(\"{property}: {{}}\", …)}} — or give the \
-                     element a `className` and let the stylesheet do it."
-                )
-            });
-        };
-        declarations.push(format!("{property}: {text}"));
+        {
+            // A literal, and the braces in it are its own: a `format!`
+            // reads `{` as the start of a placeholder, so a value like
+            // `url(data:…{…})` has to be written out doubled.
+            pattern.push(format!("{property}: {}", braced(text)));
+            continue;
+        }
+
+        // A unit the developer left off is a different mistake from a
+        // computed value, and it wants a different sentence.
+        if value
+            .chars()
+            .all(|each| each.is_ascii_digit() || each == '.' || each == '-')
+        {
+            return Err(format!(
+                "`{property}` is given `{value}`, and a style value has to be a string — \
+                 write \"{value}px\" if you meant pixels. React adds `px` to some \
+                 properties and not to others, and rustx will not guess which."
+            ));
+        }
+
+        pattern.push(format!("{property}: {{}}"));
+        computed.push(value.to_string());
     }
-    Ok(declarations.join("; "))
+
+    let pattern = pattern.join("; ");
+    if computed.is_empty() {
+        // Nothing was computed, so the doubled braces come back out:
+        // this string goes into the DOM and not into a `format!`.
+        return Ok(Styles::Text(unbraced(&pattern)));
+    }
+    Ok(Styles::Computed(format!(
+        "format!({:?}, {})",
+        pattern,
+        computed.join(", ")
+    )))
+}
+
+/// `{` and `}` as a `format!` pattern has to carry them.
+fn braced(text: &str) -> String {
+    text.replace('{', "{{").replace('}', "}}")
+}
+
+/// And back, for a declaration that never becomes a pattern.
+fn unbraced(text: &str) -> String {
+    text.replace("{{", "{").replace("}}", "}")
 }
 
 /// `backgroundColor` → `background-color`. A name already written in

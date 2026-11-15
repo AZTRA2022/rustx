@@ -350,11 +350,21 @@ fn attribute_step(attribute: &Attribute) -> Result<TokenStream, CompileError> {
         && let AttributeSource::Expression(code) = &attribute.value
         && code.trim().starts_with('{')
     {
-        let declaration = crate::attributes::style_string(code)
+        let styles = crate::attributes::style_value(code)
             .map_err(|complaint| CompileError::flagged(attribute.offset, complaint))?;
-        let declaration = Literal::string(&declaration);
+        let declaration = match styles {
+            crate::attributes::Styles::Text(text) => {
+                let text = Literal::string(&text);
+                quote! { #text.to_string() }
+            }
+            // A value that changes: the object was read into the
+            // `format!` the developer would have written by hand, and
+            // it is parsed here like any other expression so that a
+            // mistake inside it is reported where they wrote it.
+            crate::attributes::Styles::Computed(source) => rust(&source, attribute.offset)?,
+        };
         return Ok(quote! {
-            .attribute(#in_dom, rustx_dom::AttributeValue::Text(#declaration.to_string()))
+            .attribute(#in_dom, rustx_dom::AttributeValue::Text(#declaration))
         });
     }
 

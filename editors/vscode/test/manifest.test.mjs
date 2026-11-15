@@ -119,6 +119,48 @@ test("an_extension_that_launches_a_binary_says_so", () => {
   );
 });
 
+test("every_snippet_is_declared_for_rsx_and_has_something_to_insert", () => {
+  // The ES7+ React snippets are why most people have that extension
+  // installed, and their prefixes are the muscle memory a developer
+  // arrives with. These reuse the prefixes and insert rustx -- so a
+  // body that is empty, or a prefix declared twice, is a snippet that
+  // silently does nothing when somebody presses Tab.
+  const declared = manifest.contributes?.snippets ?? [];
+  assert.ok(declared.length > 0, "no snippets are contributed");
+  const prefixes = new Set();
+  for (const each of declared) {
+    assert.equal(each.language, "rsx");
+    const path = join(root, each.path);
+    assert.ok(existsSync(path), `${each.path} is declared and not there`);
+    const snippets = JSON.parse(readFileSync(path, "utf8"));
+    for (const [name, snippet] of Object.entries(snippets)) {
+      if (name.startsWith("$") || name.startsWith("_")) continue;
+      assert.ok(snippet.prefix, `${name} has no prefix`);
+      assert.ok(
+        (snippet.body ?? []).join("").trim().length > 0,
+        `${name} has nothing to insert`,
+      );
+      assert.ok(snippet.description, `${name} has no description`);
+      assert.ok(!prefixes.has(snippet.prefix), `two snippets answer ${snippet.prefix}`);
+      prefixes.add(snippet.prefix);
+    }
+  }
+  // The prefixes a React developer already types.
+  for (const known of ["rfc", "useState", "useEffect"]) {
+    assert.ok(prefixes.has(known), `${known} is not one of them`);
+  }
+});
+
+test("the_snippets_ship_in_the_package", () => {
+  const ignored = readFileSync(join(root, ".vscodeignore"), "utf8")
+    .split("\n")
+    .map((line) => line.trim());
+  assert.ok(
+    !ignored.some((line) => line === "snippets/" || line === "snippets"),
+    "the snippets would be left out of the .vsix",
+  );
+});
+
 test("the_defaults_that_make_other_extensions_work_on_rsx_are_declared", () => {
   // `.rsx` is young, so Tailwind IntelliSense and Emmet do not know it.
   // Neither needs to: an extension can set defaults for another's

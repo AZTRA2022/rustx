@@ -13,8 +13,9 @@ to guess: look in [what's left](/docs/whats-left).
 |---|---|---|---|
 | the language of the app | JavaScript, in two processes | Rust backend, JavaScript frontend | Rust, with markup in `.rsx` files |
 | the UI | any web framework | any web framework | `.rsx` pages. React libraries on the side |
+| the editor | VS Code, with JS tooling | VS Code, with JS tooling | a VS Code extension: highlighting, snippets, and `rust-analyzer` answering inside the braces. See [the editor](/docs/tooling/the-editor) |
 | the engine | Chromium, bundled | the system's web view | Chromium (CEF), bundled |
-| platforms | Windows, macOS, Linux | Windows, macOS, Linux | Windows is written. The others compile and refuse by naming the missing file |
+| platforms | Windows, macOS, Linux | Windows, macOS, Linux | Windows is written and run. Linux and macOS are written, compiled by their own target in CI, and have never been *run* — see [platforms](/docs/the-system/platforms) |
 | the backend process | the main process (Node) | the Rust core | none. Your Rust runs in the page's process |
 
 The last row is the one that changes how you design. There is no backend to

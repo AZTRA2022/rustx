@@ -13,7 +13,7 @@ One command, and it produces everything a release needs:
 |---|---|
 | `dist/<name>-<version>-<os>/` | the application. Every file it reads at run time, and nothing else |
 | `dist/<name>-<version>-<os>.zip` | the same folder, zipped. This is what goes on a release page |
-| `dist/<name>-<version>-<os>-setup.exe` | the installer, when the machine can build one |
+| the installer | a setup `.exe`, a `.deb` or a `.pkg`, depending on the machine |
 | `rustx-release.json` | inside the folder: what this release is, and the SHA-256 of every file in it |
 
 `rustx build --release` is still there and still only builds: it runs
@@ -100,23 +100,69 @@ icon.
 ## The installer
 
 Nothing new is invented here: an installer is whatever that platform's
-users already double-click.
+users already double-click. A `.zip` is not that on any of them — it is
+what the updater downloads.
 
 | | |
 |---|---|
-| **Windows** | an Inno Setup script is written beside the folder, and `ISCC.exe` is run when [Inno Setup 6](https://jrsoftware.org/isdl.php) is installed. The result is a per-user install that needs no administrator rights, with a Start-menu entry, an optional desktop icon and an uninstaller |
-| **macOS** | the package *is* a `.app` bundle — `Info.plist`, the Chromium framework under `Contents/Frameworks`, and the five helper `.app`s CEF opens for its subprocesses — and `hdiutil` puts it in a `.dmg` |
-| **Linux** | a `.desktop` entry and an `install.sh` go in the folder, so the archive carries them. `./install.sh` installs under `~/.local/opt` for this user; `./install.sh --system` into `/opt` |
+| **Windows** | a setup `.exe`. An Inno Setup script is written beside the folder, and `ISCC.exe` is run when [Inno Setup](https://jrsoftware.org/isdl.php) is installed — looked for in `Program Files` and in `%LOCALAPPDATA%\Programs`, which is where a per-user `winget install JRSoftware.InnoSetup` puts it. The result installs per user and needs no administrator rights, with a Start-menu group, an optional desktop icon and an uninstaller |
+| **Linux** | a `.deb`, written without any tool at all — see below. It installs under `/opt/<name>`, links `/usr/bin/<name>`, puts the icon in the hicolor theme and the licence in `/usr/share/doc`. An `install.sh` and a matching `uninstall.sh` go in the folder for everywhere else |
+| **macOS** | the package *is* a `.app` bundle — `Info.plist`, the Chromium framework under `Contents/Frameworks`, and the five helper `.app`s CEF opens for its subprocesses. `pkgbuild` turns it into a `.pkg` that installs into `/Applications`, and `hdiutil` into a `.dmg` beside it |
 
-None of this can fail the package. With no Inno Setup, you still get
-the folder, the archive, and a sentence naming the script and what reads
-it — which is also how a build machine does it: keep the script, run
-`ISCC` there.
+### The `.deb` needs nothing installed
 
-No AppImage and no `.deb`: `appimagetool` is a download this will not
-make on your behalf, and a `.deb` that declares no dependencies installs
-and then does not start. The folder plus the script is what both of them
-would wrap.
+`dpkg-deb` is not on a Windows machine and not on a Fedora one, and a
+framework that can only package on the distribution it was built on is
+a framework that cannot package. So rustx writes the format, which it
+can because the format is three files in an `ar` archive:
+`debian-binary`, `control.tar.gz` and `data.tar.gz`.
+
+It declares the twenty-five libraries Chromium links against —
+`libgtk-3-0`, `libnss3`, `libgbm1` and the rest — so that the package
+cannot install and then fail to start, which is what a `.deb` with no
+`Depends` does. It reports its own installed size, which is what a
+software centre shows before the download begins.
+
+No AppImage and no `.rpm`: `appimagetool` is a download this will not
+make on your behalf, and neither format can be written as directly as a
+`.deb` can.
+
+### The pages a user clicks through
+
+These are files, not options. A project without the file does not get
+that page.
+
+| | |
+|---|---|
+| `LICENSE`, `LICENSE.txt`, `LICENSE.md`, `COPYING` | the licence to accept. It also becomes the `.deb`'s `copyright` |
+| `assets/installer/before.txt` | shown before anything is chosen |
+| `assets/installer/after.txt` | shown when it is done |
+| `assets/installer/banner.bmp` | the image down the left of the wizard |
+| `assets/installer/header.bmp` | the small image in its corner |
+| `assets/icon.ico` | the setup program's own icon, and the application's on Windows |
+| `assets/icon.png` | the icon the `.deb` puts in the hicolor theme, at 256×256. A `.ico` is a Windows format and no Linux desktop reads it |
+| `assets/icon.icns` | the bundle's icon on macOS |
+
+### The metadata each format carries
+
+| | |
+|---|---|
+| **Windows** | the whole version resource — publisher, product name, product version, copyright, original file name — plus the display name, the comment and the uninstall icon that "Programs and Features" shows |
+| **Linux** | `Maintainer`, `Description` with its indented long form, `Installed-Size`, `Depends`, `Section`, `Priority`, and the desktop entry's `Name`, `Comment`, `Icon` and `StartupWMClass` |
+| **macOS** | `Info.plist`: `CFBundleIdentifier`, both version strings, `LSMinimumSystemVersion`, `NSHighResolutionCapable`, and `LSUIElement` on each helper so that a subprocess does not appear in the Dock |
+
+`Maintainer` is the one field `dpkg` is strict about: it wants
+`Name <email>`, which is the shape `authors = ["A <a@b.test>"]` already
+has. A bare name gets an obviously fake address rather than a build
+that fails.
+
+None of this can fail the package. With no Inno Setup you still get the
+folder, the archive, and a sentence naming the script and what reads it
+— which is also how a build machine does it: keep the script, run
+`ISCC` there. The `installers` job of `.github/workflows/ci.yml` does
+exactly that, on all three systems, and on Linux it reads the
+hand-written `.deb` back with `dpkg-deb`, installs it, validates the
+desktop entry and removes it again.
 
 ## Signing
 
@@ -219,9 +265,13 @@ environment makes the engine composite on the processor. See
 ## What is still not written
 
 - **Notarisation and stapling on macOS**, as above.
-- **A `.deb`, an `.rpm` or an AppImage.**
+- **An `.rpm` or an AppImage.** The `.deb` is written directly because
+  its format allows it; these two do not.
 - **An MSI.** Inno Setup's `.exe` is what this writes; an MSI is a
   different tool and a different format.
+- **Converting an icon between formats.** Give it `icon.ico`,
+  `icon.png` and `icon.icns`; rustx will not turn one into another, and
+  it names the one that is missing rather than shipping without it.
 - **Cross-packaging.** `rustx package` packages for the machine it runs
   on, because it gathers what that machine's build left beside the
   binary. A macOS release is built on a Mac.

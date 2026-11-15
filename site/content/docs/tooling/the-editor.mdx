@@ -37,9 +37,40 @@ The extension asks for <Brand name="rust-analyzer">rust-lang.rust-analyzer</Bran
 - completion of **what these tags take**: on `<Button `,
   `variant`, `size` and `asChild` come before the HTML attributes, read from the package's `.d.ts` or from the `components/ui/*.tsx` that `shadcn add` wrote;
 - **closing tags**: typing the `>` of `<Card>` writes `</Card>` behind the cursor. `Vec<u32>`, `a < b >`, `=>` and a tag that has already closed itself are left alone;
-- inside a `{ … }`, it is <Brand name="rust-analyzer" /> that answers, behind the server: completion, hover, go-to-definition.
+- **snippets** with the prefixes a React developer already types: `rfc` writes a component, `rpage` a screen, `useState` a value, `useEffect` an effect, `rmap` a keyed list — and each one inserts rustx rather than React. The full list is `editors/vscode/snippets/rsx.json`;
+- inside a `{ … }`, it is <Brand name="rust-analyzer" /> that answers, behind the server.
 
 The first list of a session may take a few seconds, while <Brand name="rust-analyzer" /> loads the project.
+
+### What rust-analyzer answers through the server
+
+Everything below is <Brand name="rust-analyzer" />'s own answer, asked
+about the generated Rust and reported at the coordinates of your `.rsx`.
+This works for one reason worth knowing: a generated page **keeps its
+own line numbers**, so line *N* of the generated file is line *N* of the
+page, and a range that comes back needs no translation.
+
+| | |
+|---|---|
+| completion, and its auto-import edit | `completionItem/resolve` is forwarded, so accepting `PathBuf` adds the `use` line |
+| hover | types and documentation |
+| go to definition, type definition, implementation | F12, and its two neighbours |
+| find all references, highlight occurrences | Shift+F12, and the highlight under the cursor |
+| signature help | the parameter hints that appear inside `(` |
+| inlay hints | the inferred types shown in grey |
+| document symbols, folding | the outline, the breadcrumbs, Ctrl+Shift+O |
+
+Three are deliberately **not** forwarded:
+
+- **rename** and **code actions**, because both answer with edits whose
+  columns belong to the generated file, and a column that is wrong by
+  two characters rewrites the wrong part of your page. A renamed symbol
+  is worth less than a file that is still intact;
+- **formatting**, because the text being formatted is generated Rust,
+  so the answer would be your `.rsx` reformatted as Rust.
+
+A request the server does not answer is **refused** rather than ignored,
+so the editor stops waiting instead of showing a spinner.
 
 ## Settings
 
@@ -51,6 +82,24 @@ The first list of a session may take a few seconds, while <Brand name="rust-anal
 
 And one command, in the palette: **rustx: Restart the language
 server**. This is what to run after a `cargo install rustx-lsp`, because the server that is running is the earlier one.
+
+## `#[rustx::main]` underlined in red
+
+Fixed, and worth knowing what it was. The attribute does real work as
+part of its expansion — it compiles the pages, and it used to run the
+JavaScript bundler, which is `esbuild` in a child process.
+<Brand name="rust-analyzer" /> re-expands a proc macro on every
+keystroke and gives it a few seconds, so the bundler ran per keystroke,
+timed out, and took the expansion with it: every item below the
+attribute was reported as an error and completion stopped. A bundler
+failure was also a `compile_error!`, which showed an application whose
+`npm install` had not been run a red `#[rustx::main]` telling it to run
+`npm install` — in an editor, for a file nobody had touched.
+
+An expansion asked for by <Brand name="rust-analyzer" />'s own
+proc-macro server now skips the bundler and the assets; a build does
+neither. If you ever need the old behaviour, `RUSTX_MACRO_BUNDLE` takes
+`always` or `never`.
 
 ## A diagnostic that looks wrong
 

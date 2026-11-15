@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.4.0
+
+- **Snippets**, with the prefixes a React developer already types:
+  `rfc` writes a component, `rpage` a screen, `rlayout` a layout,
+  `useState` a value, `useEffect` an effect, `useMemo`/`useRef` a
+  `keep`, `rmap` a keyed list, `rif` a condition. Each one inserts
+  rustx rather than React, because a snippet that wrote React into a
+  `.rsx` would be worse than no snippet at all. There are also ones for
+  the system: a file dialog, the clipboard, a notification, this
+  application's own data folder, an update check and a context menu.
+- **Nine more things the editor can ask**, all answered by
+  `rust-analyzer` behind the server and reported at the page's own
+  coordinates: go to type definition, go to implementation, find all
+  references, highlight occurrences, signature help, inlay hints,
+  document symbols and folding. `rename`, code actions and formatting
+  are refused on purpose — the first two answer with edits whose
+  columns belong to the generated file, and the third would reformat a
+  `.rsx` as Rust.
+- **`#[rustx::main]` no longer goes red while you type.** The attribute
+  ran the JavaScript bundler as part of its expansion, and
+  `rust-analyzer` re-expands a proc macro on every keystroke: the
+  bundler timed out, took the expansion with it, and every item below
+  the attribute was reported as an error. An expansion asked for by the
+  proc-macro server now skips it.
+
 ## 0.2.0
 
 Released with rustx 0.2.0. The extension itself is unchanged; the

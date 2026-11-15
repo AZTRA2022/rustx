@@ -1,0 +1,223 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vscode/main/extensions/snippet-schema.json",
+  "_why": [
+    "The ES7+ React/Redux snippets are the reason most people have that",
+    "extension installed: `rfc` writes a component, `useState` writes a",
+    "hook, and nobody types either out. These are the same prefixes,",
+    "because that is the muscle memory a developer arrives with -- and",
+    "the bodies are rustx's, because that is what a .rsx file holds.",
+    "A prefix that would write React into a .rsx would be worse than no",
+    "snippet at all."
+  ],
+
+  "A component": {
+    "prefix": "rfc",
+    "description": "A component: a function that returns an Element.",
+    "body": [
+      "fn ${1:Name}() -> Element {",
+      "\treturn <div>$0</div>;",
+      "}"
+    ]
+  },
+  "A component with props": {
+    "prefix": "rfcp",
+    "description": "A component whose props are its arguments.",
+    "body": [
+      "fn ${1:Name}(${2:label}: ${3:String}) -> Element {",
+      "\treturn <div>{${2:label}.clone()}$0</div>;",
+      "}"
+    ]
+  },
+  "A page": {
+    "prefix": "rpage",
+    "description": "A screen under app/. The function is called Page.",
+    "body": [
+      "fn Page() -> Element {",
+      "\treturn <main>",
+      "\t\t<h1>${1:Title}</h1>",
+      "\t\t$0",
+      "\t</main>;",
+      "}"
+    ]
+  },
+  "A layout": {
+    "prefix": "rlayout",
+    "description": "A layout. `children` comes first, always.",
+    "body": [
+      "fn Layout(children: Element) -> Element {",
+      "\treturn <div class=\"${1:flex min-h-screen}\">",
+      "\t\t$0",
+      "\t\t{children}",
+      "\t</div>;",
+      "}"
+    ]
+  },
+
+  "State, shared": {
+    "prefix": "useState",
+    "description": "State. At the top of a file it is shared; inside a component it is that instance's own.",
+    "body": ["let mut ${1:count} = ${2:0};$0"]
+  },
+  "State, a struct": {
+    "prefix": "useStateStruct",
+    "description": "State held as a record.",
+    "body": [
+      "let mut ${1:form} = ${2:Form} { ${3:name}: String::new() };$0"
+    ]
+  },
+  "An effect": {
+    "prefix": "useEffect",
+    "description": "Run work when a value changes. The first argument is the dependency.",
+    "body": ["effect(${1:count}, move || {", "\t$0", "});"]
+  },
+  "A value built once": {
+    "prefix": "useMemo",
+    "description": "keep: built once for the life of this component instance.",
+    "body": ["let ${1:held} = keep(${2:expensive()});$0"]
+  },
+  "A value built once (ref)": {
+    "prefix": "useRef",
+    "description": "keep, which is also what a ref is here.",
+    "body": ["let ${1:held} = keep(${2:Value::default()});$0"]
+  },
+  "Work that waits": {
+    "prefix": "task",
+    "description": "An async block on the framework's runtime. Network and disk go here.",
+    "body": ["task(async move {", "\t$0", "});"]
+  },
+
+  "A click handler": {
+    "prefix": "onclick",
+    "description": "onClick, with the event bound.",
+    "body": ["onClick={move |_| {", "\t$0", "}}"]
+  },
+  "An input handler": {
+    "prefix": "oninput",
+    "description": "onInput, reading the value out of the event.",
+    "body": [
+      "onInput={move |event| {",
+      "\t${1:text} = event.value();$0",
+      "}}"
+    ]
+  },
+  "A keyed list": {
+    "prefix": "rmap",
+    "description": "A list. `key` is what carries each item's state when the list reorders.",
+    "body": [
+      "{${1:items}.iter().map(|${2:item}| <${3:li} key={${2:item}.id.clone()}>",
+      "\t{${2:item}.${4:label}.clone()}$0",
+      "</${3:li}>).collect::<Vec<_>>()}"
+    ]
+  },
+  "A condition": {
+    "prefix": "rif",
+    "description": "Either branch is an Element; an empty fragment is the other half.",
+    "body": [
+      "{if ${1:ready} { <${2:p}>$0</${2:p}> } else { <></> }}"
+    ]
+  },
+  "A fragment": {
+    "prefix": "rfrag",
+    "description": "Several children with no element around them.",
+    "body": ["<>", "\t$0", "</>"]
+  },
+
+  "Navigate": {
+    "prefix": "rnav",
+    "description": "Go to another screen.",
+    "body": ["router::navigate(\"${1:/settings}\");$0"]
+  },
+  "A route parameter": {
+    "prefix": "rparam",
+    "description": "A [id] segment's value.",
+    "body": ["let ${1:id} = router::current().param(\"${1:id}\");$0"]
+  },
+
+  "Open a file": {
+    "prefix": "rdialog",
+    "description": "The system's open dialog.",
+    "body": [
+      "if let Ok(Some(path)) = dialog::open() {",
+      "\t$0",
+      "}"
+    ]
+  },
+  "Read the clipboard": {
+    "prefix": "rclipboard",
+    "description": "The clipboard's text.",
+    "body": ["let ${1:text} = clipboard::text().unwrap_or_default();$0"]
+  },
+  "A notification": {
+    "prefix": "rnotify",
+    "description": "A system notification.",
+    "body": [
+      "let _ = notify::show(&notify::What::new(\"${1:Done}\", \"${2:It finished.}\"));$0"
+    ]
+  },
+  "Read this application's own file": {
+    "prefix": "rdata",
+    "description": "A file in the folder this system keeps for this application.",
+    "body": [
+      "let ${1:saved} = rustx::data::read_text(\"${2:settings.json}\")?.unwrap_or_default();$0"
+    ]
+  },
+  "Write this application's own file": {
+    "prefix": "rdatawrite",
+    "description": "Written whole or not at all.",
+    "body": ["rustx::data::write_text(\"${1:settings.json}\", &${2:text})?;$0"]
+  },
+  "Check for an update": {
+    "prefix": "rupdate",
+    "description": "Install the newest release from a GitHub release page.",
+    "body": [
+      "match rustx::update::from_github(\"${1:owner/name}\")? {",
+      "\trustx::update::Outcome::UpToDate => {}",
+      "\trustx::update::Outcome::Installed(release) => {",
+      "\t\t${2:note} = format!(\"{} is installed. Restart to use it.\", release.version);$0",
+      "\t}",
+      "}"
+    ]
+  },
+  "A context menu": {
+    "prefix": "rmenu",
+    "description": "The system's own context menu. On Linux, draw one in the page instead.",
+    "body": [
+      "let items = [",
+      "\tmenu::Item::new(\"${1:copy}\", \"${2:Copy}\"),",
+      "\tmenu::Item::separator(),",
+      "];",
+      "if let Some(chosen) = menu::popup(pane, &items, None)? {",
+      "\t$0",
+      "}"
+    ]
+  },
+
+  "A native for JavaScript": {
+    "prefix": "rnative",
+    "description": "A Rust function a page's JavaScript can call.",
+    "body": [
+      "register_native(\"${1:name}\", |arguments| {",
+      "\t$0",
+      "\tOk(Value::Null)",
+      "});"
+    ]
+  },
+  "main": {
+    "prefix": "rmain",
+    "description": "The whole of a main.rs.",
+    "body": [
+      "use rustx::{App, Config};",
+      "",
+      "#[rustx::main]",
+      "fn main() -> Result<(), rustx::Error> {",
+      "\tlet app = App::new(Config::new(\"${1:My app}\").size(${2:1000}, ${3:700}))?;",
+      "\tapp.run()$0",
+      "}"
+    ]
+  },
+  "A comment": {
+    "prefix": "rcomment",
+    "description": "A comment inside markup, which is read and discarded.",
+    "body": ["{/* $0 */}"]
+  }
+}
