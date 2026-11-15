@@ -99,16 +99,21 @@ pub fn path_of(uri: &str) -> Option<PathBuf> {
     let rest = uri.strip_prefix("file://")?;
     let rest = rest.strip_prefix('/').unwrap_or(rest);
     let text = unescape(rest);
-    // `file:///c:/…` is a Windows path, and `C:` is how Windows writes
-    // it: an editor may send either case, and a path compared as text
-    // has to be the one the file system uses.
-    let text = match text.split_at_checked(1) {
-        Some((drive, rest)) if rest.starts_with(':') => {
-            format!("{}{rest}", drive.to_ascii_uppercase())
-        }
-        _ => text,
-    };
-    Some(PathBuf::from(text.replace('/', "\\")))
+    match text.split_at_checked(1) {
+        // `file:///c:/…` is a Windows path, and `C:` is how Windows
+        // writes it: an editor may send either case, and a path
+        // compared as text has to be the one the file system uses.
+        Some((drive, after)) if after.starts_with(':') => Some(PathBuf::from(
+            format!("{}{after}", drive.to_ascii_uppercase()).replace('/', "\\"),
+        )),
+        // No drive and no Windows: the `/` this function just stripped
+        // is the root of the path, not a separator the URI added, and
+        // `/` is already what the file system uses. Putting it back and
+        // leaving the separators alone is the whole difference between
+        // a path that opens and `tmp` + a backslash.
+        _ if !cfg!(windows) => Some(PathBuf::from(format!("/{text}"))),
+        _ => Some(PathBuf::from(text.replace('/', "\\"))),
+    }
 }
 
 /// The few characters a path may hold that a URI may not.

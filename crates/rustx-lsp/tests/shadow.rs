@@ -88,6 +88,22 @@ fn a_file_outside_an_application_has_no_shadow() {
     let _ = fs::remove_file(&loose);
 }
 
+/// La meme chose la ou le chemin n'a pas de lettre de lecteur : la
+/// barre de tete est la racine, et c'est elle que la version Windows de
+/// cette fonction mangeait -- le serveur cherchait alors `tmp/...` sous
+/// le dossier courant, ne le trouvait pas, et aucune page n'avait
+/// d'ombre.
+#[test]
+fn a_uri_without_a_drive_keeps_the_root_it_came_with() {
+    if cfg!(windows) {
+        return;
+    }
+    let path = std::path::Path::new("/tmp/rustx dev/app/page.rsx");
+    let uri = shadow::uri_of(path);
+    assert_eq!(uri, "file:///tmp/rustx%20dev/app/page.rsx", "got {uri}");
+    assert_eq!(shadow::path_of(&uri).as_deref(), Some(path));
+}
+
 #[test]
 fn a_uri_and_a_path_are_the_same_thing_twice() {
     let path = std::path::Path::new("C:\\Users\\dev\\app\\page.rsx");
