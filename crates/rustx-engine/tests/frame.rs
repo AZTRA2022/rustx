@@ -13,8 +13,21 @@ fn report() -> &'static Report {
     REPORT.get_or_init(|| run_scenario("frame"))
 }
 
+/// Chaque loi de ce fichier attend une image. Sur une machine qui n'en
+/// dessine jamais aucune il n'y a rien a mesurer, et un echec y accuse
+/// le framework pour l'ecran qui manque.
+macro_rules! drawn {
+    () => {
+        if report().never_drew() {
+            eprintln!("skipped: {}", common::NEVER_DREW);
+            return;
+        }
+    };
+}
+
 #[test]
 fn every_posted_update_is_applied() {
+    drawn!();
     assert_eq!(
         report().get("counter"),
         "10000",
@@ -31,6 +44,7 @@ fn every_posted_update_is_applied() {
 
 #[test]
 fn ten_thousand_updates_do_not_cause_ten_thousand_renders() {
+    drawn!();
     // The point of the design: mutating state marks the component dirty,
     // and the DOM is written once per frame. A capture thread pushing
     // faster than the screen refreshes must not be able to drown rendering.
@@ -52,6 +66,7 @@ fn ten_thousand_updates_do_not_cause_ten_thousand_renders() {
 
 #[test]
 fn worker_threads_never_touch_the_dom_themselves() {
+    drawn!();
     // A posted job runs on the thread that owns the DOM, never on the
     // thread that posted it.
     assert_eq!(
@@ -70,6 +85,7 @@ fn worker_threads_never_touch_the_dom_themselves() {
 
 #[test]
 fn a_panic_in_a_posted_job_does_not_stop_the_frame_loop() {
+    drawn!();
     // The proof application touches hardware, so jobs will panic. If one
     // panic ended the loop, the window would freeze with no error anywhere
     // and the queue would grow without bound behind it.
@@ -83,6 +99,7 @@ fn a_panic_in_a_posted_job_does_not_stop_the_frame_loop() {
 
 #[test]
 fn a_panic_in_a_frame_callback_does_not_unregister_the_others() {
+    drawn!();
     assert_eq!(
         report().get("callbacks_after_panic"),
         "alive",
@@ -93,6 +110,7 @@ fn a_panic_in_a_frame_callback_does_not_unregister_the_others() {
 
 #[test]
 fn posting_after_the_window_closes_returns_an_error() {
+    drawn!();
     // A capture thread outliving the window must be told to stop, not
     // pile up work that will never run, and not bring the process down.
     assert_eq!(

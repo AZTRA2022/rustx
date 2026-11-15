@@ -47,7 +47,21 @@ impl Report {
     fn no_driver(&self) -> bool {
         self.raw.contains("Failed to create shared context")
     }
+
+    /// Did this machine ever draw a single frame?
+    ///
+    /// A runner with no display composites nothing at all, and the
+    /// engine says so itself once the queue has filled. Unlike
+    /// `no_driver` there is no 3D context to blame: the window
+    /// is simply never on a screen. A scenario that waits on a frame has
+    /// nothing to prove here.
+    pub fn never_drew(&self) -> bool {
+        self.raw.contains("no frame has ever run in this process")
+    }
 }
+
+/// What to read when nothing was ever drawn.
+pub const NEVER_DREW: &str = "this machine never drew a frame, so every law that waits on one has nothing to measure -- a headless runner is such a machine";
 
 /// What to read when the window was never composited.
 const NO_DRIVER: &str = "\

@@ -132,11 +132,14 @@ pub use error::OsError;
 #[allow(dead_code)]
 #[path = "other/mod.rs"]
 mod elsewhere_also_compiles;
-#[cfg(test)]
+// Chacun sauf sur sa propre plateforme : la, c'est deja `platform`
+// qui charge ces memes fichiers, et charger un fichier deux fois est
+// une erreur pour clippy (`duplicate_mod`).
+#[cfg(all(test, not(target_os = "linux")))]
 #[allow(dead_code)]
 #[path = "linux/mod.rs"]
 mod linux_also_compiles;
-#[cfg(test)]
+#[cfg(all(test, not(target_os = "macos")))]
 #[allow(dead_code)]
 #[path = "macos/mod.rs"]
 mod macos_also_compiles;

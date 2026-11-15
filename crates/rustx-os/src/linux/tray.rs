@@ -31,6 +31,9 @@ impl Icon {
         Err(OsError::Unsupported(WHAT))
     }
 
+    // Seul le notificateur de Windows s'en sert : ailleurs ce nom
+    // n'existe que pour garder la meme API d'une plateforme a l'autre.
+    #[allow(dead_code)]
     pub fn hidden() -> Result<Self, OsError> {
         Err(OsError::Unsupported(WHAT))
     }

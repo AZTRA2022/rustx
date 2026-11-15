@@ -11,16 +11,20 @@ use std::fs;
 
 use rustx_lsp::crate_for_pages;
 
+/// Un dossier que ce test est seul a avoir.
+///
+/// Le compteur compte : l'horloge de macOS ne descend pas sous la
+/// microseconde, deux tests demarres ensemble recevaient le meme nom, et
+/// le `remove_dir_all` de l'un emportait les pages de l'autre.
+fn a_directory_of_its_own(what: &str) -> std::path::PathBuf {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let mine = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    std::env::temp_dir().join(format!("rustx-{what}-{}-{mine}", std::process::id()))
+}
+
 /// An application whose pages have been generated once.
 fn an_application() -> std::path::PathBuf {
-    let root = std::env::temp_dir().join(format!(
-        "rustx-reading-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|since| since.as_nanos())
-            .unwrap_or(0)
-    ));
+    let root = a_directory_of_its_own("reading");
     fs::create_dir_all(root.join("app")).expect("an app directory");
     fs::write(
         root.join("Cargo.toml"),
@@ -98,14 +102,7 @@ fn an_application_that_was_never_built_has_nothing_to_read() {
 
 #[test]
 fn every_application_of_a_workspace_is_found() {
-    let workspace = std::env::temp_dir().join(format!(
-        "rustx-workspace-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|since| since.as_nanos())
-            .unwrap_or(0)
-    ));
+    let workspace = a_directory_of_its_own("workspace");
     for name in ["one", "two"] {
         let app = workspace.join("apps").join(name);
         fs::create_dir_all(app.join("app")).expect("an app directory");
