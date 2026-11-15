@@ -878,10 +878,16 @@ fn javascript_string(text: &str) -> String {
 ///
 /// The written document is named after the application and the process
 /// that is running it, because two applications running at once must
-/// not be handed the same file.
+/// not be handed the same file. It carries a `<base href>` pointing at
+/// `assets`, so a relative `src` in a page reaches the same file
+/// whichever document it was.
+///
+/// `assets` is the folder itself, as [`assets_dir`] resolves it, and not
+/// the project above it: in a shipped application there is no project,
+/// and the folder may be beside the executable or unpacked out of it.
 #[doc(hidden)]
-pub fn document_for(manifest_dir: &Path, title: &str) -> Result<PathBuf, Error> {
-    let written = manifest_dir.join("assets").join("index.html");
+pub fn document_for(assets: &Path, title: &str) -> Result<PathBuf, Error> {
+    let written = assets.join("index.html");
     if written.exists() {
         return Ok(written);
     }
@@ -899,11 +905,14 @@ pub fn document_for(manifest_dir: &Path, title: &str) -> Result<PathBuf, Error> 
     let directory = std::env::temp_dir().join(format!(
         "rustx-document-{slug}-{}-{}",
         std::process::id(),
-        hash_of(manifest_dir)
+        hash_of(assets)
     ));
     let path = directory.join("index.html");
     std::fs::create_dir_all(&directory).map_err(|_| Error::IndexNotFound(path.clone()))?;
-    std::fs::write(&path, default_document(title, &manifest_dir.join("assets")))
+    // `<base href>` points back at the assets folder, so a relative
+    // `src` in a page reaches the same file whether this document was
+    // written here or by the developer.
+    std::fs::write(&path, default_document(title, assets))
         .map_err(|_| Error::IndexNotFound(path.clone()))?;
     Ok(path)
 }

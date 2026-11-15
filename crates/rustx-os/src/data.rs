@@ -62,7 +62,15 @@ pub fn cache(app: &str) -> Result<PathBuf, OsError> {
 /// are the one thing a user is asked to send, and "the whole of this
 /// folder" is an instruction that works over a telephone.
 pub fn logs(app: &str) -> Result<PathBuf, OsError> {
-    made(root(Kind::Logs)?.join(folder(app)?).join("logs"))
+    let inside = root(Kind::Logs)?.join(folder(app)?);
+    // macOS has a folder called `Logs` already; Windows and Linux put
+    // theirs under a root shared with the data or the cache, where the
+    // name is what keeps them apart.
+    made(if cfg!(target_os = "macos") {
+        inside
+    } else {
+        inside.join("logs")
+    })
 }
 
 /// The path of one file inside [`directory`], without reading or

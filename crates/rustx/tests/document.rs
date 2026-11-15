@@ -26,14 +26,14 @@ fn tree(files: &[(&str, &str)]) -> std::path::PathBuf {
 #[test]
 fn the_applications_own_document_is_used_when_there_is_one() {
     let root = tree(&[("assets/index.html", "<!doctype html><p>mine</p>")]);
-    let document = document_for(&root, "Console").expect("a document");
+    let document = document_for(&root.join("assets"), "Console").expect("a document");
     assert_eq!(document, root.join("assets").join("index.html"));
 }
 
 #[test]
 fn an_application_with_no_document_is_given_one() {
     let root = tree(&[]);
-    let document = document_for(&root, "Console").expect("a document");
+    let document = document_for(&root.join("assets"), "Console").expect("a document");
     assert!(document.exists(), "no document at {}", document.display());
 
     let text = std::fs::read_to_string(&document).expect("readable");
@@ -52,7 +52,7 @@ fn a_generated_document_resolves_relative_paths_against_the_applications_assets(
     // page gets none of its libraries, and every React component in it
     // reports that nothing has it.
     let root = tree(&[("assets/rustx-bundle.js", "window.rustxLibraries = {};")]);
-    let document = document_for(&root, "Console").expect("a document");
+    let document = document_for(&root.join("assets"), "Console").expect("a document");
     assert_ne!(
         document.parent(),
         root.join("assets").parent(),
@@ -88,8 +88,8 @@ fn a_generated_document_resolves_relative_paths_against_the_applications_assets(
 fn the_document_given_to_an_application_is_its_own() {
     // Two applications running at once must not be handed the same file:
     // the second one's title would replace the first one's.
-    let first = document_for(&tree(&[]), "First").expect("a document");
-    let second = document_for(&tree(&[]), "Second").expect("a document");
+    let first = document_for(&tree(&[]).join("assets"), "First").expect("a document");
+    let second = document_for(&tree(&[]).join("assets"), "Second").expect("a document");
     assert_ne!(first, second);
     assert!(
         std::fs::read_to_string(&first)

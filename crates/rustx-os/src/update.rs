@@ -61,9 +61,13 @@ pub struct Release {
     pub asset: String,
     pub url: String,
     pub size: u64,
-    /// The digest, when the release published one -- either as a
-    /// `.sha256` asset's name or in the notes.
+    /// The digest, when the release notes carry one.
     pub sha256: Option<String>,
+    /// A `<archive>.sha256` asset beside the archive, when the release
+    /// has one. Fetched by [`fetch`] rather than here: reading it is a
+    /// second request, and a caller that only asked whether there is an
+    /// update should not pay for it.
+    pub digest_url: Option<String>,
 }
 
 impl Release {
@@ -140,7 +144,18 @@ pub fn fetch(
             release.size
         )));
     }
-    if let Some(expected) = &release.sha256 {
+    // The notes first, because they are already in hand; the digest
+    // asset otherwise, which costs one small request and is what turns
+    // "the size was right" into "these are the bytes the release
+    // published".
+    let expected = match &release.sha256 {
+        Some(expected) => Some(expected.clone()),
+        None => match &release.digest_url {
+            Some(url) => published_digest(url, app)?,
+            None => None,
+        },
+    };
+    if let Some(expected) = &expected {
         let bytes = std::fs::read(&path).map_err(|error| {
             OsError::Platform(format!("{} could not be read ({error})", path.display()))
         })?;
@@ -154,6 +169,33 @@ pub fn fetch(
         }
     }
     Ok(path)
+}
+
+/// The digest a `.sha256` asset holds.
+///
+/// A missing or unreadable one is `None` and not an error: the archive
+/// is already downloaded and its size already matched, and refusing to
+/// install over a file the release page may never have published would
+/// be refusing the update because of its paperwork. A file that *is*
+/// there and does not match is still an error -- that check happens
+/// above.
+fn published_digest(url: &str, app: &str) -> Result<Option<String>, OsError> {
+    let Ok(bytes) = crate::platform::http::get(url, &agent(app)) else {
+        return Ok(None);
+    };
+    Ok(first_digest(&String::from_utf8_lossy(&bytes)))
+}
+
+/// The first digest in a file of them.
+///
+/// `sha256sum` writes `<digest>  <name>`, and `sha256sum -b` writes
+/// `<digest> *<name>`; some release pages write the digest alone.
+/// Either way it is the first 64-character hexadecimal word.
+fn first_digest(text: &str) -> Option<String> {
+    text.split_whitespace()
+        .map(|word| word.trim_matches(['`', '"', '*']))
+        .find(|word| word.len() == 64 && word.chars().all(|l| l.is_ascii_hexdigit()))
+        .map(|word| word.to_ascii_lowercase())
 }
 
 /// Unpack an archive into a folder of its own, and say which folder.
@@ -449,21 +491,28 @@ fn release_in(text: &str) -> Option<Release> {
             (archives.len() == 1).then(|| &archives[0])
         })?;
 
-    // A digest published beside the archive, by the convention every
-    // release page uses: the same name with `.sha256` after it. The
-    // file holds the digest; the name only says that there is one, so
-    // it is read later -- except when the digest is in the notes, where
-    // a project that writes it by hand usually puts it.
-    let expected = sha256_in(&notes, &chosen.0);
+    // Two places a release says what the archive should hash to: a
+    // `<archive>.sha256` asset beside it, which is the convention, and
+    // a line of the notes, which is where a project that writes it by
+    // hand usually puts it.
+    let wanted = chosen.0.to_ascii_lowercase();
+    let digest_url = digests
+        .iter()
+        .find(|(name, _)| {
+            name.as_str() == format!("{wanted}.sha256")
+                || name.as_str() == format!("{wanted}.sha256.txt")
+        })
+        .map(|(_, url)| url.clone());
 
     Some(Release {
         tag,
         version,
-        notes,
+        notes: notes.clone(),
         asset: chosen.0.clone(),
         url: chosen.1.clone(),
         size: chosen.2,
-        sha256: expected,
+        sha256: sha256_in(&notes, &chosen.0),
+        digest_url,
     })
 }
 
@@ -575,6 +624,24 @@ fn objects_in(text: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    /// Whatever `sha256sum` wrote, and nothing from a file that holds
+    /// no digest -- an HTML error page, which is what a release page
+    /// serves for a URL that is gone.
+    #[test]
+    fn a_digest_file_is_read_whichever_way_it_was_written() {
+        let digest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        for written in [
+            format!("{digest}  counter-1.0.0-windows.zip\n"),
+            format!("{digest} *counter-1.0.0-windows.zip\n"),
+            format!("{digest}\n"),
+            format!("SHA256: `{}`\n", digest.to_uppercase()),
+        ] {
+            assert_eq!(first_digest(&written).as_deref(), Some(digest), "{written}");
+        }
+        assert_eq!(first_digest("<html><body>404</body></html>"), None);
+        assert_eq!(first_digest(""), None);
+    }
+
     use super::*;
 
     const ANSWER: &str = r#"{
