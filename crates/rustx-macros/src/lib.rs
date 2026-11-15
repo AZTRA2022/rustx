@@ -195,30 +195,39 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
     // Generated and bundled here, for the same reason the pages are:
     // this is the one moment that happens every time the crate is
     // compiled and never otherwise.
-    let javascript = match rustx_compiler::bundle::build(&manifest) {
-        Err(complaint) => {
-            let emitted = still_a_main(body.stream());
-            return quote! {
-                compile_error!(#complaint);
-                #emitted
+    // The bundle and the style sheet, unless an editor is asking --
+    // see `inside_an_editor`. Nothing the bundler produces changes
+    // whether this crate compiles, so leaving it out of an editor's
+    // expansion costs the editor nothing and saves it a child process
+    // per keystroke.
+    let javascript = if inside_an_editor() {
+        TokenStream2::new()
+    } else {
+        match rustx_compiler::bundle::build(&manifest) {
+            Err(complaint) => {
+                let emitted = still_a_main(body.stream());
+                return quote! {
+                    compile_error!(#complaint);
+                    #emitted
+                }
+                .into();
             }
-            .into();
-        }
-        Ok(built) => {
-            // The bundle is a file beside the document now, so what the
-            // binary carries is its name and not its megabyte: a browser
-            // loads a script that size from a URL, and a string that size
-            // handed to `execute_java_script` sometimes does not run at
-            // all.
-            let bundle = built.bundle.map(|_| {
-                let name = rustx_compiler::bundle::SERVED;
-                quote! { rustx::install_bundle(#name); }
-            });
-            let stylesheet = built.stylesheet.map(|stylesheet| {
-                let path = slashed(&stylesheet);
-                quote! { rustx::install_stylesheet(include_str!(#path)); }
-            });
-            quote! { #bundle #stylesheet }
+            Ok(built) => {
+                // The bundle is a file beside the document now, so what the
+                // binary carries is its name and not its megabyte: a browser
+                // loads a script that size from a URL, and a string that size
+                // handed to `execute_java_script` sometimes does not run at
+                // all.
+                let bundle = built.bundle.map(|_| {
+                    let name = rustx_compiler::bundle::SERVED;
+                    quote! { rustx::install_bundle(#name); }
+                });
+                let stylesheet = built.stylesheet.map(|stylesheet| {
+                    let path = slashed(&stylesheet);
+                    quote! { rustx::install_stylesheet(include_str!(#path)); }
+                });
+                quote! { #bundle #stylesheet }
+            }
         }
     };
 
@@ -232,7 +241,11 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
     //
     // `include_bytes!` is also what tells cargo the file is part of the
     // crate, so editing an asset rebuilds the application.
-    let assets = assets_of(&manifest);
+    let assets = if inside_an_editor() {
+        Vec::new()
+    } else {
+        assets_of(&manifest)
+    };
     let assets = if assets.is_empty() {
         TokenStream2::new()
     } else {
@@ -416,6 +429,60 @@ fn split_body(item: TokenStream2) -> Option<(TokenStream2, Group)> {
 
 fn error(message: String) -> TokenStream {
     quote! { compile_error!(#message); }.into()
+}
+
+/// Whether this expansion is an editor's and not a build's.
+///
+/// It matters because this attribute does real work: it compiles the
+/// pages, and it runs the JavaScript bundler, which is `esbuild` in a
+/// child process. `rust-analyzer` expands a proc macro every time the
+/// file changes, and it gives the expansion a few seconds before it
+/// gives up on it -- so a bundler run on every keystroke is a
+/// `#[rustx::main]` that times out, an expansion that produces nothing,
+/// and every item below it reported as an error. That is what "the
+/// completion stops" looks like from the inside.
+///
+/// Worse, a bundler failure became a `compile_error!`: an application
+/// whose `npm install` has not been run yet showed a red
+/// `#[rustx::main]` saying to run `npm install`, in an editor, for a
+/// file the developer had not touched.
+///
+/// `rust-analyzer` runs proc macros in a server of its own
+/// (`rust-analyzer-proc-macro-srv`, or `rust-analyzer` itself), so the
+/// name of the running program is the honest answer. A `cargo check`
+/// started *from* the editor is `rustc`, is a real build, and is not
+/// this case.
+fn inside_an_editor() -> bool {
+    let program = std::env::current_exe().ok();
+    let name = program
+        .as_deref()
+        .and_then(std::path::Path::file_name)
+        .map(|name| name.to_string_lossy().into_owned());
+    an_editor(
+        name.as_deref(),
+        std::env::var("RUSTX_MACRO_BUNDLE").ok().as_deref(),
+    )
+}
+
+/// The decision itself, given the name of the running program and what
+/// the environment said -- so that it can be asked, which a function
+/// that reads the environment cannot be.
+///
+/// `RUSTX_MACRO_BUNDLE` is an escape hatch in both directions, because
+/// a detector that cannot be turned off is a detector that is wrong on
+/// somebody's machine with no way out: `always` bundles even in an
+/// editor, `never` bundles in neither.
+fn an_editor(program: Option<&str>, told: Option<&str>) -> bool {
+    match told {
+        Some("always") => return false,
+        Some("never") => return true,
+        _ => {}
+    }
+    let Some(program) = program else {
+        return false;
+    };
+    let program = program.to_ascii_lowercase();
+    program.contains("rust-analyzer") || program.contains("proc-macro-srv")
 }
 
 /// A path an `include!` will take, on a system whose separator it will
@@ -619,6 +686,48 @@ fn modules_of(manifest: &Path) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    /// `rust-analyzer` expands this attribute on every keystroke and
+    /// gives up on an expansion that takes too long, so the bundler --
+    /// a child process -- must not run there. These are the names the
+    /// two sides actually have.
+    #[test]
+    fn an_editors_expansion_is_told_apart_from_a_builds() {
+        for editor in [
+            "rust-analyzer-proc-macro-srv",
+            "rust-analyzer-proc-macro-srv.exe",
+            "rust-analyzer.exe",
+            "Rust-Analyzer-Proc-Macro-Srv.exe",
+        ] {
+            assert!(
+                an_editor(Some(editor), None),
+                "{editor} was taken for a build"
+            );
+        }
+        for build in [
+            "rustc",
+            "rustc.exe",
+            "cargo",
+            "cargo.exe",
+            "build-script-build",
+        ] {
+            assert!(
+                !an_editor(Some(build), None),
+                "{build} was taken for an editor"
+            );
+        }
+        // Nothing known: a build, because refusing to bundle is the
+        // failure a developer cannot diagnose.
+        assert!(!an_editor(None, None));
+    }
+
+    #[test]
+    fn the_environment_overrides_the_guess_both_ways() {
+        assert!(!an_editor(Some("rust-analyzer.exe"), Some("always")));
+        assert!(an_editor(Some("rustc"), Some("never")));
+        // Anything else is not an instruction.
+        assert!(!an_editor(Some("rustc"), Some("yes please")));
+    }
+
     use super::*;
 
     /// `main` cannot be `async` in Rust, so the attribute takes the

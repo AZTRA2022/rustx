@@ -142,7 +142,7 @@ pub fn run(project: &Path, options: &Options) -> Result<Packaged, String> {
     // Before the archive, so that whatever the installer step leaves
     // inside the folder -- on Linux, the desktop entry and the install
     // script -- is in the `.zip` a release page holds.
-    let made = installer::make(&read, &into, &read.binary);
+    let made = installer::make(&read, project, &into, &read.binary);
 
     let archive = if options.archive {
         let path = into.parent().unwrap_or(&into).join(format!("{folder}.zip"));
@@ -547,24 +547,29 @@ pub fn says_what_it_made(packaged: &Packaged) -> String {
         Some(Err(why)) => said.push_str(&format!("rustx: {why}\n")),
         None => {}
     }
-    if let Some(installer) = &packaged.installer.path {
-        let size = std::fs::metadata(installer).map(|it| it.len()).unwrap_or(0);
+    for artifact in &packaged.installer.artifacts {
+        let size = std::fs::metadata(artifact).map(|it| it.len()).unwrap_or(0);
         said.push_str(&format!(
-            "rustx: {} ({:.1} MB)
-",
-            packaged.installer.note,
+            "rustx: {} ({:.1} MB)\n",
+            artifact.display(),
             size as f64 / 1_048_576.0
         ));
-    } else if !packaged.installer.note.is_empty() {
-        said.push_str(&format!(
-            "rustx: {}
-",
-            packaged.installer.note
-        ));
+    }
+    // Every note that is not just the path of something listed above.
+    for note in &packaged.installer.notes {
+        if packaged
+            .installer
+            .artifacts
+            .iter()
+            .any(|artifact| note.starts_with(&artifact.display().to_string()))
+        {
+            continue;
+        }
+        said.push_str(&format!("rustx: {note}\n"));
     }
     said.push_str(
-        "rustx: the folder is the application. It runs from anywhere, including a \
-         machine that has never built it.\n",
+        "rustx: the folder is the application, the installer beside it is what a user \
+         double-clicks, and the .zip is what the updater downloads.\n",
     );
     said
 }

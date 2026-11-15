@@ -36,9 +36,6 @@
 
 - `style={{ ... }}` is read at compile time and accepts only literal quoted strings: `if`, `format!` and a variable are all refused. The README does not say so, and the refusal advises writing `"format!(...)px"`, which is not what a computed value needs.
 
-Add ponytail skill to claude code
-
-
 Error that appears in the macro declaration '#[rustx::main]':
   ```
         extern crate rustx

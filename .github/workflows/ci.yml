@@ -126,6 +126,118 @@ jobs:
           cargo clippy -p rustx-os -p rustx-compiler -p rustx-dom \
             -p rustx-macros -p rustx-lsp --all-targets -- -D warnings
 
+  # ----------------------------------------------------------- installers
+  #
+  # The one job that answers "does this framework ship software?" on
+  # each operating system, by doing it: build an application, run
+  # `rustx package`, and check that what came out is the native
+  # installer that platform's users double-click.
+  #
+  # It is a job of its own rather than a step of the gates because it
+  # is the only one that needs CEF to build away from Windows, which
+  # has never been done -- and a red job here says exactly that,
+  # instead of hiding inside a longer one.
+  installers:
+    name: it ships (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: installers-${{ matrix.os }}
+
+      # Chromium links against these on a desktop Linux, and a runner
+      # is not a desktop. The same list the `.deb` declares as its
+      # `Depends`, which is the point: if this step is wrong, the
+      # package's dependencies are wrong too.
+      - name: What Chromium links against (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-0 libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
+            libcups2 libdrm2 libgbm1 libasound2t64 libxkbcommon0 \
+            libxcomposite1 libxdamage1 libxrandr2 libxfixes3 libxext6 \
+            libpango-1.0-0 libcairo2
+
+      # The tool that turns the generated script into a setup `.exe`.
+      # Without it `rustx package` writes the script and says so, which
+      # is correct behaviour and not what this job is here to prove.
+      - name: Inno Setup (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          # `rustx package` looks in Program Files and in the per-user
+          # Programs folder; chocolatey installs machine-wide.
+          Get-ChildItem "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+
+      - name: Package the example application
+        shell: bash
+        working-directory: apps/counter
+        run: cargo run -p rustx-cli --bin rustx -- package --release --out ../../dist
+
+      # What each platform must have produced. A missing file fails
+      # here, with the directory listed, rather than leaving a green
+      # tick over an empty folder.
+      - name: The installer is there
+        shell: bash
+        run: |
+          set -eu
+          ls -la dist/
+          case "${{ runner.os }}" in
+          Windows)
+            ls dist/*-setup.exe
+            ;;
+          Linux)
+            ls dist/*.deb
+            # Our `.deb` is written by hand -- no `dpkg-deb` is
+            # involved in making it -- so this is the first thing that
+            # reads it with the real tool. `-I` parses the control
+            # archive, `-c` walks the data tarball, and either one
+            # fails on a malformed ar member, a bad tar checksum or a
+            # field `dpkg` does not accept.
+            dpkg-deb -I dist/*.deb
+            dpkg-deb -c dist/*.deb | head -20
+            # And it installs, which is the only check that covers the
+            # paths, the modes and the symbolic link all at once.
+            sudo dpkg -i dist/*.deb
+            test -x /usr/bin/counter
+            test -f /usr/share/applications/counter.desktop
+            desktop-file-validate /usr/share/applications/counter.desktop
+            sudo dpkg -r counter
+            ;;
+          macOS)
+            ls dist/*.pkg || ls dist/*.dmg
+            # `pkgutil` reads the receipt the installer would write,
+            # which is what tells us the `.pkg` is addressable rather
+            # than merely present.
+            if [ -f dist/*.pkg ]; then pkgutil --payload-files dist/*.pkg | head -20; fi
+            ;;
+          esac
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.os }}
+          # The folder is 400 MB and the archive is already in it; only
+          # what a user would download goes up.
+          path: |
+            dist/*-setup.exe
+            dist/*.deb
+            dist/*.pkg
+            dist/*.dmg
+            dist/*.iss
+          if-no-files-found: error
+          retention-days: 14
+
   # ------------------------------------------------------------- tooling
   editor:
     name: the editor extension
