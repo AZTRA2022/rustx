@@ -25,8 +25,12 @@
 name: ci
 
 on:
+  # Une branche ouverte en pull request est deja testee par l'evenement
+  # d'en dessous : la tester aussi sur chaque poussee faisait tourner la
+  # matrice entiere deux fois, et le groupe de concurrence ci-dessous
+  # n'y peut rien -- les deux evenements n'ont pas la meme reference.
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
