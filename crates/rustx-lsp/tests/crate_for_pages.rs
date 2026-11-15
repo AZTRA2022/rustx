@@ -113,3 +113,73 @@ fn every_application_of_a_workspace_is_found() {
     assert_eq!(found.len(), 2, "got {found:?}");
     let _ = fs::remove_dir_all(&workspace);
 }
+
+#[test]
+fn the_vocabulary_is_the_macros() {
+    // Every name `#[rustx::main]` gives a page must be given to the
+    // reading crate too, or the page's types are unknown there and nothing
+    // completes.
+    let macros = fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../rustx-macros/src/lib.rs"),
+    )
+    .expect("the macros' source");
+    for line in crate_for_pages::VOCABULARY.lines() {
+        let wanted = line.replace("pub use", "pub(crate) use");
+        assert!(
+            macros.contains(&wanted),
+            "the macro does not say `{wanted}`"
+        );
+    }
+}
+
+#[test]
+fn pages_are_modules_of_the_reading_crate_and_not_included() {
+    let root = an_application();
+    let pages = rustx_compiler::build::generated_directory(&root);
+    fs::create_dir_all(&pages).expect("a pages directory");
+    fs::write(
+        pages.join(rustx_compiler::build::PAGES),
+        "mod page_0 { include!(\"page.rs\"); }\n",
+    )
+    .expect("the pages");
+    let manifest = crate_for_pages::written_for(&root).expect("a reading crate");
+    let written = fs::read_to_string(manifest.with_file_name("editor.rs")).expect("source");
+    assert!(written.contains("#[path = \"page.rs\"]"), "got {written}");
+    assert!(!written.contains("include!"), "got {written}");
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn the_entry_files_imports_and_modules_are_in_the_pages_scope() {
+    let root = an_application();
+    fs::create_dir_all(root.join("src/shop")).expect("src");
+    fs::write(
+        root.join("src/main.rs"),
+        "pub mod shop;\nuse rustx::{\n    App,\n    Config,\n};\n\n#[rustx::main]\nfn main() {}\n",
+    )
+    .expect("entry");
+    fs::write(root.join("src/shop.rs"), "pub mod cart;\n").expect("module");
+    let pages = rustx_compiler::build::generated_directory(&root);
+    fs::create_dir_all(&pages).expect("pages");
+    fs::write(
+        pages.join(rustx_compiler::build::PAGES),
+        "mod page_0 { include!(\"page.rs\"); }\n",
+    )
+    .expect("pages.rs");
+    fs::write(pages.join("page.rs"), "fn Page() {}\n").expect("a page the editor never opened");
+    let manifest = crate_for_pages::written_for(&root).expect("a reading crate");
+    let written = fs::read_to_string(manifest.with_file_name("editor.rs")).expect("source");
+    // Under an inline module over `src/`, so `shop/cart.rs` is found
+    // where rustc finds it.
+    assert!(written.contains("#[path = \"src\"]"), "got {written}");
+    assert!(written.contains("pub mod shop;"), "got {written}");
+    // A multi-line `use` stays whole.
+    assert!(
+        written.contains("pub use rustx::{\n        App,\n        Config,\n    };"),
+        "got {written}"
+    );
+    // And a page nobody opened has its scope.
+    let page = fs::read_to_string(pages.join("page.rs")).expect("page");
+    assert!(page.ends_with(crate_for_pages::SCOPE), "got {page}");
+    let _ = fs::remove_dir_all(&root);
+}

@@ -582,6 +582,10 @@ pub fn build(app: &Path) -> Result<Built, String> {
         .map_err(|error| format!("rustx could not write {}: {error}", entry.display()))?;
 
     let bundle = out.join("bundle.js");
+    // The stylesheet esbuild writes beside the bundle when a library
+    // imports its own: a stale one from the last build must not outlive
+    // the library that wrote it.
+    let _ = std::fs::remove_file(out.join("bundle.css"));
     let finished = std::process::Command::new(&esbuild)
         .arg(&entry)
         .arg("--bundle")
@@ -595,6 +599,16 @@ pub fn build(app: &Path) -> Result<Built, String> {
         // React reads it on its first line, and a shell is what used to
         // eat the quotes: there is no shell here.
         .arg("--define:process.env.NODE_ENV=\"production\"")
+        // What a library's stylesheet points at goes inside it: the
+        // sheet is put in the document as a `<style>`, where a relative
+        // `url(…)` resolves against nothing the library shipped.
+        .args(
+            [
+                "woff", "woff2", "ttf", "otf", "eot", "svg", "png", "jpg", "jpeg", "gif", "webp",
+                "avif",
+            ]
+            .map(|kind| format!("--loader:.{kind}=dataurl")),
+        )
         .arg(format!("--outfile={}", bundle.display()))
         .current_dir(app)
         .output()
@@ -626,8 +640,39 @@ pub fn build(app: &Path) -> Result<Built, String> {
 
     Ok(Built {
         bundle: Some(beside),
-        stylesheet,
+        stylesheet: with_the_libraries_css(&out, stylesheet)?,
     })
+}
+
+/// The stylesheet of the application, behind the stylesheets of the
+/// libraries it imports.
+///
+/// A library that ships its own CSS — a date picker, a toast, a carousel
+/// — imports it from its JavaScript, and esbuild writes all of it to
+/// `bundle.css` beside the bundle. Nothing served that file, so the
+/// component arrived with no style at all and no message saying why.
+/// The library's rules go first: the application's Tailwind sheet then
+/// wins where the two say something about the same element, which is
+/// what an application that restyles a library expects.
+fn with_the_libraries_css(
+    out: &Path,
+    stylesheet: Option<PathBuf>,
+) -> Result<Option<PathBuf>, String> {
+    let Ok(libraries) = std::fs::read_to_string(out.join("bundle.css")) else {
+        return Ok(stylesheet);
+    };
+    let ours = match &stylesheet {
+        Some(path) => std::fs::read_to_string(path)
+            .map_err(|error| format!("rustx could not read {}: {error}", path.display()))?,
+        None => String::new(),
+    };
+    let next = out.join("styles.next.css");
+    let combined = out.join("styles.css");
+    std::fs::write(&next, format!("{libraries}\n{ours}"))
+        .map_err(|error| format!("rustx could not write {}: {error}", next.display()))?;
+    crate::build::copy_if_changed(&next, &combined)
+        .map_err(|error| format!("rustx could not write {}: {error}", combined.display()))?;
+    Ok(Some(combined))
 }
 
 /// What the bundle is called beside the application's document.
@@ -889,5 +934,29 @@ mod tests {
             dependencies_in(manifest),
             vec!["recharts".to_string(), "@radix-ui/react-dialog".to_string()]
         );
+    }
+}
+
+#[cfg(test)]
+mod libraries_css_tests {
+    use super::with_the_libraries_css;
+
+    #[test]
+    fn a_library_stylesheet_reaches_the_page_ahead_of_the_applications_own() {
+        let out = std::env::temp_dir().join(format!("rustx-libcss-{}", std::process::id()));
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::write(out.join("bundle.css"), ".picker{color:red}").unwrap();
+        std::fs::write(out.join("tailwind.css"), ".p-4{padding:1rem}").unwrap();
+        let sheet = with_the_libraries_css(&out, Some(out.join("tailwind.css")))
+            .unwrap()
+            .expect("a stylesheet");
+        let text = std::fs::read_to_string(sheet).unwrap();
+        let (picker, ours) = (text.find(".picker").unwrap(), text.find(".p-4").unwrap());
+        assert!(picker < ours, "the library goes first: {text}");
+        // And no library CSS means the application's sheet, untouched.
+        std::fs::remove_file(out.join("bundle.css")).unwrap();
+        let only = with_the_libraries_css(&out, Some(out.join("tailwind.css"))).unwrap();
+        assert_eq!(only, Some(out.join("tailwind.css")));
+        let _ = std::fs::remove_dir_all(&out);
     }
 }

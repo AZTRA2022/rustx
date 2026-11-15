@@ -40,7 +40,9 @@ pub fn written_for(manifest: &Path) -> Option<PathBuf> {
     // answers in seconds.
     let theirs = std::fs::read_to_string(manifest.join("Cargo.toml")).ok()?;
     std::fs::write(pages.join("Cargo.toml"), manifest_for(&theirs, manifest)).ok()?;
-    std::fs::write(pages.join(LIBRARY), library_for()).ok()?;
+    let linked = sources_linked(manifest, &pages);
+    scoped(&pages);
+    std::fs::write(pages.join(LIBRARY), library_for(manifest, &pages, linked)).ok()?;
 
     Some(pages.join("Cargo.toml"))
 }
@@ -118,29 +120,193 @@ fn absolute_paths_in(line: &str, manifest: &Path) -> String {
     format!("{}{}{}", &line[..from], absolute, &line[from + length..])
 }
 
+/// What `#[rustx::main]` puts in scope for a page, as the reading crate
+/// must say it too: a page written against a name the reading crate does
+/// not have is a page whose every type is `{unknown}`, and a page of
+/// unknown types has no members, no definitions and no completion beyond
+/// the keywords of the language. `the_vocabulary_is_the_macros` keeps the
+/// two lists the same.
+pub const VOCABULARY: &str = "pub use rustx::Element;
+pub use rustx::state::with_key;
+pub use rustx::{rustx_dom, rustx_engine};
+pub use rustx::tokio;
+";
+
+/// Make the application's `src/` reachable from inside the reading crate,
+/// and say whether it is.
+///
+/// `rust-analyzer` reads the files of the directories a crate sits in and
+/// nothing else, so `mod ffmpeg;` pointing at `<app>/src/ffmpeg.rs` is an
+/// unresolved module however the path is written. A directory link puts
+/// the real files — not copies, so an edit is seen at once — under the
+/// crate's own root. A junction on Windows, because a symlink there needs
+/// a privilege a developer does not have.
+fn sources_linked(manifest: &Path, pages: &Path) -> bool {
+    let link = pages.join("src");
+    let target = manifest.join("src");
+    if !target.is_dir() {
+        return false;
+    }
+    if link.is_dir() {
+        return true;
+    }
+    // A link left by an application that has since moved points at
+    // nothing, and `is_dir` says so: it goes, and is made again.
+    let _ = std::fs::remove_dir(&link);
+    #[cfg(windows)]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&target)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    }
+    #[cfg(not(windows))]
+    {
+        std::os::unix::fs::symlink(&target, &link).is_ok()
+    }
+}
+
+/// What a page needs at its end to have the scope the build gives it.
+///
+/// At the end and not the beginning, so that no line and no column of the
+/// page moves.
+pub const SCOPE: &str = "\nuse super::*;\n";
+
+/// The top-level `use` statements of the application's entry file, each
+/// one made `pub` so that the reading crate can re-export it.
+///
+/// shortcut: found by their line starting in column 0, as `modules_of`
+/// finds `mod`; upgrade when a `use` is written after other code on its
+/// line. Private functions of the entry file are not carried over.
+fn uses_of(manifest: &Path) -> String {
+    let mut out = String::new();
+    for entry in ["src/main.rs", "src/lib.rs"] {
+        let Ok(source) = std::fs::read_to_string(manifest.join(entry)) else {
+            continue;
+        };
+        let mut open = false;
+        for line in source.lines() {
+            let starts = line.starts_with("use ") || line.starts_with("pub use ");
+            if !open && !starts {
+                continue;
+            }
+            let text = if open {
+                line.to_string()
+            } else {
+                let line = line.strip_prefix("pub ").unwrap_or(line);
+                line.replacen("use self::", "use super::", 1)
+                    .replacen("use ", "pub use ", 1)
+            };
+            open = !line.trim_end().ends_with(';');
+            out.push_str("    ");
+            out.push_str(&text);
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// Give every page of the application the scope it is compiled with, not
+/// only the ones the editor has opened: the reading crate reads all of
+/// them.
+fn scoped(pages: &Path) {
+    let listed =
+        std::fs::read_to_string(pages.join(rustx_compiler::build::PAGES)).unwrap_or_default();
+    for (at, found) in listed.match_indices("include!(\"") {
+        let rest = &listed[at + found.len()..];
+        let Some(end) = rest.find("\")") else {
+            continue;
+        };
+        let file = pages.join(&rest[..end]);
+        if let Ok(text) = std::fs::read_to_string(&file)
+            && !text.ends_with(SCOPE)
+        {
+            let _ = std::fs::write(&file, format!("{text}{SCOPE}"));
+        }
+    }
+}
+
 /// The reading crate's only source file.
 ///
 /// The same vocabulary the attribute macro gives a page — `Element` and
-/// `with_key` in scope, the lints the generated shape trips turned off —
-/// and then the pages themselves.
-fn library_for() -> String {
-    format!(
-        "// Written by rustx-lsp so that an editor can read the pages of
-\r
-         // this application. Nobody builds it, nobody edits it.
-\r
-         #![allow(non_snake_case, unused, clippy::all)]
+/// `with_key` in scope, `rustx_dom`, `rustx_engine` and `tokio`, the lints
+/// the generated shape trips turned off — then the application's own
+/// modules, which a page reaches by name, and then the pages themselves.
+fn library_for(manifest: &Path, pages: &Path, linked: bool) -> String {
+    let mut text = String::from(
+        "// Written by rustx-lsp so that an editor can read the pages of\n\
+         // this application. Nobody builds it, nobody edits it.\n\
+         #![allow(non_snake_case, unused, clippy::all)]\n\n",
+    );
+    text.push_str(VOCABULARY);
+    // What the application's entry file imports, which a page sees through
+    // `use super::*`. As `pub use` inside a module of their own and
+    // re-exported by glob, so that a name the vocabulary above already
+    // gives is shadowed by it instead of being declared twice.
+    let uses = uses_of(manifest);
+    if !uses.is_empty() {
+        text.push_str("mod application_uses {\n");
+        text.push_str(&uses);
+        text.push_str("}\n#[allow(unused_imports)]\npub use application_uses::*;\n");
+    }
+    if linked {
+        // An inline module over `src/`: a module's own children are then
+        // looked for where rustc looks for them, `ffmpeg/inner.rs` under
+        // `ffmpeg.rs` included.
+        let modules: Vec<String> = rustx_compiler::build::modules_of(manifest)
+            .into_iter()
+            .filter(|module| {
+                manifest.join(format!("src/{module}.rs")).is_file()
+                    || manifest.join(format!("src/{module}/mod.rs")).is_file()
+            })
+            .collect();
+        if !modules.is_empty() {
+            text.push_str("#[path = \"src\"]\nmod application {\n");
+            for module in &modules {
+                text.push_str(&format!("    pub mod {module};\n"));
+            }
+            text.push_str("}\n#[allow(unused_imports)]\npub use application::*;\n");
+        }
+    }
+    text.push_str(&pages_as_modules(pages));
+    text
+}
 
-\r
-         pub use rustx::Element;
-\r
-         pub use rustx::state::with_key;
-
-\r
-         include!(\"{}\");
-",
-        rustx_compiler::build::PAGES
-    )
+/// Each page as a module of its own, by path — and not `include!`d.
+///
+/// `rust-analyzer` completes after a dot by completing a copy of the file
+/// with a placeholder typed in, and a file that only exists as the
+/// expansion of an `include!` has no copy to complete: hovers and
+/// definitions answered, `names::` answered, and `value.` answered
+/// nothing at all, which is every method, every field and every prop. A
+/// module file is a file like any other. The page opens on
+/// `use super::*;` at its end, written by the shadow, so that it has the
+/// scope the build gives it.
+///
+/// Falls back to the build's own `pages.rs` when it names no page file.
+fn pages_as_modules(pages: &Path) -> String {
+    let listed =
+        std::fs::read_to_string(pages.join(rustx_compiler::build::PAGES)).unwrap_or_default();
+    let files: Vec<&str> = listed
+        .match_indices("include!(\"")
+        .filter_map(|(at, found)| {
+            let rest = &listed[at + found.len()..];
+            rest.find("\")").map(|end| &rest[..end])
+        })
+        .filter(|file| file.ends_with(".rs"))
+        .collect();
+    if files.is_empty() {
+        return format!("include!(\"{}\");\n", rustx_compiler::build::PAGES);
+    }
+    files
+        .iter()
+        .enumerate()
+        .map(|(number, file)| format!("#[path = \"{file}\"]\npub mod page_{number};\n"))
+        .collect()
 }
 
 /// Every application under `root` that has pages, each with its reading

@@ -24,6 +24,10 @@ pub struct Shadow {
     pub uri: String,
     pub rust: String,
     pub map: PositionMap,
+    /// The application, and the directory its pages are generated into:
+    /// what an answer's file is told apart from the page's by.
+    pub manifest: PathBuf,
+    pub directory: PathBuf,
 }
 
 /// Compile the text the editor is holding and write it where the build
@@ -37,11 +41,12 @@ pub struct Shadow {
 pub fn of(uri: &str, source: &str) -> Option<Shadow> {
     let page = path_of(uri)?;
     let (manifest, relative) = application_of(&page)?;
-    let generated = rustx_compiler::build::generated_directory(&manifest)
-        .join(relative)
-        .with_extension("rs");
+    let directory = rustx_compiler::build::generated_directory(&manifest);
+    let generated = directory.join(relative).with_extension("rs");
 
-    let out = rustx_compiler::transpile::transpile(source).ok()?;
+    let mut out = rustx_compiler::transpile::transpile(source).ok()?;
+    // At the end, so that no line of the page moves: see `crate_for_pages`.
+    out.rust.push_str(crate::crate_for_pages::SCOPE);
     if let Some(parent) = generated.parent() {
         std::fs::create_dir_all(parent).ok()?;
     }
@@ -58,6 +63,8 @@ pub fn of(uri: &str, source: &str) -> Option<Shadow> {
         path: generated,
         rust: out.rust,
         map: out.map,
+        manifest,
+        directory,
     })
 }
 
@@ -148,6 +155,193 @@ fn unescape(text: &str) -> String {
         }
     }
     out
+}
+
+/// An answer from the downstream server, with every file it names put
+/// back where the developer wrote it.
+///
+/// The downstream server answers in the files it holds — the shadow of
+/// this page, the shadow of another page, the application's `src/` seen
+/// through the reading crate — and a definition that lands there lands in
+/// `target/`, in text the developer never wrote. Done by *path*, and
+/// never by comparing strings: the server writes `file:///c%3A/…` where
+/// this one wrote `file:///C:/…`, and a replace that does not match is a
+/// definition that quietly goes to the generated file. One function,
+/// applied to every answer that carries a location.
+pub fn retargeted(answer: &str, page_uri: &str, shadow: &Shadow) -> String {
+    let mut out = String::with_capacity(answer.len());
+    let mut rest = answer;
+    while let Some(at) = rest.find("file://") {
+        out.push_str(&rest[..at]);
+        let tail = &rest[at..];
+        let end = tail.find(['"', '\\']).unwrap_or(tail.len());
+        let found = &tail[..end];
+        match source_of(found, page_uri, shadow) {
+            Some(back) => out.push_str(&crate::json::escape(&back)),
+            None => out.push_str(found),
+        }
+        rest = &tail[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Where the file a `uri` names is written, if it is generated.
+fn source_of(uri: &str, page_uri: &str, shadow: &Shadow) -> Option<String> {
+    let path = path_of(uri)?;
+    let relative = under(&path, &shadow.directory)?;
+    if relative.is_empty() {
+        return None;
+    }
+    if under(&path, &shadow.path).is_some_and(|rest| rest.is_empty()) {
+        return Some(page_uri.to_string());
+    }
+    let relative = PathBuf::from(relative);
+    if relative.starts_with("src") {
+        return Some(uri_of(&shadow.manifest.join(relative)));
+    }
+    let page = shadow
+        .manifest
+        .join("app")
+        .join(relative)
+        .with_extension("rsx");
+    page.is_file().then(|| uri_of(&page))
+}
+
+/// What is left of `path` below `root`, or `None` when it is not below
+/// it. Windows names the same file in any case.
+fn under(path: &Path, root: &Path) -> Option<String> {
+    let text = path.to_string_lossy().replace('\\', "/");
+    let base = root.to_string_lossy().replace('\\', "/");
+    let base = base.trim_end_matches('/');
+    let (a, b) = if cfg!(windows) {
+        (text.to_ascii_lowercase(), base.to_ascii_lowercase())
+    } else {
+        (text.clone(), base.to_string())
+    };
+    if a == b {
+        return Some(String::new());
+    }
+    a.strip_prefix(&format!("{b}/"))?;
+    Some(text[base.len() + 1..].to_string())
+}
+
+/// `retargeted`, and then every place it left in this page's own file put
+/// where the page really has it.
+pub fn back(answer: &str, page_uri: &str, shadow: &Shadow, source: &str) -> String {
+    placed(
+        &retargeted(answer, page_uri, shadow),
+        page_uri,
+        shadow,
+        source,
+    )
+}
+
+/// A location in the page, told in the coordinates of the generated file,
+/// put where the developer wrote it.
+///
+/// Lines are the same in both files, so most places need only the map. A
+/// state value is the exception: it is declared once at the top of the
+/// page and the generated file declares it again inside the component, on
+/// a line that answers to some other line of the page. There the *name*
+/// is what survives, so the declaration is looked for by name.
+fn placed(answer: &str, page_uri: &str, shadow: &Shadow, source: &str) -> String {
+    let marker = format!(
+        "\"uri\":\"{}\",\"range\":{{\"start\":{{\"line\":",
+        crate::json::escape(page_uri)
+    );
+    let mut out = String::with_capacity(answer.len());
+    let mut rest = answer;
+    while let Some(at) = rest.find(&marker) {
+        let head = at + marker.len();
+        out.push_str(&rest[..head]);
+        let tail = &rest[head..];
+        let Some((range, used)) = a_range(tail) else {
+            rest = tail;
+            continue;
+        };
+        let (line, column, end_line, end_column) =
+            place_in_page(range, shadow, source).unwrap_or(range);
+        out.push_str(&format!(
+            "{line},\"character\":{column}}},\"end\":{{\"line\":{end_line},\"character\":{end_column}"
+        ));
+        rest = &tail[used..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// `A,"character":B},"end":{"line":C,"character":D` read off the front of
+/// `text`, and how much of it that was.
+fn a_range(text: &str) -> Option<((usize, usize, usize, usize), usize)> {
+    fn number(text: &str, from: &mut usize, then: &str) -> Option<usize> {
+        let digits = text[*from..]
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .count();
+        let value = text[*from..*from + digits].parse().ok()?;
+        *from += digits;
+        text[*from..]
+            .starts_with(then)
+            .then(|| *from += then.len())?;
+        Some(value)
+    }
+    let mut at = 0;
+    let line = number(text, &mut at, ",\"character\":")?;
+    let column = number(text, &mut at, "},\"end\":{\"line\":")?;
+    let end_line = number(text, &mut at, ",\"character\":")?;
+    let end_column = number(text, &mut at, "")?;
+    Some(((line, column, end_line, end_column), at))
+}
+
+/// Zero-based, in the generated file's terms, to zero-based in the page's.
+fn place_in_page(
+    (line, column, end_line, end_column): (usize, usize, usize, usize),
+    shadow: &Shadow,
+    source: &str,
+) -> Option<(usize, usize, usize, usize)> {
+    if let (Some((a, b)), Some((c, d))) = (
+        shadow.map.to_rsx_position(line + 1, column + 1),
+        shadow.map.to_rsx_position(end_line + 1, end_column + 1),
+    ) {
+        return Some((a - 1, b - 1, c - 1, d - 1));
+    }
+    if line != end_line {
+        return None;
+    }
+    let generated = shadow.rust.lines().nth(line)?;
+    let name: String = generated
+        .chars()
+        .skip(column)
+        .take(end_column.saturating_sub(column))
+        .collect();
+    if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        return None;
+    }
+    declaration_of(&name, source).map(|(l, c)| (l, c, l, c + name.chars().count()))
+}
+
+/// The first line of the page that declares `name`, and its column.
+fn declaration_of(name: &str, source: &str) -> Option<(usize, usize)> {
+    const KEYWORDS: [&str; 9] = [
+        "let mut ", "let ", "fn ", "struct ", "enum ", "const ", "static ", "type ", "trait ",
+    ];
+    for (number, text) in source.lines().enumerate() {
+        for keyword in KEYWORDS {
+            let Some(at) = text.find(&format!("{keyword}{name}")) else {
+                continue;
+            };
+            let after = text[at + keyword.len() + name.len()..].chars().next();
+            let before = text[..at].chars().next_back();
+            if after.is_some_and(|c| c.is_alphanumeric() || c == '_')
+                || before.is_some_and(|c| c.is_alphanumeric() || c == '_')
+            {
+                continue;
+            }
+            return Some((number, text[..at + keyword.len()].chars().count()));
+        }
+    }
+    None
 }
 
 /// What a shadow is handed to a downstream server as.

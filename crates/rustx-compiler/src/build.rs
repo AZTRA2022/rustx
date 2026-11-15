@@ -191,3 +191,42 @@ fn io(path: &Path, error: std::io::Error) -> CompileError {
 pub fn generated_directory(manifest: &Path) -> PathBuf {
     manifest.join("target").join("rustx-pages")
 }
+
+/// The modules the application declares beside its entry point.
+///
+/// Read from `src/main.rs` (or `src/lib.rs`), because an attribute macro
+/// is given the function it is written on and not the file around it,
+/// and `Span::source_file` is not stable. A `mod` is declared on a line
+/// of its own in every Rust file anyone writes, which is what makes
+/// reading it this way honest rather than clever.
+pub fn modules_of(manifest: &Path) -> Vec<String> {
+    let mut found = Vec::new();
+    for entry in ["src/main.rs", "src/lib.rs"] {
+        let Ok(source) = std::fs::read_to_string(manifest.join(entry)) else {
+            continue;
+        };
+        for line in source.lines() {
+            let line = line.trim();
+            if line.starts_with("//") {
+                continue;
+            }
+            let declaration = line.strip_prefix("pub ").unwrap_or(line);
+            let Some(rest) = declaration.strip_prefix("mod ") else {
+                continue;
+            };
+            let Some(name) = rest.strip_suffix(';') else {
+                continue;
+            };
+            let name = name.trim();
+            if name
+                .chars()
+                .all(|letter| letter.is_alphanumeric() || letter == '_')
+                && !name.is_empty()
+                && !found.iter().any(|already| already == name)
+            {
+                found.push(name.to_string());
+            }
+        }
+    }
+    found
+}

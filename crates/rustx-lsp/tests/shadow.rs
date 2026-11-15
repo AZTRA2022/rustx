@@ -134,3 +134,25 @@ fn each_change_tells_the_downstream_a_new_version() {
         "the version did not move: {first} then {second}"
     );
 }
+
+#[test]
+fn an_answer_in_a_generated_file_is_told_in_the_file_the_developer_wrote() {
+    let root = std::env::temp_dir().join(format!("rustx-back-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("app")).expect("app");
+    std::fs::create_dir_all(root.join("src")).expect("src");
+    std::fs::write(root.join("Cargo.toml"), "[package]\nname=\"a\"\n").expect("manifest");
+    std::fs::write(root.join("app/page.rsx"), "let mut n: u8 = 0;\n").expect("page");
+    let page_uri = rustx_lsp::shadow::uri_of(&root.join("app/page.rsx"));
+    let shadow = rustx_lsp::shadow::of(&page_uri, "let mut n: u8 = 0;\n").expect("a shadow");
+    // The way rust-analyzer writes a Windows file: another case, an
+    // escaped colon. Textual replacement missed it and the definition
+    // went to `target/`.
+    let theirs = shadow.uri.replacen("file:///C:", "file:///c%3A", 1);
+    let src = rustx_lsp::shadow::uri_of(&shadow.directory.join("src/ffmpeg.rs"));
+    let answer = format!("[{{\"uri\":\"{theirs}\"}},{{\"uri\":\"{src}\"}}]");
+    let back = rustx_lsp::shadow::retargeted(&answer, &page_uri, &shadow);
+    assert!(!back.contains("rustx-pages"), "still generated: {back}");
+    assert!(back.contains(&page_uri), "{back}");
+    assert!(back.contains("/src/ffmpeg.rs"), "{back}");
+    let _ = std::fs::remove_dir_all(&root);
+}

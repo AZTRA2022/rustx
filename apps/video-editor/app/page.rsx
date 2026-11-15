@@ -48,6 +48,8 @@ let mut paused: bool = true;
 let mut decodes: bool = true;
 let mut pressed: String = String::new();
 let mut presses: u64 = 0;
+// let mut var = rustx
+
 
 // What the element is told to do next, read by the transport script.
 // The counter is in the string so that the same command twice over is

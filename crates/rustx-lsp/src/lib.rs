@@ -605,7 +605,7 @@ fn about_the_file(
     if result == "null" {
         return None;
     }
-    Some(result.replace(&json::escape(&shadow.uri), &json::escape(&uri)))
+    Some(shadow::retargeted(result, &uri, shadow))
 }
 
 /// What the server offers out of its own head, or nothing when the
@@ -700,9 +700,12 @@ fn assist(
     let picked = picked::file(source, &shadow.rust, asked_line, asked_character);
     if let Some(made) = picked {
         let answered = ask_about(server, method, shadow, &made, asked_line, asked_character);
-        return answered
-            .unwrap_or_else(|| empty.to_string())
-            .replace(&shadow.uri, uri);
+        return shadow::back(
+            &answered.unwrap_or_else(|| empty.to_string()),
+            uri,
+            shadow,
+            source,
+        );
     }
 
     let (line, character) = match shadow
@@ -739,7 +742,11 @@ fn assist(
             // Back by the distance it went out, so a `textEdit` lands
             // on what was typed and not on what the rewrite put there.
             let by = asked_character as isize - column as isize;
-            return picked::shifted(&result.replace(&shadow.uri, uri), asked_line - 1, by);
+            return picked::shifted(
+                &shadow::back(result, uri, shadow, source),
+                asked_line - 1,
+                by,
+            );
         }
     };
 
@@ -758,7 +765,7 @@ fn assist(
     // newlines its expression swallowed — so naming the page is the
     // whole translation.
     let result = cut_result(&answer).unwrap_or(empty);
-    result.replace(&shadow.uri, uri)
+    shadow::back(result, uri, shadow, source)
 }
 
 /// Ask `server` about `made` — a file built for this question — and put

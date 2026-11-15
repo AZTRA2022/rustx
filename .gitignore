@@ -18,3 +18,4 @@ dist/
 **/target*.vsix
 **/target
 **/rustx-framework*
+**/clean**
