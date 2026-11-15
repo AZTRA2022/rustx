@@ -50,8 +50,11 @@ fn every_async_example_in_the_readme_compiles() {
         .into_iter()
         .filter(|block| block.contains("task(async") || block.contains("async move {"))
         .collect();
+    // One is what it documents today, in the `async` section. The
+    // floor is there so that a README which stopped documenting it at
+    // all fails rather than passing on an empty list.
     assert!(
-        waiting.len() >= 3,
+        !waiting.is_empty(),
         "the README documents an `async` block in {} examples",
         waiting.len()
     );

@@ -354,6 +354,11 @@ fn looks_runnable(program: &str, arguments: &[&str]) -> bool {
 
 fn windows(read: &build::Project, folder: &Path, binary: &str, pages: &Pages) -> Made {
     let mut made = Made::default();
+    // ISCC reads every relative path in the script as relative to the
+    // script itself, while `--out` is relative to where the command was
+    // run. Absolute from here on, or the compile finds no files.
+    let absolute = std::path::absolute(folder).unwrap_or_else(|_| folder.to_path_buf());
+    let folder = absolute.as_path();
     let beside = folder.parent().unwrap_or(folder);
     let script = beside.join(format!("{}.iss", crate::package::slug(&read.about.name)));
     let text = inno_script(read, folder, binary, pages);
@@ -428,7 +433,6 @@ fn last_words(out: &[u8], err: &[u8]) -> String {
         tail.join(" -- ")
     }
 }
-
 
 // ------------------------------------------------------------------ macOS
 

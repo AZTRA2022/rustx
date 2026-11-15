@@ -9,6 +9,15 @@
 
 use rustx_os::shortcut::{self, Shortcut};
 
+/// Enregistrer un raccourci demande le thread principal *et* sa
+/// boucle d'evenements. Sous `cargo test` sur macOS il n'y en a
+/// aucune, la demande expire au bout de cinq secondes, et ce que le
+/// test mesurerait alors est l'absence de `[NSApp run]` -- pas le
+/// code.
+fn can_be_registered_here() -> bool {
+    shortcut::supported() && !cfg!(target_os = "macos")
+}
+
 #[test]
 fn a_shortcut_is_read_from_how_it_is_written() {
     // Ce qu'un développeur écrit est ce qu'un utilisateur lit sur un
@@ -54,7 +63,7 @@ fn a_combination_without_a_key_is_refused_in_words() {
 
 #[test]
 fn a_shortcut_somebody_else_has_is_refused_by_name() {
-    if !shortcut::supported() {
+    if !can_be_registered_here() {
         return;
     }
     // Une combinaison improbable, pour ne pas voler celle de quelqu'un
@@ -69,7 +78,7 @@ fn a_shortcut_somebody_else_has_is_refused_by_name() {
 
 #[test]
 fn dropping_a_shortcut_gives_the_keys_back() {
-    if !shortcut::supported() {
+    if !can_be_registered_here() {
         return;
     }
     let keys = "Ctrl+Shift+F14";
@@ -84,7 +93,7 @@ fn dropping_a_shortcut_gives_the_keys_back() {
 
 #[test]
 fn a_shortcut_nobody_pressed_counts_zero() {
-    if !shortcut::supported() {
+    if !can_be_registered_here() {
         return;
     }
     let held = Shortcut::listen("Ctrl+Shift+F15").expect("libre");

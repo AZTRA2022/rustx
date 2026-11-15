@@ -18,7 +18,7 @@
 //!
 //! What it deliberately does not do is invent a format. The folder is
 //! the artefact; the archive is the same folder, zipped, because that
-//! is what a release page holds and what [`crate::update`]'s client
+//! is what a release page holds and what the updater in `rustx-os`
 //! knows how to read.
 
 use std::path::{Path, PathBuf};

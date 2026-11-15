@@ -117,6 +117,14 @@ jobs:
         with:
           key: portable-${{ matrix.os }}
 
+      # `notify-send` is what carries a notification on Linux, and a
+      # runner has no desktop, so nothing installed it.
+      - name: What a notification needs (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libnotify-bin
+
       # The platform half that a Windows build only ever compile-checked
       # by proxy, built by the compiler that actually targets it. If
       # `rustx-os` is going to claim macOS and Linux support one day,
@@ -183,6 +191,9 @@ jobs:
             libcups2 libdrm2 libgbm1 libasound2t64 libxkbcommon0 \
             libxcomposite1 libxdamage1 libxrandr2 libxfixes3 libxext6 \
             libpango-1.0-0 libcairo2
+          # `desktop-file-validate`, which this job runs on what the
+          # `.deb` installed.
+          sudo apt-get install -y --no-install-recommends desktop-file-utils
 
       # The tool that turns the generated script into a setup `.exe`.
       # Without it `rustx package` writes the script and says so, which
