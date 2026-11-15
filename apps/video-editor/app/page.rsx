@@ -1,34 +1,78 @@
 // Altlassian Raw.
 //
-// Real files on the timeline, real numbers from `ffprobe`, a real
-// decoded frame for the preview, and a render that is one `ffmpeg`
-// process writing a playable file. Everything that builds a command
-// line is in `src/ffmpeg.rs`, with its tests; this file is the editor.
+// Real files on the timeline, real numbers from `ffprobe`, the real
+// file playing in the monitor with its sound, and a render that is one
+// `ffmpeg` process writing a playable file. Everything that builds a
+// command line is in `src/ffmpeg.rs`, with its tests; the three natives
+// the transport talks through are in `src/main.rs`; this file is the
+// editor.
 //
-// What the preview is: a still. One frame, decoded again when the
-// playhead, the trim or the colour of the selected clip changes.
-// Playing the sequence inside the window would mean a decoder in the
-// render process, which is a different piece of software — so there is
-// no play button pretending otherwise.
+// What is real and what is not, said once, here:
+//
+//   - the CEF build this window runs on has no H.264 and no AAC, so
+//     an mp4 does not play in it and a WebM does. Rather than refuse
+//     most footage, ffmpeg builds a preview proxy of such a file once
+//     and the monitor plays that; the render always uses the original;
+//   - the monitor is a `<video>` playing the file off disk. Play,
+//     pause, stop, seek, frame stepping, in and out points, volume and
+//     the keyboard are all that element, driven from Rust;
+//   - playing past a clip's out-point moves to the next clip and keeps
+//     going, so the sequence plays as the cut — but the hand-off is a
+//     reload of the element, so there is a gap of a frame or two at
+//     each cut that the rendered file does not have;
+//   - J cannot be reverse play. Chromium refuses a negative
+//     `playbackRate`, so J steps a second back and pauses, and the
+//     shortcut line says so;
+//   - the colour filter is previewed only where the preview is honest.
+//     `bw` is `grayscale(1)`, which is what `format=gray` does. Warm
+//     and cool are `colortemperature` in ffmpeg and CSS has no such
+//     thing, so the panel says they are applied at render instead of
+//     showing an approximation that is not the result;
+//   - there are no waveforms and no thumbnails along the track. Both
+//     are real work and neither is faked here.
+//
+// The still that `ffmpeg` can extract is kept for one job: the monitor
+// when Chromium cannot decode the file. That is a real fallback rather
+// than a second preview.
 
 let mut clips: Vec<ffmpeg::Clip> = Vec::new();
 let mut selected: usize = 0;
-// Seconds after the selected clip's in-point.
-let mut playhead: f64 = 0.0;
 let mut typed: String = String::new();
 let mut status: String = String::new();
 
-// The preview, and the two counters that drive it. A number asked for
-// and a number drawn, rather than a boolean: the frame is decoded by a
-// task, and a boolean would have lost the clicks that arrived while it
-// was decoding.
-let mut frame: String = String::new();
-let mut want_frame: u64 = 0;
-let mut drawn_frame: u64 = 0;
+// Written by the natives in `src/main.rs`, from the element itself:
+// where the video is, whether it is moving, whether it decoded at all,
+// and the last key the window saw.
+let mut played: f64 = 0.0;
+let mut paused: bool = true;
+let mut decodes: bool = true;
+let mut pressed: String = String::new();
+let mut presses: u64 = 0;
 
-// The same pair for the render, plus where it goes — the destination is
-// chosen in the click, because a file dialog belongs to the gesture
-// that asked for it.
+// What the element is told to do next, read by the transport script.
+// The counter is in the string so that the same command twice over is
+// still two commands.
+let mut command: String = String::new();
+let mut issued: u64 = 0;
+
+let mut volume: f64 = 1.0;
+let mut muted: bool = false;
+let mut rate: f64 = 1.0;
+
+// The fallback still, and the two counters that drive it. A number
+// asked for and a number drawn, rather than a boolean: ffmpeg is a
+// process, and a boolean would have lost what arrived while it ran.
+// Whether a preview proxy is being built right now, and for which
+// file — see `Picture`.
+let mut building: bool = false;
+
+let mut still: String = String::new();
+let mut want_still: u64 = 0;
+let mut drawn_still: u64 = 0;
+
+// The render, plus where it goes — the destination is chosen in the
+// click, because a file dialog belongs to the gesture that asked for
+// it.
 let mut want_render: u64 = 0;
 let mut done_render: u64 = 0;
 let mut target: String = String::new();
@@ -37,40 +81,78 @@ let mut progress: f64 = 0.0;
 let mut output: String = String::new();
 
 fn Page() -> Element {
-    // One task, two programs. It belongs to the page, so it stops when
-    // the page goes; it waits rather than polls hard, because the work
-    // it does is starting processes.
+    // One task: the proxy, the still and the render — the three
+    // things that are an ffmpeg process. It belongs to the page, so it
+    // stops when the page goes.
+    //
+    // Everything in here reads the page's values directly and calls no
+    // function of this file. That is not a style: this runs on the
+    // runtime's own thread, and a plain function that names a value by
+    // its name looks it up in the store of the thread it is on — which
+    // is not the one that draws, so it finds an empty one. Reading
+    // `clips` here is a handle the component captured, and that one
+    // goes to where the value really is. It cost an afternoon.
     async move {
         loop {
-            rustx::time::sleep(std::time::Duration::from_millis(90)).await;
+            rustx::time::sleep(std::time::Duration::from_millis(50)).await;
+
+            let held = clips.clone();
+            let here = selected.min(held.len().saturating_sub(1));
 
             let Ok(tools) = ffmpeg::tools() else {
                 continue;
             };
 
-            if drawn_frame != want_frame {
-                let wanted = want_frame;
-                let held = clips.clone();
-                match held.get(selected.min(held.len().saturating_sub(1))) {
-                    None => frame = String::new(),
+            // Something to look at straight away, and the whole of the
+            // monitor until the proxy below is written: one frame,
+            // drawn by ffmpeg at the playhead. It goes first because
+            // building the proxy is awaited, and a minute of black is
+            // not an interface.
+            if !decodes && drawn_still != want_still {
+                let wanted = want_still;
+                match held.get(here) {
+                    None => still = String::new(),
                     Some(clip) => {
-                        let at = (clip.start + playhead).min(clip.end).max(clip.start);
-                        let file = beside(&format!("frame-{wanted}.jpg"));
-                        match ffmpeg::extract(&tools.ffmpeg, clip, at, &file).await {
+                        let file = beside(&format!("still-{wanted}.jpg"));
+                        match ffmpeg::extract(&tools.ffmpeg, clip, played, &file).await {
                             Ok(()) => {
                                 let _ = std::fs::remove_file(beside(&format!(
-                                    "frame-{drawn_frame}.jpg"
+                                    "still-{drawn_still}.jpg"
                                 )));
-                                frame = shown(&file);
+                                still = as_url(&file);
                             }
                             Err(why) => {
-                                frame = String::new();
+                                still = String::new();
                                 status = why;
                             }
                         }
                     }
                 }
-                drawn_frame = wanted;
+                drawn_still = wanted;
+            }
+
+            // The window refused this file and there is no proxy for
+            // it yet: build one. It is the whole file through ffmpeg,
+            // so it takes a while on a long clip and says so while it
+            // runs.
+            let wanting = held.get(here).filter(|_| !decodes && !building);
+            if let Some(clip) = wanting {
+                let proxy = beside(&ffmpeg::proxy_name(&clip.media.path));
+                if !proxy.is_file() {
+                    building = true;
+                    progress = 0.0;
+                    status = format!(
+                        "{} cannot be played by this window. ffmpeg is building a preview proxy of it; the render uses the original file.",
+                        clip.name
+                    );
+                    let plan = ffmpeg::proxy_plan(&clip.media, &proxy);
+                    match ffmpeg::run(&tools.ffmpeg, &plan, |done| progress = done).await {
+                        Ok(()) => status = String::new(),
+                        Err(why) => status = why,
+                    }
+                    progress = 0.0;
+                    building = false;
+                }
             }
 
             if done_render != want_render {
@@ -85,7 +167,7 @@ fn Page() -> Element {
                         // discovered when the file is played.
                         let silent = match plan.audio {
                             true => String::new(),
-                            false => "the output is silent: one clip has no audio stream, so \
+                            false => "The render is silent: one clip has no audio stream, so \
                                       the sequence cannot carry sound."
                                 .to_string(),
                         };
@@ -108,19 +190,207 @@ fn Page() -> Element {
         }
     };
 
-    return <div style={{ fontFamily: "Segoe UI, system-ui, sans-serif", padding: "24px", backgroundColor: "#0a0a0f", color: "#eceef5", minHeight: "100vh" }}>
-        <h1 style={{ margin: "0 0 4px", fontSize: "22px" }}>Altlassian Raw</h1>
-        <p style={{ margin: "0 0 18px", fontSize: "13px", color: "#8f93ad" }}>
-            cut, trim, colour, subtitle — over ffmpeg, on your own files.
-        </p>
-
+    return <div className="flex h-screen flex-col overflow-hidden bg-chrome text-text">
+        {Keys()}
+        {Toolbar()}
         {Tooling()}
-        {Open()}
-        {Timeline()}
-        {Preview()}
-        {Editor()}
-        {Render()}
-        {Said()}
+        <div className="flex min-h-0 flex-1">
+            <div className="flex min-w-0 flex-1 flex-col">
+                {Monitor()}
+                {Sequence()}
+            </div>
+            {Controls()}
+        </div>
+        {StatusBar()}
+    </div>;
+}
+
+// The keyboard, consumed where it can be acted on.
+//
+// The native in `src/main.rs` writes the key's name and bumps a
+// counter, and nothing more: deciding what a key means needs the
+// clips, the trim and the frame rate, and those are reachable by name
+// only from the thread that draws. So a component does it — this one,
+// which draws nothing. Writing state while rendering asks for one more
+// render, which is exactly what a key press should cause anyway.
+fn Keys() -> Element {
+    effect(presses, move || act(pressed.clone()));
+    // Twenty times a second at most, and only while something plays:
+    // the number it watches is the playhead, rounded.
+    effect((played * 20.0) as u64, move || carry_on());
+
+    return <span></span>;
+}
+
+// Playing past a clip's out-point: on to the next one, or stop. This
+// is what makes the timeline play as a cut rather than as one file.
+//
+// It is an effect and not part of the task for the reason the task's
+// own comment gives: this needs `clips` by name, and a name only finds
+// the page's values on the thread that draws.
+fn carry_on() {
+    if paused {
+        return;
+    }
+    let held = clips.clone();
+    let here = selected.min(held.len().saturating_sub(1));
+    let Some(clip) = held.get(here) else {
+        return;
+    };
+    if played < clip.end - 0.05 {
+        return;
+    }
+    match held.get(here + 1) {
+        Some(next) => {
+            let at = next.start;
+            selected = here + 1;
+            played = at;
+            tell(format!("start:{at:.3}"));
+        }
+        None => tell("pause".to_string()),
+    }
+}
+
+// ---- the icons --------------------------------------------------------
+
+// Lucide (https://lucide.dev), under the ISC licence, with the geometry
+// copied rather than the package installed: fifteen icons is fifteen
+// `d` attributes, and the alternative was a dependency for a kilobyte
+// of path data. The set's own conventions are kept — a 24 by 24 box, no
+// fill, `currentColor`, two units of stroke, round caps — so an icon
+// takes its size and its colour from whatever holds it.
+fn Glyph(name: String) -> Element {
+    let shape: Vec<Element> = match name.as_str() {
+        "film" => vec![
+            Line("M7 3v18".to_string()),
+            Line("M3 7.5h4".to_string()),
+            Line("M3 12h18".to_string()),
+            Line("M3 16.5h4".to_string()),
+            Line("M17 3v18".to_string()),
+            Line("M17 7.5h4".to_string()),
+            Line("M17 16.5h4".to_string()),
+            Box("2".to_string(), "3".to_string(), "20".to_string(), "18".to_string()),
+        ],
+        "monitor" => vec![
+            Box("2".to_string(), "3".to_string(), "20".to_string(), "14".to_string()),
+            Line("M8 21h8".to_string()),
+            Line("M12 17v4".to_string()),
+        ],
+        "sliders" => vec![
+            Line("M21 4h-7".to_string()),
+            Line("M10 4H3".to_string()),
+            Line("M21 12h-9".to_string()),
+            Line("M8 12H3".to_string()),
+            Line("M21 20h-5".to_string()),
+            Line("M12 20H3".to_string()),
+            Line("M14 2v4".to_string()),
+            Line("M8 10v4".to_string()),
+            Line("M16 18v4".to_string()),
+        ],
+        "download" => vec![
+            Line("M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4".to_string()),
+            Line("m7 10 5 5 5-5".to_string()),
+            Line("M12 15V3".to_string()),
+        ],
+        "folder-open" => vec![Line(
+            "m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 \
+             1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 \
+             2 0 0 1 2 2v2"
+                .to_string(),
+        )],
+        "plus" => vec![Line("M5 12h14".to_string()), Line("M12 5v14".to_string())],
+        "chevron-left" => vec![Line("m15 18-6-6 6-6".to_string())],
+        "chevron-right" => vec![Line("m9 18 6-6-6-6".to_string())],
+        "trash" => vec![
+            Line("M3 6h18".to_string()),
+            Line("M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6".to_string()),
+            Line("M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2".to_string()),
+            Line("M10 11v6".to_string()),
+            Line("M14 11v6".to_string()),
+        ],
+        "play" => vec![Line("M6 3v18l14-9z".to_string())],
+        "pause" => vec![
+            Box("6".to_string(), "4".to_string(), "4".to_string(), "16".to_string()),
+            Box("14".to_string(), "4".to_string(), "4".to_string(), "16".to_string()),
+        ],
+        "stop" => vec![Box(
+            "4".to_string(),
+            "4".to_string(),
+            "16".to_string(),
+            "16".to_string(),
+        )],
+        "skip-back" => vec![
+            Line("M19 20 9 12l10-8z".to_string()),
+            Line("M5 19V5".to_string()),
+        ],
+        "skip-forward" => vec![
+            Line("M5 4l10 8-10 8z".to_string()),
+            Line("M19 5v14".to_string()),
+        ],
+        "volume" => vec![
+            Line("M11 5 6 9H2v6h4l5 4z".to_string()),
+            Line("M15.54 8.46a5 5 0 0 1 0 7.07".to_string()),
+            Line("M19.07 4.93a10 10 0 0 1 0 14.14".to_string()),
+        ],
+        "muted" => vec![
+            Line("M11 5 6 9H2v6h4l5 4z".to_string()),
+            Line("m22 9-6 6".to_string()),
+            Line("m16 9 6 6".to_string()),
+        ],
+        _ => vec![Line("M12 3a9 9 0 1 0 9 9".to_string())],
+    };
+
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+        strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+        className="h-3.5 w-3.5 shrink-0">{shape}</svg>;
+}
+
+fn Line(d: String) -> Element {
+    return <path d={d} />;
+}
+
+fn Box(x: String, y: String, width: String, height: String) -> Element {
+    return <rect x={x} y={y} width={width} height={height} rx="1" />;
+}
+
+// ---- the frame around everything --------------------------------------
+
+// A panel's title: an icon, ten pixels of upper case, and a hairline
+// under it. Four panels wear it, which is why it is a function.
+fn PanelTitle(icon: String, name: String, aside: String) -> Element {
+    return <div className="flex h-7 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
+        <span className="flex items-center gap-1.5 text-muted">
+            {Glyph(icon)}
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em]">{name}</span>
+        </span>
+        <span className="truncate text-[10px] tabular-nums text-faint">{aside}</span>
+    </div>;
+}
+
+fn Toolbar() -> Element {
+    let button = "flex h-6 items-center gap-1.5 border border-line bg-track px-2 text-[11px] \
+                  text-text hover:border-faint hover:text-white";
+
+    return <div className="flex h-10 shrink-0 items-center gap-2 border-b border-line bg-panel px-3">
+        <span className="flex items-center gap-2 pr-1 text-white">
+            {Glyph("film".to_string())}
+            <span className="text-[12px] font-semibold tracking-tight">Altlassian Raw</span>
+        </span>
+        <span className="h-4 w-px bg-line"></span>
+        <button id="open" onClick={move |_| open_files()} className={button.to_string()}>
+            {Glyph("folder-open".to_string())}
+            <span>Import media…</span>
+        </button>
+        <input id="typed" placeholder="or paste a file path"
+            value={typed.clone()}
+            onInput={move |event| typed = event.value}
+            className="h-6 w-72 border border-line bg-chrome px-2 text-[11px] text-text placeholder:text-faint focus:border-accent focus:outline-none" />
+        <button id="add-typed" onClick={move |_| add_typed()} className={button.to_string()}>
+            {Glyph("plus".to_string())}
+            <span>Add</span>
+        </button>
+        <span className="flex-1"></span>
+        <span className="text-[10px] uppercase tracking-[0.14em] text-faint">{sequence_label()}</span>
     </div>;
 }
 
@@ -132,235 +402,620 @@ fn Tooling() -> Element {
         return <span></span>;
     };
 
-    return <div id="no-ffmpeg" style={{ border: "1px solid #7f1d1d", backgroundColor: "#1b0f12", borderRadius: "10px", padding: "14px", marginBottom: "18px", fontSize: "12px", lineHeight: "1.6", color: "#fca5a5" }}>
+    return <div id="no-ffmpeg" className="shrink-0 border-b border-danger/40 bg-danger/10 px-3 py-2 text-[11px] leading-relaxed text-danger">
         {why.clone()}
     </div>;
 }
 
-fn Open() -> Element {
-    let button = "padding: 7px 14px; background-color: #1c2030; color: #eceef5; \
-                  border: 1px solid #2a3147; border-radius: 6px; cursor: pointer; font-size: 12px";
+// ---- the monitor ------------------------------------------------------
 
-    return <div style={{ display: "flex", gap: "8px", marginBottom: "14px", alignItems: "center" }}>
-        <button id="open" onClick={move |_| open_files()} style={button.to_string()}>open video files…</button>
-        <input id="typed" placeholder="…or paste a path and press add"
-            value={typed.clone()}
-            onInput={move |event| typed = event.value}
-            style={{ flex: "1", padding: "7px", backgroundColor: "#11131c", border: "1px solid #1c2030", color: "#eceef5", borderRadius: "6px", fontSize: "12px" }} />
-        <button id="add-typed" onClick={move |_| add_typed()} style={button.to_string()}>add</button>
+fn Monitor() -> Element {
+    return <div className="flex min-h-0 flex-1 flex-col bg-panel">
+        {PanelTitle("monitor".to_string(), "Program monitor".to_string(), monitor_clock())}
+        <div className="flex min-h-0 flex-1 items-center justify-center bg-black p-3">
+            {Picture()}
+        </div>
+        {Scrub()}
+        {Transport()}
     </div>;
 }
 
-fn Timeline() -> Element {
-    if clips.is_empty() {
-        return <div id="timeline" style={{ border: "1px dashed #1c2030", borderRadius: "8px", padding: "18px", marginBottom: "18px", fontSize: "12px", color: "#5f6480" }}>
-            nothing on the timeline yet.
+fn Picture() -> Element {
+    let Some(clip) = clip_at(selected) else {
+        return <div id="preview" className="max-w-md text-center text-[11px] leading-relaxed text-faint">
+            {"No media. Import a file and it lands on the timeline — the monitor then plays that file, with its sound, off your disk."}
+        </div>;
+    };
+
+    // A proxy, once there is one: it stays the source from then on,
+    // because switching back to a file the window refuses would start
+    // the same refusal again on every frame.
+    let proxy = beside(&ffmpeg::proxy_name(&clip.media.path));
+    if proxy.is_file() {
+        let paint = css_look(clip.look.clone());
+        return <video id="monitor" src={as_url(&proxy)} data-cmd={command.clone()}
+            preload="auto" className="max-h-full max-w-full object-contain" style={paint}>
+        </video>;
+    }
+
+    // Refused, and no proxy yet: a frame ffmpeg drew, and a line
+    // saying what is happening rather than a black rectangle.
+    if !decodes {
+        return <div className="flex h-full w-full flex-col items-center justify-center gap-2">
+            {if still.is_empty() {
+                <span className="text-[11px] text-faint">{"Drawing a frame with ffmpeg…"}</span>
+            } else {
+                <img id="preview" src={still.clone()} className="max-h-full max-w-full object-contain" />
+            }}
+            <span className="max-w-md text-center text-[10px] leading-relaxed text-danger">
+                {"This window cannot decode that file — it has no H.264. ffmpeg is making a preview proxy of it; until that is done the monitor is one frame at a time. The render uses the original."}
+            </span>
         </div>;
     }
 
-    let total: f64 = clips.iter().map(|clip| clip.length()).sum::<f64>().max(0.001);
-    return <div id="timeline" style={{ display: "flex", gap: "2px", height: "56px", marginBottom: "14px", borderRadius: "8px", overflow: "hidden" }}>
-        {clips.iter().enumerate().map(|(index, clip)| ClipBlock(index, clip.clone(), total)).collect::<Vec<_>>()}
+    let paint = css_look(clip.look.clone());
+    return <video id="monitor" src={as_url(&clip.media.path)} data-cmd={command.clone()}
+        preload="auto" className="max-h-full max-w-full object-contain" style={paint}>
+    </video>;
+}
+
+// The look, where CSS can say the same thing ffmpeg will do. See the
+// note at the top of this file for the two it cannot.
+fn css_look(look: String) -> String {
+    match look.as_str() {
+        "bw" => "filter: grayscale(1)".to_string(),
+        _ => String::new(),
+    }
+}
+
+// Where the playhead is inside the selected clip's cut. Dragging it
+// seeks the file, which is the same thing clicking the ruler does.
+fn Scrub() -> Element {
+    let Some(clip) = clip_at(selected) else {
+        return <div className="h-9 shrink-0 border-t border-line"></div>;
+    };
+
+    return <div className="flex h-9 shrink-0 items-center gap-3 border-t border-line px-3">
+        <span className="shrink-0 text-[11px] tabular-nums text-faint">{clock(clip.start)}</span>
+        <input id="playhead" type="range" min={clip.start.to_string()} max={clip.end.to_string()}
+            step="0.01" value={played.clamp(clip.start, clip.end).to_string()}
+            onInput={move |event| seek(event.number().unwrap_or(0.0))} />
+        <span className="shrink-0 text-[11px] tabular-nums text-faint">{clock(clip.end)}</span>
+    </div>;
+}
+
+fn Transport() -> Element {
+    let has = !clips.is_empty();
+    let times = rate;
+    let speed = match times == 1.0 {
+        true => String::new(),
+        false => format!("{times:.0}×"),
+    };
+
+    return <div className="flex h-10 shrink-0 items-center gap-1 border-t border-line px-3">
+        {Key("skip-back".to_string(), "Go to in point (Home)".to_string(), "to-in".to_string(), has, "home".to_string())}
+        {Key("chevron-left".to_string(), "Previous frame (left arrow)".to_string(), "frame-back".to_string(), has, "left".to_string())}
+        {PlayKey(has)}
+        {Key("chevron-right".to_string(), "Next frame (right arrow)".to_string(), "frame-on".to_string(), has, "right".to_string())}
+        {Key("skip-forward".to_string(), "Go to out point (End)".to_string(), "to-out".to_string(), has, "end".to_string())}
+        {Key("stop".to_string(), "Stop and return to the in point".to_string(), "stop".to_string(), has, "stop".to_string())}
+
+        <span className="w-8 pl-1 text-[10px] tabular-nums text-accent">{speed}</span>
+        <span className="flex-1"></span>
+
+        <span className="text-[11px] tabular-nums text-white">{clock(played)}</span>
+        <span className="pl-1 text-[11px] tabular-nums text-faint">{format!("/ {}", clock(out_of(selected)))}</span>
+
+        <span className="mx-2 h-4 w-px bg-line"></span>
+        {Key(
+            if muted { "muted".to_string() } else { "volume".to_string() },
+            "Mute (M)".to_string(),
+            "mute".to_string(),
+            has,
+            "m".to_string(),
+        )}
+        <input id="volume" type="range" min="0" max="1" step="0.05" value={volume.to_string()}
+            onInput={move |event| set_volume(event.number().unwrap_or(1.0))}
+            className="w-20" />
+    </div>;
+}
+
+// One transport button. Every one of them is an icon with no text, so
+// every one of them carries its name for a screen reader and for the
+// tooltip — which is also where the keyboard shortcut is written.
+fn Key(icon: String, name: String, id: String, enabled: bool, does: String) -> Element {
+    let style = format!(
+        "flex h-7 w-8 items-center justify-center border border-line bg-track {}",
+        match enabled {
+            true => "text-text hover:border-faint hover:text-white",
+            false => "text-[#3f424b]",
+        }
+    );
+
+    return <button id={id} className={style} title={name.clone()} aria-label={name}
+        onClick={move |_| {
+            if enabled {
+                act(does.clone());
+            }
+        }}>{Glyph(icon)}</button>;
+}
+
+// Play and pause are one button, because they are one thing.
+fn PlayKey(enabled: bool) -> Element {
+    let style = format!(
+        "flex h-7 w-10 items-center justify-center border {}",
+        match (enabled, paused) {
+            (false, _) => "border-line bg-track text-[#3f424b]",
+            (true, true) => "border-accent bg-accent text-white",
+            (true, false) => "border-accent bg-accent-soft text-white",
+        }
+    );
+    let name = match paused {
+        true => "Play (space)".to_string(),
+        false => "Pause (space)".to_string(),
+    };
+
+    return <button id="play" className={style} title={name.clone()} aria-label={name}
+        onClick={move |_| {
+            if enabled {
+                act("space".to_string());
+            }
+        }}>
+        {Glyph(if paused { "play".to_string() } else { "pause".to_string() })}
+    </button>;
+}
+
+// ---- the timeline -----------------------------------------------------
+
+fn Sequence() -> Element {
+    return <div className="flex h-[186px] shrink-0 flex-col border-t border-line bg-panel">
+        {PanelTitle("film".to_string(), "Timeline".to_string(), sequence_label())}
+        <div className="min-h-0 flex-1 overflow-hidden px-3 pb-3">
+            {Ruler()}
+            {Track()}
+        </div>
+    </div>;
+}
+
+// Eleven marks across the sequence, labelled in timecode, and each one
+// seeks when it is clicked. Computed from the real total rather than
+// drawn as a decoration: the numbers under the clips are where those
+// clips are.
+fn Ruler() -> Element {
+    let total = sequence_seconds();
+    let marks: Vec<Element> = (0..11)
+        .map(|step| {
+            let at = total * f64::from(step) / 10.0;
+            Mark(step, clock(at), at)
+        })
+        .collect();
+
+    return <div className="flex h-5 items-end border-b border-line">{marks}</div>;
+}
+
+fn Mark(step: i32, label: String, at: f64) -> Element {
+    let last = step == 10;
+    let place = match last {
+        true => "flex-1 pr-0 text-right",
+        false => "flex-1 border-l border-line pl-1",
+    };
+    let style = format!("{place} cursor-pointer text-[9px] tabular-nums text-faint hover:text-text");
+
+    return <div key={step.to_string()} className={style} onClick={move |_| seek_sequence(at)}>{label}</div>;
+}
+
+fn Track() -> Element {
+    if clips.is_empty() {
+        return <div className="mt-2 flex h-20 items-center justify-center border border-dashed border-line bg-track text-[11px] text-faint">
+            {"V1 — empty. Imported files land here in the order they arrive."}
+        </div>;
+    }
+
+    let total = sequence_seconds();
+    let blocks: Vec<Element> = clips
+        .iter()
+        .enumerate()
+        .map(|(index, clip)| ClipBlock(index, clip.clone(), total))
+        .collect();
+
+    return <div className="relative mt-2 flex h-20 gap-px bg-track">
+        {blocks}
+        {Playhead()}
     </div>;
 }
 
 fn ClipBlock(index: usize, clip: ffmpeg::Clip, total: f64) -> Element {
     let active = selected == index;
     // A clip's width is its real trimmed share of the sequence, so the
-    // declaration is computed rather than written as an object of
-    // literals.
-    let block = format!(
-        "width: {:.3}%; min-width: 48px; color: #eceef5; display: flex; flex-direction: column; \
-         align-items: center; justify-content: center; font-size: 11px; cursor: pointer; \
-         overflow: hidden; background-color: {}; border: 2px solid {}",
-        (clip.length() / total) * 100.0,
-        if active { "#4338ca" } else { "#1c2030" },
-        if active { "#818cf8" } else { "transparent" }
+    // declaration is computed rather than written as a class.
+    let box_style = format!("width: {:.3}%", (clip.length() / total) * 100.0);
+    let skin = match active {
+        true => "border border-accent bg-accent-soft",
+        false => "border border-line bg-[#1d1c24] hover:border-faint",
+    };
+    let frame_style = format!(
+        "relative flex min-w-[46px] cursor-pointer flex-col justify-between overflow-hidden px-2 py-1.5 {skin}"
     );
+    // The left accent is the clip's colour filter, which is the one
+    // thing about a clip you want to read at a glance on a track.
+    let accent = format!("absolute left-0 top-0 h-full w-[3px] {}", match clip.look.as_str() {
+        "warm" => "bg-[#e0a46c]",
+        "cool" => "bg-[#6ca8e0]",
+        "bw" => "bg-[#9aa0ab]",
+        _ => "bg-[#3a3844]",
+    });
+    let start = clip.start;
 
-    return <div key={index.to_string()} className="clip" onClick={move |_| {
-        selected = index;
-        playhead = 0.0;
-        want_frame += 1;
-    }} style={block}>
-        <span>{clip.name.clone()}</span>
-        <span style={{ fontSize: "10px", color: "#b9bed6" }}>{format!("{:.1}s", clip.length())}</span>
+    return <div key={index.to_string()} className={frame_style} style={box_style}
+        onClick={move |_| {
+            selected = index;
+            played = start;
+            want_still += 1;
+            tell(format!("seek:{start:.3}"));
+        }}>
+        <span className={accent}></span>
+        <span className="truncate pl-2 text-[11px] text-text">{clip.name.clone()}</span>
+        <span className="truncate pl-2 text-[10px] tabular-nums text-faint">
+            {format!("{} – {}", clock(clip.start), clock(clip.end))}
+        </span>
     </div>;
 }
 
-fn Preview() -> Element {
-    let box_style = "height: 300px; display: flex; align-items: center; justify-content: center; \
-                     background-color: #07070b; border: 1px solid #1c2030; border-radius: 10px; \
-                     margin-bottom: 14px; overflow: hidden; color: #5f6480; font-size: 12px";
+// Where the playhead is across the whole sequence: the cuts before the
+// selected clip, plus how far into it we are.
+fn Playhead() -> Element {
+    let at = (sequence_position() / sequence_seconds() * 100.0).clamp(0.0, 100.0);
 
-    if frame.is_empty() {
-        return <div id="preview" style={box_style.to_string()}>
-            {if clips.is_empty() { "the preview is one real frame, decoded by ffmpeg — open a file" } else { "decoding a frame…" }}
+    return <span className="pointer-events-none absolute top-0 h-full w-px bg-accent" style={format!("left: {at:.3}%")}></span>;
+}
+
+// ---- the right-hand column --------------------------------------------
+
+fn Controls() -> Element {
+    return <div className="flex w-[300px] shrink-0 flex-col border-l border-line bg-panel">
+        {Effects()}
+        {Export()}
+    </div>;
+}
+
+fn Effects() -> Element {
+    let Some(clip) = clip_at(selected) else {
+        return <div className="flex min-h-0 flex-1 flex-col">
+            {PanelTitle("sliders".to_string(), "Effect controls".to_string(), String::new())}
+            <p className="p-3 text-[11px] leading-relaxed text-faint">
+                {"Nothing is selected. Import a file, then trim it here and give it a colour and a subtitle."}
+            </p>
         </div>;
-    }
-
-    // A `file://` URL, which this page is allowed to load: the engine
-    // runs with `allow-file-access-from-files`. The file name carries
-    // the counter, so the browser never shows a cached older frame.
-    return <div id="preview" style={box_style.to_string()}>
-        <img src={frame.clone()} style={{ maxHeight: "100%", maxWidth: "100%" }} />
-    </div>;
-}
-
-fn Editor() -> Element {
-    if clips.is_empty() {
-        return <span></span>;
-    }
+    };
     let index = selected.min(clips.len() - 1);
-    let clip = clips[index].clone();
-    let span = clip.length();
 
-    return <div style={{ border: "1px solid #1c2030", borderRadius: "10px", padding: "16px", backgroundColor: "#11131c", marginBottom: "18px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "12px" }}>
-            <h2 id="clip-name" style={{ margin: "0", fontSize: "13px", color: "#9499b8" }}>{clip.name.clone()}</h2>
-            <span id="clip-media" style={{ fontSize: "11px", color: "#5f6480" }}>
+    return <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {PanelTitle("sliders".to_string(), "Effect controls".to_string(), format!("clip {}", index + 1))}
+
+        <div className="border-b border-line px-3 py-2">
+            <div id="clip-name" className="truncate text-[12px] text-white">{clip.name.clone()}</div>
+            <div id="clip-media" className="truncate pt-0.5 text-[10px] tabular-nums text-faint">
                 {format!(
-                    "{:.2}s · {}×{} · {:.2} fps · {}",
-                    clip.media.duration,
+                    "{}×{} · {:.2} fps · {} · {}",
                     clip.media.width,
                     clip.media.height,
                     clip.media.fps,
-                    if clip.media.audio { "sound" } else { "no sound" }
+                    clock(clip.media.duration),
+                    if clip.media.audio { "audio" } else { "no audio" }
                 )}
-            </span>
+            </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-            <label style={{ fontSize: "12px", color: "#8f93ad" }}>
-                trim in ({format!("{:.2}s", clip.start)})
-                <input type="range" min="0" max={clip.media.duration.to_string()} step="0.04" value={clip.start.to_string()}
-                    onInput={move |event| edit(index, |clip| {
-                        clip.start = event.number().unwrap_or(0.0).min(clip.end - 0.04).max(0.0);
-                    })}
-                    style={{ width: "100%" }} />
-            </label>
-            <label style={{ fontSize: "12px", color: "#8f93ad" }}>
-                trim out ({format!("{:.2}s", clip.end)})
-                <input type="range" min="0" max={clip.media.duration.to_string()} step="0.04" value={clip.end.to_string()}
-                    onInput={move |event| edit(index, |clip| {
-                        let duration = clip.media.duration;
-                        clip.end = event.number().unwrap_or(duration).max(clip.start + 0.04).min(duration);
-                    })}
-                    style={{ width: "100%" }} />
-            </label>
+        <div className="border-b border-line px-3 py-2">
+            {Trim("In".to_string(), clock(clip.start), clip.media.duration, clip.start, "in".to_string(), index)}
+            {Trim("Out".to_string(), clock(clip.end), clip.media.duration, clip.end, "out".to_string(), index)}
+            <div className="flex items-baseline justify-between pt-1">
+                <span className="text-[10px] uppercase tracking-[0.14em] text-faint">Duration</span>
+                <span className="text-[11px] tabular-nums text-muted">{clock(clip.length())}</span>
+            </div>
+            <div className="flex gap-1 pt-2">
+                {Mark_("Set in (I)".to_string(), "set-in".to_string(), "i".to_string())}
+                {Mark_("Set out (O)".to_string(), "set-out".to_string(), "o".to_string())}
+            </div>
         </div>
 
-        <label style={{ fontSize: "12px", color: "#8f93ad", display: "block", marginTop: "14px" }}>
-            {format!("playhead ({:.2}s into the cut)", playhead)}
-            <input id="playhead" type="range" min="0" max={span.to_string()} step="0.04" value={playhead.to_string()}
-                onInput={move |event| {
-                    playhead = event.number().unwrap_or(0.0);
-                    want_frame += 1;
+        <div className="border-b border-line px-3 py-2">
+            <div className="pb-1.5 text-[10px] uppercase tracking-[0.14em] text-faint">Colour</div>
+            <div className="flex gap-1">
+                {FilterButton(index, "none".to_string(), clip.look.clone())}
+                {FilterButton(index, "warm".to_string(), clip.look.clone())}
+                {FilterButton(index, "cool".to_string(), clip.look.clone())}
+                {FilterButton(index, "bw".to_string(), clip.look.clone())}
+            </div>
+            <div className="truncate pt-1.5 font-mono text-[10px] text-faint">
+                {match ffmpeg::look_filter(&clip.look) {
+                    "" => "no filter".to_string(),
+                    filter => filter.to_string(),
                 }}
-                style={{ width: "100%" }} />
-        </label>
-
-        <div style={{ display: "flex", gap: "10px", marginTop: "14px", alignItems: "center" }}>
-            <span style={{ fontSize: "12px", color: "#8f93ad" }}>colour</span>
-            {FilterButton(index, "none".to_string(), clip.look.clone())}
-            {FilterButton(index, "warm".to_string(), clip.look.clone())}
-            {FilterButton(index, "cool".to_string(), clip.look.clone())}
-            {FilterButton(index, "bw".to_string(), clip.look.clone())}
-            <span style={{ fontSize: "10px", color: "#5f6480" }}>{ffmpeg::look_filter(&clip.look).to_string()}</span>
+            </div>
+            {LookNote(clip.look.clone())}
         </div>
 
-        <input id="subtitle" placeholder="subtitle burned into this clip" value={clip.subtitle.clone()}
-            onInput={move |event| set_subtitle(index, event.value.clone())}
-            style={{ width: "100%", marginTop: "12px", padding: "7px", backgroundColor: "#0a0a0f", border: "1px solid #1c2030", color: "#eceef5", borderRadius: "6px" }} />
+        <div className="border-b border-line px-3 py-2">
+            <div className="pb-1.5 text-[10px] uppercase tracking-[0.14em] text-faint">Subtitle</div>
+            <input id="subtitle" placeholder="burned in by ffmpeg" value={clip.subtitle.clone()}
+                onInput={move |event| set_subtitle(index, event.value.clone())}
+                className="h-6 w-full border border-line bg-chrome px-2 text-[11px] text-text placeholder:text-faint focus:border-accent focus:outline-none" />
+        </div>
 
-        <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
-            {SmallButton("move left".to_string(), "move-left".to_string(), index > 0, -1)}
-            {SmallButton("move right".to_string(), "move-right".to_string(), index + 1 < clips.len(), 1)}
-            {SmallButton("remove".to_string(), "remove".to_string(), true, 0)}
+        <div className="flex gap-1 px-3 py-2">
+            {OrderButton("chevron-left".to_string(), "Move left".to_string(), "move-left".to_string(), index > 0, -1)}
+            {OrderButton("chevron-right".to_string(), "Move right".to_string(), "move-right".to_string(), index + 1 < clips.len(), 1)}
+            {OrderButton("trash".to_string(), "Remove".to_string(), "remove".to_string(), true, 0)}
         </div>
     </div>;
+}
+
+// Warm and cool are `colortemperature`, and CSS has nothing that does
+// that. Rather than show an approximation and let somebody believe it,
+// the panel says where the colour will appear.
+fn LookNote(look: String) -> Element {
+    if look != "warm" && look != "cool" {
+        return <span></span>;
+    }
+
+    return <p className="pt-1 text-[10px] leading-relaxed text-faint">
+        {"The monitor does not show this one: it is ffmpeg's colortemperature, and CSS has no equivalent. It is applied when you render."}
+    </p>;
+}
+
+// A trim control: the name on the left, the timecode on the right, the
+// slider under both.
+fn Trim(
+    name: String,
+    value: String,
+    duration: f64,
+    at: f64,
+    which: String,
+    index: usize,
+) -> Element {
+    return <label className="block pb-1.5">
+        <span className="flex items-baseline justify-between">
+            <span className="text-[10px] uppercase tracking-[0.14em] text-faint">{name}</span>
+            <span className="text-[11px] tabular-nums text-muted">{value}</span>
+        </span>
+        <input type="range" min="0" max={duration.to_string()} step="0.04" value={at.to_string()}
+            onInput={move |event| {
+                let moved = event.number().unwrap_or(0.0);
+                edit(index, |clip| match which.as_str() {
+                    "in" => clip.start = moved.min(clip.end - 0.04).max(0.0),
+                    _ => clip.end = moved.max(clip.start + 0.04).min(clip.media.duration),
+                });
+            }} />
+    </label>;
+}
+
+// Set in / set out, from wherever the playhead is.
+fn Mark_(label: String, id: String, does: String) -> Element {
+    return <button id={id} onClick={move |_| act(does.clone())}
+        className="h-6 flex-1 border border-line bg-track text-[11px] text-muted hover:border-faint hover:text-text">
+        {label}
+    </button>;
 }
 
 fn FilterButton(index: usize, name: String, active_name: String) -> Element {
     let active = name == active_name;
     let apply = name.clone();
     let chip = format!(
-        "padding: 4px 10px; font-size: 11px; border-radius: 6px; color: #eceef5; \
-         cursor: pointer; border: 1px solid {}; background-color: {}",
-        if active { "#818cf8" } else { "#1c2030" },
-        if active { "#1a1f36" } else { "transparent" }
+        "h-6 flex-1 text-[11px] capitalize {}",
+        match active {
+            true => "border border-accent bg-accent-soft text-white",
+            false => "border border-line bg-track text-muted hover:border-faint hover:text-text",
+        }
     );
 
-    return <button className="look" onClick={move |_| {
+    return <button className={chip} onClick={move |_| {
         edit(index, |clip| clip.look = apply.clone())
-    }} style={chip}>{name}</button>;
+    }}>{name}</button>;
 }
 
 // The three that change the order of the sequence. `by` is where the
 // clip goes: one place left, one place right, or nowhere, which is the
 // one that removes it.
-fn SmallButton(label: String, id: String, enabled: bool, by: i64) -> Element {
+fn OrderButton(icon: String, label: String, id: String, enabled: bool, by: i64) -> Element {
     let style = format!(
-        "padding: 5px 10px; font-size: 11px; border-radius: 6px; border: 1px solid #2a3147; \
-         background-color: #171b28; color: {}; cursor: {}",
-        if enabled { "#eceef5" } else { "#4a4f66" },
-        if enabled { "pointer" } else { "default" }
+        "flex h-6 flex-1 items-center justify-center gap-1 border border-line bg-track text-[11px] {}",
+        match enabled {
+            true => "text-muted hover:border-faint hover:text-text",
+            false => "text-[#3f424b]",
+        }
     );
-    return <button id={id} onClick={move |_| {
-        if !enabled {
-            return;
-        }
-        match by {
-            0 => remove_clip(),
-            by => shift(by),
-        }
-    }} style={style}>{label}</button>;
+
+    return <button id={id} className={style} title={label.clone()} aria-label={label.clone()}
+        onClick={move |_| {
+            if !enabled {
+                return;
+            }
+            match by {
+                0 => remove_clip(),
+                by => shift(by),
+            }
+        }}>
+        {Glyph(icon)}
+        <span>{label}</span>
+    </button>;
 }
 
-fn Render() -> Element {
-    let filled = format!(
-        "height: 100%; width: {:.1}%; background-color: #818cf8; transition: width 120ms linear",
-        progress
-    );
+fn Export() -> Element {
+    let filled = format!("width: {:.1}%", progress);
+    let render = match rendering {
+        true => "flex h-7 w-full items-center justify-center gap-1.5 bg-accent-soft text-[11px] text-white",
+        false => "flex h-7 w-full items-center justify-center gap-1.5 bg-accent text-[11px] \
+                  font-semibold text-white hover:brightness-110",
+    };
 
-    return <div style={{ border: "1px solid #1c2030", borderRadius: "10px", padding: "16px", backgroundColor: "#11131c" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-            <h2 style={{ margin: "0", fontSize: "13px", color: "#9499b8" }}>render</h2>
-            <button id="render" onClick={move |_| start_render()} style={{ padding: "7px 14px", backgroundColor: "#4338ca", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer" }}>
-                {if rendering { "rendering…" } else { "render sequence" }}
+    return <div className="shrink-0 border-t border-line">
+        {PanelTitle("download".to_string(), "Export".to_string(), String::new())}
+        <div className="px-3 py-2">
+            <button id="render" onClick={move |_| start_render()} className={render.to_string()}>
+                {Glyph("download".to_string())}
+                <span>{if rendering { "Rendering…" } else { "Render sequence" }}</span>
             </button>
-        </div>
-        <div style={{ height: "10px", borderRadius: "5px", backgroundColor: "#1c2030", overflow: "hidden" }}>
-            <div id="progress" style={filled}></div>
-        </div>
-        {if output.is_empty() {
-            <p style={{ marginTop: "10px", fontSize: "11px", color: "#5f6480" }}>
-                {"the bar follows what ffmpeg itself reports as it writes, which is why it moves unevenly."}
-            </p>
-        } else {
-            <div style={{ marginTop: "10px", display: "flex", gap: "10px", alignItems: "center", fontSize: "12px" }}>
-                <span id="output" style={{ color: "#86efac" }}>{output.clone()}</span>
-                <button id="reveal" onClick={move |_| reveal_output()} style={{ padding: "4px 10px", fontSize: "11px", borderRadius: "6px", border: "1px solid #2a3147", backgroundColor: "#171b28", color: "#eceef5", cursor: "pointer" }}>show in folder</button>
+            <div className="mt-2 h-[3px] bg-track">
+                <div id="progress" className="h-full bg-accent" style={filled}></div>
             </div>
-        }}
+            {Written()}
+        </div>
     </div>;
 }
 
-// Whatever went wrong last, in the words of whatever refused.
-fn Said() -> Element {
-    if status.is_empty() {
-        return <span></span>;
+fn Written() -> Element {
+    if output.is_empty() {
+        return <p className="pt-2 text-[10px] leading-relaxed text-faint">
+            {"The bar follows what ffmpeg itself reports as it writes, which is why it moves unevenly."}
+        </p>;
     }
 
-    return <p id="status" style={{ marginTop: "14px", fontSize: "12px", lineHeight: "1.6", color: "#fca5a5", whiteSpace: "pre-wrap" }}>
-        {status.clone()}
-    </p>;
+    return <div className="pt-2">
+        <div id="output" className="truncate text-[10px] text-good">{output.clone()}</div>
+        <button id="reveal" onClick={move |_| reveal_output()}
+            className="mt-1.5 flex h-6 w-full items-center justify-center gap-1.5 border border-line bg-track text-[11px] text-muted hover:border-faint hover:text-text">
+            {Glyph("folder-open".to_string())}
+            <span>Show in folder</span>
+        </button>
+    </div>;
+}
+
+// The last refusal, and the keys — which is where somebody finds out
+// that there are any.
+fn StatusBar() -> Element {
+    let tone = match status.is_empty() {
+        true => "text-faint",
+        false => "text-danger",
+    };
+    let line = format!("flex h-6 shrink-0 items-center gap-3 border-t border-line bg-panel px-3 text-[10px] {tone}");
+
+    return <div className={line}>
+        <span id="status" className="truncate">{said()}</span>
+        <span className="flex-1"></span>
+        <span className="shrink-0 text-faint">
+            {"Space play · K pause · L faster · J a second back (Chromium cannot play in reverse) · ←/→ frame · shift+←/→ second · I/O in and out · Home/End · M mute"}
+        </span>
+    </div>;
+}
+
+// ---- what a key, or a transport button, means ------------------------
+
+// One place for both, because a transport button is a key with an icon
+// on it. Everything here is ordinary state; what reaches the element is
+// the command `tell` writes.
+fn act(what: String) {
+    let Some(clip) = clip_at(selected) else {
+        return;
+    };
+    let frame = match clip.media.fps > 1.0 {
+        true => 1.0 / clip.media.fps,
+        false => 1.0 / 25.0,
+    };
+
+    match what.as_str() {
+        "space" => match paused {
+            true => {
+                // From inside the cut: a playhead left outside it by a
+                // trim would otherwise play the part that was cut.
+                let at = played.clamp(clip.start, clip.end);
+                played = at;
+                tell(format!("start:{at:.3}"));
+            }
+            false => tell("pause".to_string()),
+        },
+        "k" => tell("pause".to_string()),
+        "l" => {
+            rate = match rate {
+                speed if speed >= 4.0 => 1.0,
+                speed => speed * 2.0,
+            };
+            let speed = rate;
+            tell(format!("rate:{speed:.2}"));
+            if paused {
+                tell(format!("start:{:.3}", played.clamp(clip.start, clip.end)));
+            }
+        }
+        // Not reverse play: Chromium refuses a negative playbackRate,
+        // so this is the honest half of J — stop, and a second back.
+        "j" => {
+            tell("pause".to_string());
+            seek(played - 1.0);
+        }
+        "left" => seek(played - frame),
+        "right" => seek(played + frame),
+        "shift-left" => seek(played - 1.0),
+        "shift-right" => seek(played + 1.0),
+        "home" => seek(clip.start),
+        "end" => seek(clip.end),
+        "stop" => {
+            tell("pause".to_string());
+            seek(clip.start);
+        }
+        "i" => edit(selected, |clip| {
+            clip.start = played.min(clip.end - 0.04).max(0.0)
+        }),
+        "o" => edit(selected, |clip| {
+            clip.end = played.max(clip.start + 0.04).min(clip.media.duration)
+        }),
+        "m" => {
+            muted = !muted;
+            tell(format!("volume:{:.2}", if muted { 0.0 } else { volume }));
+        }
+        _ => {}
+    }
+}
+
+// Move the playhead, inside the cut. The element is told, and the page
+// writes the value too rather than waiting for the report — a slider
+// that lags its own drag feels broken.
+fn seek(to: f64) {
+    let Some(clip) = clip_at(selected) else {
+        return;
+    };
+    let at = to.clamp(clip.start, clip.end);
+    played = at;
+    want_still += 1;
+    tell(format!("seek:{at:.3}"));
+}
+
+// A click on the ruler: a position in the whole sequence, which is a
+// clip and a time inside it.
+fn seek_sequence(at: f64) {
+    let mut passed = 0.0;
+    let held = clips.clone();
+    for (index, clip) in held.iter().enumerate() {
+        if at <= passed + clip.length() || index + 1 == held.len() {
+            let inside = clip.start + (at - passed).clamp(0.0, clip.length());
+            selected = index;
+            played = inside;
+            want_still += 1;
+            tell(format!("seek:{inside:.3}"));
+            return;
+        }
+        passed += clip.length();
+    }
+}
+
+fn set_volume(level: f64) {
+    volume = level.clamp(0.0, 1.0);
+    muted = volume == 0.0;
+    let level = volume;
+    tell(format!("volume:{level:.2}"));
+}
+
+// What the element is to do next. The counter is in the string so that
+// two identical commands are two commands.
+fn tell(what: String) {
+    issued += 1;
+    let count = issued;
+    command = format!("{count}|{what}");
 }
 
 // ---- what the buttons do ---------------------------------------------
 
 fn open_files() {
-    let ask = rustx::dialog::Ask::new("Open video files")
+    let ask = rustx::dialog::Ask::new("Import media")
         .filter("Video", ["mp4", "mov", "mkv", "webm", "avi", "m4v"])
         .many();
     let Ok(paths) = rustx::dialog::open(ask) else {
@@ -401,30 +1056,27 @@ fn add(path: &std::path::Path) {
             held.push(ffmpeg::Clip::new(media));
             selected = held.len() - 1;
             clips = held;
-            playhead = 0.0;
-            want_frame += 1;
+            played = 0.0;
+            decodes = true;
+            want_still += 1;
             status = String::new();
         }
     }
 }
 
-// Change a clip in place, and ask for the preview again — which is what
-// the trim and the colour need and the subtitle does not.
+// Change a clip in place.
 fn edit(index: usize, change: impl FnOnce(&mut ffmpeg::Clip)) {
     let mut held = clips.clone();
     let Some(clip) = held.get_mut(index) else {
         return;
     };
     change(clip);
-    let span = clip.length();
+    let (start, end) = (clip.start, clip.end);
     clips = held;
-    playhead = playhead.min(span);
-    want_frame += 1;
+    played = played.clamp(start, end);
+    want_still += 1;
 }
 
-// Not through `edit`, which asks for the preview again: the subtitle is
-// burned in by the render and is not in the still, so a frame per
-// keystroke would be an ffmpeg process per keystroke for nothing.
 fn set_subtitle(index: usize, text: String) {
     let mut held = clips.clone();
     let Some(clip) = held.get_mut(index) else {
@@ -456,18 +1108,9 @@ fn remove_clip() {
     held.remove(index);
     selected = index.min(held.len().saturating_sub(1));
     clips = held;
-    frame = String::new();
-    playhead = 0.0;
-    want_frame += 1;
-}
-
-// Where the render landed, in the file manager.
-fn reveal_output() {
-    let written = output.clone();
-    match rustx::shell::reveal(std::path::Path::new(&written)) {
-        Ok(()) => {}
-        Err(error) => status = format!("the folder could not be opened: {error}"),
-    }
+    still = String::new();
+    played = clip_at(selected).map(|clip| clip.start).unwrap_or(0.0);
+    tell("pause".to_string());
 }
 
 fn start_render() {
@@ -479,7 +1122,7 @@ fn start_render() {
         return;
     }
     if clips.is_empty() {
-        status = "there is nothing on the timeline to render.".to_string();
+        status = "There is nothing on the timeline to render.".to_string();
         return;
     }
     let ask = rustx::dialog::Ask::new("Render the sequence to")
@@ -497,9 +1140,93 @@ fn start_render() {
     want_render += 1;
 }
 
+// Where the render landed, in the file manager.
+fn reveal_output() {
+    let written = output.clone();
+    match rustx::shell::reveal(std::path::Path::new(&written)) {
+        Ok(()) => {}
+        Err(error) => status = format!("The folder could not be opened: {error}"),
+    }
+}
+
+// ---- what the interface reads ----------------------------------------
+
+fn clip_at(index: usize) -> Option<ffmpeg::Clip> {
+    clips.get(index.min(clips.len().saturating_sub(1))).cloned()
+}
+
+// The sequence's real length, floored so that nothing divides by zero
+// before a file has been imported.
+fn sequence_seconds() -> f64 {
+    clips.iter().map(|clip| clip.length()).sum::<f64>().max(0.001)
+}
+
+// Where the playhead is in the whole sequence rather than in one file.
+fn sequence_position() -> f64 {
+    let before: f64 = clips
+        .iter()
+        .take(selected.min(clips.len()))
+        .map(|clip| clip.length())
+        .sum();
+    match clip_at(selected) {
+        None => 0.0,
+        Some(clip) => before + (played - clip.start).clamp(0.0, clip.length()),
+    }
+}
+
+fn out_of(index: usize) -> f64 {
+    clip_at(index).map(|clip| clip.end).unwrap_or(0.0)
+}
+
+fn sequence_label() -> String {
+    match clips.len() {
+        0 => "no media".to_string(),
+        1 => format!("1 clip · {}", clock(sequence_seconds())),
+        many => format!("{many} clips · {}", clock(sequence_seconds())),
+    }
+}
+
+// The sequence timecode, which is what a monitor shows above the
+// picture.
+fn monitor_clock() -> String {
+    match clips.is_empty() {
+        true => String::new(),
+        false => format!(
+            "{} / {}",
+            clock(sequence_position()),
+            clock(sequence_seconds())
+        ),
+    }
+}
+
+fn said() -> String {
+    match status.is_empty() {
+        false => status.clone(),
+        true => match ffmpeg::tools() {
+            Err(_) => "ffmpeg was not found.".to_string(),
+            Ok(_) => "ffmpeg and ffprobe are on this machine.".to_string(),
+        },
+    }
+}
+
+// Timecode, to hundredths. Not frames: a sequence of files at different
+// frame rates has no one frame number, and a wrong one would be worse
+// than none.
+fn clock(seconds: f64) -> String {
+    let seconds = seconds.max(0.0);
+    let whole = seconds as u64;
+    format!(
+        "{:02}:{:02}:{:02}.{:02}",
+        whole / 3600,
+        (whole / 60) % 60,
+        whole % 60,
+        ((seconds - whole as f64) * 100.0).round() as u64 % 100
+    )
+}
+
 // ---- where the files this application writes itself go ----------------
 
-// The extracted frames and the subtitle files ffmpeg reads. The cache
+// The fallback stills and the subtitle files ffmpeg reads. The cache
 // directory, because every one of them can be deleted at any moment
 // and nothing is lost.
 fn beside(name: &str) -> std::path::PathBuf {
@@ -508,9 +1235,9 @@ fn beside(name: &str) -> std::path::PathBuf {
     directory.join(name)
 }
 
-// A path as an `<img src>`. `file:///C:/…`, with the separators the URL
-// wants rather than the ones Windows writes.
-fn shown(path: &std::path::Path) -> String {
+// A path as the page can load it. `file:///C:/…`, with the separators
+// a URL wants rather than the ones Windows writes.
+fn as_url(path: &std::path::Path) -> String {
     let slashed = path.display().to_string().replace('\\', "/");
     format!("file:///{}", slashed.trim_start_matches('/'))
 }

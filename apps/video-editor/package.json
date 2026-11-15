@@ -1,0 +1,10 @@
+{
+  "name": "video-editor",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Tailwind, and nothing else: this application's interface is .rsx and Rust, so it needs the stylesheet and not a bundle. rustx runs the command line below over app/ and src/ and puts the sheet in the document.",
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "tailwindcss": "^4.3.3"
+  }
+}

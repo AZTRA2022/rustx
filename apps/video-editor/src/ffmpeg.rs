@@ -308,6 +308,81 @@ pub fn frame_arguments(clip: &Clip, at: f64, out: &Path) -> Vec<String> {
     arguments
 }
 
+/// A preview proxy, as a command line.
+///
+/// The CEF build this window runs on has no H.264 and no AAC — a WebM
+/// of VP8 and Vorbis plays, an mp4 does not, and most footage is an
+/// mp4. Measured here rather than assumed: the monitor refused
+/// `a.mp4` with `DEMUXER_ERROR`, and played the same picture as
+/// `a.webm`.
+///
+/// An editor's answer to a file it cannot play is a proxy, and this is
+/// one: the whole file, once, into something the window can decode, at
+/// 640 wide and in a hurry. Its timestamps are the source's, so the
+/// playhead means the same thing in both, and the render never touches
+/// it — it is a preview and nothing else.
+pub fn proxy_plan(media: &Media, out: &Path) -> Plan {
+    let mut arguments: Vec<String> = ["-hide_banner", "-nostdin", "-y", "-i"]
+        .iter()
+        .map(|flag| flag.to_string())
+        .collect();
+    arguments.push(media.path.display().to_string());
+    for flag in [
+        "-vf",
+        "scale=640:-2",
+        "-c:v",
+        "libvpx",
+        // `realtime` and `cpu-used 8`: this is a preview of a file the
+        // person is waiting to look at, not an encode anybody keeps.
+        "-deadline",
+        "realtime",
+        "-cpu-used",
+        "8",
+        "-b:v",
+        "900k",
+    ] {
+        arguments.push(flag.to_string());
+    }
+    match media.audio {
+        true => {
+            for flag in ["-c:a", "libvorbis", "-b:a", "96k"] {
+                arguments.push(flag.to_string());
+            }
+        }
+        false => arguments.push("-an".to_string()),
+    }
+    for flag in ["-nostats", "-progress", "pipe:1"] {
+        arguments.push(flag.to_string());
+    }
+    arguments.push(out.display().to_string());
+
+    Plan {
+        arguments,
+        seconds: media.duration,
+        audio: media.audio,
+        subtitles: Vec::new(),
+    }
+}
+
+/// What a file's proxy is called.
+///
+/// The path, hashed, so that the same file gets the same proxy and a
+/// second session does not build it again.
+///
+/// shortcut: the name is the path and not the bytes, so a file
+/// replaced at the same path keeps the old proxy. Delete the cache, or
+/// hash the size and the date too, the day that matters.
+pub fn proxy_name(path: &Path) -> String {
+    // FNV-1a, which is eight lines nobody has to maintain rather than
+    // a dependency for one filename.
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in path.display().to_string().as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("proxy-{hash:016x}.webm")
+}
+
 /// A render, as a command line and what the caller must write first.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Plan {
@@ -800,6 +875,41 @@ mod tests {
         let streaming =
             "codec_type=video\nwidth=640\nheight=360\nr_frame_rate=25/1\nduration=N/A\n";
         assert!(read_probe(streaming).is_err());
+    }
+
+    #[test]
+    fn a_proxy_is_the_whole_file_in_something_this_window_can_decode() {
+        let one = clip("a.mp4", 1280, true);
+        let plan = proxy_plan(&one.media, Path::new("C:/cache/proxy-1.webm"));
+        let line = plan.arguments.join(" ");
+        assert!(line.contains("-i C:\\footage\\a.mp4"), "{line}");
+        assert!(line.contains("-c:v libvpx"), "{line}");
+        assert!(line.contains("-c:a libvorbis"), "{line}");
+        assert!(line.contains("scale=640:-2"), "{line}");
+        assert!(line.ends_with("C:/cache/proxy-1.webm"), "{line}");
+        // The whole file and not the cut: trimming is the render's job,
+        // and a proxy the trim had been applied to would make every
+        // timecode in the window wrong.
+        assert_eq!(plan.seconds, 10.0);
+        assert!(!line.contains("-ss "), "{line}");
+    }
+
+    #[test]
+    fn a_silent_file_gets_a_silent_proxy_rather_than_a_refused_command() {
+        let one = clip("mute.mp4", 1280, false);
+        let line = proxy_plan(&one.media, Path::new("out.webm"))
+            .arguments
+            .join(" ");
+        assert!(line.contains("-an"), "{line}");
+        assert!(!line.contains("libvorbis"), "{line}");
+    }
+
+    #[test]
+    fn a_proxy_is_named_after_its_file_and_always_the_same_way() {
+        let one = proxy_name(Path::new("C:/footage/a.mp4"));
+        assert_eq!(one, proxy_name(Path::new("C:/footage/a.mp4")));
+        assert_ne!(one, proxy_name(Path::new("C:/footage/b.mp4")));
+        assert!(one.starts_with("proxy-") && one.ends_with(".webm"), "{one}");
     }
 
     #[test]
