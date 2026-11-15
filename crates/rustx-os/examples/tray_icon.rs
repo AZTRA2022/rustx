@@ -64,6 +64,10 @@ fn main() {
         }
     }
 
+    // La ou l'icone n'est pas encore posee (Linux), le type n'a rien a
+    // liberer et clippy le dit -- mais c'est justement ce que l'exemple
+    // montre : l'icone part quand on la lache.
+    #[allow(clippy::drop_non_drop)]
     drop(tray);
     println!("l'icône est retirée ({} posée(s))", rustx_os::tray::shown());
 }
