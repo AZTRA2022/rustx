@@ -255,11 +255,23 @@ mod tests {
         let directory = std::env::temp_dir();
         let found = run(WORKING_DIRECTORY, Some(&directory)).expect("a shell");
         assert!(found.worked(), "the script failed: {found:?}");
-        let said = found.out.trim().to_lowercase();
-        let wanted = directory.to_string_lossy().to_lowercase();
+        // Les deux noms du meme dossier : `temp_dir()` peut rendre la
+        // forme courte 8.3 (`RUNNER~1`) quand le shell imprime la forme
+        // longue (`runneradmin`), et comme texte elles ne se ressemblent
+        // pas du tout.
+        let long = |path: &std::path::Path| -> String {
+            std::fs::canonicalize(path)
+                .unwrap_or_else(|_| path.to_path_buf())
+                .to_string_lossy()
+                .trim_start_matches(r"\\?\")
+                .to_lowercase()
+        };
+        let said = long(std::path::Path::new(found.out.trim()));
+        let said = said.trim_end_matches(['/', '\\']);
+        let wanted = long(&directory);
         let wanted = wanted.trim_end_matches(['/', '\\']);
         assert!(
-            said.contains(wanted) || wanted.contains(said.trim_end_matches(['/', '\\'])),
+            said.contains(wanted) || wanted.contains(said),
             "ran in {said}, not {wanted}"
         );
     }
