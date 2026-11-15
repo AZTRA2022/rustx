@@ -413,13 +413,22 @@ fn windows(read: &build::Project, folder: &Path, binary: &str, pages: &Pages) ->
 /// The end of what a tool said, which is where tools put the reason.
 fn last_words(out: &[u8], err: &[u8]) -> String {
     let said = String::from_utf8_lossy(if err.is_empty() { out } else { err });
-    said.lines()
-        .rev()
-        .find(|line| !line.trim().is_empty())
-        .unwrap_or("nothing")
-        .trim()
-        .to_string()
+    let lines: Vec<&str> = said
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    // Two lines, not one: ISCC names the reason on one line and writes
+    // `Compile aborted.` on the next, so the last line alone is the
+    // only part of the message that says nothing.
+    let tail: Vec<&str> = lines.iter().rev().take(2).rev().copied().collect();
+    if tail.is_empty() {
+        "nothing".to_string()
+    } else {
+        tail.join(" -- ")
+    }
 }
+
 
 // ------------------------------------------------------------------ macOS
 
@@ -822,6 +831,20 @@ fn described(read: &build::Project) -> String {
 mod tests {
     use super::*;
     use crate::resources::About;
+
+    /// ISCC nomme la raison sur une ligne et ecrit `Compile
+    /// aborted.` sur la suivante : la derniere ligne seule est la
+    /// seule part du message qui ne dit rien.
+    #[test]
+    fn the_reason_iscc_gave_is_kept_and_not_just_its_last_line() {
+        let said = b"Inno Setup 6\nError on line 7: no such file\nCompile aborted.\n";
+        assert_eq!(
+            last_words(said, b""),
+            "Error on line 7: no such file -- Compile aborted."
+        );
+        assert_eq!(last_words(b"", b""), "nothing");
+        assert_eq!(last_words(b"only one\n", b""), "only one");
+    }
 
     fn project() -> build::Project {
         build::Project {

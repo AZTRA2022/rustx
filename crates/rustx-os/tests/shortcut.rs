@@ -94,5 +94,7 @@ fn a_shortcut_nobody_pressed_counts_zero() {
 
 #[test]
 fn a_platform_without_global_shortcuts_says_so() {
-    assert_eq!(shortcut::supported(), cfg!(windows));
+    // Linux est le seul sans : il faudrait passer par le portail
+    // GlobalShortcuts, qui n'est pas ecrit.
+    assert_eq!(shortcut::supported(), !cfg!(target_os = "linux"));
 }

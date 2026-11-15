@@ -67,6 +67,23 @@ jobs:
           # CEF is large and its build is the slowest thing here.
           key: windows-gates
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Eight of the example applications declare JavaScript libraries,
+      # and the compiler refuses to bundle one whose `node_modules` is
+      # absent -- rightly, since the application would not run. A
+      # developer has them installed; a runner starts without them, so
+      # the whole workspace fails to build until this step has run.
+      - name: What the example applications declare
+        shell: bash
+        run: |
+          set -eu
+          for manifest in apps/*/package.json; do
+            (cd "$(dirname "$manifest")" && npm ci --no-audit --no-fund)
+          done
+
       # Run the same script a developer runs, so that the two cannot
       # drift apart. `pwsh` is the shell on purpose: Git Bash puts its
       # own `link` ahead of MSVC's on the `PATH` and every native build

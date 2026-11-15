@@ -311,8 +311,18 @@ pub(crate) fn open_window(spec: &WindowSpec) {
     // Le nom que `on_after_created` donnera à cette fenêtre.
     crate::window::expecting(&spec.name, spec.dressing);
 
+    #[cfg(windows)]
     let mut window_info =
         WindowInfo::default().set_as_popup(cef::sys::HWND(std::ptr::null_mut()), &spec.title);
+    // `set_as_popup` n'existe que sur Windows, ou il pose le style de
+    // la fenetre. Ailleurs, une fenetre de premier plan est le defaut :
+    // le titre est le seul champ que l'appel aurait rempli, et les
+    // bornes sont posees juste en dessous de toute facon.
+    #[cfg(not(windows))]
+    let mut window_info = WindowInfo {
+        window_name: CefString::from(spec.title.as_str()),
+        ..Default::default()
+    };
     // Décalée d'autant de fenêtres qu'il y en a : une deuxième fenêtre
     // exactement sur la première a l'air de ne pas s'être ouverte.
     let step = 40 * crate::window::how_many_are_open() as i32;

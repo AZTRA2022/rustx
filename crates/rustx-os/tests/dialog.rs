@@ -71,8 +71,8 @@ fn a_platform_that_cannot_do_it_says_which_file_to_write() {
 
 #[test]
 fn this_platform_says_whether_it_has_one() {
-    // Windows has one; elsewhere `false` until the file is written --
-    // which is what a page reads so that it does not draw a button
-    // that would refuse.
-    assert_eq!(dialog::supported(), cfg!(windows));
+    // Les trois l'ont maintenant : COM sur Windows, le portail ou
+    // zenity sur Linux, NSOpenPanel sur macOS. C'est ce que lit une
+    // page pour ne pas dessiner un bouton qui refuserait.
+    assert!(dialog::supported());
 }

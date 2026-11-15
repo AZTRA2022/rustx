@@ -97,6 +97,6 @@ fn handing_over_to_nobody_says_so() {
 }
 
 #[test]
-fn a_platform_without_this_says_so() {
-    assert_eq!(instance::supported(), cfg!(windows));
+fn every_platform_here_has_this() {
+    assert!(instance::supported());
 }

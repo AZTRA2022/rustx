@@ -25,7 +25,7 @@
 //! it.
 //!
 //! The reads and writes are here rather than left to `std::fs` for one
-//! reason, and it is [`write`]'s: a settings file written in place is a
+//! reason, and it is [`write()`]'s: a settings file written in place is a
 //! settings file that is empty if the machine loses power between the
 //! truncate and the flush, and an application that cannot start because
 //! its own settings are half a file is a bug report nobody can act on.

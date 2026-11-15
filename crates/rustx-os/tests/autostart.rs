@@ -45,7 +45,10 @@ fn asking_twice_is_not_an_error() {
     assert!(!autostart::is_on(&name));
 }
 
+/// Les trois plateformes l'ont : le registre sur Windows, un
+/// `.desktop` sur Linux, un agent de session sur macOS. Le jour ou une
+/// quatrieme arrive sans, c'est ici qu'elle le dira.
 #[test]
-fn a_platform_without_this_says_so() {
-    assert_eq!(autostart::supported(), cfg!(windows));
+fn every_platform_here_has_this() {
+    assert!(autostart::supported());
 }

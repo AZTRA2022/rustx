@@ -111,8 +111,10 @@ fn an_icon_file_that_is_not_an_ico_is_refused_in_words() {
 
 #[test]
 fn a_platform_that_has_no_tray_says_so_before_being_asked() {
-    assert_eq!(tray::supported(), cfg!(windows));
+    // Linux est le seul sans : il faudrait StatusNotifierItem sur
+    // D-Bus, qui n'est pas ecrit.
+    assert_eq!(tray::supported(), !cfg!(target_os = "linux"));
     // Les notifications sont aussi sous Linux, par `notify-send` —
     // écrit, pas éprouvé, et dit comme tel dans `linux/notify.rs`.
-    assert_eq!(notify::supported(), cfg!(any(windows, target_os = "linux")));
+    assert!(notify::supported());
 }
