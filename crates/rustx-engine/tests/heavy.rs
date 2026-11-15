@@ -59,8 +59,16 @@ fn a_heavy_page_renders_in_a_time_a_frame_can_hold() {
     //
     // It was 26ms before the keyed diff stopped scanning the old
     // children for every new one, and 5.7ms after.
+    //
+    // Le plafond du mode debogage est large a dessein : ce qu'il
+    // surveille est la forme du diff, pas la vitesse de la machine. Une
+    // machine qui compose sur le processeur (RUSTX_SOFTWARE=1, ce que
+    // font cette suite sans carte graphique et chaque runner) mesurait
+    // 46ms la ou le plafond etait a 40, et un diff redevenu quadratique
+    // se compte en centaines de millisecondes, pas en dizaines. Le
+    // nombre qui parle de vitesse est celui du mode release.
     let ceiling = if cfg!(debug_assertions) {
-        40_000
+        150_000
     } else {
         16_000
     };

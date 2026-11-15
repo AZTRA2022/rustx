@@ -675,7 +675,10 @@
         try {
           rustx_start_nested();
 
-          const count = (selector) => document.querySelectorAll(selector).length;
+          // Un nombre, rendu comme une chaine : la fonction native
+          // n'accepte que des chaines, et c'est `String(...)` partout
+          // ailleurs dans ce fichier.
+          const count = (selector) => String(document.querySelectorAll(selector).length);
           const frame = (then) => rustx_soon(() => rustx_soon(then));
 
           frame(() => {
