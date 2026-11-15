@@ -18,6 +18,20 @@ fn framed(body: &str) -> String {
     format!("Content-Length: {}\r\n\r\n{body}", body.len())
 }
 
+/// Un enfant qui imprime un fichier puis sort.
+///
+/// `cmd /c type` sur Windows, `cat` ailleurs. Ce que les tests veulent
+/// est un processus qui parle et s'arrete, pas un interpreteur en
+/// particulier -- et `cmd` n'existe pas sur les deux autres
+/// plateformes, ou ces tests echouaient a demarrer quoi que ce soit.
+fn printing(path: &str) -> Option<Server> {
+    if cfg!(windows) {
+        Server::start_with("cmd", &["/c", "type", path])
+    } else {
+        Server::start_with("cat", &[path])
+    }
+}
+
 /// A server whose answers are written in advance.
 fn canned(messages: &[&str]) -> Server {
     let stream: String = messages.iter().map(|body| framed(body)).collect();
@@ -132,7 +146,7 @@ fn a_child_that_has_exited_is_found_by_alive() {
     std::fs::write(&script, answer.as_bytes()).expect("the answer is written");
 
     let path = script.display().to_string();
-    let mut server = Server::start_with("cmd", &["/c", "type", &path]).expect("a child");
+    let mut server = printing(&path).expect("a child");
 
     let found_dead = (0..200).any(|_| {
         if server.alive() {
@@ -164,7 +178,7 @@ fn a_child_that_answers_initialize_is_held() {
     std::fs::write(&script, answer.as_bytes()).expect("the answer is written");
 
     let path = script.display().to_string();
-    let server = Server::start_with("cmd", &["/c", "type", &path]).expect("a child that answers");
+    let server = printing(&path).expect("a child that answers");
     assert!(
         server.written().contains("\"method\":\"initialize\""),
         "got {}",
@@ -205,9 +219,14 @@ fn a_question_that_finds_the_server_gone_restarts_it_and_asks_again() {
     // the crash. The second run (the restart) finds the flag already
     // there and answers both: the handshake it owes a fresh server,
     // and the question the first run never got to.
-    std::fs::write(
-        directory.join("run.cmd"),
-        "@echo off\r\n\
+    // Le meme enchainement, dans le langage de scripts de la
+    // plateforme : `cmd` n'existe que sur Windows.
+    let argument = directory.display().to_string();
+    let mut server = if cfg!(windows) {
+        let script = directory.join("run.cmd");
+        std::fs::write(
+            &script,
+            "@echo off\r\n\
          if exist \"%~1\\flag\" (\r\n\
          \x20   type \"%~1\\handshake.txt\"\r\n\
          \x20   type \"%~1\\answer.txt\"\r\n\
@@ -215,13 +234,25 @@ fn a_question_that_finds_the_server_gone_restarts_it_and_asks_again() {
          \x20   echo x> \"%~1\\flag\"\r\n\
          \x20   type \"%~1\\handshake.txt\"\r\n\
          )\r\n",
-    )
-    .expect("the script is written");
-
-    let script = directory.join("run.cmd").display().to_string();
-    let argument = directory.display().to_string();
-    let mut server = Server::start_with("cmd", &["/c", &script, &argument])
-        .expect("a child that answers the handshake");
+        )
+        .expect("the script is written");
+        Server::start_with("cmd", &["/c", &script.display().to_string(), &argument])
+    } else {
+        let script = directory.join("run.sh");
+        std::fs::write(
+            &script,
+            "if [ -e \"$1/flag\" ]; then\n\
+         cat \"$1/handshake.txt\"\n\
+         cat \"$1/answer.txt\"\n\
+         else\n\
+         echo x > \"$1/flag\"\n\
+         cat \"$1/handshake.txt\"\n\
+         fi\n",
+        )
+        .expect("the script is written");
+        Server::start_with("sh", &[&script.display().to_string(), &argument])
+    }
+    .expect("a child that answers the handshake");
 
     let answer = server
         .ask("textDocument/hover", "{}")
@@ -262,7 +293,7 @@ fn the_project_the_editor_named_is_the_one_it_is_started_in() {
     // The child that only prints an answer was told no root, and holds
     // none.
     let path = script.display().to_string();
-    let held = Server::start_with("cmd", &["/c", "type", &path]).expect("a child");
+    let held = printing(&path).expect("a child");
     assert!(held.root().is_none(), "nothing named a root");
     let _ = std::fs::remove_file(&script);
 }
