@@ -286,7 +286,7 @@ pub mod shell {
     use std::path::Path;
 
     use crate::error::OsError;
-    use crate::shell::Association;
+    use crate::shell::{Association, Scheme};
 
     const WHAT: &str = "the file manager";
 
@@ -301,6 +301,15 @@ pub mod shell {
     }
     pub fn dissociate(_association: &Association) -> Result<(), OsError> {
         Err(OsError::Unsupported(WHAT))
+    }
+    pub fn open_url(_url: &str) -> Result<(), OsError> {
+        Err(OsError::Unsupported("opening a link in the browser"))
+    }
+    pub fn register_scheme(_scheme: &Scheme) -> Result<(), OsError> {
+        Err(OsError::Unsupported("URL schemes"))
+    }
+    pub fn unregister_scheme(_scheme: &Scheme) -> Result<(), OsError> {
+        Err(OsError::Unsupported("URL schemes"))
     }
 }
 

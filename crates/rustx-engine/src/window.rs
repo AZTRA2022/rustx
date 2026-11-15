@@ -96,6 +96,50 @@ pub const CONTROL: &str = "control-window";
 // La fenêtre visée est celle d'où le message arrive : une page ne
 // commande que la sienne, et n'a donc rien à nommer.
 
+/// Printing what the window itself is showing.
+///
+/// Its own message rather than an `Order`: an order is carried out on
+/// the system's window handle, and this one is carried out on
+/// Chromium's browser host -- which is the only thing that knows what
+/// the page looks like.
+pub const PRINT: &str = "print-window";
+
+/// Print the page this window is showing, through the engine's own
+/// print dialog.
+///
+/// The documentation's table of what Electron and Tauri have and this
+/// did not ended with "printing the window's own contents: not written.
+/// Chromium has the preview; nothing exposes it." This exposes it.
+///
+/// It is the browser's dialog, which means it is the system's printers,
+/// the system's paper sizes, and the preview a user already knows --
+/// and it is the same on Windows, macOS and Linux, because it is
+/// Chromium's and not ours. `@media print` in a page's stylesheet is
+/// what decides how it looks on paper.
+///
+/// [`rustx_os::print`] is the other half, and the two are different
+/// questions: that one prints a **file** that exists on disk, this one
+/// prints the window.
+pub fn print() {
+    crate::bridge::ask(PRINT, &[crate::value::Value::String(String::new())]);
+}
+
+/// The same, written to a PDF instead of sent to a printer.
+///
+/// No dialog, nothing shown: this is what a "save as PDF" button does,
+/// and what a report that has to be produced without a person watching
+/// does. The path is written when the engine has finished, which is
+/// after this function has returned -- printing a page is asynchronous
+/// in Chromium and pretending otherwise would mean blocking the frame.
+pub fn print_to_pdf(path: &std::path::Path) {
+    crate::bridge::ask(
+        PRINT,
+        &[crate::value::Value::String(
+            path.to_string_lossy().to_string(),
+        )],
+    );
+}
+
 /// Donner un ordre à la fenêtre où cette page est dessinée.
 pub fn command(order: rustx_os::window::Order) {
     crate::bridge::ask(
@@ -576,7 +620,7 @@ pub(crate) fn asked(message: &cef::ProcessMessage, from: Option<&cef::Browser>) 
 
     let wire = CefString::from(&message.name()).to_string();
     let what = wire.strip_prefix(crate::bridge::PREFIX).unwrap_or(&wire);
-    if what != OPEN && what != CLOSE && what != CONTROL {
+    if what != OPEN && what != CLOSE && what != CONTROL && what != PRINT {
         return false;
     }
     let values = message
@@ -594,6 +638,11 @@ pub(crate) fn asked(message: &cef::ProcessMessage, from: Option<&cef::Browser>) 
 
     if what == CONTROL {
         obey(&text(0), from);
+        return true;
+    }
+
+    if what == PRINT {
+        printed(&text(0), from);
         return true;
     }
 
@@ -663,6 +712,42 @@ fn close_named(name: &str) {
         // Sans forcer : la fenêtre a le droit de demander à son tour.
         host.close_browser(0);
     }
+}
+
+/// Print the window a message came from: to a printer when no path was
+/// given, to a PDF when one was.
+///
+/// Both go through `CefBrowserHost`, which is why this is here rather
+/// than in `rustx-os`: the thing that knows what the page looks like is
+/// the engine, and the engine is the same on all three platforms.
+fn printed(path: &str, from: Option<&cef::Browser>) {
+    use cef::{ImplBrowser, ImplBrowserHost};
+
+    let Some(host) = from.and_then(|browser| browser.host()) else {
+        eprintln!(
+            "rustx: a print was asked for and no window came with it -- the request \
+             reached a process that has none"
+        );
+        return;
+    };
+    if path.is_empty() {
+        host.print();
+        return;
+    }
+    let settings = cef::PdfPrintSettings {
+        // Chromium's own defaults for everything: the margins, the
+        // paper and the scale a page already prints with. What is set
+        // here is what a file wants and a dialog does not -- the
+        // background, because a page drawn dark and printed without it
+        // is unreadable.
+        print_background: 1,
+        ..Default::default()
+    };
+    host.print_to_pdf(
+        Some(&cef::CefString::from(path)),
+        Some(&settings),
+        None::<&mut cef::PdfPrintCallback>,
+    );
 }
 
 /// Exécuter un ordre sur la fenêtre d'où il vient.

@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::error::OsError;
-use crate::shell::{Association, file_uri};
+use crate::shell::{Association, Scheme, file_uri};
 
 fn ran(program: &str, arguments: &[&str]) -> bool {
     Command::new(program)
@@ -187,6 +187,95 @@ pub fn dissociate(association: &Association) -> Result<(), OsError> {
     Ok(())
 }
 
+/// `xdg-open`, qui est le seul nom que tous les bureaux répondent.
+pub fn open_url(url: &str) -> Result<(), OsError> {
+    if ran("xdg-open", &[url]) {
+        return Ok(());
+    }
+    // Les bureaux qui n'ont pas `xdg-desktop-portal` installé, et les
+    // machines où `xdg-utils` ne l'est pas non plus.
+    for program in ["gio", "gvfs-open", "kde-open", "x-www-browser"] {
+        let arguments: Vec<&str> = if program == "gio" {
+            vec!["open", url]
+        } else {
+            vec![url]
+        };
+        if ran(program, &arguments) {
+            return Ok(());
+        }
+    }
+    Err(OsError::Platform(
+        "no browser opened that link: neither `xdg-open` nor `gio open` answered. Install          `xdg-utils`."
+            .to_string(),
+    ))
+}
+
+/// L'entrée de bureau d'un schéma : la même mécanique que les
+/// associations de fichiers, avec `x-scheme-handler/<schéma>` à la place
+/// du type MIME, et `%u` à la place de `%f` — l'adresse arrive telle
+/// quelle et non comme un chemin.
+pub(crate) fn scheme_entry(scheme: &Scheme) -> String {
+    format!(
+        "[Desktop Entry]
+Type=Application
+Name={}
+Exec=\"{}\" %u
+         MimeType=x-scheme-handler/{};
+NoDisplay=true
+Terminal=false
+",
+        scheme.name,
+        scheme.program.display(),
+        scheme.scheme
+    )
+}
+
+/// Le fichier de l'entrée, et son nom.
+fn scheme_files(scheme: &Scheme) -> Result<(PathBuf, String), OsError> {
+    let name = format!("{}-handler.desktop", scheme.scheme.to_ascii_lowercase());
+    Ok((data_home()?.join("applications").join(&name), name))
+}
+
+pub fn register_scheme(scheme: &Scheme) -> Result<(), OsError> {
+    let (entry, entry_name) = scheme_files(scheme)?;
+    write(&entry, &scheme_entry(scheme))?;
+    let applications = data_home()?.join("applications");
+    let _ = ran(
+        "update-desktop-database",
+        &[&applications.to_string_lossy()],
+    );
+    if ran(
+        "xdg-mime",
+        &[
+            "default",
+            &entry_name,
+            &format!("x-scheme-handler/{}", scheme.scheme),
+        ],
+    ) {
+        Ok(())
+    } else {
+        Err(OsError::Platform(format!(
+            "{} is written, but `xdg-mime default` did not run — a link will not reach              this application until it does",
+            entry.display()
+        )))
+    }
+}
+
+pub fn unregister_scheme(scheme: &Scheme) -> Result<(), OsError> {
+    let (entry, _) = scheme_files(scheme)?;
+    match std::fs::remove_file(&entry) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(OsError::File(format!("{}: {error}", entry.display()))),
+    }
+    let applications = data_home()?.join("applications");
+    let _ = ran(
+        "update-desktop-database",
+        &[&applications.to_string_lossy()],
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,6 +302,23 @@ mod tests {
         assert!(
             package.contains("type=\"application/x-my-editor\""),
             "{package}"
+        );
+    }
+
+    #[test]
+    fn a_scheme_entry_takes_the_url_and_not_a_path() {
+        let entry = scheme_entry(&Scheme {
+            scheme: "monapp".into(),
+            name: "Mon App".into(),
+            program: "/opt/mon app/bin/app".into(),
+        });
+        assert!(
+            entry.contains("Exec=\"/opt/mon app/bin/app\" %u"),
+            "{entry}"
+        );
+        assert!(
+            entry.contains("MimeType=x-scheme-handler/monapp;"),
+            "{entry}"
         );
     }
 

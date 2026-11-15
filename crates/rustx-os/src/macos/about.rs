@@ -50,7 +50,7 @@ pub fn show(_pane: Pane, credits: &Credits) -> Result<(), OsError> {
             let options: Option<Retained<AnyObject>> =
                 msg_send![class!(NSMutableDictionary), dictionary];
             let Some(options) = options else { return };
-            let mut put = |key: &str, value: &str| {
+            let put = |key: &str, value: &str| {
                 if value.trim().is_empty() {
                     return;
                 }

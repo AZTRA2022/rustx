@@ -18,11 +18,11 @@
 //! ForContentType` can only make an app the default for a type its
 //! bundle already declares, so it cannot stand in for the declaration.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::error::OsError;
-use crate::shell::Association;
+use crate::shell::{Association, Scheme};
 
 pub fn reveal(path: &Path) -> Result<(), OsError> {
     let done = Command::new("open")
@@ -88,4 +88,157 @@ pub fn associate(_association: &Association) -> Result<(), OsError> {
 
 pub fn dissociate(_association: &Association) -> Result<(), OsError> {
     Err(OsError::Unsupported(ASSOCIATIONS))
+}
+
+/// `open` sans drapeau : l'adresse part à Launch Services, qui la donne
+/// au navigateur que l'utilisateur a choisi.
+pub fn open_url(url: &str) -> Result<(), OsError> {
+    let done = Command::new("open")
+        .arg("--")
+        .arg(url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|error| OsError::Platform(format!("`open` could not run: {error}")))?;
+    if done.success() {
+        Ok(())
+    } else {
+        Err(OsError::Platform(format!(
+            "`open` did not open that link ({done})"
+        )))
+    }
+}
+
+/// Le bundle qui contient ce programme : `…/Mon App.app`.
+///
+/// Un schéma d'URL sur macOS est une déclaration du bundle, et non un
+/// réglage du système : Launch Services lit `CFBundleURLTypes` dans
+/// `Info.plist`, et il n'existe aucun appel qui enregistre un schéma
+/// pour un exécutable nu.
+fn bundle_of(program: &Path) -> Result<PathBuf, OsError> {
+    program
+        .ancestors()
+        .find(|parent| parent.extension().is_some_and(|kind| kind == "app"))
+        .map(Path::to_path_buf)
+        .ok_or_else(|| {
+            OsError::Platform(format!(
+                "{} is not inside a `.app` bundle, and a URL scheme on macOS is                  something a bundle declares. `rustx package` makes the bundle; run the                  program from it.",
+                program.display()
+            ))
+        })
+}
+
+/// Un ordre de `PlistBuddy`, avec sa sortie.
+fn plist(info: &Path, order: &str) -> Result<(bool, String), OsError> {
+    let done = Command::new("/usr/libexec/PlistBuddy")
+        .arg("-c")
+        .arg(order)
+        .arg(info)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| OsError::Platform(format!("`PlistBuddy` could not run: {error}")))?;
+    Ok((
+        done.status.success(),
+        String::from_utf8_lossy(&done.stdout).into_owned(),
+    ))
+}
+
+/// Dire à Launch Services de relire le bundle : sans cela la
+/// déclaration est écrite et personne ne l'a lue.
+fn relaunch_services(bundle: &Path) {
+    let _ = Command::new(
+        "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/         Support/lsregister",
+    )
+    .arg("-f")
+    .arg(bundle)
+    .stdin(Stdio::null())
+    .stdout(Stdio::null())
+    .stderr(Stdio::null())
+    .status();
+}
+
+/// L'indice de l'entrée qui déclare ce schéma, et le nombre d'entrées.
+///
+/// `PlistBuddy` ne cherche pas : il faut lire chaque indice jusqu'à ce
+/// qu'il n'y en ait plus. Trente-deux est une borne, pas une limite
+/// réelle — aucune application n'en déclare autant.
+fn entries(info: &Path, scheme: &str) -> Result<(Option<usize>, usize), OsError> {
+    let mut found = None;
+    let mut count = 0;
+    for index in 0..32 {
+        let (there, text) = plist(info, &format!("Print :CFBundleURLTypes:{index}"))?;
+        if !there {
+            break;
+        }
+        count = index + 1;
+        if found.is_none()
+            && text
+                .lines()
+                .any(|line| line.trim().eq_ignore_ascii_case(scheme))
+        {
+            found = Some(index);
+        }
+    }
+    Ok((found, count))
+}
+
+pub fn register_scheme(scheme: &Scheme) -> Result<(), OsError> {
+    let bundle = bundle_of(&scheme.program)?;
+    let info = bundle.join("Contents/Info.plist");
+    if !info.is_file() {
+        return Err(OsError::Platform(format!(
+            "{} has no Info.plist",
+            bundle.display()
+        )));
+    }
+    let (already, count) = entries(&info, &scheme.scheme)?;
+    if already.is_some() {
+        // Déjà déclaré : il reste à le faire relire, ce qu'un bundle
+        // réinstallé demande de toute façon.
+        relaunch_services(&bundle);
+        return Ok(());
+    }
+    // La première déclaration crée le tableau ; qu'il existe déjà n'est
+    // pas une erreur, et c'est la seule façon de le savoir.
+    let _ = plist(&info, "Add :CFBundleURLTypes array")?;
+    let at = format!(":CFBundleURLTypes:{count}");
+    for order in [
+        format!("Add {at} dict"),
+        format!("Add {at}:CFBundleURLName string {}", scheme.name),
+        format!("Add {at}:CFBundleURLSchemes array"),
+        format!("Add {at}:CFBundleURLSchemes:0 string {}", scheme.scheme),
+    ] {
+        let (done, said) = plist(&info, &order)?;
+        if !done {
+            return Err(OsError::Platform(format!(
+                "{} could not be written (`{order}` said {})",
+                info.display(),
+                said.trim()
+            )));
+        }
+    }
+    relaunch_services(&bundle);
+    Ok(())
+}
+
+pub fn unregister_scheme(scheme: &Scheme) -> Result<(), OsError> {
+    let bundle = bundle_of(&scheme.program)?;
+    let info = bundle.join("Contents/Info.plist");
+    if !info.is_file() {
+        return Ok(());
+    }
+    let (found, _) = entries(&info, &scheme.scheme)?;
+    if let Some(index) = found {
+        let (done, said) = plist(&info, &format!("Delete :CFBundleURLTypes:{index}"))?;
+        if !done {
+            return Err(OsError::Platform(format!(
+                "{} could not be written ({})",
+                info.display(),
+                said.trim()
+            )));
+        }
+    }
+    relaunch_services(&bundle);
+    Ok(())
 }

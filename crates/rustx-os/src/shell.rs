@@ -64,6 +64,152 @@ impl Association {
     }
 }
 
+/// A link, opened where the user's links open.
+///
+/// The gap this closes was written down as "not written, and
+/// deliberately: see security". The reason given was that a window
+/// which loads remote content is a window that can be attacked -- which
+/// is true, and is why this does not load it. It hands the address to
+/// the system, which gives it to the browser the user chose. The page
+/// is drawn by Chrome or Safari or Firefox, in their process, with
+/// their sandbox, and the application is not involved.
+///
+/// Three schemes and no others: `https`, `http` and `mailto`. The
+/// refusal of the rest is the security answer rather than its absence:
+/// `file://` would make "open this link" read a local file, and a
+/// scheme of somebody else's choosing is an arbitrary program started
+/// with an argument from a page. An application that wants to open a
+/// file has [`reveal`], and one that wants to start a program has
+/// `rustx::terminal`.
+///
+/// ```ignore
+/// rustx::shell::open_url("https://rustx.dev/docs")?;
+/// rustx::shell::open_url("mailto:support@example.test?subject=Crash")?;
+/// ```
+pub fn open_url(url: &str) -> Result<(), OsError> {
+    checked_url(url)?;
+    crate::platform::shell::open_url(url)
+}
+
+/// What [`open_url`] will hand over, and what it will not.
+fn checked_url(url: &str) -> Result<(), OsError> {
+    let allowed = ["https://", "http://", "mailto:"];
+    if !allowed.iter().any(|start| url.starts_with(start)) {
+        return Err(OsError::Platform(format!(
+            "`{}` is not a link this opens. It takes https, http and mailto, and \
+             refuses the rest on purpose: a scheme of somebody else's choosing \
+             starts a program of somebody else's choosing",
+            first_word(url)
+        )));
+    }
+    if url.contains('\n') || url.contains('\r') || url.contains('\0') {
+        return Err(OsError::Platform(
+            "that link holds a line break or a zero byte, which no link does".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// The front of a URL, for a message: the whole of it may be long and
+/// may hold a token.
+fn first_word(url: &str) -> String {
+    let shown: String = url.chars().take(40).collect();
+    if url.chars().count() > 40 {
+        format!("{shown}...")
+    } else {
+        shown
+    }
+}
+
+/// A URL scheme this application answers: `monapp://…`.
+///
+/// What it is for: a link in a browser, an e-mail or another
+/// application that opens *this* one, with the rest of the address
+/// handed over as an argument. Electron calls it
+/// `setAsDefaultProtocolClient`, Tauri calls it a deep link, and the
+/// documentation said it was not written.
+///
+/// The address arrives as the program's first argument. With
+/// [`crate::instance::Only`] held, a second start hands it to the copy
+/// that is already running instead -- which is what makes a link open
+/// the window that is already there rather than a second one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Scheme {
+    /// Without the colon or the slashes: `"monapp"`.
+    pub scheme: String,
+    /// What the system shows when it asks the user whether to allow
+    /// it: `"Mon App"`.
+    pub name: String,
+    /// The program the address is handed to.
+    pub program: std::path::PathBuf,
+}
+
+impl Scheme {
+    /// Refuse what would not be a scheme. The rules are RFC 3986's: a
+    /// letter, then letters, digits, `+`, `-` and `.`.
+    pub fn checked(&self) -> Result<(), OsError> {
+        let mut letters = self.scheme.chars();
+        let first = letters.next();
+        let shaped = first.is_some_and(|letter| letter.is_ascii_alphabetic())
+            && letters.all(|letter| {
+                letter.is_ascii_alphanumeric() || letter == '+' || letter == '-' || letter == '.'
+            });
+        if !shaped {
+            return Err(OsError::Platform(format!(
+                "`{}` is not a scheme -- a letter, then letters, digits, `+`, `-` and \
+                 `.`, and no colon: `monapp`, not `monapp://`",
+                self.scheme
+            )));
+        }
+        // The schemes the machine already answers. Taking one of these
+        // would break the browser, the mail client or the file manager
+        // for the whole user account.
+        const TAKEN: [&str; 10] = [
+            "http",
+            "https",
+            "file",
+            "mailto",
+            "ftp",
+            "data",
+            "javascript",
+            "about",
+            "tel",
+            "sms",
+        ];
+        if TAKEN.contains(&self.scheme.to_ascii_lowercase().as_str()) {
+            return Err(OsError::Platform(format!(
+                "`{}` belongs to the system, and taking it would break it for every \
+                 program this user runs",
+                self.scheme
+            )));
+        }
+        if self.name.trim().is_empty() {
+            return Err(OsError::Platform(
+                "a scheme needs a name: it is what the system shows the user when it \
+                 asks whether to allow the link"
+                    .to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Make this program the one that answers `scheme://…`, for this user.
+///
+/// Per user and never for the machine: writing a system-wide handler
+/// needs administrator rights, and a desktop application that asks for
+/// them to register a link is an application people stop installing.
+pub fn register_scheme(scheme: &Scheme) -> Result<(), OsError> {
+    scheme.checked()?;
+    crate::platform::shell::register_scheme(scheme)
+}
+
+/// Undo it. A scheme that was never registered is not an error.
+pub fn unregister_scheme(scheme: &Scheme) -> Result<(), OsError> {
+    scheme.checked()?;
+    crate::platform::shell::unregister_scheme(scheme)
+}
+
 /// Faire de ce programme celui qui ouvre ces fichiers, pour cet
 /// utilisateur.
 pub fn associate(association: &Association) -> Result<(), OsError> {

@@ -24,12 +24,13 @@ use windows::Win32::System::Registry::{
 };
 use windows::Win32::UI::Shell::{
     ILCreateFromPathW, ILFree, SHARD_PATHW, SHAddToRecentDocs, SHCNE_ASSOCCHANGED, SHCNF_IDLIST,
-    SHChangeNotify, SHOpenFolderAndSelectItems,
+    SHChangeNotify, SHOpenFolderAndSelectItems, ShellExecuteW,
 };
+use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 use windows::core::PCWSTR;
 
 use crate::error::OsError;
-use crate::shell::Association;
+use crate::shell::{Association, Scheme};
 
 fn wide(text: &std::ffi::OsStr) -> Vec<u16> {
     text.encode_wide().chain(std::iter::once(0)).collect()
@@ -100,7 +101,14 @@ fn written(result: WIN32_ERROR, what: &str) -> Result<(), OsError> {
 
 /// La valeur par défaut de cette clé, en texte.
 fn set_default(key: &str, value: &str) -> Result<(), OsError> {
+    set_value(key, None, value)
+}
+
+/// Une valeur nommée de cette clé, ou sa valeur par défaut quand le nom
+/// est absent.
+fn set_value(key: &str, name: Option<&str>, value: &str) -> Result<(), OsError> {
     let key_name = classes(key);
+    let value_name = name.map(wide_str);
     let data = wide_str(value);
     // SAFETY: une clé et une valeur terminées par zéro ; la taille est
     // celle des données, zéro compris.
@@ -108,7 +116,10 @@ fn set_default(key: &str, value: &str) -> Result<(), OsError> {
         RegSetKeyValueW(
             HKEY_CURRENT_USER,
             PCWSTR(key_name.as_ptr()),
-            PCWSTR::null(),
+            match &value_name {
+                Some(name) => PCWSTR(name.as_ptr()),
+                None => PCWSTR::null(),
+            },
             REG_SZ.0,
             Some(data.as_ptr().cast()),
             (data.len() * 2) as u32,
@@ -187,6 +198,67 @@ pub fn dissociate(association: &Association) -> Result<(), OsError> {
         written(
             result,
             &format!(r"removing HKCU\Software\Classes\{extension}"),
+        )?;
+    }
+    announce();
+    Ok(())
+}
+
+/// `ShellExecuteW` sur le verbe « open » : c'est l'appel que Windows
+/// documente pour « donne cette adresse au navigateur de
+/// l'utilisateur », et il passe par les associations de l'utilisateur
+/// plutôt que par un programme nommé ici.
+pub fn open_url(url: &str) -> Result<(), OsError> {
+    let address = wide_str(url);
+    let verb = wide_str("open");
+    // SAFETY: deux chaînes terminées par zéro qui vivent le temps de
+    // l'appel ; aucune fenêtre parente, aucun répertoire de travail.
+    let answer = unsafe {
+        ShellExecuteW(
+            None,
+            PCWSTR(verb.as_ptr()),
+            PCWSTR(address.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    // `ShellExecuteW` rend un faux HINSTANCE : au-dessus de 32 c'est un
+    // succès, en dessous c'est un code d'erreur.
+    if answer.0 as usize > 32 {
+        Ok(())
+    } else {
+        Err(OsError::Platform(format!(
+            "Windows did not open that link (ShellExecute returned {})",
+            answer.0 as usize
+        )))
+    }
+}
+
+/// `HKCU\Software\Classes\<scheme>`, avec la valeur `URL Protocol` qui
+/// est ce qui distingue un schéma d'une simple classe de fichiers.
+pub fn register_scheme(scheme: &Scheme) -> Result<(), OsError> {
+    let key = &scheme.scheme;
+    set_default(key, &format!("URL:{}", scheme.name))?;
+    // Vide, et c'est sa présence qui compte : sans elle Windows traite
+    // la clé comme un type de fichier et n'ouvre rien.
+    set_value(key, Some("URL Protocol"), "")?;
+    set_default(
+        &format!(r"{key}\shell\open\command"),
+        &command_for(&scheme.program),
+    )?;
+    announce();
+    Ok(())
+}
+
+pub fn unregister_scheme(scheme: &Scheme) -> Result<(), OsError> {
+    let key = classes(&scheme.scheme);
+    // SAFETY: une clé terminée par zéro.
+    let result = unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, PCWSTR(key.as_ptr())) };
+    if result != ERROR_FILE_NOT_FOUND {
+        written(
+            result,
+            &format!(r"removing HKCU\Software\Classes\{}", scheme.scheme),
         )?;
     }
     announce();

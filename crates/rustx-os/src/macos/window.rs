@@ -418,7 +418,7 @@ mod real {
         // SAFETY: a property read on a live window, on the main thread.
         let frame: Rect = unsafe { msg_send![&*window, frame] };
         let primary = crate::screen::primary()?;
-        Ok(super::screen::flipped(
+        Ok(crate::platform::screen::flipped(
             frame.origin.x,
             frame.origin.y,
             frame.size.width,
