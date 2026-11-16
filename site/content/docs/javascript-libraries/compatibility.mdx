@@ -1,0 +1,80 @@
+---
+title: "Compatibility"
+description: "Which JavaScript libraries the repository's applications build and test, and what has not been tried."
+---
+
+shadcn/ui has more than sixty components and a page for each. This site does not
+copy them. This page says what is **measured** in this repository, what the code
+supports without a test, and what nobody has tried.
+
+A library works in rustx if esbuild can bundle it and React can draw it in a
+page. The framework adds one thing: a capitalized tag in a `.rsx` file is
+resolved against the libraries in `package.json` at run time. See
+[JavaScript libraries](/docs/javascript-libraries).
+
+## Measured
+
+These are in the two example applications, `apps/hybrid` and `apps/zoo`, and
+each is driven by the tests in their `tests/` folders.
+
+| | |
+|---|---|
+| React and React DOM | 18.3.1 |
+| Tailwind CSS | 4.3 with `@tailwindcss/cli`, and `tw-animate-css` |
+| esbuild | 0.23.1 |
+| shadcn components | `badge`, `button`, `card`, `dialog`, `input`, `separator`, `tabs` |
+| `@radix-ui/react-dialog`, `-separator`, `-slot`, `-tabs` | the primitives under those components |
+| `class-variance-authority`, `clsx`, `tailwind-merge` | what shadcn components import |
+| `lucide-react` | icons, as components with number and string props |
+| `recharts` 2.12.7 | a chart that is given new props from Rust and updates without being rebuilt |
+| `react-markdown` 9.0.1 | children written in the page reach the library |
+
+What the tests show for these: a library component draws; a handler on an
+installed component reaches Rust; a Radix dialog opens and closes; a Tailwind
+class written in a page reaches the screen; leaving the page takes what the
+library drew with it.
+
+## Supported by the code, not measured
+
+| | |
+|---|---|
+| Tailwind 3 | the framework detects the version in `node_modules` and passes `--content` and `@tailwind utilities`. No application in the repository uses it |
+| `@tiptap/pm` and packages with only subpath exports | the bundle leaves them out of the root import, and a page writes the subpath |
+| the other shadcn components | they are TypeScript files copied into `components/ui/`. They bundle if the packages they import are installed |
+
+## Not tried
+
+- **React 19.** Both applications pin React 18.3.1. If you use 19, you
+  are the first to find out.
+- **React Hook Form, TanStack Form and any other form library.**
+- **Sonner and other toast libraries.** They draw inside the page. They are not
+  system notifications: for those, see
+  [notifications and the tray](/docs/the-system/notifications-and-the-tray).
+- **Libraries that import `next/*`**, such as `next/image` or `next/link`. rustx
+  provides no such module. A component that imports one will not bundle unless
+  you replace the import.
+- **Portals and focus traps in a frameless window.** The Radix dialog test runs
+  in the example application. Nothing checks focus behaviour in a window made
+  with `Config::frameless()`.
+
+## What does not cross, in any library
+
+Three limits come from the boundary and not from a library:
+
+- a component that takes a **render prop** (a function as a child) or a `ref`
+  cannot be given one from a `.rsx` page;
+- a DOM event on a **lowercase** tag is converted into a rustx `Event`, and one
+  on a library's props is not: the library's own callbacks receive their
+  arguments as they are;
+- what crosses is a value: null, a boolean, a number, a string, a list, an
+  object.
+
+They are explained in [shadcn/ui](/docs/javascript-libraries/shadcn) and
+[props that cross](/docs/javascript-libraries/props-that-cross). The way out is
+always the same: a [component of your own](/docs/javascript-libraries/your-own-components),
+written in TypeScript, that keeps the detail on its side.
+
+## Reporting a result
+
+If you try something from the second or third list, the result is worth having
+either way. See [contributing](/docs/tooling/contributing).

@@ -1,0 +1,95 @@
+---
+title: "Closing"
+description: "Closing the window, what stops the application, and what a running task becomes."
+---
+
+## From the page
+
+```rust
+<button onClick={|_| { rustx::window::shut(); }}>×</button>
+```
+
+`shut()` closes the window where the page is drawn. The message goes to
+Chromium, which dismantles its window itself: the framework sends a
+`WM_CLOSE` and destroys nothing by force — the window has the right to
+ask in turn.
+
+## A named window
+
+```rust
+let tool = rustx::window::open(rustx::window::What::new("tool"))?;
+
+tool.close();
+```
+
+## What stops the application
+
+The **last** window closed stops the message loop, and the application
+goes away. Closing a window when another one remains stops nothing: this is the only
+place that knows it, and that is why the framework counts the open windows.
+
+```rust
+rustx::window::how_many_are_open()   // 2 before, 1 after
+```
+
+## What a running task becomes
+
+- a **thread** (`task(move |alive| …)`) sees `alive.post(…)` answer
+  `Err(PostError::WindowClosed)`, and that is the signal to stop;
+- an **`async` block** is abandoned where it waits: a future has no flag
+  to watch, and the runtime goes away with the process;
+- a **state write posted after closing** is refused. Nothing panics, and it is nobody's fault.
+
+```rust
+task(move |alive| {
+    while alive.get() {
+        let frame = read_camera();
+        if alive.post(move || last = frame).is_err() {
+            break;   // the window is gone, or this component
+        }
+    }
+});
+```
+
+## Save before leaving
+
+There is no "before closing" hook: what must survive is written when it changes,
+not at the moment of leaving. An `async` block that saves periodically is the form that holds,
+because it also survives a power cut.
+
+```rust
+let mut document = String::new();
+let mut saves = 0;
+
+fn Editor() -> Element {
+    async move {
+        let mut last = String::new();
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+            if document == last {
+                continue;
+            }
+            last = document.clone();
+            if tokio::fs::write("draft.txt", last.clone()).await.is_ok() {
+                saves += 1;
+            }
+        }
+    };
+
+    return <small>{saves} saves</small>;
+}
+```
+
+## Hide instead of closing
+
+An application that lives in the system tray closes its window and keeps
+its icon: the icon's token is what keeps the application alive on the
+system side, but the message loop stops with the last window. For the "minimize to
+the tray" behavior, you must therefore **not close**:
+
+```rust
+<button onClick={|_| { rustx::window::minimize(); }}>–</button>
+```
+
+A true "close to the system tray" requires keeping a hidden window; this is not
+written yet, and it is noted in [what's left](/docs/whats-left).

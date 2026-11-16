@@ -1,0 +1,81 @@
+---
+title: "The not-found screen"
+description: "not_found, start, and what Config says about the router."
+---
+
+`Config` says where it starts, and what is shown for a route that
+nobody declared.
+
+```rust
+Config::new("My app")
+    .start("/settings")          // `/` by default
+    .not_found(NotFound)         // otherwise: "This page does not exist."
+```
+
+## The screen itself
+
+`not_found` takes a `fn() -> Element`. It lives next to the window, so
+in `src/main.rs` and not in `app/`: it is not a `.rsx` file, and tags are a
+privilege of the `app/` folder.
+
+```rust
+use rustx::{AttributeValue, Element, Handler};
+
+#[allow(non_snake_case)]
+fn NotFound() -> Element {
+    Element::tag("main")
+        .attribute("class", AttributeValue::Text("p-10".to_string()))
+        .child(
+            Element::tag("h1")
+                .child(Element::Text("This route does not exist".to_string()))
+                .build(),
+        )
+        .child(
+            Element::tag("p")
+                .child(Element::Text(format!("asked for: {}", rustx::router::current())))
+                .build(),
+        )
+        .child(
+            Element::tag("button")
+                .handler("onClick", Handler::new(|_| rustx::router::navigate("/")))
+                .child(Element::Text("home".to_string()))
+                .build(),
+        )
+        .build()
+}
+```
+
+`rustx::router::current()` says what was asked for: a not-found screen
+that does not say it leaves the user with nothing to report.
+
+## If you want it written in tags
+
+Then it is a route like the others, and `not_found` shows it:
+
+```text
+app/not-found/page.rsx
+```
+
+```rust
+Config::new("My app").not_found(|| {
+    rustx::router::navigate("/not-found");
+    Element::Empty
+})
+```
+
+This is more machinery for the same result; the `Element` builder is there for
+this specific case.
+
+## `start`
+
+The opening screen. `/` by default, and `start("/settings")` for an
+application whose first thing to do is a setting.
+
+A second window, however, opens on the route it is given —
+`What::new("tool").at("/tool")` — and not on `start`. See
+[several windows](/docs/the-window/several-windows).
+
+<Callout type="warn" title="This page does not exist.">
+This is the default screen of `not_found`. When it appears without having been wanted: check the path passed to `navigate`, the name of the folder in
+`app/`, and the `.start(…)` of `Config`.
+</Callout>

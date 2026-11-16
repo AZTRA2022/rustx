@@ -1,0 +1,58 @@
+---
+title: "The router"
+description: "Routes are the app/ folder: dynamic segments, groups, nested layouts, loading, errors, history and the query string."
+---
+
+Routes are the `app/` folder. There is no table to write and no
+`<Route>` to declare: a `page.rsx` file **is** a route, and its
+path inside `app/` is its URL.
+
+```text
+app/page.rsx                      →  /
+app/settings/page.rsx             →  /settings
+app/device/[id]/page.rsx          →  /device/<something>
+app/files/[...path]/page.rsx      →  /files/<everything else>
+app/help/[[...path]]/page.rsx     →  /help, and /help/<everything else>
+app/(shop)/cart/page.rsx          →  /cart  (the group is not in the URL)
+app/layout.rsx                    →  a frame around what is below it
+app/repos/loading.rsx             →  what is shown while the page has nothing yet
+app/repos/error.rsx               →  what is shown if the page fails
+```
+
+## What the router can do
+
+| | |
+|---|---|
+| [Routes from folders](/docs/the-router/routes-from-folders) | `page.rsx`, groups, precedence |
+| [Parameters](/docs/the-router/parameters) | `[id]`, `[...rest]`, `[[...rest]]` |
+| [Layouts](/docs/the-router/layouts) | nested frames that keep their state |
+| [Loading and errors](/docs/the-router/loading-and-errors) | `loading.rsx`, `error.rsx` |
+| [Navigating](/docs/the-router/navigating) | `navigate`, `replace`, `back`, `forward`, the history |
+| [The query string](/docs/the-router/the-query-string) | `query`, `has_query`, `with_query` |
+| [The not-found screen](/docs/the-router/the-not-found-screen) | `not_found`, and where it starts |
+
+## On one page
+
+```rust
+// app/repos/[owner]/[name]/page.rsx
+fn Page(owner: String, name: String) -> Element {
+    let tab = rustx::router::query("tab");
+
+    return <section>
+        <h1>{owner}/{name}</h1>
+        <nav>
+            <button onClick={move |_| {
+                rustx::router::navigate(rustx::router::with_query("tab", Some("issues")));
+            }}>issues</button>
+            <button disabled={!rustx::router::can_go_back()}
+                onClick={move |_| { rustx::router::back(); }}>back</button>
+        </nav>
+        {if tab == "issues" { Issues() } else { Readme() }}
+    </section>;
+}
+```
+
+<Callout title="What differs from Next.js">
+There is no server rendering, so no `generateStaticParams`, no cached
+`fetch`, no `revalidate`: a desktop application draws what it has at hand. Everything else — the folders, the brackets, the groups, the layouts, `loading`, `error`, the precedence of routes, the history — reads the same as there.
+</Callout>

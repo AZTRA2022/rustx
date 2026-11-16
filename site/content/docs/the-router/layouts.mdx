@@ -1,0 +1,107 @@
+---
+title: "Layouts"
+description: "Nested frames that wrap the screens, keep their state, and are not rebuilt on every navigation."
+---
+
+A `layout.rsx` wraps its route and **everything below it**. It
+takes the children as an argument, like a component that wraps
+something.
+
+```rust
+// app/layout.rsx
+fn Layout(children: Element) -> Element {
+    return <div className="min-h-screen">
+        <header>My app</header>
+        <main>{children}</main>
+    </div>;
+}
+```
+
+## They stack
+
+One layout per level, from the outermost to the innermost:
+
+```text
+app/layout.rsx                        the application's frame
+app/repos/layout.rsx                  the section's frame
+app/repos/[owner]/[name]/layout.rsx   the frame of one repository
+app/repos/[owner]/[name]/page.rsx     the screen
+```
+
+The screen is drawn inside the third, which is drawn inside the second,
+which is drawn inside the first.
+
+## What a layout keeps
+
+A layout that **still** wraps the new screen is not rebuilt:
+it keeps its cells, its `keep`s, its threads. Navigating from
+`/repos/tokio/tokio` to `/repos/tokio/tokio/issues` does not touch the section's
+frame.
+
+```rust
+// app/repos/layout.rsx
+fn Layout(children: Element) -> Element {
+    // Counted once per entry into the section, not per screen.
+    let mut entries = 0;
+
+    effect((), move || entries += 1);
+
+    return <section>
+        <small id="entries">{entries}</small>
+        {children}
+    </section>;
+}
+```
+
+The screen being left, however, is freed, and the threads it held
+stop.
+
+## A layout and its parameters
+
+A layout can ask for the segments of **its own folder**:
+
+```rust
+// app/repos/[owner]/layout.rsx
+fn Layout(children: Element, owner: String) -> Element {
+    return <section>
+        <h1>{owner}</h1>
+        {children}
+    </section>;
+}
+```
+
+It can only ask for those: the screens below may have more, and it is the
+frame of all of them. A layout that asks for anything else is
+refused, with the reason given.
+
+## A group's layout
+
+A folder in parentheses carries a layout without lengthening the URLs: this is
+how two sections of the same application get two frames.
+
+```text
+app/(shop)/layout.rsx     the frame of /cart and /checkout
+app/(admin)/layout.rsx    the frame of /users, and it has nothing in common with it
+```
+
+## A title bar of your own lives in the root layout
+
+A frameless window must draw its own bar, and the only place that never goes away is the root layout:
+
+```rust
+// app/layout.rsx
+fn Layout(children: Element) -> Element {
+    return <div className="min-h-screen">
+        <header id="bar" className="flex items-center gap-2 border-b px-3 py-2">
+            <span className="font-semibold">My app</span>
+            <span className="h-6 flex-1" onMouseDown={|_| { rustx::window::drag(); }} />
+            <button onClick={|_| { rustx::window::minimize(); }}>–</button>
+            <button onClick={|_| { rustx::window::toggle_maximize(); }}>□</button>
+            <button onClick={|_| { rustx::window::shut(); }}>×</button>
+        </header>
+        <main>{children}</main>
+    </div>;
+}
+```
+
+See [the frameless window](/docs/the-window/frameless).

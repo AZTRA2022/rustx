@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>Counter</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        height: 100vh;
+        gap: 1rem;
+        background: #16161a;
+        color: #fffffe;
+      }
+      button {
+        font: inherit;
+        padding: 0.6rem 1.2rem;
+        border: 0;
+        border-radius: 6px;
+        background: #7f5af0;
+        color: #fffffe;
+        cursor: pointer;
+      }
+      ul { list-style: none; display: flex; gap: 0.5rem; padding: 0; }
+    </style>
+  </head>
+  <body>
+    <!-- The pages are written in app/. Nothing below is: the hosts the
+         counters used to be mounted in are the page's own now. -->
+    <div id="app"></div>
+    <script>
+      // A scenario waits on time, not on a frame.
+      //
+      // `requestAnimationFrame` never fires on a machine whose
+      // compositor produces no frames — a GPU process that crashes on
+      // every start, a window the system has hidden — and a scenario
+      // that polled with it waited for ever while the application
+      // underneath it was working perfectly. The framework drives its
+      // own frames from a timer when that happens; so does this.
+      const rustx_soon = (then) => setTimeout(then, 16);
+      if (rustx_scenario() === "page") {
+        // The effective font of the document, read before anything
+        // else touches the page: `body { font-family: system-ui,
+        // sans-serif }` is plain CSS this file wrote itself, nothing
+        // rustx emitted.
+        rustx_report("body_font", getComputedStyle(document.body).fontFamily);
+        // The counter is a screen of its own; the landing page is at /.
+        rustx_navigate("/counter");
+        const ready = () => document.querySelector("#first button");
+        const settle = () => {
+          if (!ready()) {
+            rustx_soon(settle);
+            return;
+          }
+          const first = document.querySelector("#first button");
+          first.click();
+          first.click();
+          first.click();
+
+          rustx_soon(() => {
+            rustx_report("after_three_clicks", first.textContent);
+            rustx_report("first", first.textContent);
+            rustx_report("second", document.querySelector("#second button").textContent);
+
+            // Click the third row twice, then move it to the front.
+            const row = () => document.querySelectorAll("#rows li button");
+            row()[2].click();
+            row()[2].click();
+            rustx_soon(() => {
+              const counts = () =>
+                Array.from(row())
+                  .map((button) => button.textContent)
+                  .join(",");
+              rustx_report("rows_before_rotate", counts());
+              document.querySelector("#rotate").click();
+              rustx_soon(() => {
+                rustx_report("rows_after_rotate", counts());
+                rustx_report("moved_item_count", row()[0].textContent);
+              });
+            });
+          });
+        };
+        rustx_soon(settle);
+      }
+    </script>
+  </body>
+</html>

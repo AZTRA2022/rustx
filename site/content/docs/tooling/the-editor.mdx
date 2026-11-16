@@ -1,0 +1,129 @@
+---
+title: "The editor"
+description: "The VS Code extension: highlighting, errors at the right coordinates, completion for the installed libraries."
+---
+
+A `.rsx` file is Rust with markup: without the extension, it is a file without colors whose errors fall into a generated file. With it, it is a file of the editor like the others.
+
+<p className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
+  <span>Built on</span>
+  <Brand name="vscode" />
+  <Brand name="rust-analyzer" />
+  <Brand name="rust" />
+</p>
+
+## Installing
+
+<Callout type="warn" title="Before">
+`rustc` and `cargo` must be installed and working: the server
+calls them.
+</Callout>
+
+```sh
+rustup component add rust-analyzer
+cargo install rustx-lsp
+code --install-extension editors/vscode/rustx-framework-extension-0.4.0.vsix
+```
+
+The extension asks for <Brand name="rust-analyzer">rust-lang.rust-analyzer</Brand> — it is what answers inside the braces — and <Brand name="vscode" /> suggests it along with it.
+
+## What it provides
+
+- **highlighting** of `.rsx`: Rust as Rust, markup as markup, and the braces in the middle as Rust;
+- the **compiler errors** underlined at their **real coordinates** in the `.rsx`, and not in the generated Rust;
+- completion of **HTML and SVG tags**, of attributes, of events, of the keys of `style={{ … }}`, and of the components of the file;
+- completion of the **components of the installed libraries** — `CardHeader`, `TabsTrigger`, `LineChart` are read from `node_modules`
+  and from `components/ui`, with the library's name beside them;
+- completion of **what these tags take**: on `<Button `,
+  `variant`, `size` and `asChild` come before the HTML attributes, read from the package's `.d.ts` or from the `components/ui/*.tsx` that `shadcn add` wrote;
+- **closing tags**: typing the `>` of `<Card>` writes `</Card>` behind the cursor. `Vec<u32>`, `a < b >`, `=>` and a tag that has already closed itself are left alone;
+- **snippets** with the prefixes a React developer already types: `rfc` writes a component, `rpage` a screen, `useState` a value, `useEffect` an effect, `rmap` a keyed list — and each one inserts rustx rather than React. The full list is `editors/vscode/snippets/rsx.json`;
+- inside a `{ … }`, it is <Brand name="rust-analyzer" /> that answers, behind the server.
+
+The first list of a session may take a few seconds, while <Brand name="rust-analyzer" /> loads the project.
+
+### What rust-analyzer answers through the server
+
+Everything below is <Brand name="rust-analyzer" />'s own answer, asked
+about the generated Rust and reported at the coordinates of your `.rsx`.
+This works for one reason worth knowing: a generated page **keeps its
+own line numbers**, so line *N* of the generated file is line *N* of the
+page, and a range that comes back needs no translation.
+
+| | |
+|---|---|
+| completion, and its auto-import edit | `completionItem/resolve` is forwarded, so accepting `PathBuf` adds the `use` line |
+| hover | types and documentation |
+| go to definition, type definition, implementation | F12, and its two neighbours |
+| find all references, highlight occurrences | Shift+F12, and the highlight under the cursor |
+| signature help | the parameter hints that appear inside `(` |
+| inlay hints | the inferred types shown in grey |
+| document symbols, folding | the outline, the breadcrumbs, Ctrl+Shift+O |
+
+Three are deliberately **not** forwarded:
+
+- **rename** and **code actions**, because both answer with edits whose
+  columns belong to the generated file, and a column that is wrong by
+  two characters rewrites the wrong part of your page. A renamed symbol
+  is worth less than a file that is still intact;
+- **formatting**, because the text being formatted is generated Rust,
+  so the answer would be your `.rsx` reformatted as Rust.
+
+A request the server does not answer is **refused** rather than ignored,
+so the editor stops waiting instead of showing a spinner.
+
+## Settings
+
+| | |
+|---|---|
+| `rustx.server.path` | where `rustx-lsp` is. Empty: on the `PATH` |
+| `rustx.rustAnalyzer.path` | where `rust-analyzer` is, if it is not on the `PATH` |
+| `rustx.closeTags` | close a tag when its `>` is typed. `true` by default |
+
+And one command, in the palette: **rustx: Restart the language
+server**. This is what to run after a `cargo install rustx-lsp`, because the server that is running is the earlier one.
+
+## `#[rustx::main]` underlined in red
+
+Fixed, and worth knowing what it was. The attribute does real work as
+part of its expansion — it compiles the pages, and it used to run the
+JavaScript bundler, which is `esbuild` in a child process.
+<Brand name="rust-analyzer" /> re-expands a proc macro on every
+keystroke and gives it a few seconds, so the bundler ran per keystroke,
+timed out, and took the expansion with it: every item below the
+attribute was reported as an error and completion stopped. A bundler
+failure was also a `compile_error!`, which showed an application whose
+`npm install` had not been run a red `#[rustx::main]` telling it to run
+`npm install` — in an editor, for a file nobody had touched.
+
+An expansion asked for by <Brand name="rust-analyzer" />'s own
+proc-macro server now skips the bundler and the assets; a build does
+neither. If you ever need the old behaviour, `RUSTX_MACRO_BUNDLE` takes
+`always` or `never`.
+
+## A diagnostic that looks wrong
+
+Almost always: a `rustx-lsp` older than the repository. The installed binary is a copy, and `cargo install --force` fails with
+`Access is denied (os error 5)` as long as the server holds its own file — it must be stopped first, with the command above or by closing the editor.
+
+```sh
+cargo install --path crates/rustx-lsp --force
+```
+
+The diagnostics that the server produces itself are those of the rustx
+compiler: a state write during rendering, a value read in the wrong place, a tag that nothing exports. They say **where to declare** or **where to write**, and that is the sign that they come from there rather than from `rustc`.
+
+## Knowing what the editor will offer
+
+In a given application, the list is that of what is installed:
+
+```sh
+cargo run -p rustx-lsp --example what_is_installed -- <the app's folder>
+```
+
+It writes the libraries found, the components of each, and the props it managed to read. This is the tool to run when a tag exists and completion ignores it.
+
+## Other editors
+
+`rustx-lsp` is an ordinary language server, started on a `.rsx` file;
+the VS Code extension is only a client and a grammar. An editor that can speak LSP can start it — the highlighting grammar is in `editors/vscode/syntaxes`, and it is reusable. No client has been written for Neovim, Zed or JetBrains, and that would be a welcome contribution: see [contributing](/docs/tooling/contributing).

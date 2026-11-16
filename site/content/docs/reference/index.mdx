@@ -1,0 +1,161 @@
+---
+title: "API at a glance"
+description: "The public functions a page and a main.rs call, with their signatures, grouped by module."
+---
+
+Each signature below was read from the source. They are not exhaustive: this is
+what an application meets. For the rest, `cargo doc --open` in the repository
+builds the rustdoc of the eight crates. See [the packages](/docs/tooling/the-packages).
+
+An application imports one crate, `rustx`, and these modules are on it.
+
+## Start
+
+| | |
+|---|---|
+| `App::new(config: Config) -> Result<App, rustx::Error>` | checks the configuration. In a helper process it exits instead of returning |
+| `App::run(self) -> Result<(), rustx::Error>` | opens the window and runs until it closes |
+| `Config::new(title: impl Into<String>) -> Config` | 1024 by 768. The other methods are in [configuration](/docs/tooling/configuration) |
+| `#[rustx::main]`, `#[rustx::main(pages)]` | the attribute on `main` |
+
+`rustx::Error` has four variants and is `#[non_exhaustive]`:
+
+| | |
+|---|---|
+| `IndexNotFound(PathBuf)` | the document does not exist on disk |
+| `RemoteContentForbidden` | the document is a remote URL |
+| `EngineInit(String)` | CEF failed to start |
+| `NoPage` | a window was asked for from somewhere with no page |
+
+## `router`
+
+| | |
+|---|---|
+| `navigate(path: impl Into<String>)` | go to the path on the next frame |
+| `replace(path: impl Into<String>)` | in place of the current screen |
+| `back() -> bool`, `forward() -> bool` | `false` if there was nowhere to go |
+| `can_go_back() -> bool`, `can_go_forward() -> bool` | |
+| `history() -> (Vec<String>, usize)` | the stack and the position in it |
+| `current() -> String` | the path with its query string |
+| `route() -> String` | the path without the query string |
+| `query(name: &str) -> String` | the value, or `""` |
+| `has_query(name: &str) -> bool` | whether the key is there, even with no value |
+| `with_query(name: &str, value: Option<&str>) -> String` | the current path with the key set, or removed with `None` |
+
+See [navigating](/docs/the-router/navigating) and
+[the query string](/docs/the-router/the-query-string).
+
+## `window`
+
+All of these act on the window the calling page is in.
+
+| | |
+|---|---|
+| `minimize()`, `maximize()`, `restore()`, `fullscreen()` | |
+| `toggle_maximize()`, `toggle_fullscreen()` | |
+| `on_top(above: bool)` | keep the window above the others |
+| `frameless()`, `framed()` | remove or restore the system frame |
+| `drag()` | start moving the window. Call it on a press |
+| `shut()` | close this window |
+| `open(what: What) -> Result<Window, rustx::Error>` | open another window, from a page |
+| `What::new(name)` with `.titled(t)`, `.size(w, h)`, `.at(route)`, `.frameless()` | what to open |
+| `Window::name() -> &str`, `Window::close()` | the handle `open` returns. Dropping it does not close the window |
+| `about() -> About` | `name`, `version`, `description`, `publisher` |
+
+See [the window](/docs/the-window).
+
+## `task` and the frame
+
+| | |
+|---|---|
+| `task::spawn(work: impl FnOnce(Alive) + Send + 'static) -> Task` | a thread. Dropping the `Task` cancels it |
+| `task::spawn_future(future) -> Task` | the same for a future, on the async runtime |
+| `Alive::get() -> bool` | is this work still wanted |
+| `Alive::post(job) -> Result<(), PostError>` | run a closure on the render thread at the next frame |
+| `Task::is_running() -> bool` | |
+| `task::panics() -> u32`, `task::last_panic() -> Option<String>` | for diagnostics |
+| `poster() -> Poster`, `Poster::post(job)` | the same door, from anywhere |
+| `on_frame(callback: impl FnMut() + 'static)` | run on every frame, on the render thread |
+
+`PostError` is `WindowClosed` or `Cancelled`. See
+[keep, effect, task](/docs/getting-started/keep-effect-task) and
+[cancellation](/docs/async/cancellation).
+
+## The bridge
+
+| | |
+|---|---|
+| `register_native(name: &str, f: impl Fn(&[Value]) -> Result<Value, NativeError> + 'static)` | a Rust function on the page's JavaScript global |
+| `NativeError::new(message)` | thrown into JavaScript |
+| `foreign::register_component(name, component)` | let React mount a component |
+| `on_context_created(hook)` | work when the page's context appears |
+
+See [the Rust bridge](/docs/javascript-libraries/rust-bridge).
+
+## System modules
+
+Errors are `OsError`, except `dialog`, which has `DialogError` with
+`Cancelled` as a normal case.
+
+### On the facade, under a short name
+
+`rustx::clipboard::text()`, and nothing to import.
+
+| | |
+|---|---|
+| `clipboard` | `text()`, `set_text(&str)`, `image()`, `set_image(&Image)`, `custom(format)`, `set_custom(format, &[u8])`, `supported()`. See [the clipboard](/docs/the-system/the-clipboard) |
+| `dialog` | `open(Ask)`, `save(Ask)`, `folder(Ask)`, `supported()`. See [file dialogs](/docs/the-system/file-dialogs) |
+| `notify` | `show(notify::What)`, `supported()`. See [notifications and the tray](/docs/the-system/notifications-and-the-tray) |
+| `tray` | `Icon::new(&Path, &str)`, `.menu(&[Item])`, `.clicked()`, `.notify(&What)`, `shown()`, `readable(path)`, `supported()` |
+| `shortcut` | `Shortcut::listen("Ctrl+Shift+R")`, `.pressed() -> u64`, `.keys() -> &str`, `supported()`. See [global shortcuts](/docs/the-system/global-shortcuts) |
+| `instance` | `Only::one(name)`, `.name()`, `hand_over(name, &[String])`, `handed_over()`, `BETWEEN`, `supported()`. See [a single instance](/docs/the-system/a-single-instance) |
+| `autostart` | `set(on, name)`, `is_on(name)`, `supported()`. See [start with the session](/docs/the-system/start-with-the-session) |
+| `devices` | `devices()`, `devices_of(kind)`, `device(id)`, `explain()`. See [devices](/docs/the-system/devices) |
+| `terminal` | `shell() -> Shell`, `run(script, at) -> Output`, `open(dir)`. See [the terminal](/docs/the-system/the-terminal) |
+| `dropped` | `on_files(hook)`, `files()`, `WHAT`. From the engine, not `rustx-os`. See [dropped files](/docs/the-system/dropped-files) |
+
+### Through `rustx::os`
+
+`rustx::os::audio::volume()`. Same crate, same error type, longer path —
+`rustx::window` is the page's own window and `rustx::os::window` is the
+window as the system knows it, so the two cannot share a name.
+
+| | |
+|---|---|
+| `os::about` | `Credits::new(name, version)`, `.copyright()`, `.icon()`, `show(pane, &credits)`, `supported()` |
+| `os::attention` | `flash(pane)`, `progress(pane, Option<f64>)`, `badge(Option<u32>)` |
+| `os::audio` | `endpoints(Flow)`, `default_endpoint(Flow)`, `volume()`, `set_volume(f64)`, `set_muted(bool)`. See [sound](/docs/the-system/sound) |
+| `os::bluetooth` | `paired() -> Vec<Paired>` |
+| `os::capture` | `desktop()`, `area(Area)`, `window(pane)` — each an `Image` |
+| `os::color` | `pick(Option<Rgb>) -> Option<Rgb>`, `Rgb::hex()`, `Rgb::from_hex(&str)` |
+| `os::net` | `network() -> Network`, `online() -> bool`, `Reach::connected()`, `Link::metered()` |
+| `os::print` | `dialog(path)`, `silently(path)`, `printers() -> Vec<Printer>`. See [printing](/docs/the-system/printing) |
+| `os::screen` | `screens()`, `primary()`, `holding(x, y)`, `Area::between(…)`, `Area::holds(x, y)` |
+| `os::secret` | `store(service, account, secret)`, `fetch(…) -> Option<String>`, `forget(…)`. See [secrets](/docs/the-system/secrets) |
+| `os::shell` | `reveal(path)`, `remember_recent(path)`, `associate(&Association)`, `dissociate(&Association)`, `Association::checked()` |
+| `os::system` | `theme()`, `power()`, `idle()`, `locked()`, `locale()`, `timezone()`, `scale()`, `ThemeWatch::start()` / `::every(d)` / `.changed()`. See [the machine's state](/docs/the-system/the-machine) |
+| `os::window` | `Pane`, `Dressing`, `Spread`, `Switchable`, `switch`, `dress`, `spread`, `spread_of`, `on_top`, `drag`, `drag_out`, `close`, `pointer()`, `supported()` |
+
+Only the ten modules with a `supported()` above have one. The twelve in
+the second table other than `os::about` and `os::window` answer with a
+`Result`, and the refusal is the answer.
+
+A platform that has not written a capability returns
+`OsError::Unsupported`, which names the capability and the platform — but
+**not** the file that would have to be written. See
+[platforms](/docs/the-system/platforms) for what each platform does, and
+for which of it has ever been executed.
+
+## Values and elements
+
+| | |
+|---|---|
+| `Value` | `Null`, `Bool`, `Number(f64)`, `String`, `List`, `Record`. Accessors `as_str`, `as_f64`, `as_bool`, `as_list`, `as_record`, `get`, `at` |
+| `ToValue`, `#[derive(ToValue)]`, `record([…])` | build a `Value`. See [props that cross](/docs/javascript-libraries/props-that-cross) |
+| `Element`, `Event`, `Handler` | what a component returns, what a handler receives. See [attributes and events](/docs/getting-started/attributes-and-events) |
+
+## Re-exports for your own `async` code
+
+`rustx::time` is `tokio::time`, and `rustx::tokio` is tokio itself, so a page
+and `main` use the same runtime that `task(async { … })` runs on. See
+[async](/docs/async).

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>R Intelligent Data</title>
+    <!-- No stylesheet and no script of its own: this application's
+         Tailwind and its libraries are declared in `package.json`, and
+         rustx builds both and puts them in this page. -->
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      // A probe, and only when one is asked for: `--scenario=routes`
+      // walks every screen by pressing the buttons a person would
+      // press, and says what each one drew. A normal launch logs
+      // nothing.
+      (() => {
+        if (typeof rustx_scenario !== "function") return;
+        if (rustx_scenario() !== "routes") return;
+
+        const screen = () => {
+          const all = [...document.querySelectorAll("[id^='screen-']")].map((node) => node.id);
+          return all.length ? all.join("+") : "none";
+        };
+
+        const press = (label) => {
+          const wanted = label.toLowerCase();
+          for (const button of document.querySelectorAll("button")) {
+            const said = (button.textContent || "").trim().toLowerCase();
+            if (said === wanted || said.startsWith(wanted)) {
+              button.click();
+              return true;
+            }
+          }
+          return false;
+        };
+
+        const walk = [
+          "Architecture",
+          "Platform",
+          "Solutions",
+          "Developers",
+          "Docs",
+          "The console",
+          "Getting data in",
+          "Company",
+          "Contact us",
+          "Console",
+          "users",
+          "Console",
+          "signals",
+          "Console",
+          "orders",
+          "Docs",
+          "How this is put together"
+        ];
+
+        let at = 0;
+        const step = () => {
+          if (at >= walk.length) {
+            console.log("routes done=" + at);
+            return;
+          }
+          const label = walk[at];
+          const went = press(label);
+          at += 1;
+          setTimeout(() => {
+            console.log(
+              "route step=" + at +
+              " pressed=[" + label + "]" +
+              " found=" + went +
+              " screen=" + screen() +
+              " text=" + document.body.textContent.trim().length
+            );
+            step();
+          }, 620);
+        };
+        setTimeout(step, 2100);
+      })();
+    </script>
+  </body>
+</html>

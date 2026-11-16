@@ -1,0 +1,195 @@
+/* Altlassian Raw. An editing suite at night: four greys of near-black,
+   hairline rules between the panels, and one violet that only ever
+   means "this one, now" — the selection, the playhead, and the button
+   that starts the render.
+   Tailwind 4 is configured in CSS; `@theme inline` below is the
+   configuration. */
+@import "tailwindcss";
+
+/* Shipped, not fetched. The sheet is put in the document as a `<style>`
+   element, so `url(…)` is relative to `assets/index.html` and not to
+   this file. Inter, under the SIL Open Font License; two weights,
+   because a toolbar needs regular and semibold and nothing else. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("fonts/inter-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: block;
+  src: url("fonts/inter-600.woff2") format("woff2");
+}
+
+/* The tokens, and the one line of layout concept they serve: an
+   editing suite at night, four greys of near-black with hairline rules
+   between them and one violet that only ever means "this one, now".
+
+   Two sets live here. The first is this application's own — `chrome`,
+   `panel`, `track`, `line`, `mark` — and the second is the set every
+   shadcn component names (`--primary`, `--border`, `--input`, …),
+   pointed at the first. That is the whole of the theming: the
+   components are the material and this file is the look, so a `Button`
+   lands in the suite's palette without a word of its source changing.
+
+   The violet is `mark` and not `accent` on purpose: shadcn spends
+   `accent` on a hover surface, and the two would have been one
+   utility. */
+:root {
+  /* Four greys, darkest first: the window, the panel frames, the
+     timeline's track bed, and the hairline between them. Every one of
+     them is pulled a little towards the violet below rather than being
+     a neutral grey — which is most of why a suite's chrome looks
+     chosen instead of left at the default. */
+  --chrome: #0a0a0e;
+  --panel: #121117;
+  --track: #18171f;
+  --line: #292733;
+
+  --text: #d7d6de;
+  --muted: #8b8996;
+  --faint: #5e5c6b;
+
+  /* One accent, and it means "this one, now": the selection, the
+     playhead, the render button. The two below are not accents — they
+     are what a state is, and they are used nowhere else. */
+  --mark: #6f5bf5;
+  --mark-soft: #231e45;
+  --danger: #e06c75;
+  --good: #7fd49a;
+
+  /* What shadcn's own classes name. Nothing new is invented here: each
+     one is one of the eleven above. */
+  --background: var(--chrome);
+  --foreground: var(--text);
+  --card: var(--panel);
+  --card-foreground: var(--text);
+  --popover: var(--panel);
+  --popover-foreground: var(--text);
+  --primary: var(--mark);
+  --primary-foreground: #ffffff;
+  --secondary: var(--track);
+  --secondary-foreground: var(--text);
+  --muted-surface: var(--track);
+  --muted-foreground: var(--muted);
+  --accent: var(--track);
+  --accent-foreground: var(--text);
+  --destructive: var(--danger);
+  --destructive-foreground: #ffffff;
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--mark);
+}
+
+@theme inline {
+  --color-chrome: var(--chrome);
+  --color-panel: var(--panel);
+  --color-track: var(--track);
+  --color-line: var(--line);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-mark: var(--mark);
+  --color-mark-soft: var(--mark-soft);
+  --color-danger: var(--danger);
+  --color-good: var(--good);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* A suite has no rounded cards and no drop shadows. shadcn asks for
+     `rounded-md` and `shadow-sm` by name, so the answer is given once,
+     here, instead of `rounded-none shadow-none` on every tag. */
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
+  --shadow-2xs: none;
+  --shadow-xs: none;
+
+  --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--chrome);
+  color: var(--text);
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  font-size: 12px;
+  /* An editing suite is one screen and not a document: the panels
+     scroll, the window does not. */
+  overflow: hidden;
+}
+
+/* The range inputs are the only native control on screen, and the one
+   Chromium draws does not belong in this window. A thin track, a small
+   square handle, and the accent on the handle alone. */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 14px;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 2px;
+  background: var(--line);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 9px;
+  height: 13px;
+  margin-top: -6px;
+  background: var(--text);
+  border: none;
+}
+
+input[type="range"]:focus {
+  outline: none;
+}
+
+input[type="range"]:hover::-webkit-slider-thumb {
+  background: var(--mark);
+}
+
+/* Operated with a keyboard as well as a mouse. One rule rather than a
+   focus class on every control, because every control wants the same
+   answer. */
+:focus-visible {
+  outline: 1px solid var(--mark);
+  outline-offset: 1px;
+}

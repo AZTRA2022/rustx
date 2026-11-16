@@ -1,0 +1,146 @@
+---
+title: "Assets"
+description: "Where images, fonts and icons go, how their paths resolve, and what the framework does not do for them."
+---
+
+Next.js has `public/`, `next/image` and `next/font`. rustx has a folder called
+`assets/` and nothing more: no optimizer, no resizing, no CDN. Files are read from disk
+by the page, as they are.
+
+## What `assets/` holds
+
+| | |
+|---|---|
+| `index.html` | the document the pages are mounted in. Optional |
+| `icon.ico` | the window and executable icon, found without being declared |
+| `tailwind.css` | your style sheet, if you use Tailwind |
+| `rustx-bundle.js` | **written by the build** from `package.json`. Do not edit or commit it |
+| anything else | yours: images, fonts, data |
+
+`rustx new` writes two files in `assets/`: a `readme.md` saying what the
+folder is for, and a `tailwind.css` holding the shadcn/ui theme
+variables. There is no `index.html` and no `icon.ico` until you add them.
+The `.gitignore` it writes excludes `/target`, `/node_modules`,
+`/.rustx/` and `/assets/rustx-bundle.js`.
+
+## How a path resolves
+
+The page is loaded from a `file://` URL: the real `assets/index.html` on disk.
+A relative URL in the page is resolved against that folder by Chromium, like in
+any local HTML file.
+
+```rust
+return <img src="logo.png" alt="" width="48" height="48" />;
+```
+
+That reads `assets/logo.png`.
+
+An application with **no** `assets/index.html` is given a generated document,
+written in the system's temporary folder — and it carries a
+`<base href="file:///…/assets/">`, so a relative path still resolves against
+your `assets/` and `logo.png` above still works. Write the document when you
+want a `<meta>`, a `<link>` or a title of your own:
+
+```html
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>My app</title>
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>
+```
+
+`app` is the id the screens are mounted in. Another id is set with
+`Config::host`. The framework adds the Tailwind style sheet and the
+bundle to this document itself, so it needs no `<link>` or `<script>`.
+
+No application in the repository loads an image through `src` yet, so try your
+own path before you build on it.
+
+## Fonts
+
+A desktop application should use the system's font. It is already installed
+and it is the one people recognize. The Tailwind page sets
+`--font-sans` to the system stack in `@theme inline`. See
+[Tailwind](/docs/javascript-libraries/tailwind).
+
+To ship a font, put it in `assets/fonts/` and declare it in the style sheet:
+
+```css
+@font-face {
+  font-family: "Inter";
+  src: url("fonts/Inter.woff2") format("woff2");
+}
+```
+
+The style sheet is put in the document as a `<style>` element, so `url(…)` is
+relative to the document, not to the CSS file. With the `assets/index.html`
+above, that is `assets/fonts/Inter.woff2`. A font needs no network, because it
+is read from disk.
+
+<Callout type="info" title="This did not work until recently">
+A page is a `file://` document, and Chromium gives every `file://`
+document an origin of its own — so a *fetch* from one is cross-origin
+and refused. A stylesheet loads, an `<img src>` loads, and a font does
+not, because a font is fetched with CORS and an image is not. The result
+was the fallback family on screen and nothing in the console. The engine
+now passes `allow-file-access-from-files`, so a shipped font loads, and
+so does a `fetch` of a file beside the document.
+</Callout>
+
+The generic families — what `sans-serif`, `serif` and `monospace` mean —
+are set to this platform's own: `Segoe UI`, `Helvetica Neue`,
+`DejaVu Sans`. Left unset, Chromium's fallback for every one of them is
+Times New Roman, on every platform.
+
+## Images
+
+Chromium decodes PNG, JPEG, WebP, AVIF and SVG. The framework does not touch
+them, so:
+
+- save an image at the size it is shown, or at twice that for a high-density
+  screen. A 4000-pixel photo shown at 200 pixels is decoded in full;
+- prefer WebP or AVIF for photographs, SVG for icons and drawings;
+- there is no lazy-loading helper. `loading="lazy"` is an attribute of the tag
+  like any other.
+
+For an image that comes from the user, such as a chosen or dropped file, the
+`PathBuf` from [file dialogs](/docs/the-system/file-dialogs) or
+[dropped files](/docs/the-system/dropped-files) is a path on disk. Read it in
+Rust, and turn it into what the page shows. Do not point `src` at a path you
+did not check.
+
+## Icons
+
+For icons inside the page, an `<svg>` written in the `.rsx`, an `.svg` file, or
+an icon library such as `lucide-react`, which is a JavaScript library like the
+others. See [JavaScript libraries](/docs/javascript-libraries).
+
+The window's logo is a different thing: an `.ico`, named with
+`Config::icon("assets/icon.ico")`. See
+[the logo and identity](/docs/the-window/the-logo-and-identity).
+
+## When you ship
+
+The executable **does** carry `assets/`. `#[rustx::main]` walks the folder at
+compile time and puts every file in the binary with `include_bytes!`, so a
+build hands to somebody else has its document, its bundle, its icon and its
+images, whether or not the folder travels with it.
+
+At run time the framework looks in this order:
+
+1. `assets/` beside the executable, if it is there — which is what
+   `rustx package` copies, and what lets somebody swap a logo or patch the
+   document in a shipped release without a compiler;
+2. the copy inside the binary, unpacked once into the engine's own folder and
+   rewritten only when the bytes differ;
+3. the project folder, which is the `rustx dev` case.
+
+This used to be the third line only, and it was the worst defect this page
+had: a release folder copied to a machine where the project did not exist
+opened a blank window, because the paths pointed at the machine that built it.
+See [packaging](/docs/tooling/packaging) for what else a release needs.

@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    // The build is a bundler — esbuild, which turns everything into one
+    // CommonJS file for the editor to require. So `extension.ts` may
+    // import the plain-ESM `.mjs` modules beside it, and it is the
+    // bundler's job to resolve them, not Node's at run time.
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node", "vscode"]
+  },
+  "include": ["src"]
+}

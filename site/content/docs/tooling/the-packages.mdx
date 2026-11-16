@@ -1,0 +1,19 @@
+---
+title: "The packages"
+description: "The eight packages on crates.io, and the one an application names."
+---
+
+| on crates.io | what it does |
+|---|---|
+| [`rustx-app`](https://crates.io/crates/rustx-app) | the facade: `App`, `Config`, `#[rustx::main]` — written `rustx::` |
+| [`rustx-cli`](https://crates.io/crates/rustx-cli) | `rustx new`, `dev`, `build`, `run` |
+| [`rustx-lsp`](https://crates.io/crates/rustx-lsp) | what an editor asks about a `.rsx` file |
+| [`rustx-compiler`](https://crates.io/crates/rustx-compiler) | `.rsx` → `.rs`, and the position map |
+| [`rustx-dom`](https://crates.io/crates/rustx-dom) | the tree, the state, the diff, the routes |
+| [`rustx-engine`](https://crates.io/crates/rustx-engine) | the CEF host, the frame loop, the router |
+| [`rustx-os`](https://crates.io/crates/rustx-os) | the clipboard, the dialogs, the system tray |
+| [`rustx-macro`](https://crates.io/crates/rustx-macro) | `#[rustx::main]`, `#[derive(ToValue)]` |
+
+An application names only one: `rustx-app`. The others come with it.
+An application that goes beyond the facade can call `rustx_engine`
+directly: nothing is hidden, and every line that the attribute adds is code that could have been written by hand.

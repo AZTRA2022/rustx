@@ -1,0 +1,90 @@
+---
+title: "Menus"
+description: "A context menu drawn by the system, the menu bar macOS needs, and why a menu drawn in the page is often the better answer."
+---
+
+```rust
+use rustx::menu::{self, Item};
+
+let items = [
+    Item::new("copy", "Copy"),
+    Item::new("wrap", "Wrap lines").checked(true),
+    Item::separator(),
+    Item::new("about", "About"),
+];
+
+if let Some(chosen) = menu::popup(pane, &items, None)? {
+    // `chosen` is one of the ids above: "copy", "wrap", "about".
+}
+```
+
+Two different things live here, and the documentation's migration table
+put them in one row:
+
+| | |
+|---|---|
+| `popup` | a **context menu**: opens at a point, blocks, and gives back the id of the line chosen |
+| `application` | the **menu bar**, which is a macOS idea and does nothing anywhere else |
+
+## The context menu
+
+`popup` takes the window the menu belongs to, the lines, and where to
+open. `None` for the position means where the pointer is, which is what
+a right-click wants.
+
+It blocks. The system runs its own loop while a menu is open, so the
+window keeps drawing, but the line after the call does not run until the
+menu is gone. `None` comes back when the user clicked away, which is not
+an error and is the common case.
+
+`Item` is the same type the tray's menu uses, because it is the same
+list: an id, a label, and `checked(true)` for a tick.
+`Item::separator()` is the dividing line. A line with a label and no id
+is refused — choosing it could not be told apart from clicking away —
+and so is a menu that is nothing but separators.
+
+<Callout type="warn" title="A menu drawn in the page is often better">
+`popup` draws the *system's* menu. On Windows that is a grey Windows
+menu over whatever your page looks like, and it will not match it. A
+right-click handler that shows a positioned `<div>` matches the
+application, animates, works the same on all three platforms, and needs
+nothing from this module — and it is what this framework already does
+for the title bar. Use `popup` when you want the system's menu
+**because** it is the system's.
+</Callout>
+
+## The menu bar
+
+```rust
+// once, at start
+rustx::menu::application()?;
+```
+
+It takes no items, and that is deliberate: the items that matter are not
+the application's. `Quit`, `Hide`, `Cut`, `Copy`, `Paste`, `Select All`,
+`Minimise` and `Close` are AppKit's own actions, and what the bar buys
+is that their keyboard shortcuts reach them. Without a menu bar macOS
+has nowhere to send `Cmd+C`, and a text field in the page cannot be
+copied out of.
+
+On Windows and Linux it does nothing and returns `Ok`. There is no
+application-level menu on either: a menu bar belongs to a *window*, the
+window here is Chromium's, and its message loop is not ours to add a
+case to. Draw that bar in the page.
+
+## Platforms
+
+| | |
+|---|---|
+| **Windows** | written. `TrackPopupMenu` with `TPM_RETURNCMD`, which returns the chosen line from the call instead of posting a message to a window we do not own |
+| **macOS** | written, never compiled for a Mac. `NSMenu`, with one registered Objective-C class as the target of every line |
+| **Linux** | **refused, and the refusal is the answer.** There is no menu in X11 and none in Wayland: a popup there is a window a toolkit draws, decorates and keeps the keyboard for. Linking GTK to draw one grey rectangle would add the whole of GTK, a second event loop beside Chromium's, and a look that matches neither the page nor a KDE desktop. Draw it in the page |
+
+`menu::supported()` says which of those you are on without a `cfg`. See
+[platforms](/docs/the-system/platforms).
+
+## Getting the `Pane`
+
+`popup` takes the window the menu belongs to, and a page cannot yet
+reach its own — the same gap `os::attention`'s `flash` and `progress`
+have. It is in [what's left](/docs/whats-left).

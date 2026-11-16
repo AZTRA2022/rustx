@@ -1,0 +1,78 @@
+---
+title: "The commands"
+description: "`rustx new`, `dev`, `build`, `run` — and what a reload keeps."
+---
+
+| | |
+|---|---|
+| `rustx new <name>` | writes a project that compiles the first time, in the directory you are in |
+| `rustx dev` | watches the files, rebuilds, brings the window back |
+| `rustx build` | builds, and gives the `.exe` its name and its icon |
+| `rustx build --release` | the version to ship |
+| `rustx run` | builds and launches once, without watching |
+| `rustx run --release` | the same, from the release build |
+| `rustx package` | builds, then gathers everything the application reads at run time into one folder, zips it, and makes the platform's installer. See [packaging](/docs/tooling/packaging) |
+| `rustx package --debug` | the same from the debug build, to hand a colleague what you are looking at |
+| `rustx package --no-zip` | the folder only |
+| `rustx package --out <dir>` | somewhere other than `dist/` |
+| `rustx help` | the commands, and what a reload keeps |
+| `rustx version` | the version of the command line |
+
+`build` and `run` take `--release` and nothing else. `package` is
+already the release build, so it refuses `--release` by saying so rather
+than by doing nothing. Anything else is refused by name.
+
+`cargo build` always works: the binary it produces runs, it only
+looks anonymous in the explorer — `rustx build` adds nothing beyond the icon and the version in the file properties.
+
+## Getting the disk back
+
+One build of this framework is 13 GB. CEF is around 300 MB per build
+profile, every application in `apps/` has a `target/` of its own, and
+each one with JavaScript libraries has a `node_modules` too. A machine
+fills up in a week — and a full disk is a bad thing to debug, because
+cargo reports a lint, `tsc` reports a type error and `cargo doc`
+reports a broken doc link. None of them says "the disk".
+
+```sh
+pwsh scripts/clean.ps1 -DryRun          # what it would free, in this project
+pwsh scripts/clean.ps1 -All -DryRun     # every project under the home folder
+pwsh scripts/clean.ps1 -All             # delete it
+pwsh scripts/clean.ps1 -All -Caches     # also the cargo and npm downloads
+```
+
+`sh scripts/clean.sh --all --dry-run` is the same script for macOS and
+Linux, with the same options spelled the POSIX way.
+
+It takes only what a build regenerates: `target/`, `node_modules/`,
+`.next/`, `.turbo/`, `.parcel-cache/`, `__pycache__/`, the framework's
+own temporary folders, and the registry caches when asked. It prints
+every folder with its size, asks before deleting more than a gigabyte,
+and names anything a running editor or window is holding open instead of
+saying "some files could not be deleted".
+
+What it will **not** take: anything a person typed, and anything
+belonging to an installed program. A `node_modules` with a
+`package.json` beside it inside an Electron application's
+`app.asar.unpacked`, or inside a VS Code extension, is that program's
+own code — deleting it uninstalls the program. The first version of this
+script found five of those, which is why the exclusion list exists.
+
+## What `rustx dev` keeps, and what it does not
+
+`rustx dev` **relaunches** the application; it does not reload native code while
+keeping the process alive, and does not claim to. What crosses the relaunch:
+
+- the shared state — the `let mut` written **at the top** of a `.rsx` file, which bears a
+  name, and a name is found again after a recompilation;
+- the page that was open.
+
+What does not cross:
+
+- the cells of a component, whose identity is a place in code that has just changed;
+- values that cannot be written on one line: anything that is neither a number, nor a string, nor a boolean, restarts from its initializer.
+
+A value whose *type* changed between two compilations is discarded, not forcibly reinjected.
+
+What runs during a `rustx dev` is a **copy** of the binary, in
+`target/rustx-dev/`: a running `.exe` is held by Windows, and the next build must be able to rewrite the one that cargo produced — otherwise every save would end in access denied. The copy keeps the application's name, and the folder disappears with `target/`.

@@ -1,0 +1,80 @@
+---
+title: "Installation"
+description: "Install `rustx-cli`, write a project, and open a window."
+---
+
+```sh
+cargo install rustx-cli      # rustx new, dev, build, run
+```
+
+You need <Brand name="rust">Rust</Brand> 1.88 or later. Nothing else:
+<Brand name="cef">CEF</Brand> — the browser engine — arrives with the
+`cef` package on the first build, and an application that uses no npm
+library needs neither <Brand name="node" /> nor <Brand name="npm" />.
+
+For JavaScript libraries, you need <Brand name="node" /> and
+<Brand name="npm" />, as for any project that uses them.
+
+## A project
+
+```sh
+rustx new my-app
+cd my-app
+rustx dev
+```
+
+Ten files, and a window:
+
+```text
+my-app/
+  Cargo.toml          rustx = { package = "rustx-app", version = "0.4" }
+  src/main.rs         the window, in four lines
+  app/page.rsx        the `/` page
+  assets/readme.md    a note: what this folder is for
+  assets/tailwind.css the shadcn/ui theme variables, base colour zinc
+  package.json        `esbuild` and the libraries the files above import
+  tsconfig.json       what `@/` means, for esbuild and for `shadcn add`
+  components.json     where `npx shadcn add` puts what it downloads
+  lib/utils.ts        the `cn()` helper every shadcn component imports
+  .gitignore          /target, /node_modules, /.rustx/, /assets/rustx-bundle.js
+```
+
+The last six are there so that the first command you are likely to run
+works. `npm install`, `npm install recharts` and `npx shadcn add button`
+each read a file that a project without them does not have — `shadcn add`
+refuses outright with "No import alias found in your tsconfig.json file"
+— and a component copied in by hand is then refused by esbuild, because
+`@/lib/utils` is a path alias nothing declared. A project that uses no
+JavaScript library can delete all six; nothing in the framework reads
+them.
+
+The package is called `rustx-app` on crates.io, because `rustx` is
+taken there by another project. The **library** is called `rustx`, so
+all the code is written as `rustx::`:
+
+```toml
+[dependencies]
+rustx = { package = "rustx-app", version = "0.4" }
+```
+
+The whole `main.rs`:
+
+```rust
+use rustx::{App, Config};
+
+#[rustx::main]
+fn main() -> Result<(), rustx::Error> {
+    let app = App::new(Config::new("My app").size(900, 640))?;
+
+    app.run()
+}
+```
+
+`#[rustx::main]` does all the rest: it compiles the `.rsx` files in `app/` into
+Rust, writes the route table, builds the JavaScript package and the
+style sheet if there is a `package.json`, finds or writes
+`assets/index.html`, and shuts down the Chromium subprocesses before
+they touch anything. None of these lines varies from one
+application to another, so none of them has to be written.
+
+There is **no `build.rs`**, and nothing to configure.

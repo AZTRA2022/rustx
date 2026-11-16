@@ -1,0 +1,120 @@
+---
+title: "Contributing"
+description: "The eight crates, the two logs, the test suites, and what a machine must know before running them."
+---
+
+The repository is a cargo workspace, and each part has a boundary that can be held in one's head.
+
+## The eight crates
+
+|                  |                                                                                              |
+| ---------------- | -------------------------------------------------------------------------------------------- |
+| `rustx`          | the facade: the only crate an application declares. Published as `rustx-app`                 |
+| `rustx-macros`   | `#[rustx::main]` and `#[derive(ToValue)]`. Published as `rustx-macro`                        |
+| `rustx-compiler` | the `.rsx` read, rewritten and emitted as Rust; the route table; esbuild and Tailwind called |
+| `rustx-dom`      | `Element`, `Event`, `Value`, the state, the routes — what depends on no system               |
+| `rustx-engine`   | CEF, the frames, the rendering, the bridge between the two processes, the router, the tasks  |
+| `rustx-os`       | what speaks to the system: window, clipboard, dialogs, tray, shortcuts, devices              |
+| `rustx-cli`      | `rustx new`, `rustx dev`, `rustx build`                                                      |
+| `rustx-lsp`      | the language server                                                                          |
+
+`apps/` holds the proof applications — `counter`, `catalogue`,
+`hybrid`, `monitor`, `capture`, `zoo` — which exist to be opened
+by the tests. `editors/vscode` holds the extension. `site/` holds this site.
+
+## Where the state of the framework is written
+
+One page: [what's left](/docs/whats-left). It holds what is missing and
+what is broken, written while building real applications on top of the
+framework, and it should be read before writing anything.
+
+A new entry is welcome, and it has three parts: what was written, what
+was expected, and what happened. An entry without the third part is a
+wish; with it, it is something somebody can fix.
+
+## The method
+
+A fix starts with a **law**: a test that fails for the reason one wants to fix, before the fix. This is what distinguishes a repaired bug from a moved one, and it is why each entry in the logs names the test that found it.
+
+And a law on a real window is worth more than a law on a structure: the seven white pixels above a frameless window were only visible in a window, and the test measures them on a real handle. A law is checked to be true by **sabotaging** it: removing the fix must make it fail, with the right numbers.
+
+## Running the suites
+
+```sh
+cargo test --workspace
+```
+
+On a machine without a usable 3D driver — virtual machine, remote desktop — half of the scenarios wait for a frame that a non-composed window never produces:
+
+```sh
+RUSTX_SOFTWARE=1 cargo test --workspace
+```
+
+The harnesses say so themselves when they recognize the log
+("Failed to create shared context").
+
+<Callout type="warn" title="An elevated terminal">
+  Chromium de-elevates itself since M156: launched from an administrator
+  terminal, the process relaunches non-elevated and the first one fails with
+  `ContentMainInitialize failed with exit code 38`. The harnesses pass
+  `--do-not-de-elevate`; an application launched by hand from such a terminal
+  must pass it too, or be launched from an ordinary terminal. The engine
+  recognizes the case and says so in the failure.
+</Callout>
+
+## How the tests open a window
+
+A scenario is a name passed to the application, and a report written to a file that the test reads back:
+
+```sh
+cargo run -p counter -- --do-not-de-elevate --scenario=page --report=rapport.txt
+```
+
+In the page, `rustx_scenario()` says which scenario is running, and
+`rustx_report(key, value)` writes a line. The test launches the binary, waits, and reads the lines: this is the only way to assert something about what a window actually draws.
+
+## The traces
+
+```sh
+RUSTX_TRACE=1 cargo run -p counter
+```
+
+The two ends of the bridge: what leaves, what arrives, and what nobody is listening to. This is the tool for anything that crosses between the window's process and the render process.
+
+## Writing a platform, and running one
+
+Writing one is the most bounded job in the repository: one file per
+capability in `crates/rustx-os/src/<os>/`, the same function names as
+the facade, and an `AVAILABLE` constant where the capability has one.
+Nothing about the engine or the compiler needs to be understood.
+
+But most of them are already written. Twenty-four capabilities exist for
+Linux and twenty-four for macOS, and the only evidence that any of them
+works is that they type-check on a Windows machine, through the three
+`mod *_also_compiles` declarations in `lib.rs`. That catches a changed
+signature. It does not catch a wrong flag passed to `zenity`, a D-Bus
+name that moved, or an `osascript` line that returns something else.
+
+**So the most useful contribution today is a run.** Take a capability
+that is written for your operating system, run it there, and say what
+happened — it is worth more than a new file, and there is no substitute
+for it in this repository, which has one Windows machine and no others.
+
+See [platforms](/docs/the-system/platforms) for what is written where,
+and what has been executed.
+
+## Code conventions
+
+- **Names say what the thing is**, and a function that refuses says what to do instead. An error message is documentation that is read at the worst moment: it names the file, the line, the output.
+- **Nothing in the framework names a library or a version**, with one exception, and it is explained where it sits: [Tailwind](/docs/javascript-libraries/tailwind).
+- **A capability that can be absent says so before it is asked.** Ten
+  modules do it with a `supported()` the platform itself answers;
+  the twelve newest answer with a `Result` whose refusal names the
+  platform and the capability. Either way, nothing silently does
+  nothing.
+
+## The repository
+
+The sources, the logs and the tickets are on
+[GitHub](https://github.com/AZTRA2022/rustx). The packages are published on
+[crates.io](https://crates.io/crates/rustx-app), under the MIT or Apache-2.0 license, at your option.

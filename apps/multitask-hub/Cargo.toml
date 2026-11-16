@@ -1,0 +1,10 @@
+[package]
+name = "multitask-hub"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Tracks & solves orchestration problems, scoped to a small dashboard of projects and the tasks that block them."
+
+[dependencies]
+rustx = { package = "rustx-app", path = "../../crates/rustx" }

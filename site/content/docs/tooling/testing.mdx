@@ -1,0 +1,181 @@
+---
+title: "Testing"
+description: "Testing the Rust logic with cargo, and driving a real window with a scenario the way the repository does."
+---
+
+Two kinds of test cover most of an application. Plain `cargo test` covers the
+Rust that has no window. A **scenario** covers what only a window can show. The
+repository's own applications use the second kind, and this page documents that
+harness as it is.
+
+## Logic: `cargo test`
+
+Put what can be wrong in ordinary Rust modules under `src/`, and keep the
+`.rsx` pages thin. A function that parses, validates or computes is tested like
+any other:
+
+```rust
+// src/validate.rs
+pub fn name_problem(name: &str) -> Option<String> {
+    if name.trim().is_empty() {
+        Some("A name is required".to_string())
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_blank_name_is_refused() {
+        assert!(name_problem("   ").is_some());
+    }
+}
+```
+
+```sh
+cargo test
+```
+
+The functions of the application's modules are in scope in the pages, so the
+page calls `name_problem(&name)` and the test calls the same function.
+
+There is no documented harness that renders a `.rsx` page without a window. The
+generated pages sit in a private module of your crate. If you need to see what a
+component returns without Chromium, the types are public through the facade:
+`rustx::Element`, and the state cells in `rustx::state`. The repository's own
+tests of those, in `crates/rustx-dom/tests/`, show how.
+
+## A page in a real window: scenarios
+
+A scenario starts the real executable, makes a script run inside its page, and
+collects what the script reports. The pieces are all in the framework:
+
+| | |
+|---|---|
+| `--scenario=<name>` | a command-line argument. `rustx_scenario()` in the page returns the name |
+| `--report=<path>` | a file. `rustx_report(key, value)` appends the line `REPORT key=value` to it |
+| `--do-not-de-elevate` | lets the suite run from an administrator terminal |
+
+Both natives are installed on every page. An application that is not under test
+gets an empty string from `rustx_scenario()`, so a script that checks for a name
+does nothing in production.
+
+### The page side
+
+The script goes in `assets/index.html`, so the application has to own one. See
+[assets](/docs/getting-started/assets). It waits on timers, not on frames,
+because a window that is not composed produces no frames.
+
+```html
+<div id="app"></div>
+<script>
+  const soon = (then) => setTimeout(then, 16);
+
+  if (rustx_scenario() === "counter") {
+    rustx_navigate("/counter");
+    const settle = () => {
+      const button = document.querySelector("#first button");
+      if (!button) { soon(settle); return; }
+
+      button.click();
+      button.click();
+      soon(() => rustx_report("after_two_clicks", button.textContent));
+    };
+    settle();
+  }
+</script>
+```
+
+`rustx_navigate` is the router's `navigate`, called from the page. See
+[the Rust bridge](/docs/javascript-libraries/rust-bridge).
+
+### The Rust side
+
+An integration test in `tests/` starts the binary. cargo gives it the path in
+`CARGO_BIN_EXE_<name>`, where `<name>` is the binary's name.
+
+```rust
+// tests/app.rs
+use std::process::{Command, Stdio};
+use std::time::Duration;
+
+#[test]
+fn two_clicks_count_two() {
+    let report = std::env::temp_dir().join(format!("report-{}.txt", std::process::id()));
+    let _ = std::fs::remove_file(&report);
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_my-app"))
+        .arg("--scenario=counter")
+        .arg(format!("--report={}", report.display()))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("the application should start");
+
+    // Chromium takes seconds to start, and tens of seconds with no GPU.
+    // Wait for the line, not for a fixed time.
+    let found = wait_for(&report, "REPORT after_two_clicks=2", Duration::from_secs(120));
+
+    let _ = child.kill();
+    let _ = child.wait();
+    assert!(found, "the page never reported");
+}
+
+fn wait_for(path: &std::path::Path, line: &str, patience: Duration) -> bool {
+    let deadline = std::time::Instant::now() + patience;
+    while std::time::Instant::now() < deadline {
+        if std::fs::read_to_string(path).is_ok_and(|text| text.lines().any(|each| each == line)) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    false
+}
+```
+
+The repository's `apps/counter/tests/common/mod.rs` is the full version. It also
+reads the application's output and kills the whole process tree with `taskkill
+/T /F`, since the engine starts helper processes. A name in `CARGO_BIN_EXE_` keeps
+the dashes of the crate name.
+
+## Rules the repository's harness learned
+
+- **One window at a time.** The suite takes a lock so that no two scenarios run
+  together. Several Chromium instances starting at once can take minutes.
+- **A unique report file** for each run, containing the process id and the time.
+  A fixed name was read stale on Windows.
+- **Wait for the report, not for a delay.** Starting Chromium takes two seconds
+  on one machine and forty on another.
+
+## On a machine with no GPU
+
+A virtual machine or a remote desktop may give Chromium no 3D context. The log
+then says `Failed to create shared context`, no frames are produced, and every
+scenario that waits on one reports nothing. Run the suite with
+`RUSTX_SOFTWARE=1`:
+
+```sh
+RUSTX_SOFTWARE=1 cargo test
+```
+
+On Windows PowerShell, set it first with `$env:RUSTX_SOFTWARE = "1"`.
+
+## In CI
+
+The repository has no CI configuration, and a scenario needs a window to exist.
+The only platform written is Windows, so a CI job needs a Windows runner with a logged-in
+session or a virtual display, and `RUSTX_SOFTWARE=1`. That recipe has not been
+verified. Report the setup that works for you.
+
+For the other checks, the repository runs these:
+
+```sh
+cargo test --workspace
+cargo clippy --workspace --all-targets
+cargo doc --no-deps --workspace
+```
+
+See [contributing](/docs/tooling/contributing).

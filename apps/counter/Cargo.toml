@@ -1,0 +1,10 @@
+[package]
+name = "counter"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The counter of the design document, written in .rsx."
+
+[dependencies]
+rustx = { package = "rustx-app", path = "../../crates/rustx" }

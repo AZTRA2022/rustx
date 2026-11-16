@@ -1,0 +1,53 @@
+---
+title: "rustx 0.2.0"
+description: "The router brought up to Next's level, the React boundary, the frameless window, and a comment that was drawn on screen."
+date: "2026-11-07"
+---
+
+The workspace is at 0.2.0. Most of what is in it came from one method: write a real application from the outside, with no workaround, and fix whatever stops it.
+
+The application was a GitHub repository browser, kept in a separate folder and pointed at the repository's sources. It has nested routes, parameters, a command palette, a search with a debounce against a real HTTPS API, concurrent tasks, Recharts graphs, a TipTap editor, and the native clipboard and dialogs. Nothing in it was written to please the framework. Every line is what a developer writes first, and the logs say what happened when it did.
+
+There are two logs in the repository. One lists what is missing or broken. The other is the bug hunt. The bug hunt closed 41 entries. The list closed 32 of its 34. This post is about four of the things they closed. The [changelog](/changelog) has the rest.
+
+## The router, measured against Next's
+
+A developer who comes from Next looks for the same things in a router. Several were missing, and they are written now.
+
+- The [query string](/docs/the-router/the-query-string). `/depots?q=rust` used to match nothing.
+- The catch-all segment `[...path]` and the route groups `(section)`, both in [routes from folders](/docs/the-router/routes-from-folders).
+- `forward` and `replace`, next to `navigate` and `back`, and a history stack the page can read. See [navigating](/docs/the-router/navigating).
+- The parameters of the route, given to a [layout](/docs/the-router/layouts).
+- A `loading.rsx` and an `error.rsx` per segment. See [loading and errors](/docs/the-router/loading-and-errors).
+
+None of this makes rustx a web framework. There is still no server and no hydration. It means that the folder you know from Next reads the same way.
+
+## The React boundary
+
+Rust and React share one process, so a prop crosses as a V8 value and an `onClick` is a function call. That much was true before. What the labo found was what did not cross.
+
+An `Element` could not be the child of a React component. `Event` carried only its kind, so the text typed into an input was out of reach. `Value` had no accessors. A callback received only its first argument.
+
+All four are fixed. `Event` now carries the value, the key, the target and the modifiers, including on a tag written inside a React subtree. See [props that cross](/docs/javascript-libraries/props-that-cross) and the [Rust bridge](/docs/javascript-libraries/rust-bridge).
+
+## The frameless window
+
+A frameless window means the top bar is yours. Two things were wrong with it.
+
+A title bar does not have two buttons for maximize and restore. It has one that toggles. `window::toggle_maximize()` and `window::toggle_fullscreen()` now exist, and the place from before full screen is kept and given back.
+
+And Windows painted seven pixels above a frameless window. They are taken back by `WM_NCCALCSIZE`, and the resize edges stay. This is Windows only, like the rest of [the window](/docs/the-window/frameless).
+
+One limit remains and is written down: an event does not yet say what was pressed, so `window::drag()` goes on an empty space of the bar and not on the whole `<header>`.
+
+## The comment that was drawn
+
+In a `.rsx` file a comment is written as in Rust, and it should vanish. Inside markup, it did not. The text of the comment appeared in the window.
+
+Now the three forms are read and dropped: `//` at the start of a line, `/* ... */`, and `{/* ... */}`. They work between children and between attributes. A `//` in the middle of a sentence is still the sentence, so `see https://example.com` is printed as written. The [`.rsx` file](/docs/getting-started/the-rsx-file) page has the rules.
+
+## What is still open
+
+Two entries. An `async fn` written beside a page cannot reach a value of the page, and the compiler says so and says where to declare the value. A component `.await` that borrows a local does not compile, and the message comes from `rustc`. Both are on [what's left](/docs/whats-left), with what is not written yet: macOS and Linux, an installer, and closing to the system tray.
+
+The version is 0.2.0 and the API may still move. If you try it and something stops you, that is how the last two nights went.

@@ -1,0 +1,83 @@
+---
+title: "A rustx component in React"
+description: "The other direction of the boundary: `rustx_component(name, id)`, and what React receives."
+---
+
+The boundary works in both directions. A component written in `.rsx`
+can live in a node that React owns.
+
+The **parameterless** components of the `app/` folder are made available to the
+page at startup, under the name they bear in the code. There is nothing to declare.
+
+```rust
+// app/components/counter.rsx
+let mut count = 0;
+
+pub fn Counter() -> Element {
+    return <button onClick={move |_| count += 1}>{count}</button>;
+}
+```
+
+```tsx
+// components/Panel.tsx — React, which leaves a hole
+export default function Panel() {
+  return (
+    <div className="rounded-lg border p-4">
+      <h2>What rustx draws</h2>
+      <div id="panel-slot" />
+    </div>
+  )
+}
+```
+
+```js
+// and at the moment this node exists
+rustx_component("Counter", "panel-slot")
+```
+
+`rustx_component` takes **the name of the component** and **the id of
+the element**. It takes an id and not the node itself because a value that crosses
+carries `null`, a boolean, a number, a string, an array or an object — and nothing else: widening that to carry a DOM object would widen exactly the boundary that exists to stay narrow.
+
+## What React receives
+
+Not a snapshot. The component becomes a **root of its own**, redrawn by the same frame as everything else on the page, with its own cells, effects and tasks. Releasing the node releases all of that, like unmounting any root.
+
+## A name that does not exist
+
+The call throws, and the sentence says what to do:
+
+```text
+rustx: no component named 'Nope' has been registered — an application
+says what React may mount by calling
+`rustx_engine::foreign::register_component`
+```
+
+A component **with parameters** is not in the table: React would not know what
+to pass it. What is needed is a parameterless component that reads the state of the
+page, and calls the other one.
+
+## By hand, for the rest
+
+An application that does not go through `app/` — or that wants to expose a component built at runtime — registers it itself:
+
+```rust
+rustx::on_context_created(|| {
+    rustx::foreign::register_component("Chart", || {
+        return <canvas id="chart" />;
+    });
+});
+```
+
+It is the same call that `#[rustx::main]` makes for the components of `app/`,
+written by hand. It must happen on the page's thread, so from `on_context_created` and not from `main`.
+
+## Navigating from JavaScript
+
+It is the same boundary, and the same router:
+
+```js
+rustx_navigate("/settings")
+```
+
+There is only one history, and it is the rustx router's: a React component that wants to change screen calls this, and the page follows.

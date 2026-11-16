@@ -1,0 +1,29 @@
+---
+title: "Tooling"
+description: "The command line, the editor, configuration, testing, debugging, packaging and upgrading."
+---
+
+A rustx project is an ordinary cargo project, so cargo does most of the work.
+What rustx adds is a command that writes a project, one that rebuilds when you
+save, a build that names the executable, and an editor extension that shows
+errors at the position you wrote.
+
+```sh
+cargo install rustx-cli      # rustx new, dev, build, run
+```
+
+## The pages
+
+| | |
+|---|---|
+| [The commands](/docs/tooling/the-commands) | `rustx new`, `dev`, `build`, `run`, and what a reload keeps |
+| [Configuration](/docs/tooling/configuration) | every place a project is configured |
+| [Environment](/docs/tooling/environment) | the variables rustx reads, and build-time constants |
+| [The editor](/docs/tooling/the-editor) | highlighting, errors at their real position, completion |
+| [The packages](/docs/tooling/the-packages) | the eight crates, and the one an application names |
+| [Testing](/docs/tooling/testing) | `cargo test` for logic, scenarios for a real window |
+| [Debugging](/docs/tooling/debugging) | where errors appear, tracing, which process to attach to |
+| [Packaging](/docs/tooling/packaging) | what `rustx build --release` makes, and what has to ship with it |
+| [Upgrading](/docs/tooling/upgrading) | moving a project to a newer release |
+| [Troubleshooting](/docs/tooling/troubleshooting) | the messages you read, and what to do |
+| [Contributing](/docs/tooling/contributing) | the crates, the logs, the test suites |

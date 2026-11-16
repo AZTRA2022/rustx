@@ -1,0 +1,23 @@
+[package]
+name = "rustx-compiler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+authors.workspace = true
+description = "Turns a .rsx file into ordinary Rust, and keeps the positions."
+keywords = ["rsx", "jsx", "compiler", "gui", "rustx"]
+categories = ["development-tools", "gui"]
+
+[dependencies]
+proc-macro2 = "1.0.86"
+quote = "1.0.37"
+
+[dev-dependencies]
+# Pour relire ce que l'emission produit. `rustc` ne peut pas voir une
+# page du depot -- elle nomme ce que son application definit -- mais la
+# forme des jetons, si, et c'est la moitie qu'un transpileur rate.
+syn = { version = "2", features = ["full", "parsing"] }

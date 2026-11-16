@@ -1,0 +1,102 @@
+---
+title: "Reading and writing state"
+description: "A read is direct, a write goes out through the frame — and what follows from it."
+---
+
+An `async` block reads the values that the page has declared, **where they
+are**. There is nothing to declare alongside: no `keep`, no `Arc`, no
+`Mutex`, no buffer that a handler would have to remember to keep up to date.
+
+```rust
+let mut clicks = 0;
+let mut saves = 0;
+
+fn Page() -> Element {
+    async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            let text = format!("clicks: {}", clicks);
+            if tokio::fs::write("save.txt", text).await.is_ok() {
+                saves += 1;
+            }
+        }
+    };
+
+    return <button onClick={move |_| clicks += 1}>{clicks}</button>;
+}
+```
+
+The loop sees today's `clicks`, not a copy taken on the first turn. This is
+why a loop that watches a filter sees the one the user has just typed, and why a
+"pause" button actually acts on the loop.
+
+## Reading and writing are not symmetric
+
+This is intended.
+
+A **read** is direct. A **write** goes out through the frame: it is what marks the
+page, what makes a thousand writes cost a single render, and what refuses the
+write of a component that has already left.
+
+What follows from this, stated once: *a future that writes and then reads sees the
+old value until the frame that applies the write.*
+
+## The three consequences
+
+- **a thousand writes in an `async` loop make one render**, because they dirty
+  the same value once. There is no *debounce* to tune and no throttling to learn;
+- a write posted **after the window is closed** is refused, and a write that a task
+  had posted **before leaving** is refused too. This matters mostly for a `let mut`
+  at the top of the page: a name outlives the screen, so without this the write of a
+  page that has gone would land on the next one. Nothing panics, and neither case
+  is a fault of the developer;
+- a `let mut` written from an `async` block is a **state**, exactly
+  like a `let mut` written from a handler. The promotion rule
+  does not change.
+
+## Two limits
+
+The value must be `Send + Sync` — this is what being read from another
+thread requires, and rustc says so on the line of the page.
+
+And it must be a **page** value, declared at the top of the file. A
+`let mut` inside a component belongs to the instance that draws, so it is
+refused in a block, and the refusal says where to declare it:
+
+```rust
+let mut results = Vec::<String>::new();   // the page: readable from the block
+
+fn Reload() -> Element {
+    let mut hovered = false;              // the instance: not from the block
+
+    async move {
+        let mut last = String::new();
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            if query == last {
+                continue;
+            }
+            last = query.clone();
+            results = search(&last).await;
+        }
+    };
+
+    return <p>{results.len()} found</p>;
+}
+```
+
+What a component cell must give to the block, it gives as a copy, **before** the block:
+
+```rust
+let what = hovered;
+async move {
+    use_it(what).await;
+};
+```
+
+## After an `.await`, there is no cell
+
+In a `let … .await` written in the body of a component, what follows the
+`.await` leaves with the future, and runs next to the window. Reading a value
+of the page there is refused, for the same reason: there is no cell to read
+at that point. See [awaiting a value](/docs/async/awaiting-a-value).

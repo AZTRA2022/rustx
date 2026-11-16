@@ -1,0 +1,74 @@
+---
+title: "Start with the session"
+description: "`autostart`: the application relaunches at sign-in, without administrator rights."
+---
+
+```rust
+use rustx::autostart;
+
+autostart::set(true, "my-software")?;
+let on = autostart::is_on("my-software");
+autostart::set(false, "my-software")?;
+```
+
+On Windows, this is a value in
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`: the user's hive, so
+**without elevation**. An application that asks for administrator rights to tick a box is an application that gets uninstalled.
+
+## The registered path is that of the current executable
+
+This has two consequences that are better known in advance:
+
+- during development, it is the binary in `target/debug/` that is registered. A `cargo clean` leaves an entry that leads nowhere, and Windows ignores it silently;
+- an application moved or reinstalled elsewhere must rewrite its entry. The simplest is to do it at startup, when the box is ticked:
+
+```rust
+#[rustx::main]
+fn main() -> Result<(), rustx::Error> {
+    if autostart::is_on("my-software") {
+        let _ = autostart::set(true, "my-software");   // rewrites the path
+    }
+
+    let app = App::new(Config::new("My software"))?;
+    app.run()
+}
+```
+
+## The checkbox
+
+```rust
+let mut at_login = autostart::is_on("my-software");
+
+fn Settings() -> Element {
+    return <label className="flex items-center gap-2">
+        <input type="checkbox" checked={at_login} onChange={move |event| {
+            at_login = event.checked;
+            let _ = autostart::set(at_login, "my-software");
+        }} />
+        Start with Windows
+    </label>;
+}
+```
+
+`is_on` is the **truth of the system** and not a preference that the
+application keeps on its own side: the user can remove the entry through the task manager, and the box must reflect it. This is why the value is read at the start of the page, and not from a settings file.
+
+## Starting minimized
+
+An application launched with the session should not open a window in front of the user who has just switched on their machine. Nothing needs declaring for this: it is an argument that the application passes to itself, and a page that reads it.
+
+```rust
+autostart::set(true, "my-software")?;   // registers the executable
+
+// and in main, what the entry passed
+if std::env::args().any(|argument| argument == "--at-login") {
+    rustx::window::minimize();
+}
+```
+
+With a tray icon, this is the complete form of software that lives in the background: see
+[notifications and the tray](/docs/the-system/notifications-and-the-tray).
+
+## Elsewhere
+
+`autostart::supported()` answers for the platform. On Linux, it will be a `.desktop` file in `~/.config/autostart`; on macOS, a launch agent. Both refuse today by naming the file to write — see [platforms](/docs/the-system/platforms).

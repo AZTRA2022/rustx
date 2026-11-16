@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Altlassian Raw</title>
+    <!-- No stylesheet of its own: the Tailwind sheet is declared in
+         `package.json` and rustx puts it in this document. The document
+         is here for two other reasons — a `url(…)` in that sheet is
+         resolved against it, which is how `assets/fonts/` is found,
+         and the transport below needs somewhere to live. -->
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      // The transport, and the only JavaScript this application has.
+      //
+      // The page is Rust: it draws the <video>, it owns the timeline and
+      // it decides what a key means. Three things it cannot do from
+      // there, because they are calls on a DOM node rather than
+      // attributes of one: start playback, move `currentTime`, and read
+      // the keyboard. So Rust writes what it wants on `data-cmd` and
+      // this reads it, and this reports back through the natives
+      // `src/main.rs` registers. Nothing here decides anything.
+      (() => {
+        const near = (value) => (Number.isFinite(value) ? value : 0);
+
+        const obey = (video) => {
+          const said = video.getAttribute("data-cmd") || "";
+          if (said === video.__said) return;
+          video.__said = said;
+          const [, whole] = said.split("|");
+          const [verb, argument] = (whole || "").split(":");
+          const at = near(parseFloat(argument));
+          const run = () => {
+            if (verb === "play") video.play().catch(() => {});
+            else if (verb === "pause") video.pause();
+            else if (verb === "seek") video.currentTime = at;
+            else if (verb === "start") {
+              video.currentTime = at;
+              video.play().catch(() => {});
+            } else if (verb === "rate") video.playbackRate = at || 1;
+            else if (verb === "volume") {
+              video.volume = Math.min(1, Math.max(0, at));
+              video.muted = at === 0;
+            }
+          };
+          // A command can arrive in the same frame as a new `src`, and
+          // a video with no metadata yet has no `currentTime` to set.
+          if (video.readyState >= 1) run();
+          else video.addEventListener("loadedmetadata", run, { once: true });
+        };
+
+        const tell = (video) => {
+          const at = video.currentTime;
+          const moved = Math.abs(at - (video.__at || 0)) > 0.02;
+          if (!moved && video.paused === video.__paused) return;
+          video.__at = at;
+          video.__paused = video.paused;
+          editor_time(at, video.paused);
+        };
+
+        setInterval(() => {
+          const video = document.getElementById("monitor");
+          if (!video) return;
+          if (!video.__wired) {
+            video.__wired = true;
+            video.addEventListener("error", () => {
+              const failed = video.error;
+              editor_media(
+                false,
+                failed ? "code " + failed.code + ": " + (failed.message || "no message") : "no error object"
+              );
+            });
+            video.addEventListener("loadeddata", () => editor_media(true, ""));
+          }
+          obey(video);
+          tell(video);
+        }, 60);
+
+        const bindings = {
+          " ": "space",
+          j: "j",
+          k: "k",
+          l: "l",
+          i: "i",
+          o: "o",
+          m: "m",
+          home: "home",
+          end: "end",
+          arrowleft: "left",
+          arrowright: "right"
+        };
+
+        document.addEventListener("keydown", (event) => {
+          const tag = (event.target && event.target.tagName) || "";
+          if (tag === "INPUT" || tag === "TEXTAREA") return;
+          const name = bindings[event.key.toLowerCase()];
+          if (!name) return;
+          // Space scrolls a page and these do not: this is a window.
+          event.preventDefault();
+          editor_key(event.shiftKey ? "shift-" + name : name);
+        });
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,134 @@
+---
+title: "The Rust bridge"
+description: "Registering a Rust function that JavaScript calls, the values that cross, and the natives the framework installs."
+---
+
+A Route Handler, a Server Action or a Tauri command is how a web page asks the
+other side to do something. In rustx the other side is the same process.
+A **native** is a Rust function installed on the page's JavaScript global. It
+is called like any function and answers at once.
+
+The other direction, Rust drawing inside a React tree, has its own pages:
+[props that cross](/docs/javascript-libraries/props-that-cross) and
+[a rustx component in React](/docs/javascript-libraries/a-rustx-component-in-react).
+
+## Registering a native
+
+```rust
+use rustx::{App, Config, NativeError, Value, register_native};
+
+#[rustx::main]
+fn main() -> Result<(), rustx::Error> {
+    let app = App::new(Config::new("Notes").on_context_created(|| {
+        register_native("word_count", |arguments| {
+            let Some(Value::String(text)) = arguments.first() else {
+                return Err(NativeError::new("word_count takes a string"));
+            };
+            Ok(Value::Number(text.split_whitespace().count() as f64))
+        });
+    }))?;
+
+    app.run()
+}
+```
+
+The closure is `Fn(&[Value]) -> Result<Value, NativeError>`. It is not `Send`
+and not `Sync`: it runs on the render thread, where V8 lives.
+
+It is registered inside `on_context_created` because the page's JavaScript
+context exists in the renderer process, and the renderer never reaches the
+body of your `main`. The hook runs there, once per process.
+
+## Calling it
+
+The name is a global function. A library component, a script in
+`assets/index.html` or your own TypeScript calls it directly:
+
+```tsx
+// components/Counter.tsx
+declare function word_count(text: string): number
+
+export function Words({ text }: { text: string }) {
+  return <span>{word_count(text)} words</span>
+}
+```
+
+The call returns before the next line runs. There is no promise and no
+callback. A native that takes a long time freezes the window, for the same reason
+a slow component does. Start a [task](/docs/getting-started/keep-effect-task)
+and let it write state.
+
+## What crosses
+
+| | |
+|---|---|
+| `null`, `undefined` | `Value::Null` |
+| a boolean | `Value::Bool` |
+| a number | `Value::Number(f64)` |
+| a string | `Value::String` |
+| an array | `Value::List` |
+| a plain object | `Value::Record`, as `(name, value)` pairs |
+
+The same table runs backwards for the value you return. A function, a `Date`,
+a promise or a DOM node is refused with `unsupported argument`, before your
+closure runs. Nesting stops at 32 levels, which is also what stops a cycle.
+
+`Value` has accessors, so a native reads its arguments without matching:
+
+| | |
+|---|---|
+| `as_str()`, `as_f64()`, `as_bool()` | the content, if it is that kind |
+| `as_list()`, `as_record()` | the elements or fields |
+| `get("key")`, `at(&["a", "b"])` | a field, or a path into nested records |
+
+`#[derive(ToValue)]` and `record([…])` build values to return. A number is an `f64`
+on the way across, so a `u64` above 2^53 loses precision.
+
+## Errors
+
+An `Err(NativeError)` reaches JavaScript as a thrown exception whose message is
+your text. Write it for whoever reads the console.
+
+```tsx
+try {
+  word_count(42)
+} catch (why) {
+  console.error(why) // word_count takes a string
+}
+```
+
+A panic inside the closure is caught at the edge and thrown as
+`internal error in 'word_count'`. The window carries on. The panic itself is
+printed to the terminal.
+
+## What a native cannot do
+
+- It cannot take a function. A callback goes through a prop of a library
+  component instead, where it is called with the arguments the library gives it.
+- It cannot push. There is no event channel from Rust to the page. To keep a
+  library component up to date, give it props from state: the component is
+  redrawn when the state changes. Or draw the part that changes with a
+  component of your own in `.rsx`, as in
+  [a rustx component in React](/docs/javascript-libraries/a-rustx-component-in-react).
+- It runs only in a page that is local. See [security](/docs/the-system/security).
+
+## The natives the framework installs
+
+Every page has these. You do not register them.
+
+| | |
+|---|---|
+| `rustx_component(name, id)` | mounts a parameterless component of `app/` in the element with this id |
+| `rustx_release(id)` | releases a component mounted that way |
+| `rustx_navigate(path)` | the same navigation as `router::navigate` |
+| `rustx_about()` | `{ name, version, description, publisher }`, from `Config` |
+| `rustx_shared(name)` | the value a page declared at its top under that name, as text |
+| `rustx_scenario()`, `rustx_report(key, value)` | the test harness. See [testing](/docs/tooling/testing) |
+
+`rustx_about()` is why a page does not need its own copy of the version:
+
+```tsx
+declare function rustx_about(): { name: string; version: string }
+
+export const Version = () => <small>{rustx_about().version}</small>
+```

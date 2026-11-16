@@ -1,0 +1,50 @@
+---
+title: "`async fn main`"
+description: "Startup can wait: read a settings file before opening the window."
+---
+
+`main` can wait, like anywhere else:
+
+```rust
+use rustx::{App, Config};
+
+#[rustx::main]
+async fn main() -> Result<(), rustx::Error> {
+    let settings = tokio::fs::read_to_string("settings.toml")
+        .await
+        .unwrap_or_default();
+
+    let app = App::new(Config::new(title_of(&settings)).size(900, 640))?;
+
+    app.run()
+}
+```
+
+`main` itself cannot be `async` — it is Rust that says so, not the framework — so the attribute removes its `async` and runs the body
+on the runtime. There is nothing else to know: no `#[tokio::main]` to write alongside, and no hand-written `block_on`.
+
+## What belongs there
+
+- reading settings, a token, a local database, before choosing the title or the size
+  of the window;
+- asking an instance that is already open to take over — see
+  [a single instance](/docs/the-system/a-single-instance);
+- any check that must decide whether the application opens.
+
+## What does not belong there
+
+Opening a window. `window::open` can only be called from a page: the request
+travels through the bridge, and `main` runs in the process that does not yet have a page.
+What an application wants to do at startup is done from the opening page, or from
+`on_context_created`.
+
+```rust
+rustx::on_context_created(|| {
+    // the render process is ready, the page is about to be drawn
+});
+```
+
+## `app.run()` never returns
+
+It holds the message loop until the last window is closed. What must run for the
+life of the application runs in an `async` block of a page, or in a thread — not after `run()`.

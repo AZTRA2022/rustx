@@ -1,0 +1,93 @@
+---
+title: "Awaiting a value"
+description: "A `.await` in the body of a component, and the frame that does not stop for it."
+---
+
+`let x = work().await;` in a component is written as it is:
+
+```rust
+fn Settings() -> Element {
+    let text = tokio::fs::read_to_string("settings.toml")
+        .await
+        .unwrap_or_default();
+
+    return <pre>{text}</pre>;
+}
+```
+
+A component is asked for the screen **as it is now**, so it does not stop: the first
+frame asks and draws nothing, the frame that follows the arrival of the
+response draws it. The question is asked only **once**, the type written is
+kept, and the rest of the page is drawn in the meantime — the wait belongs to the
+component that wrote it.
+
+## Drawing the wait
+
+Nothing forces you to show nothing. An `Option` declared above gives both
+screens:
+
+```rust
+fn Settings() -> Element {
+    let text = tokio::fs::read_to_string("settings.toml").await.ok();
+
+    return match text {
+        Some(text) => <pre>{text}</pre>,
+        None => <p className="opacity-60">loading…</p>,
+    };
+}
+```
+
+For a whole **route**, it is `loading.rsx` that holds this screen, and the
+router shows it without a component having to know: see
+[loading and errors](/docs/the-router/loading-and-errors).
+
+## What the question borrows must outlive it
+
+`api::repo(&name, &owner).await` in a component does not compile: the
+future leaves for the runtime, and a borrow of a local of the thread that draws
+does not follow it. This is ordinary Rust and not a rule of the framework;
+the way out is to take the arguments by value:
+
+```rust
+let repo = api::repo(name.clone(), owner.clone()).await;
+```
+
+The message, for its part, comes from `rustc` and points at a column of a
+generated file. That is a known weak spot in that corner, and it is noted in
+[what's left](/docs/whats-left).
+
+## What follows the `.await` leaves with the future
+
+Because the answer exists only over there. `.unwrap_or_default()`,
+`.ok()`, `?`, another `.await` are at home there:
+
+```rust
+let repos = api::search(query.clone()).await.unwrap_or_default();
+```
+
+Two forms get a sentence instead of a compilation:
+
+- **a `.await` buried in an argument** — `f(g().await)` — because it would wait before
+  `f` is even called;
+- **a read of a page value after the `.await`**, because this code runs next to the
+  window, where there is no cell to read. What must be read is read beforehand.
+
+## Writing state from an `await`
+
+As from an `onClick`, and nothing more to write:
+
+```rust
+let mut seen = 0;
+
+fn Counter() -> Element {
+    let repos = api::search("rust".to_string()).await.unwrap_or_default();
+    seen = repos.len();
+
+    return <p>{seen} repositories</p>;
+}
+```
+
+What happens underneath: the state belongs to the thread that draws, so the
+future does not touch it. It holds a **handle** that says where the value is, the
+write goes out on the frame's queue, and the frame applies it. The rules are those of
+[reading and writing state](/docs/async/reading-and-writing-state).

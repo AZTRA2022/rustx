@@ -1,0 +1,102 @@
+rustx — le site
+===============
+
+Ce site est construit sur le châssis du site de shadcn/ui, repris sous
+licence MIT. Le contenu (les textes, la documentation, la vitrine) est
+celui du dépôt rustx ; la mise en page, les composants d'interface et la
+feuille de style viennent de shadcn.
+
+
+Ce qui vient de shadcn-ui/ui
+----------------------------
+
+Dépôt : https://github.com/shadcn-ui/ui
+Licence : MIT — le texte complet est dans `LICENSE.shadcn.md`, à côté de
+ce fichier.
+
+    MIT License
+
+    Copyright (c) 2023 shadcn
+
+Repris de `apps/v4` de ce dépôt, modifié :
+
+  app/globals.css          les jetons de thème, les utilitaires et les
+                           règles de bloc de code. Les `@source` des
+                           styles engendrés, `@import "shadcn/tailwind.css"`,
+                           `legacy-themes.css` et les variantes `style-*`
+                           ont été retirés ; `scroll-fade`,
+                           `scroll-fade-x` et `scrollbar-none`, qui
+                           vivaient dans le paquet `shadcn`, ont été
+                           réécrits en version statique à la fin du
+                           fichier.
+  app/typeset.css          shadcn/typeset, la feuille de style de prose,
+                           reprise telle quelle.
+  app/layout.tsx           la racine : les polices, le thème, l'en-tête
+                           et le pied de page. Les marques, l'analytique
+                           et les fournisseurs dont le site n'a pas
+                           besoin ont été retirés.
+  app/docs/layout.tsx      la mise en page de la documentation.
+  app/docs/[[...slug]]/    la page d'un document, avec sa table des
+                           matières et ses voisins.
+  app/api/search/route.ts  la recherche de fumadocs.
+  app/og/route.tsx         l'image OpenGraph. Le logo de shadcn a été
+                           remplacé par le nôtre.
+  app/og/geist-*.json      les polices Geist et Geist Mono, encodées en
+                           base64 pour le rendu de l'image. Geist est
+                           sous licence SIL Open Font License 1.1 et peut
+                           être redistribuée ; elle n'est pas couverte
+                           par la licence MIT ci-dessus.
+  app/sitemap.ts           le plan du site.
+  app/robots.ts            robots.txt.
+  mdx-components.tsx       les composants rendus dans un MDX. Les
+                           aperçus de registre, les blocs, les graphes et
+                           les liens vers v0 ont été retirés.
+  source.config.ts         fumadocs-mdx et rehype-pretty-code.
+  postcss.config.mjs       Tailwind 4 par PostCSS.
+  components.json          la configuration de `npx shadcn add`, alignée
+                           sur `components/ui/`.
+  lib/highlight-code.ts    shiki, et les transformateurs qui donnent à un
+                           bloc `npm install` ses quatre onglets.
+  lib/docs-sidebar-scroll.ts  le script qui rend au menu latéral sa
+                           position de défilement.
+  lib/page-tree.ts         simplifié : shadcn y gère ses trois bases
+                           d'interface, qui n'existent pas ici.
+  lib/fonts.ts             Geist et Geist Mono. Les polices arabe et
+                           hébraïque ont été retirées.
+  hooks/use-mobile.ts      la largeur de l'écran.
+  hooks/use-copy-to-clipboard.ts
+  hooks/use-meta-color.ts  la couleur de la barre du navigateur.
+  components/              active-theme, callout, code-block-command,
+                           code-tabs, copy-button, docs-breadcrumb,
+                           docs-sidebar, docs-toc, page-header, page-nav,
+                           theme-provider — repris et traduits, avec les
+                           appels d'analytique et les sections de shadcn
+                           retirés. docs-copy-page, docs-page-links,
+                           command-menu, github-link, icons, main-nav,
+                           mobile-nav, mode-switcher, site-config,
+                           site-footer et site-header ont été réécrits en
+                           suivant les leurs.
+  components/ui/           les 48 composants de `registry/new-york-v4/ui`
+                           qui ne dépendent que de paquets npm publiés.
+                           Le préfixe d'import `@/registry/new-york-v4/ui/`
+                           a été réécrit en `@/components/ui/`, et
+                           `from "cn"` en `from "@/lib/utils"`.
+
+
+Ce qui n'a pas été repris
+-------------------------
+
+Le registre, les blocs, les graphes, les couleurs, les exemples, les
+thèmes engendrés, les routes d'IA et de LLM, l'analytique de Vercel, et
+tout script `bun` ou de registre. Ainsi que toute marque qui n'est pas la
+nôtre : le nom, le logo, le wordmark, les favicons, les images OG et les
+liens vers les comptes de shadcn ou de Vercel.
+
+
+Ce qui est à nous
+-----------------
+
+Le contenu de `content/docs/`, découpé du `README.md` du dépôt ; les
+pages `app/page.tsx` et `app/showcase/page.tsx` ; `lib/config.ts` ; et la
+marque de `components/icons.tsx`. Sous licence MIT ou Apache-2.0, au
+choix, comme le reste de rustx.

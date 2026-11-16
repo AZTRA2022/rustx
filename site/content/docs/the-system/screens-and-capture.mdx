@@ -1,0 +1,150 @@
+---
+title: "Screens and capture"
+description: "How many monitors there are, where each one is, and an image of what is on them."
+---
+
+A page knows about one screen: `window.screen` describes the monitor the
+window happens to be on and says nothing about the others. An
+application that opens its second window on the second monitor, or puts
+a panel where the taskbar is not, needs the list.
+
+```rust
+use rustx::os::{capture, screen};
+
+for each in screen::screens()? {
+    println!("{} {}×{} at {},{} ×{}", each.name,
+        each.bounds.width, each.bounds.height, each.bounds.x, each.bounds.y, each.scale);
+}
+
+let shot = capture::desktop()?;        // an Image: width, height, bgra
+```
+
+Both are reached through `rustx::os` and not under a short name on the
+facade — see [the system](/docs/the-system).
+
+## The screens
+
+```rust
+pub struct Screen {
+    /// The name the system gives it: `\\.\DISPLAY1`, `DP-2`, or the
+    /// screen's number for want of a name.
+    pub name: String,
+    /// The whole screen.
+    pub bounds: Area,
+    /// What is left of it under the desktop's bars.
+    pub work: Area,
+    /// Its scale factor: `1.0` at 96 dpi, `2.0` on a Retina display.
+    pub scale: f64,
+    /// The one the desktop starts on, and where dialogs open.
+    pub primary: bool,
+}
+```
+
+| | |
+|---|---|
+| `screens()` | all of them, the primary **first**. `Err` only if the system reported none at all |
+| `primary()` | the one the desktop starts on |
+| `holding(x, y)` | the screen that contains this point, or the primary if none does |
+
+The primary comes first on purpose: an application that wants one screen
+wants that one, and `screens()?[0]` should be it without searching.
+
+### Two rectangles per screen
+
+`bounds` is the whole screen. `work` is what is left when the bars the
+desktop put there are taken off — the taskbar, the Dock, a panel. A
+maximised window occupies `work`, not `bounds`, and that difference is
+what keeps a window you place yourself from sitting under a bar.
+
+### One coordinate space
+
+Desktop coordinates, one origin for every monitor. A screen to the left
+of the primary has a negative `x`, and that is an ordinary coordinate.
+
+```rust
+pub struct Area { pub x: i32, pub y: i32, pub width: i32, pub height: i32 }
+```
+
+`Area::between(left, top, right, bottom)` builds one from two corners,
+which is what all three systems hand back. `area.holds(x, y)` is true
+for a point inside it, left and top edges included, right and bottom
+excluded.
+
+### Placing a second window
+
+```rust
+let on = screen::screens()?;
+let second = on.get(1).unwrap_or(&on[0]);
+
+rustx::window::open(
+    rustx::window::What::new("monitor")
+        .titled("Monitor")
+        .size(second.work.width as u32 / 2, second.work.height as u32),
+)?;
+```
+
+`What` has no `.at(x, y)`: a second window is given a size and the
+system places it. Reading `work` tells you what size is reasonable
+there; it does not yet let you choose the corner. That is a gap, and it
+is in [what's left](/docs/whats-left).
+
+## The capture
+
+One image, once — not a recording and not a stream.
+
+```rust
+let whole = capture::desktop()?;                      // every screen at once
+let part = capture::area(screen::primary()?.work)?;   // one rectangle
+let mine = capture::window(pane)?;                    // one window
+```
+
+Each hands back the same `Image` the clipboard uses: `width`, `height`,
+and `bgra` — four bytes per pixel, blue first, rows top to bottom. So a
+capture goes straight to the clipboard:
+
+```rust
+let shot = capture::desktop()?;
+rustx::clipboard::set_image(&shot)?;
+```
+
+A rectangle with a zero or negative side is refused before anything is
+captured. So is a size whose pixels would come to more than a gigabyte:
+that bound is deliberately well above what a real screen needs — an 8K
+display is 132 MB — and exists so that a rectangle read the wrong way
+round becomes a sentence instead of a multi-gigabyte allocation.
+
+`capture::window` takes a `Pane`, the system's handle for a window,
+which is `rustx::os::window`'s type. There is no call that hands a page
+its own `Pane`, so in practice this one is for an application that is
+already holding `rustx::os::window` itself.
+
+### Why not `getDisplayMedia`
+
+The page can ask Chromium for the screen, and that is the right answer
+for a video call. It is the wrong answer for a screenshot: it opens a
+permission dialog every time, it hands back a video stream rather than
+an image, and it cannot aim at a rectangle. An application that
+annotates, that attaches a screenshot to a bug report, or that drops one
+into a document wants an image, now, of the place it named.
+
+### Permission
+
+macOS asks the user for "Screen Recording" in System Settings, once per
+application, and it is the user who grants it — neither this crate nor
+any program can tick that box for them. Windows and X11 ask nothing.
+Wayland does not let any program read another's window at all; that is a
+design decision of Wayland, not a gap here, and it is refused by saying
+so.
+
+## Platforms
+
+| | |
+|---|---|
+| **Windows** | written and run. `screen` has an integration test that runs on the real machine: at least one screen, exactly one primary, every `work` inside its `bounds`, and the screen under the mouse one of the listed ones |
+| **Linux** | written. Never run. `capture` refuses under Wayland by design |
+| **macOS** | written. Never compiled for a Mac |
+
+`capture`'s own tests cover the refusals and the size arithmetic;
+**no test takes an actual screenshot**, so the Windows GDI path has been
+exercised by hand and not by the suite. See
+[platforms](/docs/the-system/platforms).

@@ -1,0 +1,127 @@
+---
+title: "The system"
+description: "What the web cannot do: the clipboard, dialogs, the system tray, shortcuts, dropped files."
+---
+
+A page cannot read the clipboard when it wants to, nor open a dialog that returns a path,
+nor place an icon next to the clock.
+This is what `rustx-os` does, and it is written in a page like the rest.
+
+```rust
+use rustx::{autostart, clipboard, data, devices, dialog, instance, menu, notify, shortcut, terminal, tray, update};
+```
+
+Those are on the facade under a short name, so a page writes
+`clipboard::text()` without declaring anything in its `Cargo.toml`.
+[`data`](/docs/the-system/app-data) and
+[`update`](/docs/tooling/packaging) are there and not under `rustx::os`
+for one reason: they need the application's own name and version, which
+the facade already knows and the layer below it does not.
+
+The other capabilities are reached through `rustx::os`:
+
+```rust
+use rustx::os::{about, attention, audio, bluetooth, capture, color, net, print, screen, secret, shell, system};
+```
+
+Same crate, same error type; only the path is longer, because
+`rustx::window` is the name the **page** uses to command its own window
+and `rustx::os::window` is the window as the system knows it. See
+[platforms](/docs/the-system/platforms) for which of these does anything
+on which operating system.
+
+## Two rules, for the whole module
+
+### Ask before you draw the button
+
+Eleven of these modules answer `supported()`, so that a missing feature
+is a button you do not draw rather than an error to read: `about`,
+`autostart`, `clipboard`, `dialog`, `instance`, `menu`, `notify`,
+`shortcut`, `tray`, `window`, and `os::window`'s own.
+
+```rust
+return <div>
+    {if clipboard::supported() {
+        <button onClick={|_| { let _ = clipboard::set_text("copied"); }}>Copy</button>
+    } else {
+        <></>
+    }}
+</div>;
+```
+
+This is the answer of the **platform** itself — each
+`<os>/clipboard.rs` declares it — and not a list of system names
+kept up to date somewhere.
+
+The newer capabilities — `attention`, `audio`, `bluetooth`, `capture`,
+`color`, `net`, `print`, `screen`, `secret`, `shell`, `system`,
+`terminal` — have **no** `supported()`. They answer with a `Result`,
+and a platform that cannot do the thing refuses by naming itself and the
+thing. Call them and read the refusal; there is nothing to ask first.
+
+### What is registered is a token
+
+A tray icon, a global shortcut, an instance lock: the token that is released removes the thing. A dead icon next to the clock or a `Ctrl+Shift+R` that no application handles are defects that
+the user can only fix by restarting, and that is why these objects have a lifetime rather than a `register` and an `unregister`.
+
+```rust
+fn Tray() -> Element {
+    // Kept by a cell of the component: the icon lives as long as
+    // the screen that set it. `keep` hands back a `Kept<T>`, which is
+    // read with `with`, because an `Icon` is not `Clone`.
+    let icon = keep(tray::Icon::new(Path::new("assets/icon.ico"), "My app"));
+    let on = icon.with(|made| made.is_ok());
+
+    return <small>{on}</small>;
+}
+```
+
+For an icon that lives as long as the application, it is the root `layout.rsx` that keeps it: it is the only component that never leaves.
+
+## What an error says
+
+Everything that speaks to the system returns a `Result<_, OsError>`, and
+the refusal is a sentence. `OsError` has five variants, and each one
+names the thing it is about:
+
+| | says |
+|---|---|
+| `NoSuchDevice(which)` | "there is no device called `…` — it may have been unplugged. `devices()` lists what is there now." |
+| `Busy(which)` | "`…` is being used by another application. Close whatever has it open, or choose another device." |
+| `Unsupported(what)` | "… is not available on this platform (`std::env::consts::OS`)." |
+| `Platform(said)` | "the system refused: …" — the platform's own words, passed through |
+| `File(said)` | the sentence about the file, as the module wrote it |
+
+Nothing panics, and nothing pretends to have succeeded.
+
+<Callout type="warn" title="Two things these messages do not do yet">
+`Unsupported` names the platform, but **not** the file that would have
+to be written to support the capability there, which earlier versions of
+this page claimed. And several of the strings inside `Platform(…)` — the
+shortcut parser's, the tray's and the dialogs' on the platforms that
+refuse — are still written in French; they are being translated. Read
+the variant, not the prose, when you are matching on a failure.
+</Callout>
+
+## The pages
+
+| | |
+|---|---|
+| [The clipboard](/docs/the-system/the-clipboard) | text, image, a format of its own |
+| [File dialogs](/docs/the-system/file-dialogs) | open, save, choose a folder |
+| [Notifications and the tray](/docs/the-system/notifications-and-the-tray) | an icon, a menu, a toast |
+| [Global shortcuts](/docs/the-system/global-shortcuts) | that work without focus |
+| [Dropped files](/docs/the-system/dropped-files) | with their real path |
+| [A single instance](/docs/the-system/a-single-instance) | and the arguments it receives |
+| [Start with the session](/docs/the-system/start-with-the-session) | `autostart` |
+| [Devices](/docs/the-system/devices) | cameras, microphones, screens, paired Bluetooth |
+| [Sound](/docs/the-system/sound) | the speakers and microphones, and the volume |
+| [Screens and capture](/docs/the-system/screens-and-capture) | how many monitors, where they are, an image of them |
+| [The machine's state](/docs/the-system/the-machine) | theme, battery, idle, locale, time zone, the network |
+| [The terminal](/docs/the-system/the-terminal) | run a script with no console window, or open one |
+| [Secrets](/docs/the-system/secrets) | a token in the system's credential store |
+| [Printing](/docs/the-system/printing) | a file to the printer, with the dialog or without, and the window through Chromium |
+| [Menus](/docs/the-system/menus) | a context menu drawn by the system, and the bar macOS needs |
+| [The file manager](/docs/the-system/the-file-manager) | show in folder, recent documents, own an extension |
+| [The taskbar](/docs/the-system/the-taskbar) | flash, progress, a badge, and the About panel |
+| [Platforms](/docs/the-system/platforms) | what is written, what has been run, and the difference |

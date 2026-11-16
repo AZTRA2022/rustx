@@ -1,0 +1,10 @@
+[package]
+name = "zoo"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Many JavaScript libraries, one page, to find out what the boundary cannot do yet."
+
+[dependencies]
+rustx = { package = "rustx-app", path = "../../crates/rustx" }

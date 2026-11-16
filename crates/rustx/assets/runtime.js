@@ -1,0 +1,394 @@
+// The JavaScript half of the React boundary, brought by the framework.
+//
+// An application does not write this. It says which libraries it uses:
+//
+//   import React from "react";
+//   import * as reactDom from "react-dom";
+//   import * as reactDomClient from "react-dom/client";
+//   import * as recharts from "recharts";
+//   window.rustxLibraries = { react: React, reactDom, reactDomClient, recharts };
+//
+// A plain assignment, and deliberately so: this file is put in the page
+// by the engine, through the frame, which schedules it — so it is not
+// there when the page's own `<script>` runs. Nothing a page's first line
+// needs may live here. What the framework injects reads what the page
+// left for it, never the other way round.
+//
+// and then writes its components in `.rsx`:
+//
+//   <js::recharts::LineChart data={points}>
+//       <js::recharts::XAxis dataKey="at" />
+//   </js::recharts::LineChart>
+//
+// rustx puts the container on the page, hands over the tree it should
+// hold, and does not look inside. React builds it. Neither side touches
+// what the other owns; that is the whole contract.
+//
+// This file is evaluated when the page's JavaScript context is created,
+// before the page's own scripts, so `rustx.use` is there for a bundle's
+// first line.
+
+(() => {
+  // The libraries the application declared, by the name it gave them.
+  const libraries = {};
+
+  // One React root per node rustx handed over, kept by the node itself:
+  // a second hand-over of the same boundary is a props change, not a new
+  // tree, and React is what decides what that costs.
+  const roots = new WeakMap();
+
+  /// What the application said it uses.
+  const use = (modules) => {
+    for (const [name, module] of Object.entries(modules ?? {})) {
+      libraries[name] = module;
+    }
+  };
+
+  /// And what it left on the window, read every time rather than once:
+  /// a bundle may be loaded after this file, or add a library later.
+  const declared = () => {
+    if (typeof window !== "undefined") {
+      use(window.rustxLibraries);
+    }
+    return libraries;
+  };
+
+  /// React itself, under whichever of the usual names it was given.
+  const react = () => declared().react ?? declared().React;
+
+  /// `createRoot`, which lives in `react-dom/client`.
+  const createRoot = () => {
+    for (const module of [declared().reactDomClient, declared().reactDom]) {
+      if (module !== undefined && typeof module.createRoot === "function") {
+        return module.createRoot;
+      }
+    }
+    return undefined;
+  };
+
+  /// `flushSync`, which lives in `react-dom`.
+  const flushSync = () => {
+    for (const module of [declared().reactDom, declared().reactDomClient]) {
+      if (module !== undefined && typeof module.flushSync === "function") {
+        return module.flushSync;
+      }
+    }
+    return undefined;
+  };
+
+  /// A rendered React element from a `{ component, props, children }`.
+  ///
+  /// Exported for its own test: resolution is where a typo lands, and a
+  /// typo must name what was asked for and where it was looked up.
+  const resolve = (name) => {
+    // A plain tag written inside a library's component. React builds it
+    // from its name, which is what `createElement` takes a string for,
+    // and nothing has to be looked up: `div` is `div` everywhere.
+    if (/^[a-z][a-z0-9-]*$/.test(name)) {
+      return { component: name };
+    }
+
+    const at = name.lastIndexOf("::");
+    if (at !== -1) {
+      // The explicit form, for a name two libraries export or a name the
+      // page also declares.
+      return inLibrary(name.slice(0, at), name.slice(at + 2));
+    }
+
+    // `Tabs.Root`: the first segment names the library and the rest is
+    // the export, which is how a page that wrote
+    // `import * as Tabs from "@radix-ui/react-tabs"` would read. A
+    // library is named by its package — `radixUiReactTabs` — and by
+    // what its package name ends with, because that is what a developer
+    // calls it.
+    const [head, ...rest] = name.split(".");
+    if (rest.length === 1) {
+      const module = libraryCalled(head);
+      if (module !== undefined) {
+        const found = inLibrary(module, rest[0]);
+        // And if that library does not export it, the first segment may
+        // still be a component with parts on it — a library whose name
+        // happens to end the same way must not shadow that.
+        if (found.error === undefined) {
+          return found;
+        }
+      }
+    }
+
+    // Otherwise the first segment is an export and the rest is a path
+    // into it, which is how `Dialog.Trigger` reads when `Dialog` is a
+    // component with parts on it.
+    const found = anywhere(head);
+    if (found.error !== undefined) {
+      return found;
+    }
+    let component = found.component;
+    for (const step of rest) {
+      const next = (component ?? {})[step];
+      if (next === undefined) {
+        return {
+          error:
+            `rustx: the page asked for \`${name}\`, and \`${head}\` has nothing called ` +
+            `\`${step}\` on it. What it does have: ` +
+            `${Object.keys(component ?? {}).slice(0, 12).join(", ")}.`,
+        };
+      }
+      component = next;
+    }
+    return { component };
+  };
+
+  /// `export_` in the library called `module`.
+  const inLibrary = (module, export_) => {
+    const library = declared()[module];
+    if (library === undefined) {
+      return {
+        error:
+          `rustx: the page asked for \`${export_}\` from \`${module}\`, and this ` +
+          `application does not have \`${module}\` installed. Add it: ` +
+          `\`npm install ${module}\`, in the folder of the application.`,
+      };
+    }
+    const component = library[export_] ?? (library.default ?? {})[export_];
+    if (component === undefined) {
+      return {
+        error:
+          `rustx: the page asked for \`${export_}\` in \`${module}\`, which does not ` +
+          `export it. What it does export: ${Object.keys(library).slice(0, 12).join(", ")}.`,
+      };
+    }
+    return { component };
+  };
+
+  /// The library a page calls `name`.
+  ///
+  /// Its own name — `recharts`, `radixUiReactTabs` — or the end of it,
+  /// so that `Tabs` finds `@radix-ui/react-tabs` and `Dialog` finds
+  /// `@radix-ui/react-dialog`. That is what the import line of a page
+  /// written in JSX would have said.
+  const libraryCalled = (name) => {
+    const wanted = name.toLowerCase();
+    const modules = Object.keys(declared()).filter((each) => each !== "components");
+    return (
+      modules.find((each) => each === name) ??
+      modules.find((each) => each.toLowerCase() === wanted) ??
+      modules.find((each) => each.toLowerCase().endsWith(wanted))
+    );
+  };
+
+  /// A bare name, looked for where a page's tag could have come from.
+  ///
+  /// The page's own registered components first, then every library the
+  /// application installed. Two libraries exporting one name is a real
+  /// case — `Button` is in half of npm — so the first wins, because
+  /// something has to, and the page is told which and what to write
+  /// instead.
+  const anywhere = (name) => {
+    const libraries = declared();
+    const own = (libraries.components ?? {})[name];
+    if (own !== undefined) {
+      return { component: own };
+    }
+
+    // The application's own components next — `components/ui`, where
+    // `shadcn add` leaves them. Explicitly, and not by the order the
+    // entry point happens to declare its libraries in: a page that
+    // writes `<Dialog>` means the `Dialog` in its own folder, not the
+    // primitive from `@radix-ui/react-dialog` that its own `Dialog`
+    // was built from. That is what makes `ui::` unnecessary, and
+    // `<ui::Dialog>` keeps working for anyone who wrote it.
+    const ui = (libraries.ui ?? {})[name] ?? ((libraries.ui ?? {}).default ?? {})[name];
+    if (ui !== undefined) {
+      return { component: ui };
+    }
+
+    const exporters = Object.entries(libraries).filter(
+      ([module, library]) =>
+        module !== "components" &&
+        library !== undefined &&
+        library !== null &&
+        (library[name] !== undefined || (library.default ?? {})[name] !== undefined)
+    );
+    if (exporters.length === 0) {
+      // A library whose component *is* the library: `react-markdown`
+      // exports its renderer as its default, and the page writes
+      // `<Markdown>`. The name of the package is what says so.
+      const module = libraryCalled(name);
+      const only = module === undefined ? undefined : declared()[module].default;
+      if (only !== undefined) {
+        return { component: only };
+      }
+
+      const installed = Object.keys(libraries)
+        .filter((module) => module !== "components")
+        .join(", ");
+      return {
+        error:
+          `rustx: the page asked for \`${name}\`, and nothing has it. This page does ` +
+          `not declare \`fn ${name}\` — a component of the page is called as ` +
+          `\`{${name}()}\` — and none of the libraries this application installed ` +
+          `exports it${installed === "" ? "" : ` (${installed})`}.`,
+      };
+    }
+    if (exporters.length > 1) {
+      const names = exporters.map(([module]) => module);
+      console.warn(
+        `rustx: \`${name}\` is exported by ${names.join(" and ")}. rustx took the one ` +
+          `from \`${names[0]}\`; write \`<${names[1]}::${name} />\` to ask for the other.`
+      );
+    }
+    const [module] = exporters[0];
+    return inLibrary(module, name);
+  };
+
+  /// A described child — a string, or another component — as a React
+  /// element.
+  const element = (described) => {
+    // A string, a number, a boolean, or a list of them: what the page
+    // wrote inside the component as a value. React renders those as
+    // children exactly as it renders an element.
+    if (described === null || typeof described !== "object") {
+      return described;
+    }
+    if (Array.isArray(described)) {
+      return described.map(element);
+    }
+    const found = resolve(described.component);
+    if (found.error !== undefined) {
+      console.error(found.error);
+      return null;
+    }
+    const children = (described.children ?? []).map(element);
+    return react().createElement(found.component, described.props, ...children);
+  };
+
+  // Boundaries whose component was not there yet, and when the first
+  // one started waiting.
+  //
+  // rustx renders as soon as its host element exists, and the
+  // application's libraries arrive in a script the engine puts in the
+  // page — whichever comes first. A boundary that failed once and was
+  // never tried again is an empty container for the life of the window,
+  // which is what happened to a page whose chart rendered before
+  // `react-markdown` had finished loading.
+  const waiting = [];
+  let since = 0;
+  let flushing = false;
+
+  const later = (name, node, props, children) => {
+    waiting.push([name, node, props, children]);
+    if (since === 0) {
+      since = Date.now();
+    }
+    if (!flushing) {
+      flushing = true;
+      setTimeout(flush, 16);
+    }
+  };
+
+  const flush = () => {
+    flushing = false;
+    const held = waiting.splice(0, waiting.length);
+    const late = Date.now() - since > 5000;
+    for (const [name, node, props, children] of held) {
+      const found = resolve(name);
+      if (found.error === undefined) {
+        draw(found.component, node, props, children);
+        continue;
+      }
+      // Five seconds is not a slow bundle any more, it is a name
+      // nobody has.
+      if (late) {
+        console.error(found.error);
+        continue;
+      }
+      later(name, node, props, children);
+    }
+    if (waiting.length === 0) {
+      since = 0;
+    }
+  };
+
+  const mount = (name, node, props, children) => {
+    const found = resolve(name);
+    if (found.error !== undefined) {
+      later(name, node, props, children);
+      return true;
+    }
+    return draw(found.component, node, props, children);
+  };
+
+  /// Put `component` in the node rustx handed over.
+  const draw = (component, node, props, children) => {
+    if (react() === undefined || createRoot() === undefined) {
+      console.error(
+        "rustx: a React component was asked for and this application has no React. " +
+          "A `package.json` with `react`, `react-dom` and the libraries the pages use " +
+          "is what declares them."
+      );
+      return false;
+    }
+
+    let root = roots.get(node);
+    if (root === undefined) {
+      root = createRoot()(node);
+      roots.set(node, root);
+    }
+    const tree = react().createElement(component, props, ...(children ?? []).map(element));
+    // Synchronously: rustx handed the node over during a render, and the
+    // page shows that render at the end of it. React's own batching
+    // would put the first paint one frame later.
+    //
+    // And guarded: a component that throws while it renders throws
+    // through this call, and without the guard it took the whole frame
+    // with it -- the card around it never appeared, nothing said why,
+    // and what the console held was a minified React error with no name
+    // in it. A boundary that fails is one empty container, and a
+    // sentence that says which component and what it said.
+    try {
+      now(() => root.render(tree));
+    } catch (thrown) {
+      const named = typeof component === "string" ? component : (component?.displayName ?? component?.name ?? "that component");
+      console.error(
+        `rustx: \`${named}\` threw while React was drawing it, so this boundary is ` +
+          `empty: ${thrown && thrown.message ? thrown.message : thrown}. ` +
+          `A name two libraries export is the usual cause -- the warning above says ` +
+          `which one was taken and how to ask for the other.`
+      );
+      return false;
+    }
+    return true;
+  };
+
+  const unmount = (node) => {
+    const root = roots.get(node);
+    if (root === undefined) {
+      return false;
+    }
+    roots.delete(node);
+    // Told while the node is still in the document, which is what lets
+    // React run the cleanups of components that still exist.
+    now(() => root.unmount());
+    return true;
+  };
+
+  const now = (work) => {
+    const flush = flushSync();
+    if (flush === undefined) {
+      work();
+      return;
+    }
+    flush(work);
+  };
+
+  const rustx = { use, resolve, element };
+
+  if (typeof window !== "undefined") {
+    window.rustx = Object.assign(window.rustx ?? {}, rustx);
+    window.__rustx_react = { mount, unmount };
+  }
+  // Read by the framework's own test, which runs this file under Node.
+  if (typeof module !== "undefined") {
+    module.exports = { use, resolve, mount, unmount };
+  }
+})();

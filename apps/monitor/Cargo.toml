@@ -1,0 +1,10 @@
+[package]
+name = "monitor"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A monitor fed by a background thread, and a store two components share."
+
+[dependencies]
+rustx = { package = "rustx-app", path = "../../crates/rustx" }

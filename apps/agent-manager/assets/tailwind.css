@@ -1,0 +1,103 @@
+/* Vantage. A near-black console with one accent — the green that means
+   "live" — and a type scale that lets the numbers be the loudest thing
+   on the screen. Tailwind 4 is configured in CSS; `@theme` below is the
+   configuration. */
+@import "tailwindcss";
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: #090a09;
+  --foreground: #e8eae8;
+  --card: #101110;
+  --card-foreground: #e8eae8;
+  --primary: #3ddc84;
+  --primary-foreground: #06100a;
+  --secondary: #1c1e1c;
+  --secondary-foreground: #e8eae8;
+  --muted: #131413;
+  --muted-foreground: #8b8f8b;
+  --accent: #1c1e1c;
+  --accent-foreground: #e8eae8;
+  --border: #1e201e;
+  --input: #1e201e;
+  --ring: #3ddc84;
+  /* shadcn's `destructive` variant asks for this one by name, and a
+     token nothing declares is a button with no background at all. */
+  --destructive: #7f1d2e;
+  --destructive-foreground: #fee2e2;
+  --radius: 0.9rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --font-sans: "Inter", "Segoe UI Variable Text", "Segoe UI", ui-sans-serif,
+    system-ui;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", "Consolas", ui-monospace,
+    monospace;
+}
+
+@layer base {
+  html,
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    margin: 0;
+  }
+
+  table {
+    border-collapse: collapse;
+  }
+}
+
+/* The chart's own text, and the hover card, in the console's voice
+   rather than the library's defaults. */
+.recharts-cartesian-axis-tick text {
+  font-size: 12px;
+  fill: #6f746f;
+  font-family: var(--font-mono);
+}
+
+.recharts-default-tooltip {
+  background-color: #1b1d1b !important;
+  border: 1px solid #2b2e2b !important;
+  border-radius: 12px;
+  padding: 12px 14px !important;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.55);
+}
+
+.recharts-tooltip-label {
+  color: var(--muted-foreground) !important;
+  margin-bottom: 6px !important;
+}
+
+.recharts-tooltip-item {
+  padding: 2px 0 !important;
+  color: var(--foreground) !important;
+}
+
+.recharts-tooltip-item-name,
+.recharts-tooltip-item-separator {
+  color: var(--muted-foreground) !important;
+}

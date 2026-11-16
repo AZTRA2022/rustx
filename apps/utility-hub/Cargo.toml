@@ -1,0 +1,10 @@
+[package]
+name = "utility-hub"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Management app for tech & fin startups, scoped to notifications, invoices and a few automations in one dashboard."
+
+[dependencies]
+rustx = { package = "rustx-app", path = "../../crates/rustx" }

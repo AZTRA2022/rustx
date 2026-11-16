@@ -1,0 +1,74 @@
+---
+title: "Worker threads"
+description: "`task(…)`: a real thread, for work that does not wait but computes."
+---
+
+An `async` block is for what **waits**: a network, a disk, a
+timer. A thread is for what **computes**: decoding a video, reading a
+camera, scanning a million lines. A computing loop inside a future would monopolize a
+runtime thread, and the rest of the application would wait behind it.
+
+```rust
+let mut last = None::<Image>;
+
+fn Camera() -> Element {
+    task(move |alive| {
+        let stream = open_the_camera();
+        while alive.get() {
+            let frame = stream.read();
+            if alive.post(move || last = Some(frame)).is_err() {
+                break;   // the window is gone, or this component
+            }
+        }
+    });
+
+    return <canvas id="preview" />;
+}
+```
+
+## A thread never touches the state
+
+It **posts** a piece of work, and the frame will drain it. This is the same rule
+as for a write from an `async` block, but here it is visible in the
+signature.
+
+| | |
+|---|---|
+| `alive.get()` | is this component still there |
+| `alive.post(work)` | to run on the interface thread, at the start of the next frame |
+| `Err(PostError::WindowClosed)` | the window is closed, the thread must stop |
+| `Err(PostError::Cancelled)` | the component that started this thread is leaving |
+
+Both refusals are handled the same way: leave the loop. Nothing
+panics, and neither one is a fault.
+
+## Outside a component
+
+- `rustx::poster()` gives the same token, for code that is not in
+  a component;
+- `rustx::task::spawn(work)` starts a thread whose `Task` you keep
+  yourself, instead of handing it to a component's cell.
+
+```rust
+let token = rustx::poster();
+
+std::thread::spawn(move || {
+    for line in read_a_huge_file() {
+        if token.post(move || count += 1).is_err() {
+            return;
+        }
+    }
+});
+```
+
+## A thousand messages make one render
+
+A thread that posts at every camera frame does not trigger thirty renders a second for
+nothing: the work items are drained at the start of the frame, and the writes dirty
+the same value once. What costs is what the page draws, not the number of messages.
+
+## `task` also takes a future
+
+`task(async { … })` is the explicit form of the `async` block on the previous
+page, and means exactly the same thing. Both forms exist because both read well: one is
+short, the other has a name.

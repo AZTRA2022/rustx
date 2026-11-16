@@ -1,0 +1,113 @@
+---
+title: "Debugging"
+description: "Where errors are reported, what to turn on, how to find the right process, and what has no tool yet."
+---
+
+[Troubleshooting](/docs/tooling/troubleshooting) lists the messages you may
+read and what each asks of you. This page is about technique: where to look when
+nothing was said.
+
+## Start from a terminal
+
+Everything the framework tells you goes to the terminal that started the
+application: `rustx dev`, `rustx run` or `cargo run`. A shortcut hides it. These
+are the lines to know:
+
+| | |
+|---|---|
+| `page error: … (file:line)` | the page's JavaScript wrote to its console, or threw. Warnings and plain logs have the same form, `page warning:` and `page log:` |
+| `rustx: an event handler panicked; the engine carried on` | a handler of yours panicked. Rust's own panic message is printed just before |
+| `rustx: a frame callback panicked; the frame loop carried on` | a panic during drawing, with no `error.rsx` above the page to catch it |
+| `rustx: a background task panicked; the application carried on` | a `task` or an `async` block panicked |
+| `rustx: \`Name\` has been drawing for 5.0s and has not come back` | the watchdog. A component loops or blocks. Move the work to a `task` |
+| `rustx: refused to load …` | something tried to navigate to a remote page. See [security](/docs/the-system/security) |
+
+The first line is the one the framework adds. The panic message above it names
+the line to fix. Set `RUST_BACKTRACE=1` in the environment, as for any Rust
+program, to get the backtrace.
+
+A JavaScript library that throws in its first line often leaves a blank screen
+and a complaint about a container nobody filled. The `page error:` line is the
+real cause. Look for it first.
+
+## Compiler errors
+
+A mistake in a `.rsx` is reported in the coordinates of the `.rsx`: the file,
+the line and the column you wrote. The editor underlines compiler errors at
+their real position in the `.rsx`, using a map from generated lines back to
+yours. See [the editor](/docs/tooling/the-editor).
+
+The known exception is the error from a `.await` that borrows a local. It comes
+from `rustc` and points at a column of the generated file. See
+[awaiting a value](/docs/async/awaiting-a-value).
+
+When you need to read the generated Rust, it is written in the project's own
+`target/`:
+
+```text
+target/rustx-pages/
+```
+
+## Tracing
+
+```sh
+RUSTX_TRACE=1 cargo run
+```
+
+On PowerShell:
+
+```powershell
+$env:RUSTX_TRACE = "1"; cargo run
+```
+
+It prints each page context as it is created, with the **process id and thread**
+it is in, and the messages between the window and the page: what left, what
+arrived, and what no one is listening to. Use it when a dropped file, a second
+window or a window command does nothing.
+
+## The profile and its log
+
+The engine writes `engine.log` in the profile folder:
+
+```text
+%LOCALAPPDATA%\rustx\<title in lowercase, joined by dashes>\engine.log
+```
+
+Chromium's own messages are there, such as a GPU process that cannot start. A
+window that stays white with `Failed to create shared context` in it needs
+`RUSTX_SOFTWARE=1`.
+
+## Which process to attach to
+
+A native debugger sees several processes. Your pages, handlers and tasks run in
+the **renderer**. The window handles are in the **browser** process, the one
+the user started. See [where your code runs](/docs/getting-started/where-code-runs).
+
+- the renderer is the process whose command line holds `--type=renderer`;
+- `RUSTX_TRACE=1` prints the id of the renderer process for each page;
+- threads are named: `rustx-async` for the async workers, `rustx-watchdog` for
+  the watchdog. A stack that says so is easier to read than one that does not.
+
+Each window has its own renderer, so two windows are two processes to attach to.
+
+A debugger stopped at a breakpoint in the renderer freezes that window, as a long
+component does.
+
+## What a test says
+
+When a page does something odd and you can describe it as a click and a number,
+write it as a scenario. A scenario fails with the full output of the
+application beside the missing value. See [testing](/docs/tooling/testing).
+
+## What is not there
+
+- **No DevTools window.** The engine neither opens Chromium's inspector nor has a
+  setting for it. Nothing in the crates enables it.
+- **No `.rsx` breakpoints.** Rust debuggers see the generated file, in which a
+  block of markup of several lines is one line of Rust.
+- **No source maps for the bundle.** It is built with esbuild's `--minify` and
+  no source map, so a `page error:` names a position in minified code, not in
+  your TypeScript.
+
+See [what's left](/docs/whats-left) for the open items, and report what
+you needed that is not here.

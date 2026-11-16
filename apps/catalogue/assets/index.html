@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>Catalogue</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        height: 100vh;
+        background: #16161a;
+        color: #fffffe;
+      }
+      .devices { padding-left: 1.2rem; }
+      button {
+        font: inherit;
+        padding: 0.6rem 1.2rem;
+        border: 0;
+        border-radius: 6px;
+        background: #7f5af0;
+        color: #fffffe;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- The page is written in app/page.rsx. Nothing below is. -->
+    <div id="app"></div>
+    <script>
+      // A scenario waits on time, not on a frame.
+      //
+      // `requestAnimationFrame` never fires on a machine whose
+      // compositor produces no frames — a GPU process that crashes on
+      // every start, a window the system has hidden — and a scenario
+      // that polled with it waited for ever while the application
+      // underneath it was working perfectly. The framework drives its
+      // own frames from a timer when that happens; so does this.
+      const rustx_soon = (then) => setTimeout(then, 16);
+      if (rustx_scenario() === "page") {
+        const root = document.querySelector("#app");
+        const settle = () => {
+          if (!root.firstChild) {
+            rustx_soon(settle);
+            return;
+          }
+          rustx_report("html", root.innerHTML);
+          document.querySelector("#shout").click();
+          rustx_report("clicked", rustx_shared("clicked"));
+
+          // Le dépôt de fichiers, pour la moitié qui se prouve sans
+          // main humaine : le moteur a-t-il posé son écouteur, et le
+          // lâcher arrive-t-il jusqu'à Rust ?
+          //
+          // Les chemins, eux, ne peuvent venir que d'un vrai geste :
+          // c'est le gestionnaire natif de Chromium qui les connaît, et
+          // aucun événement fabriqué en JavaScript n'en porte.
+          rustx_report("drop_native", typeof __rustx_dropped);
+          const dropped = new Event("drop", { cancelable: true });
+          window.dispatchEvent(dropped);
+          rustx_report("drop_prevented", String(dropped.defaultPrevented));
+          const over = new Event("dragover", { cancelable: true });
+          window.dispatchEvent(over);
+          rustx_report("dragover_prevented", String(over.defaultPrevented));
+        };
+        rustx_soon(settle);
+      }
+    </script>
+  </body>
+</html>

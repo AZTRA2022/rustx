@@ -1,0 +1,83 @@
+# What this project will accept from its dependency tree.
+#
+# Dependency integrity, and a
+# dependency audit. This file is both, made into something a machine
+# checks: `cargo deny check` reads it, `scripts/gates.ps1 -Only deps`
+# runs that, and CI runs the same.
+#
+# The point of writing the allowed set down rather than leaving the
+# defaults is that a *new* licence, a *new* duplicate or a *new*
+# registry in the tree becomes a failure instead of a thing nobody
+# noticed. Every entry below is therefore a decision, and each one says
+# why it was made.
+#
+#   cargo install cargo-deny
+#   cargo deny check
+
+[graph]
+targets = [
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
+exclude-dev = false
+all-features = false
+
+# ----------------------------------------------------------- licences
+
+[licenses]
+allow = [
+    "0BSD",             # adler2
+    "Apache-2.0",       # most of the tree, and this project
+    "BSD-3-Clause",     # sha1_smol, subtle
+    "CDLA-Permissive-2.0", # webpki-roots: Mozilla's CA list, a data licence
+    "ISC",              # ring, rustls, untrusted, libloading
+    "MIT",              # most of the tree, and this project
+    "Unicode-3.0",      # unicode-ident
+    "Unlicense",        # aho-corasick, memchr
+    "Zlib",             # miniz_oxide, the objc2 family
+    "bzip2-1.0.6",      # libbz2-rs-sys, through the CEF download
+]
+confidence-threshold = 0.93
+exceptions = []
+unused-allowed-license = "warn"
+
+# -------------------------------------------------------------- bans
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+allow-wildcard-paths = true
+# Prefer the version the workspace already has when a crate could go
+# either way.
+highlight = "all"
+
+skip = [
+    { crate = "syn@2.0.119", reason = "proc-macro crates below us have not moved to syn 3" },
+    { crate = "windows-sys@0.52.0", reason = "windows-targets 0.52 pins it below us" },
+]
+
+# Crates that may never appear, whatever brings them.
+deny = [
+    # An unmaintained TLS stack. `ureq` in the CEF downloader uses
+    # rustls, and it is to stay that way.
+    { crate = "openssl", reason = "the tree is rustls-only; linking OpenSSL would add a C dependency and a CVE feed" },
+    { crate = "openssl-sys", reason = "see openssl" },
+]
+
+# ---------------------------------------------------------- advisories
+
+[advisories]
+ignore = []
+yanked = "deny"
+unmaintained = "all"
+
+# ------------------------------------------------------------- sources
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

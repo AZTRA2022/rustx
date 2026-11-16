@@ -1,0 +1,164 @@
+---
+title: "App data"
+description: "Where an application keeps settings on disk, what the framework already writes, and a settings file."
+---
+
+State lives in memory and ends with the process. A setting that has to
+outlive it goes in a file, and `rustx::data` is where that file belongs:
+the folder each system keeps for an application's own data, named after
+`Config::new("…")`, made the first time something is written to it.
+
+```rust
+rustx::data::write_text("settings.json", &text)?;
+let text = rustx::data::read_text("settings.json")?;   // None the first time
+rustx::data::remove("settings.json")?;                 // never written: not an error
+let names = rustx::data::list()?;
+let folder = rustx::data::directory()?;                // for a crate that wants a path
+```
+
+This is `app.getPath("userData")` in Electron and the path API in Tauri.
+It is **not** `localStorage`, and it is not the engine's profile folder:
+that one belongs to Chromium, and an application that writes in it is one
+Chromium may clear.
+
+Three folders, because the systems distinguish three things:
+
+| | |
+|---|---|
+| `directory()` | what the user would mind losing: settings, documents, a licence |
+| `cache()` | what can be deleted at any moment, and will be |
+| `logs()` | what somebody will be asked to send you |
+
+A name with a `/`, a `\`, a `..` or a drive letter in it is refused:
+these take a file name, and a path that climbs out of the folder is the
+one bug this would otherwise ship with.
+
+| | Windows | macOS | Linux |
+|---|---|---|---|
+| `directory` | `%APPDATA%\<name>` | `~/Library/Application Support/<name>` | `$XDG_DATA_HOME/<name>`, or `~/.local/share/<name>` |
+| `cache` | `%LOCALAPPDATA%\<name>\cache` | `~/Library/Caches/<name>` | `$XDG_CACHE_HOME/<name>`, or `~/.cache/<name>` |
+| `logs` | `%LOCALAPPDATA%\<name>\logs` | `~/Library/Logs/<name>` | `$XDG_STATE_HOME/<name>/logs`, or `~/.local/state/<name>/logs` |
+
+`write` is atomic: it writes a temporary file beside the real one and
+renames it over, so a crash halfway through loses the new contents and
+not the old ones. That is the difference between this and
+`std::fs::write`, and the reason to prefer it for a settings file.
+
+[`rustx::os::data`](/docs/the-system) is the same module with the
+application's name passed in by hand, for code that runs before a window
+exists.
+
+## What the framework already writes
+
+At the first start the engine makes this folder:
+
+```text
+%LOCALAPPDATA%\rustx\<title in lowercase, words joined by dashes>\
+```
+
+`Config::new("My app")` gives `my-app`. If `LOCALAPPDATA` is not set, the engine
+uses the system's temporary folder.
+
+It holds Chromium's profile, its cookies and caches, and `engine.log`. It
+exists so that two applications never share a profile. Leave it to the engine:
+do not write your own files there, and do not read the profile.
+
+Two consequences of the title:
+
+- changing `Config::new("…")` starts a fresh profile, since the name is a new one;
+- `localStorage` and cookies in the page live in that profile. They are
+  the browser's, and nothing in Rust reads them. Prefer a file you own.
+
+## A settings file
+
+The example uses `serde` and `serde_json`, which are ordinary dependencies of
+your own `Cargo.toml`.
+
+```rust
+// src/settings.rs
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub struct Settings {
+    pub theme: String,
+    pub font_size: u32,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self { theme: "light".to_string(), font_size: 14 }
+    }
+}
+
+const FILE: &str = "settings.json";
+
+impl Settings {
+    /// A missing or unreadable file is the defaults, not an error: the first
+    /// start has no file.
+    pub fn load() -> Self {
+        rustx::data::read_text(FILE)
+            .ok()
+            .flatten()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
+        rustx::data::write_text(FILE, &serde_json::to_string_pretty(self)?)?;
+        Ok(())
+    }
+}
+```
+
+The functions of the application's modules are in scope in the pages, so a
+page writes `Settings::load()` without a `use`.
+
+```rust
+// app/settings/page.rsx
+let mut settings = Settings::load();
+
+fn Page() -> Element {
+    // Runs when `settings` changes, and writes the file.
+    effect(settings.clone(), move || {
+        let _ = settings.save();
+    });
+
+    return <main>
+        <p>Theme: {settings.theme.clone()}</p>
+        <button onClick={move |_| {
+            let next = if settings.theme == "light" { "dark" } else { "light" };
+            settings = Settings { theme: String::from(next), ..settings.clone() };
+        }}>Switch</button>
+    </main>;
+}
+```
+
+A top-of-file `let mut` is read from its initializer once, at the first start of
+the process, so the file is read once. `effect` is the place to write in reaction to a
+change. See [keep, effect, task](/docs/getting-started/keep-effect-task).
+
+A small file written from an effect is fine. For a large one, or a database,
+do the work in a `task`, so that the window does not wait for the disk. See
+[worker threads](/docs/async/worker-threads).
+
+## Changing the format
+
+The file outlives the version of the application that wrote it. Two habits
+keep an upgrade from losing it:
+
+- give every field a default with `#[serde(default)]`, so a file written by an
+  older version still loads;
+- on a failure to parse, keep the old file under another name before writing
+  the defaults over it.
+
+## Window position and size
+
+Nothing remembers them between launches. A window opens at the size in
+`Config::size`. Saving the size and reading it back at the next start is an
+application's job, with the file above. See [what's left](/docs/whats-left).
+
+## `rustx dev` and your files
+
+`rustx dev` relaunches the process, and a top-of-file `let mut` comes back from
+the previous run, not from your file. If the file and the state disagree
+after a reload, that is why. See [the commands](/docs/tooling/the-commands).

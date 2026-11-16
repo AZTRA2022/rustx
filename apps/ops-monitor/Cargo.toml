@@ -1,0 +1,17 @@
+[package]
+name = "ops-monitor"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Remote resource tracking for the agents a machine runs: CPU, RAM, disk, network, with an alert when one crosses a line."
+
+[dependencies]
+rustx = { package = "rustx-app", path = "../../crates/rustx" }
+# 0.40 and not 0.32: the older line pulls `windows` 0.57, which would
+# put a second, semver-incompatible `windows` in the workspace graph
+# beside the 0.62 `rustx-os` asks for — two copies of the same crate,
+# compiled twice, whose features are resolved apart. 0.40 rides the
+# same 0.62, so there is one `windows` and its features are the union
+# of what asks for them.
+sysinfo = "0.40"

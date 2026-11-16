@@ -1,0 +1,83 @@
+[package]
+name = "rustx-os"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+authors.workspace = true
+description = "What the web cannot do: the clipboard, native dialogs, the tray, global shortcuts, a terminal, one instance."
+keywords = ["clipboard", "notification", "tray", "dialog", "terminal"]
+categories = ["os", "os::windows-apis", "gui"]
+
+[dependencies]
+# Reading the archive the updater downloads. Deflate only, and the zip
+# format itself is read in `unzip.rs`: the writer is in `rustx-cli`,
+# and between them they are the two halves of `rustx package`.
+flate2 = "1"
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.62"
+features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_Registry",
+    "Win32_Security",
+    "Win32_Globalization",
+    "Win32_System_Power",
+    "Win32_System_StationsAndDesktops",
+    "Win32_System_SystemInformation",
+    "Win32_System_Time",
+    "Win32_UI_HiDpi",
+    "Win32_Security_Credentials",
+    "Win32_UI_Controls",
+    "Win32_UI_Controls_Dialogs",
+    "Win32_Networking_NetworkListManager",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_Devices_FunctionDiscovery",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_Networking_WinSock",
+    "Win32_Devices_Bluetooth",
+    "Win32_Graphics_Printing",
+    "Win32_System_Variant",
+    "Win32_Storage_Xps",
+    # The updater: the system's own HTTP client, so that checking a
+    # GitHub release page costs no dependency and no TLS stack of our
+    # own.
+    "Win32_Networking_WinHttp",
+]
+
+# La fenêtre, sous Linux : le protocole X11 lui-même, écrit en Rust.
+# `x11rb` plutôt que `x11`/`xcb` : sa connexion par défaut ne lie
+# aucune bibliothèque C (ni `libX11` ni `libxcb`), donc ce crate se
+# vérifie depuis n'importe quelle machine, et ne demande rien de plus
+# au système qui le lance qu'un `$DISPLAY`.
+[target.'cfg(target_os = "linux")'.dependencies]
+# Deux extensions X11, chacune derrière sa feature : `screensaver` pour
+# l'inactivité (`system::idle`), `randr` pour la liste des écrans.
+x11rb = { version = "0.13", features = ["screensaver", "randr"] }
+
+# La fenêtre, la barre de menus et les raccourcis, sous macOS :
+# `objc2` seul, déjà dans l'arbre parce que `cef` s'en sert sur macOS.
+# Ni `objc2-app-kit` ni `objc2-foundation` : les quelques classes
+# touchées le sont par `msg_send!`, et une famille de dépendances de
+# plus — dont ce poste ne peut même pas vérifier les noms de features —
+# n'est pas justifiée pour une vingtaine de sélecteurs.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"

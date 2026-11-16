@@ -1,0 +1,299 @@
+---
+title: "Packaging"
+description: "`rustx package`: the folder that ships, the archive, the installer, the signature, and updating an application from its release page."
+---
+
+```sh
+rustx package
+```
+
+One command, and it produces everything a release needs:
+
+| | |
+|---|---|
+| `dist/<name>-<version>-<os>/` | the application. Every file it reads at run time, and nothing else |
+| `dist/<name>-<version>-<os>.zip` | the same folder, zipped. This is what goes on a release page |
+| the installer | a setup `.exe`, a `.deb` or a `.pkg`, depending on the machine |
+| `rustx-release.json` | inside the folder: what this release is, and the SHA-256 of every file in it |
+
+`rustx build --release` is still there and still only builds: it runs
+cargo and stamps the binary's name, version and icon. `rustx package`
+builds, gathers, signs, writes the manifest, zips and makes the
+installer.
+
+| | |
+|---|---|
+| `--debug` | package the debug build, to hand a colleague what you are looking at |
+| `--no-zip` | the folder only |
+| `--out <dir>` | somewhere other than `dist/` |
+
+There is no `--release`: a package *is* the release build, and asking
+for `--release` says so instead of doing nothing.
+
+## Why the folder is the application
+
+The `.exe` the linker makes is a Chromium host. Chromium reads
+`libcef.dll`, the `.pak` files, `icudtl.dat`, `v8_context_snapshot.bin`
+and `locales/` from beside that binary, and the executable starts
+*itself* again as the engine's helper processes — so the same file has
+to sit next to all of them. Moving the `.exe` alone gives a program
+that does not start, and the dialog the system shows for that names a
+library rather than a cause.
+
+In one debug build on a development machine the folder held 236 files
+and 412 MB. `locales/` alone is 51 MB of `.pak` files, and a package
+without it starts with no text in its menus.
+
+`rustx package` copies what the program reads and leaves what cargo
+left for cargo: no `.pdb`, no `.d`, no build scripts, no other binary
+of the workspace.
+
+## What travels inside the binary
+
+| | |
+|---|---|
+| the pages | compiled from `app/` into the executable |
+| the React runtime | the `runtime.js` of the `rustx` crate |
+| the Tailwind style sheet | included with `include_str!` when Tailwind is installed |
+| **`assets/`** | every file under the project's `assets/`, with `include_bytes!` |
+
+That last row used to be the opposite, and it was the worst thing on
+this page. `#[rustx::main]` recorded the path of the project as cargo
+saw it at compile time, and the framework read `assets/index.html`,
+`assets/rustx-bundle.js` and the window icon from *there* at run time —
+so a copied release folder opened a blank window, because the project
+was on the machine that built it.
+
+Now the attribute walks `assets/` and puts every file in the binary.
+At run time the framework looks, in this order:
+
+1. `assets/` beside the executable, if it is there. `rustx package`
+   copies the folder, so that is the normal case for a shipped
+   application — and it is what lets somebody swap a logo or patch the
+   document in a release without a compiler.
+2. the copy inside the binary, unpacked once into
+   `%LOCALAPPDATA%\rustx\<name>\assets` (and the equivalent elsewhere),
+   rewritten only when the bytes differ.
+3. the project folder, for `rustx dev`.
+
+So an application works with its `assets/` folder, without it, and from
+a machine that has never seen the project.
+
+## What the stamp carries
+
+`rustx build` and `rustx package` read each value where you already
+wrote it. There is no second file to keep in step.
+
+| | |
+|---|---|
+| name | the literal in `Config::new("…")`, found by searching `src/`; the crate name if there is none |
+| version | `version` in `Cargo.toml`, including `version.workspace = true` |
+| description | `description` in `Cargo.toml` |
+| publisher | the first entry of `authors` |
+| icon | the literal in `.icon("…")`, or `assets/icon.ico` if it exists |
+
+The icon is checked before the file is opened for writing, so a `.png`
+renamed to `.ico` is refused instead of leaving half a stamp. A declared
+icon that is not on disk is said once, and the binary keeps the system
+icon.
+
+## The installer
+
+Nothing new is invented here: an installer is whatever that platform's
+users already double-click. A `.zip` is not that on any of them — it is
+what the updater downloads.
+
+| | |
+|---|---|
+| **Windows** | a setup `.exe`. An Inno Setup script is written beside the folder, and `ISCC.exe` is run when [Inno Setup](https://jrsoftware.org/isdl.php) is installed — looked for in `Program Files` and in `%LOCALAPPDATA%\Programs`, which is where a per-user `winget install JRSoftware.InnoSetup` puts it. The result installs per user and needs no administrator rights, with a Start-menu group, an optional desktop icon and an uninstaller |
+| **Linux** | a `.deb`, written without any tool at all — see below. It installs under `/opt/<name>`, links `/usr/bin/<name>`, puts the icon in the hicolor theme and the licence in `/usr/share/doc`. An `install.sh` and a matching `uninstall.sh` go in the folder for everywhere else |
+| **macOS** | the package *is* a `.app` bundle — `Info.plist`, the Chromium framework under `Contents/Frameworks`, and the five helper `.app`s CEF opens for its subprocesses. `pkgbuild` turns it into a `.pkg` that installs into `/Applications`, and `hdiutil` into a `.dmg` beside it |
+
+### The `.deb` needs nothing installed
+
+`dpkg-deb` is not on a Windows machine and not on a Fedora one, and a
+framework that can only package on the distribution it was built on is
+a framework that cannot package. So rustx writes the format, which it
+can because the format is three files in an `ar` archive:
+`debian-binary`, `control.tar.gz` and `data.tar.gz`.
+
+It declares the twenty-five libraries Chromium links against —
+`libgtk-3-0`, `libnss3`, `libgbm1` and the rest — so that the package
+cannot install and then fail to start, which is what a `.deb` with no
+`Depends` does. It reports its own installed size, which is what a
+software centre shows before the download begins.
+
+No AppImage and no `.rpm`: `appimagetool` is a download this will not
+make on your behalf, and neither format can be written as directly as a
+`.deb` can.
+
+### The pages a user clicks through
+
+These are files, not options. A project without the file does not get
+that page.
+
+| | |
+|---|---|
+| `LICENSE`, `LICENSE.txt`, `LICENSE.md`, `COPYING` | the licence to accept. It also becomes the `.deb`'s `copyright` |
+| `assets/installer/before.txt` | shown before anything is chosen |
+| `assets/installer/after.txt` | shown when it is done |
+| `assets/installer/banner.bmp` | the image down the left of the wizard |
+| `assets/installer/header.bmp` | the small image in its corner |
+| `assets/icon.ico` | the setup program's own icon, and the application's on Windows |
+| `assets/icon.png` | the icon the `.deb` puts in the hicolor theme, at 256×256. A `.ico` is a Windows format and no Linux desktop reads it |
+| `assets/icon.icns` | the bundle's icon on macOS |
+
+### The metadata each format carries
+
+| | |
+|---|---|
+| **Windows** | the whole version resource — publisher, product name, product version, copyright, original file name — plus the display name, the comment and the uninstall icon that "Programs and Features" shows |
+| **Linux** | `Maintainer`, `Description` with its indented long form, `Installed-Size`, `Depends`, `Section`, `Priority`, and the desktop entry's `Name`, `Comment`, `Icon` and `StartupWMClass` |
+| **macOS** | `Info.plist`: `CFBundleIdentifier`, both version strings, `LSMinimumSystemVersion`, `NSHighResolutionCapable`, and `LSUIElement` on each helper so that a subprocess does not appear in the Dock |
+
+`Maintainer` is the one field `dpkg` is strict about: it wants
+`Name <email>`, which is the shape `authors = ["A <a@b.test>"]` already
+has. A bare name gets an obviously fake address rather than a build
+that fails.
+
+None of this can fail the package. With no Inno Setup you still get the
+folder, the archive, and a sentence naming the script and what reads it
+— which is also how a build machine does it: keep the script, run
+`ISCC` there. The `installers` job of `.github/workflows/ci.yml` does
+exactly that, on all three systems, and on Linux it reads the
+hand-written `.deb` back with `dpkg-deb`, installs it, validates the
+desktop entry and removes it again.
+
+## Signing
+
+Credentials are not something to write into a repository, so this is
+environment variables and no configuration file.
+
+| | |
+|---|---|
+| `RUSTX_SIGN_PFX`, `RUSTX_SIGN_PASSWORD` | Windows: a certificate file, signed with `signtool` |
+| `RUSTX_SIGN_SUBJECT` | Windows: a certificate already in the machine's store, by subject name |
+| `RUSTX_SIGN_IDENTITY` | macOS: an identity for `codesign`, applied to the bundle before the `.dmg` |
+
+With none of them set, nothing is signed and nothing is said: an
+unsigned build is the normal case for anybody who has not bought a
+certificate. With one set and the tool missing, it is an error with the
+reason — a developer who asked for a signature and got silence would
+ship unsigned without knowing.
+
+Both the binary and the installer are signed on Windows. SmartScreen
+judges the file the user double-clicked, so signing one and not the
+other still gets the warning.
+
+What is **not** done: notarisation. `xcrun notarytool` needs an Apple
+developer account and a round trip to Apple's service, and nothing here
+uploads anything on your behalf.
+
+## Updating from a release page
+
+```rust
+match rustx::update::from_github("owner/my-app")? {
+    rustx::update::Outcome::UpToDate => {}
+    rustx::update::Outcome::Installed(release) => {
+        note = format!("{} is installed. Restart to use it.", release.version);
+    }
+}
+```
+
+The release page is the whole mechanism: there is no update server, no
+signing key of ours and no manifest to host. `rustx package` makes a
+`.zip`, you attach it to a GitHub release, and the client:
+
+1. asks `api.github.com` for the latest release of `owner/name`;
+2. compares its tag with the version stamped into the running binary,
+   and stops there when there is nothing newer;
+3. picks the `.zip` whose name carries this platform, or the only
+   archive there is when the release has one and names no platform;
+4. downloads it into the cache folder, checking the size, and the
+   SHA-256 when the release published one — as GitHub's asset digest,
+   or as a `*.sha256` file beside the archive;
+5. unpacks it beside the executable, into `.rustx-update`;
+6. moves the new files in, renaming anything in the way to
+   `*.rustx-old` — which is how a running `.exe` is replaced on Windows,
+   where a file in use cannot be deleted but can be renamed.
+
+```rust
+rustx::update::newest("owner/my-app")?          // look, do not install
+rustx::update::from_github_watching(repo, &mut |done, total| { … })?  // with a progress bar
+rustx::update::clean()?                         // delete the *.rustx-old files
+rustx::update::restart()?                       // start the new binary and exit
+```
+
+It blocks and it reaches the network, so it belongs in a `task(…)` or
+an `async` block like every other piece of work that waits. Nothing
+happens on its own: no timer checks, and nothing restarts the
+application for you — when it is safe to restart is a question about
+unsaved work that only the application can answer.
+
+A pre-release counts as older than its own release: `1.2.0-rc1` does not
+replace `1.2.0`.
+
+## What the application writes on the user's machine
+
+Two folders, and they are not the same thing.
+
+```text
+%LOCALAPPDATA%\rustx\<title, lowercased, dashes between words>\
+```
+
+is the engine's: Chromium's profile, its caches, `engine.log`, and the
+unpacked copy of `assets/`. The name comes from the title because
+Chromium allows one process per profile folder. Do not store your own
+files there.
+
+Your own files go in [`rustx::data`](/docs/the-system/app-data), which is
+a different folder on purpose: one Chromium may clear and one it may
+not.
+
+## Two things that stop a start
+
+Run as administrator, Chromium 156 relaunches itself without the rights
+and exits. The application sees `cef::initialize returned 0`, and the
+engine adds a sentence naming the cause. Start it as an ordinary user,
+or pass `--do-not-de-elevate`.
+
+A machine with no usable 3D driver gives a blank window and a log full
+of `Failed to create shared context`. `RUSTX_SOFTWARE=1` in the
+environment makes the engine composite on the processor. See
+[troubleshooting](/docs/tooling/troubleshooting).
+
+## What is still not written
+
+- **Notarisation and stapling on macOS**, as above.
+- **An `.rpm` or an AppImage.** The `.deb` is written directly because
+  its format allows it; these two do not.
+- **An MSI.** Inno Setup's `.exe` is what this writes; an MSI is a
+  different tool and a different format.
+- **Converting an icon between formats.** Give it `icon.ico`,
+  `icon.png` and `icon.icns`; rustx will not turn one into another, and
+  it names the one that is missing rather than shipping without it.
+- **Cross-packaging.** `rustx package` packages for the machine it runs
+  on, because it gathers what that machine's build left beside the
+  binary. A macOS release is built on a Mac.
+- **A verified Mac.** The `.app` layout, the helper bundles and the
+  `Info.plist` are written from Apple's and CEF's documentation and have
+  never been built or opened on a Mac. See
+  [platforms](/docs/the-system/platforms).
+
+## A release checklist
+
+1. `Cargo.toml` has the version and the `authors` you want users to see.
+2. `Config::new("…")` holds the final title. The engine's profile folder
+   and `rustx::data` are both named from it, so changing it later moves
+   the user's data.
+3. `assets/icon.ico` exists, and is a real `.ico`.
+4. No `rustx dev` or earlier window is still running: it holds
+   `libcef.dll`, and the build says which file is held.
+5. `rustx package` finishes without a message about the logo or the
+   signature.
+6. The folder runs from a place where the project does not exist — copy
+   it to another machine, or another folder, and start it.
+7. It runs as an ordinary user.
+8. Attach the `.zip` to the release, with the same tag as the version in
+   `Cargo.toml`, so that the updater of the version before this one
+   finds it.

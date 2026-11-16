@@ -1,0 +1,112 @@
+@import "tailwindcss";
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* The design is black paper with hairline rules, one monospace
+     face, and the warm orange the particle field is lit with. */
+  --background: #000000;
+  --foreground: #e8e8e8;
+  --card: #0a0a0a;
+  --card-foreground: #e8e8e8;
+  --primary: #e8e8e8;
+  --primary-foreground: #000000;
+  --secondary: #141414;
+  --secondary-foreground: #e8e8e8;
+  --muted: #0a0a0a;
+  --muted-foreground: #8a8a8a;
+  --accent: #141414;
+  --accent-foreground: #e8e8e8;
+  --border: #262626;
+  --input: #262626;
+  --ring: #3a3a3a;
+  --faint: #5e5e5e;
+  --warm: #d98a4a;
+  --cool: #9ab6d6;
+  /* shadcn's `destructive` variant asks for this one by name, and a
+     token nothing declares is a button with no background at all. */
+  --destructive: #7f1d2e;
+  --destructive-foreground: #fee2e2;
+  --radius: 0.6rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-faint: var(--faint);
+  --color-warm: var(--warm);
+  --color-cool: var(--cool);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --font-sans: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace,
+    SFMono-Regular, monospace;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace,
+    SFMono-Regular, monospace;
+}
+
+@layer base {
+  html,
+  body {
+    margin: 0;
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  table {
+    border-collapse: collapse;
+  }
+}
+
+/* The glossy button of the design: a light face with a dark rim, which
+   is two gradients and not an image. */
+.glossy {
+  background: linear-gradient(180deg, #d8d8d8, #9d9d9d);
+  color: #0a0a0a;
+  border: 1px solid #6d6d6d;
+}
+
+.glossy:hover {
+  background: linear-gradient(180deg, #e6e6e6, #ababab);
+}
+
+/* The dark twin of it, for the primary action on a black field. */
+.slab {
+  background: linear-gradient(180deg, #1c1c1c, #0d0d0d);
+  color: #e8e8e8;
+  border: 1px solid #3a3a3a;
+}
+
+.slab:hover {
+  border-color: #585858;
+}
+
+/* recharts draws its own axes; these make them read as the rest of the
+   console rather than as a chart library's defaults. */
+.recharts-cartesian-axis-tick text {
+  font-size: 10px;
+  fill: var(--faint);
+}
+
+.recharts-default-tooltip {
+  background-color: #0f0f0f !important;
+  border: 1px solid var(--border) !important;
+  font-size: 11px !important;
+}

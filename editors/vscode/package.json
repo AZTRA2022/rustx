@@ -1,0 +1,145 @@
+{
+  "name": "rustx-framework-extension",
+  "displayName": "Rustx Framework Extension",
+  "description": "What an editor needs to know about a .rsx: its colours, its pairs, and where the mistakes are.",
+  "version": "0.4.0",
+  "license": "MIT",
+  "icon": "icons/rustx-logo.png",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Formatters",
+    "Snippets"
+  ],
+  "keywords": [
+    "rustx",
+    "rsx",
+    "rust",
+    "jsx",
+    "desktop",
+    "gui"
+  ],
+  "homepage": "https://github.com/AZTRA2022/rustx#readme",
+  "bugs": {
+    "url": "https://github.com/AZTRA2022/rustx/issues"
+  },
+  "galleryBanner": {
+    "color": "#09090b",
+    "theme": "dark"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Opening a `.rsx` starts `rustx-lsp`, and `rustx.server.path` says which binary. A folder you do not trust should not choose that."
+    }
+  },
+  "extensionPack": [
+    "rust-lang.rust-analyzer"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "rsx",
+        "aliases": [
+          "rustx",
+          "rsx"
+        ],
+        "extensions": [
+          ".rsx"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "dark": "./icons/rustx-logo.png",
+          "light": "./icons/rustx-logo.png"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "rsx",
+        "scopeName": "source.rsx",
+        "path": "./syntaxes/rsx.tmLanguage.json",
+        "embeddedLanguages": {
+          "source.rust": "rust"
+        }
+      }
+    ],
+    "snippets": [
+      {
+        "language": "rsx",
+        "path": "./snippets/rsx.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "rustx.restartServer",
+        "title": "Restart the language server",
+        "category": "rustx"
+      }
+    ],
+    "configurationDefaults": {
+      "tailwindCSS.includeLanguages": {
+        "rsx": "html"
+      },
+      "tailwindCSS.classAttributes": [
+        "class",
+        "className"
+      ],
+      "emmet.includeLanguages": {
+        "rsx": "html"
+      }
+    },
+    "configuration": {
+      "title": "rustx",
+      "properties": {
+        "rustx.server.path": {
+          "type": "string",
+          "default": "",
+          "description": "Where `rustx-lsp` is. Empty means: on the PATH."
+        },
+        "rustx.closeTags": {
+          "type": "boolean",
+          "default": true,
+          "description": "Close a tag when its `>` is typed. A Rust generic, a comparison and a tag that closed itself are left alone."
+        },
+        "rustx.rustAnalyzer.path": {
+          "type": "string",
+          "default": "",
+          "description": "Where rust-analyzer is, when it is not on the PATH. Completion, hovers and go-to-definition come from it; leave empty to use the PATH."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "package": "node build.mjs --release",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/**/*.test.mjs\""
+  },
+  "devDependencies": {
+    "vscode-oniguruma": "1.7.0",
+    "vscode-textmate": "9.0.0",
+    "@types/node": "22.10.2",
+    "@types/vscode": "1.90.0",
+    "esbuild": "0.24.2",
+    "typescript": "5.7.2"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:rsx"
+  ],
+  "dependencies": {
+    "vscode-languageclient": "9.0.1"
+  },
+  "publisher": "AztraOpenSource",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AZTRA2022/rustx"
+  },
+  "allowScripts": {
+    "esbuild@0.24.2": true
+  }
+}

@@ -1,0 +1,8 @@
+node_modules/
+test/
+tsconfig.json
+build.mjs
+src/
+.vscodeignore
+*.vsix
+package-lock.json

@@ -1,0 +1,90 @@
+---
+title: "Cancellation"
+description: "Leaving the screen stops the work, and there is nothing to cancel by name."
+---
+
+The token that `task` returns is a **cell of the component**. The component
+leaves — a route changed, a list shortened, a condition that became false — the
+cell is released, and the work stops.
+
+The two forms do not stop in the same way, and that is the only
+thing to know:
+
+| | |
+|---|---|
+| an **`async` block** | is **abandoned where it waits**. A future has no flag to watch: its `.await` never resumes |
+| a **thread** | sees `alive.get()` answer `false`, and `alive.post(…)` answer `Err(PostError::Cancelled)` |
+
+Nothing to clean up by hand, and nothing to cancel by name.
+
+```rust
+fn Preview(id: String) -> Element {
+    // Leaving this screen is enough: the future is dropped in the middle of its
+    // download, and the connection closes with it.
+    let bytes = download(id.clone()).await.unwrap_or_default();
+
+    return <img src={data_url(&bytes)} />;
+}
+```
+
+## A thread must watch its flag
+
+A thread that never consults `alive` never stops: there is no clean way to kill
+a thread, and the framework does not invent one. That is why the loop is written around the flag:
+
+```rust
+task(move |alive| {
+    while alive.get() {
+        let chunk = next_chunk();
+        if alive.post(move || total += chunk).is_err() {
+            break;
+        }
+    }
+    // here, and only here, the thread ends
+});
+```
+
+A long job **with no loop** — a single computation of ten seconds — cannot be
+interrupted. It must be split up, or be allowed to finish into the void: its `post`
+will be refused, and nobody will see its result.
+
+## Stopping without leaving the screen
+
+A "pause" or "cancel" button is a value of the page that the loop reads:
+
+```rust
+let mut running = true;
+let mut done = 0;
+
+fn Import() -> Element {
+    async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            if !running {
+                continue;
+            }
+            if import_one().await.is_ok() {
+                done += 1;
+            }
+        }
+    };
+
+    return <>
+        <p>{done} imported</p>
+        <button onClick={move |_| running = !running}>
+            {if running { "pause" } else { "resume" }}
+        </button>
+    </>;
+}
+```
+
+The loop reads `running` where it is, so the button really acts:
+see [reading and writing state](/docs/async/reading-and-writing-state).
+
+## When the window closes
+
+The last window closed stops the message loop and the application
+goes away: a thread sees `Err(PostError::WindowClosed)`, and a future is
+abandoned along with the process. What must survive is written when it
+changes, and not at the moment of leaving — see
+[closing](/docs/the-window/closing).

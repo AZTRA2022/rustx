@@ -1,0 +1,122 @@
+---
+title: "The clipboard"
+description: "Text, image, and a format that a project invents for its own objects."
+---
+
+A page can read the clipboard only after a `Ctrl+V`, and nothing
+else — this is a decision of the web, not a technical limit. Copying a
+selection when a button is pressed, pasting on a shortcut, or
+moving a project's objects between two of its own windows is
+work for this layer.
+
+```rust
+use rustx::clipboard;
+
+clipboard::set_text("copied from Rust")?;
+let pasted = clipboard::text()?;              // Result<String, OsError>
+```
+
+`text()` returns an empty string when the clipboard holds no text: there is nothing to tell apart between "empty" and "an image", for whoever asks for text.
+
+## From a button
+
+```rust
+let mut said = String::new();
+
+fn Copy(what: String) -> Element {
+    return <button onClick={move |_| {
+        said = match clipboard::set_text(&what) {
+            Ok(()) => "copied".to_string(),
+            Err(why) => why.to_string(),
+        };
+    }}>{if said.is_empty() { "copy".to_string() } else { said.clone() }}</button>;
+}
+```
+
+`set_text` takes a `&str`, so a `String` is passed by reference. And both
+arms of the `if` are `String`: the two branches of an expression in the
+tree have to be the same type, exactly as anywhere else in Rust.
+
+## An image
+
+Four bytes per pixel, blue first, rows from top to bottom —
+this is how the clipboard and the screen keep one.
+
+```rust
+pub struct Image {
+    pub width: u32,
+    pub height: u32,
+    pub bgra: Vec<u8>,
+}
+
+let shot = clipboard::image()?;
+println!("{}×{}", shot.width, shot.height);
+
+clipboard::set_image(&shot)?;
+```
+
+## A format of its own
+
+For the objects of a project, between two of its windows or between two of its launches:
+
+```rust
+let bytes = serde_json::to_vec(&selection)?;
+clipboard::set_custom("my-app/nodes", &bytes)?;
+
+if let Ok(bytes) = clipboard::custom("my-app/nodes") {
+    let selection: Selection = serde_json::from_slice(&bytes)?;
+}
+```
+
+The name is registered with the system on first use. Another application that does not know it sees nothing, which is the point: an internal copy and paste does not pollute the clipboards of other programs.
+
+## One at a time, and briefly
+
+The clipboard is **one** object for the whole machine, opened by one program at a time. Every function here opens it, does one thing, and closes it again: holding it open while a developer writes would freeze the copy and paste of every other program.
+
+And because someone else may be holding it at the moment it is asked for — a password manager, an editor, the shell — opening it is **retried for 200 ms** before refusing.
+
+```rust
+clipboard::PATIENCE   // 200 ms
+clipboard::BETWEEN    // 10 ms between two attempts
+```
+
+A refusal after that is final: the other program does not let go, and retrying within the second will change nothing.
+
+## Pasting on a shortcut
+
+This is what combining the two gives, and it is the example that justifies the layer.
+The shortcut is owned by a `task`, which polls it and posts the paste
+into state — a component may not write state while it is being drawn, so
+the poll cannot live in the body of the component:
+
+```rust
+let mut lines = Vec::<String>::new();
+
+fn Paste() -> Element {
+    // The thread stops with this screen, and the combination is given
+    // back to the system when its `Shortcut` is dropped with it.
+    task(move |alive| {
+        let Ok(hotkey) = shortcut::Shortcut::listen("Ctrl+Shift+V") else {
+            return;
+        };
+        while alive.get() {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            if hotkey.pressed() == 0 {
+                continue;
+            }
+            let Ok(text) = clipboard::text() else { continue };
+            if alive.post(move || lines.push(text)).is_err() {
+                break;
+            }
+        }
+    });
+
+    return <ul>{lines.len()} pasted</ul>;
+}
+```
+
+`pressed()` returns **how many times** the combination was pressed since
+the last read and resets the count, so a loop that polls twenty times a
+second misses nothing. See
+[global shortcuts](/docs/the-system/global-shortcuts).

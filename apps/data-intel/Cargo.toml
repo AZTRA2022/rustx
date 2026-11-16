@@ -1,0 +1,10 @@
+[package]
+name = "data-intel"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A full GUI for databases management, scoped to tables you can browse, drop a CSV onto, and manage."
+
+[dependencies]
+rustx = { package = "rustx-app", path = "../../crates/rustx" }

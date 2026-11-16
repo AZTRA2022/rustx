@@ -1,0 +1,10 @@
+[package]
+name = "catalogue"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A rustx application, written the way anyone will write one."
+
+[dependencies]
+rustx = { package = "rustx-app", path = "../../crates/rustx" }

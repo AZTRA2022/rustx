@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>rustx</title>
+    <!-- No stylesheet and no script: the application's Tailwind and its
+         libraries are declared in `package.json`, and rustx builds both
+         and puts them in this page. The page itself is `app/page.rsx`. -->
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      // A scenario waits on time, not on a frame.
+      //
+      // `requestAnimationFrame` never fires on a machine whose
+      // compositor produces no frames — a GPU process that crashes on
+      // every start, a window the system has hidden — and a scenario
+      // that polled with it waited for ever while the application
+      // underneath it was working perfectly. The framework drives its
+      // own frames from a timer when that happens; so does this.
+      const rustx_soon = (then) => setTimeout(then, 16);
+
+      if (rustx_scenario() === "attente") {
+        const waitFor = (ready, then, left = 900) => {
+          const look = () => {
+            if (ready()) {
+              then();
+              return;
+            }
+            if (left-- <= 0) {
+              rustx_report("gave_up_on", ready.toString().slice(0, 120));
+              rustx_report("done", "no");
+              return;
+            }
+            rustx_soon(look);
+          };
+          look();
+        };
+        const text = (id) => {
+          const found = document.querySelector(id);
+          return found === null ? null : found.textContent.trim();
+        };
+
+        // What a component that awaits its value shows before the value
+        // is there: nothing. Read on the first look, which is a frame
+        // the window produced while the answer was still coming -- so
+        // this line is also the proof that the await did not block it.
+        rustx_report(
+          "answer_at_first_look",
+          text("#reponse") === null ? "nothing" : text("#reponse")
+        );
+
+        // The page opens on `/attente`, so the three awaits are already
+        // in flight. Each one writes a row, and the timer they wait on
+        // is the runtime's: it fires on a machine whose window produces
+        // no frames of its own.
+        waitFor(
+          () => text("#rows-count") === "3",
+          () => {
+            rustx_report("rows_after_three_awaits", text("#rows-count"));
+            rustx_report("rows_drawn", String(document.querySelectorAll("#rows .row").length));
+
+            // And the answer, once it is there: the component that was
+            // drawing nothing draws it, without the page asking again.
+            waitFor(
+              () => text("#reponse") !== null,
+              () => {
+            rustx_report("answer_later", text("#reponse"));
+
+            // A thousand writes with nothing between them, applied by
+            // the frame that drained them.
+            waitFor(
+              () => text("#burst") === "1000",
+              () => {
+                rustx_report("burst_total", text("#burst"));
+                rustx_report("renders_for_the_burst", text("#drawn"));
+
+                // And the endless one. Leaving the page drops the cell
+                // that holds its token, so the future is abandoned
+                // where it waits. Nothing below cancels it by name.
+                const before = Number(rustx_shared("ticks"));
+                rustx_report("ticks_before_leaving", String(before));
+                document.querySelector("#attente-leave").click();
+
+                waitFor(
+                  () => document.querySelector("#attente") === null,
+                  () => {
+                    // What the counter says the moment the page is gone.
+                    const atLeave = Number(rustx_shared("ticks"));
+                    // Long enough that twenty-millisecond ticks would
+                    // have added a dozen more.
+                    setTimeout(() => {
+                      const after = Number(rustx_shared("ticks"));
+                      rustx_report("ticks_at_leaving", String(atLeave));
+                      rustx_report("ticks_after_leaving", String(after));
+                      rustx_report("still_ticking", after > atLeave ? "yes" : "no");
+                      rustx_report("done", "yes");
+                    }, 400);
+                  }
+                );
+              }
+            );
+              }
+            );
+          }
+        );
+      }
+
+      if (rustx_scenario() === "page") {
+        const waitFor = (ready, then) => {
+          const look = () => {
+            if (!ready()) {
+              rustx_soon(look);
+              return;
+            }
+            then();
+          };
+          look();
+        };
+
+        // What recharts drew, read from the page: the library's own
+        // classes, not something this application put there.
+        const svg = () => document.querySelector("#chart svg");
+        const line = () => document.querySelector("#chart .recharts-line-curve");
+        const dots = () => document.querySelectorAll("#chart .recharts-line-dot").length;
+        const counter = () => document.querySelector("#counter-in-panel");
+
+        // A chart of one point has no curve yet: a line needs two. What
+        // says the library drew is its own svg, and its own dots.
+        // The stylesheet too: the framework puts it in the document after
+        // the page's own script has run, and a colour read before it
+        // lands is the colour of a button with no stylesheet at all.
+        waitFor(
+          () =>
+            svg() !== null &&
+            dots() === 1 &&
+            document.querySelector("#rustx-stylesheet") !== null,
+          () => {
+          rustx_report("library_drew", "yes");
+          rustx_report("dots_at_first", String(dots()));
+
+          // Radix for the behaviour, Tailwind for the look. The trigger
+          // is a button Radix rendered, with the classes the page wrote.
+          //
+          // Waited for: the stylesheet is put in the document by the
+          // framework, which gets to the page after the page's own
+          // script does — reading a colour before it lands reads the
+          // colour of a button with no stylesheet at all.
+          const trigger = document.querySelector("#open-dialog");
+          // A node the library rendered, with a class the page wrote.
+          rustx_report(
+            "hero_badge_background",
+            getComputedStyle(document.querySelector("#app [class*='bg-violet-500/10']") ?? document.body)
+              .backgroundColor
+          );
+          // And a utility on the trigger the library rendered: a padding
+          // the page asked for, on a node it never touched.
+          rustx_report("trigger_padding", getComputedStyle(trigger).paddingLeft);
+          rustx_report(
+            "stylesheet_in_page",
+            document.querySelector("#rustx-stylesheet") === null ? "no" : "yes"
+          );
+          // Tailwind's reset, which this application asked for by
+          // writing its own `assets/tailwind.css`.
+          rustx_report("body_margin", getComputedStyle(document.body).marginTop);
+
+          trigger.click();
+          waitFor(() => document.querySelector("[role=\"dialog\"]") !== null, () => {
+            const dialog = document.querySelector("[role=\"dialog\"]");
+            rustx_report("dialog_title", dialog.textContent.includes("One DOM") ? "there" : "missing");
+            // Radix puts it in a portal: somewhere else in the document,
+            // outside the container rustx handed over.
+            rustx_report(
+              "dialog_is_in_a_portal",
+              document.querySelector("#app").contains(dialog) ? "no" : "yes"
+            );
+            rustx_report("dialog_padding", getComputedStyle(dialog).paddingTop);
+            // A plain `<div>` written inside the dialog, which React
+            // built from its name.
+            rustx_report(
+              "plain_tag_inside_the_dialog",
+              dialog.querySelector("div.flex") === null ? "no" : "yes"
+            );
+
+            document.querySelector("#close-dialog").click();
+            waitFor(() => document.querySelector("[role=\"dialog\"]") === null, () => {
+              rustx_report("dialog_closed", "yes");
+
+              // The other direction, driven from here because it is a
+              // test and not the application: React builds a panel and
+              // asks rustx for a component to put inside it.
+              const react = window.rustxLibraries.react;
+              const root = window.rustxLibraries.reactDomClient.createRoot(
+                document.querySelector("#panel-host")
+              );
+              window.rustxLibraries.reactDom.flushSync(() =>
+                root.render(
+                  react.createElement(
+                    "section",
+                    { className: "text-sm text-zinc-400" },
+                    "points, from rustx: ",
+                    react.createElement("div", { id: "panel-slot" })
+                  )
+                )
+              );
+              rustx_component("Counter", "panel-slot");
+
+              waitFor(() => counter() !== null, () => {
+                const first = svg();
+                document.querySelector("#add").click();
+                document.querySelector("#add").click();
+
+                // One value, two owners: the chart React draws and the
+                // counter rustx owns both show it.
+                waitFor(
+                  () => dots() === 3 && counter().textContent === "2",
+                  () => {
+                    rustx_report("dots_after_two_points", String(dots()));
+                    rustx_report("counter_in_panel", counter().textContent);
+                    rustx_report("drawn_on_one_frame", "yes");
+                    // Three points make a line, which one point could not.
+                    rustx_report("curve_drawn", line() === null ? "no" : "yes");
+                    rustx_report("same_svg", svg() === first ? "yes" : "no");
+
+                    // Leaving the page takes the container with it, and
+                    // React is told while it is still in the document —
+                    // so what it drew is gone, not orphaned.
+                    document.querySelector("#leave").click();
+                    waitFor(() => svg() === null, () => {
+                      rustx_report("svg_after_leave", "gone");
+                    });
+                  }
+                );
+              });
+            });
+          });
+        });
+      }
+    </script>
+  </body>
+</html>

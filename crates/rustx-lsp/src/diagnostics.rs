@@ -1,0 +1,127 @@
+//! What the compiler refused, as an editor reads it.
+//!
+//! `CompileError` already points at the `.rsx` — §7.3 asks the compiler
+//! to keep the coordinates of the file the developer wrote, and that is
+//! exactly what an editor needs. The only translation is the counting:
+//! the compiler counts from one, LSP counts from zero.
+
+use crate::json;
+
+/// One underline.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Diagnostic {
+    /// Counted from zero, as LSP counts.
+    pub line: u32,
+    pub column: u32,
+    /// How far the underline runs. A word, or what is left of the line.
+    pub length: u32,
+    pub message: String,
+}
+
+/// What this page gets wrong, if anything.
+///
+/// A panic in the compiler publishes nothing at all: an editor whose
+/// server dies on a half-typed tag is worse than an editor that
+/// underlines nothing for a moment, and a half-typed tag is what every
+/// `.rsx` is most of the time.
+pub fn of(source: &str) -> Vec<Diagnostic> {
+    let compiled = std::panic::catch_unwind(|| rustx_compiler::transpile::transpile(source));
+    match compiled {
+        Ok(Ok(_)) => Vec::new(),
+        Ok(Err(error)) => {
+            let line = error.line.saturating_sub(1);
+            let from = error.column.saturating_sub(1);
+            let characters = word_at(source, error.line, error.column) as usize;
+            // The compiler counts characters and an editor counts UTF-16
+            // code units. They agree until a line holds an emoji or any
+            // other character outside the basic plane, and then every
+            // column after it is one short — so the underline was drawn
+            // one letter to the left of the word it was about, on
+            // exactly the lines nobody tests.
+            // Without its carriage return, so that a file with Windows
+            // endings counts the same columns as one without.
+            let line_text = crate::documents::line_at(source, line).trim_end_matches('\r');
+            let column = crate::documents::chars_to_utf16(line_text, from);
+            let end = crate::documents::chars_to_utf16(line_text, from + characters);
+            vec![Diagnostic {
+                line: line as u32,
+                column: column as u32,
+                length: end.saturating_sub(column) as u32,
+                message: error.message,
+            }]
+        }
+        Err(_) => Vec::new(),
+    }
+}
+
+/// How far to underline from where the compiler pointed.
+///
+/// To the end of the word, which is the tag or the attribute that was
+/// refused; and over the whole of `<dvi>` when the point is on the `<`
+/// that opens it, which is where the compiler points for a tag it does
+/// not know. That case used to fall through to "the rest of the line",
+/// so `<dvi>bonjour</dvi>;` was underlined whole for a mistake that is
+/// three letters long — an underline that says "something on this line"
+/// when the compiler knew exactly which word.
+///
+/// To the end of the line only when there is no word at all after the
+/// point, so that something is underlined rather than nothing.
+fn word_at(source: &str, line: usize, column: usize) -> u32 {
+    let Some(text) = source.lines().nth(line.saturating_sub(1)) else {
+        return 1;
+    };
+    let from = column.saturating_sub(1);
+    let rest: Vec<char> = text.chars().skip(from).collect();
+    let is_word = |letter: &char| letter.is_alphanumeric() || *letter == '_' || *letter == '-';
+
+    // The punctuation a tag or an attribute begins with, which the
+    // compiler points at and which is part of what was refused.
+    let mut at = 0;
+    if rest.first() == Some(&'<') {
+        at = 1;
+        if rest.get(1) == Some(&'/') {
+            at = 2;
+        }
+    }
+    let word = rest[at.min(rest.len())..]
+        .iter()
+        .take_while(|letter| is_word(letter))
+        .count();
+    if word == 0 {
+        // Nothing nameable after the point.
+        return rest.len().max(1) as u32;
+    }
+    let mut length = at + word;
+    // And the `>` that closes it, so the underline is the tag and not
+    // the tag with its last character missing.
+    if at > 0 && rest.get(length) == Some(&'>') {
+        length += 1;
+    }
+    length as u32
+}
+
+/// The notification an editor is waiting for.
+pub fn notification(uri: &str, found: &[Diagnostic]) -> String {
+    let items: Vec<String> = found
+        .iter()
+        .map(|item| {
+            format!(
+                "{{\"range\":{{\"start\":{{\"line\":{},\"character\":{}}},\
+                 \"end\":{{\"line\":{},\"character\":{}}}}},\
+                 \"severity\":1,\"source\":\"rustx\",\"message\":\"{}\"}}",
+                item.line,
+                item.column,
+                item.line,
+                item.column + item.length,
+                json::escape(&item.message)
+            )
+        })
+        .collect();
+
+    format!(
+        "{{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/publishDiagnostics\",\
+         \"params\":{{\"uri\":\"{}\",\"diagnostics\":[{}]}}}}",
+        json::escape(uri),
+        items.join(",")
+    )
+}

@@ -1,0 +1,91 @@
+---
+title: "The logo and identity"
+description: "The window and taskbar icon, the version, what the file explorer shows."
+---
+
+A shipped application has a logo in its title bar, a logo in the
+taskbar, and a name that can be read in the file's properties. None of that is the
+page's concern.
+
+## The window icon
+
+```rust
+Config::new("My app").icon("assets/icon.ico")
+```
+
+The path is relative to the application's folder. The file must be a real
+`.ico`: the framework **reads the header** and refuses in one sentence if
+it is a `.png` renamed — without this, the icon would not appear and nothing
+would say why.
+
+```text
+rustx: assets/icon.ico is not an icon file. A window's icon is an `.ico`;
+a `.png` renamed to `.ico` is not one.
+```
+
+Both sizes are set: the title bar reads the small one (16×16) and
+the taskbar the large one (32×32). An `.ico` that contains both
+gives a sharp logo in both places.
+
+<Callout title="Making an .ico">
+`magick icon.png -define icon:auto-resize=16,32,48,256 icon.ico` with
+ImageMagick, or any online converter. What matters is that it contains several sizes.
+</Callout>
+
+## The icon of the `.exe` file
+
+This is something else: what Windows shows in the explorer comes from a
+**resource linked into the binary**, not from a call at runtime. That is the
+job of the command line:
+
+```sh
+rustx build --release
+```
+
+`rustx build` gives the `.exe` its name, its icon, and its version in the file
+properties. `cargo build` always works — the binary runs — it only
+looks anonymous in the explorer.
+
+## The version and the rest
+
+```rust
+Config::new("My app")
+    .version(env!("CARGO_PKG_VERSION"))
+    .description("What this does, in one line.")
+    .publisher("My company")
+```
+
+`env!("CARGO_PKG_VERSION")` avoids writing the version twice: it lives in the
+`Cargo.toml`, and that is all.
+
+The page reads them back when it needs them:
+
+```rust
+fn About() -> Element {
+    let about = rustx::window::about();
+
+    return <dl>
+        <dt>name</dt><dd>{about.name}</dd>
+        <dt>version</dt><dd>{about.version}</dd>
+        <dt>publisher</dt><dd>{about.publisher}</dd>
+        <dt>what</dt><dd>{about.description}</dd>
+    </dl>;
+}
+```
+
+## The system tray icon
+
+The one that sits next to the clock is another icon, set by a token
+that you keep:
+
+```rust
+let tray = rustx::tray::Icon::new(Path::new("assets/icon.ico"), "My app")?;
+```
+
+See [notifications and the system tray](/docs/the-system/notifications-and-the-tray).
+
+## What a missing icon gives
+
+A warning on the error output, once, and the window keeps the system's
+icon. An application without a logo is a cosmetic loss, and not a reason to
+refuse to start.

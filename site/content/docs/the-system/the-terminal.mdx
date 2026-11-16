@@ -1,0 +1,217 @@
+---
+title: "The terminal"
+description: "Run a script in the system's own shell with no console window, read what it printed, or open a terminal for the user."
+---
+
+Three things an application wants from a terminal: to know which shell
+it is talking to, to run something and read what came back, and to open
+a real terminal window where the user can carry on by hand. A build
+button, a deploy button, an "open a shell here" in a file browser —
+all three are these three calls.
+
+```rust
+use rustx::terminal;
+
+let shell = terminal::shell()?;                       // what this machine has
+let built = terminal::run("cargo build --release", Some(&project))?;
+terminal::open(&project)?;                            // and leave it to them
+```
+
+`terminal` is on the facade, so a page writes `terminal::run(…)` with
+nothing to declare.
+
+## Nothing is shown
+
+`run` starts no window, no console, nothing on the screen. This is the
+answer to "can it run something in the background without showing a
+UI": yes, and it is the default.
+
+That has to be asked for on Windows. A rustx application is a GUI
+process with no console of its own, so Windows gives every console
+program it starts a brand-new one — the user sees a black rectangle
+appear in front of their window, take the focus and vanish.
+`CREATE_NO_WINDOW` is what stops it, and `run` passes it.
+
+[`open`](#open) is the call that deliberately does the opposite.
+
+## It blocks, so it belongs in a `task`
+
+`run` waits for the script on the thread that called it. A page's
+handler runs on the thread that draws, so a script that takes two
+seconds freezes the window for two seconds. That is what `task` is for:
+
+```rust
+let mut state = String::from("idle");
+let mut ticket = 0;
+
+fn Build() -> Element {
+    async move {
+        let mut handled = 0;
+        loop {
+            rustx::time::sleep(std::time::Duration::from_millis(100)).await;
+            if ticket == handled {
+                continue;
+            }
+            handled = ticket;
+            state = String::from("building…");
+
+            // `run` blocks, so it goes on a blocking thread rather than
+            // on a runtime worker: a blocked worker is a worker the rest
+            // of the application is waiting behind.
+            let built = rustx::tokio::task::spawn_blocking(|| {
+                rustx::terminal::run("cargo build --release", None)
+            })
+            .await;
+
+            state = match built {
+                Ok(Ok(output)) if output.worked() => String::from("built"),
+                Ok(Ok(output)) => format!("failed: {}", output.err),
+                Ok(Err(why)) => format!("no shell: {why}"),
+                Err(why) => format!("the thread died: {why}"),
+            };
+        }
+    };
+
+    return <div>
+        <button onClick={move |_| ticket += 1}>Build</button>
+        <p>{state.clone()}</p>
+    </div>;
+}
+```
+
+A plain `task(move |alive| …)` thread works too, and reads shorter when
+there is nothing to `.await` around the script:
+
+```rust
+task(move |alive| {
+    let built = rustx::terminal::run("cargo build --release", None);
+    let said = match built {
+        Ok(output) if output.worked() => String::from("built"),
+        Ok(output) => format!("failed: {}", output.err),
+        Err(why) => why.to_string(),
+    };
+    let _ = alive.post(move || state = said);
+});
+```
+
+<Callout type="warn" title="A script that asks never returns">
+There is nobody at the other end to answer a prompt. `sudo`, a
+`git push` that wants a password, an installer that asks to confirm:
+each is a script that waits forever. A script that needs a person needs
+[`open`](#open).
+</Callout>
+
+## What came back
+
+```rust
+pub struct Output {
+    /// What the program returned. `0` is success everywhere.
+    pub code: i32,
+    /// Standard output, trailing newline and all.
+    pub out: String,
+    /// Standard error.
+    pub err: String,
+}
+```
+
+`output.worked()` is `code == 0`, and **that** is the test for whether
+the script worked. A program can fail with an empty `err` and succeed
+with a full one — `cargo` writes its whole progress to standard error —
+so `err.is_empty()` is not the question.
+
+`out` is handed back untrimmed, because a program that prints a path is
+a program whose last line matters and whose trailing newline is yours to
+drop.
+
+A command the shell cannot find is **not** an `Err`: the shell ran, and
+it reported a non-zero code. `Err` is for "there is no shell on this
+machine", "that directory does not exist", "the script was empty".
+
+```rust
+let found = terminal::run("rustx-no-such-command", None)?;
+assert!(!found.worked());        // the shell ran and said no
+```
+
+## Where it runs
+
+The second argument is the working directory, or `None` for wherever the
+process already is.
+
+```rust
+terminal::run("git rev-parse --short HEAD", Some(&project))?;
+```
+
+A path that does not exist, or that is a file rather than a directory,
+is refused before anything is started, by name.
+
+## It is the shell's own language
+
+The script is handed to the shell as **one** argument, so a pipeline, an
+`&&`, a redirect or a loop all work — and the language is the shell's,
+not a portable one.
+
+```rust
+let shell = terminal::shell()?;
+let script = if shell.name.starts_with("pwsh") || shell.name == "powershell" {
+    "Write-Output (Get-Location).Path"
+} else {
+    "pwd"
+};
+```
+
+## `shell`
+
+```rust
+pub struct Shell {
+    /// What to call it in a sentence: `"pwsh"`, `"zsh"`, `"bash"`.
+    pub name: String,
+    /// The program itself, found on this machine.
+    pub program: std::path::PathBuf,
+    /// What comes before a script: `-Command`, or `-c`.
+    pub run_flag: String,
+}
+```
+
+The shell is the platform's own, because that is the one the user's
+profile, `PATH` and aliases belong to:
+<Brand name="powershell" /> on Windows, <Brand name="zsh" /> on macOS,
+<Brand name="bash" /> on Linux. None of them is installed by this crate
+and none is assumed to exist without being looked for — `shell()`
+reports what was actually found, and every call that needs one refuses
+by name when there is none.
+
+On Windows it looks for `pwsh` first and `powershell` after it:
+PowerShell 7 is the one being installed on new machines and the one
+whose behaviour matches the other two platforms' shells most closely,
+but Windows PowerShell 5.1 is on every Windows there is. A program on
+`PATH` there is `pwsh.exe` and not `pwsh`, and the list of extensions
+that count comes from `PATHEXT` — so a shell installed as a `.cmd` shim,
+which is how several package managers install one, is found too.
+
+## `open`
+
+```rust
+terminal::open(&project)?;
+```
+
+Opens a terminal window in that directory and **returns at once**. It is
+a window somebody else is now typing in, not a command this program is
+waiting on. This is the call for anything that needs a person: a
+long-running server, a script that prompts, or just "give me a shell
+here".
+
+## What this is not
+
+A pseudo-terminal. There is no way to feed a running program's standard
+input, read its output as it arrives, resize it, or draw it inside the
+page — an embedded terminal emulator is a different piece of work and
+is not written. `run` is a script, a wait, and three fields.
+
+## Platforms
+
+Written for all three; executed only on Windows. The script runner has
+tests that genuinely run — a script whose output is read back, a
+failing command whose code is read, and a script that is checked to have
+run in the directory it was given — and on this machine those tests run
+against PowerShell. The Linux and macOS files have never run. See
+[platforms](/docs/the-system/platforms).

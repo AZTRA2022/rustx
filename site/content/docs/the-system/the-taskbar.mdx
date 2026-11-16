@@ -1,0 +1,130 @@
+---
+title: "The taskbar and the About panel"
+description: "Ask for attention, show progress on the icon, a badge — and the system's own About box."
+---
+
+What the taskbar or the Dock shows of an application that is **not** in
+front: that it wants attention, how far along its long job is, how many
+things are waiting. And, separately, the panel the system draws when
+somebody asks what this program is.
+
+```rust
+use rustx::os::{about, attention};
+
+attention::flash(pane)?;                       // come and look
+attention::progress(pane, Some(0.4))?;         // 40% on the taskbar icon
+attention::badge(Some(3))?;                    // 3 waiting
+```
+
+Both are reached through `rustx::os` — see
+[the system](/docs/the-system).
+
+## It needs a `Pane`
+
+`flash` and `progress` act on a window, so they take a `Pane` —
+`rustx::os::window`'s handle type. `rustx::window`, the module a page
+uses to command its **own** window, does not expose the page's `Pane`,
+and there is no call that hands one over.
+
+<Callout type="warn" title="A page cannot reach its own window here">
+So in practice these two are for an application that is already holding
+`rustx::os::window` itself and knows its `Pane`. A page that only has
+`rustx::window` has no way to flash or to show progress on its own icon
+today. That is a gap in the facade, not in the capability, and it is in
+[what's left](/docs/whats-left).
+
+`badge` takes no window, so that one is callable from anywhere.
+</Callout>
+
+## Three signals, drawn differently everywhere
+
+None of the three is drawn the same way by all three systems, and each
+absence is a refusal that says so rather than a silent nothing.
+
+| | |
+|---|---|
+| `flash(pane)` | flashes the taskbar button (Windows), marks the window as demanding attention (Linux), bounces the Dock (macOS) — until the user comes to it |
+| `progress(pane, Some(0.0..=1.0))` | a progress bar on the taskbar button. `None` removes it. A value outside the range is clamped into it |
+| `badge(Some(n))` | the count on the application's icon. `None` removes it |
+
+`progress` is Windows' taskbar button and nowhere else without drawing
+one yourself. `badge` is a Dock habit, which Windows only knows as a
+small overlay icon an application draws for itself.
+
+A `Pane` that is not a window any more is refused, not ignored:
+`flash(Pane(0))` fails.
+
+```rust
+// A long export, shown where the user can see it from another window.
+task(move |alive| {
+    for (done, each) in files.iter().enumerate() {
+        if !alive.get() {
+            break;
+        }
+        convert(each);
+        let _ = rustx::os::attention::progress(
+            pane,
+            Some(done as f64 / files.len() as f64),
+        );
+    }
+    let _ = rustx::os::attention::progress(pane, None);
+    let _ = rustx::os::attention::flash(pane);
+});
+```
+
+Clearing the progress when the work ends is the application's job: the
+bar stays where it was put.
+
+## The About panel
+
+```rust
+use rustx::os::about;
+
+let credits = about::Credits::new("My app", env!("CARGO_PKG_VERSION"))
+    .copyright("© 2026 Me")
+    .icon("assets/icon.ico");
+
+if about::supported() {
+    about::show(pane, &credits)?;
+}
+```
+
+| | |
+|---|---|
+| `Credits::new(name, version)` | the bold line, and the version under it |
+| `.copyright(line)` | a second line, if you have one |
+| `.icon(path)` | an `.ico` on Windows, any image the system reads on macOS |
+| `about::supported()` | whether this platform has such a panel at all |
+| `about::show(pane, &credits)` | open it, owned by that window |
+
+A `Credits` with no name is refused before the panel opens: an About box
+with no application name is an empty box.
+
+This is a macOS convention above all — the first line of the
+application's menu, and the standard panel it opens, which a Mac user
+expects to find there and to look like every other application's. A
+window the page draws itself will never quite look like it.
+
+Windows has had the same thing — `ShellAboutW`, the "About Windows" box
+— and it is still there. It is dated: it shows the Windows version and
+the free memory underneath whatever you give it. It is nevertheless the
+system's panel, which is what this file promises.
+
+Linux has none. `GtkAboutDialog` is GTK's and does not exist for the
+others, and no desktop protocol defines one, so `about::supported()` is
+`false` there and `show` refuses by saying so. A Linux application draws
+its own About box and knows it.
+
+## Platforms
+
+| | |
+|---|---|
+| **Windows** | written and run. `FlashWindowEx` and `ITaskbarList3` for attention, `ShellAboutW` for the panel |
+| **Linux** | `attention` written, never run. `about` refuses |
+| **macOS** | both written, never compiled for a Mac |
+
+The tests cover the arithmetic — a fraction clamped into range, turned
+into the ten-thousandths Windows wants — and the refusals: a window that
+does not exist is not flashed, a panel with no name does not open.
+**Nothing in the suite flashes a real window or opens a real panel.**
+See [platforms](/docs/the-system/platforms).
