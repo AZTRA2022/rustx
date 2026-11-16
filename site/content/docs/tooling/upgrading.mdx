@@ -5,14 +5,14 @@ description: "What a version number promises before 1.0, how to move a project t
 
 ## What a version says
 
-The workspace is at `0.3.0`, in `[workspace.package]` of the repository's
+The workspace is at `0.4.1`, in `[workspace.package]` of the repository's
 `Cargo.toml`, in one place for all eight packages. A `0.x` version says that
 the API may still move. `1.0.0` will say that it will not. What remains to be
 written (macOS, Linux, media, parts of async) will still touch signatures before
 then.
 
 Cargo treats a change of the **minor** number before 1.0 as a breaking change.
-A dependency written `0.2` accepts `0.2.x` and does not select `0.3.0`.
+A dependency written `0.3` accepts `0.3.x` and does not select `0.4.0`.
 
 ## Moving a project
 
