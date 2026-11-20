@@ -569,6 +569,12 @@ pub fn build(app: &Path) -> Result<Built, String> {
     let out = app.join(DIRECTORY);
     std::fs::create_dir_all(&out)
         .map_err(|error| format!("rustx could not write {}: {error}", out.display()))?;
+    // One build of this bundle at a time, across processes. The attribute
+    // expands once for the binary and once for its test target, at the same
+    // moment, and both ran esbuild onto the same `bundle.js`: one read it
+    // while the other had truncated it, and copied an empty file into the
+    // assets. The page then had no libraries, until the next build.
+    let _alone = BuildLock::take(&out);
     // The index of the application's own components, first: the entry
     // imports it, and esbuild reads what is on disk.
     if let Some(index) = index_for(app) {
@@ -673,6 +679,39 @@ fn with_the_libraries_css(
     crate::build::copy_if_changed(&next, &combined)
         .map_err(|error| format!("rustx could not write {}: {error}", combined.display()))?;
     Ok(Some(combined))
+}
+
+/// Held while one process builds the bundle: a directory, because creating
+/// one is the operation every file system refuses to do twice.
+struct BuildLock(PathBuf);
+
+impl BuildLock {
+    fn take(out: &Path) -> Self {
+        let held = out.join(".bundle-lock");
+        let since = std::time::Instant::now();
+        loop {
+            if std::fs::create_dir(&held).is_ok() {
+                return Self(held);
+            }
+            // A build killed half way leaves its lock behind: after two
+            // minutes it is nobody's.
+            let stale = std::fs::metadata(&held)
+                .and_then(|about| about.modified())
+                .map(|when| when.elapsed().unwrap_or_default() > std::time::Duration::from_secs(120))
+                .unwrap_or(false);
+            if stale || since.elapsed() > std::time::Duration::from_secs(180) {
+                let _ = std::fs::remove_dir(&held);
+                continue;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+}
+
+impl Drop for BuildLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir(&self.0);
+    }
 }
 
 /// What the bundle is called beside the application's document.
