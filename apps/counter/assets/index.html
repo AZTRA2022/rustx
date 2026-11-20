@@ -41,9 +41,7 @@
       // underneath it was working perfectly. The framework drives its
       // own frames from a timer when that happens; so does this.
       const rustx_soon = (then) => setTimeout(then, 16);
-      // A native answers with a promise on the webview engine.
-      (async () => {
-      if ((await rustx_scenario()) === "page") {
+      if (rustx_scenario() === "page") {
         // The effective font of the document, read before anything
         // else touches the page: `body { font-family: system-ui,
         // sans-serif }` is plain CSS this file wrote itself, nothing
@@ -87,7 +85,6 @@
         };
         rustx_soon(settle);
       }
-      })();
     </script>
   </body>
 </html>

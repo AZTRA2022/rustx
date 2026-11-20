@@ -94,25 +94,21 @@
     },
   };
 
-  // A native is a message away, so it answers with a promise.
-  const calls = new Map(); // call id -> [resolve, reject]
-  let nextCall = 1;
-  commands.rp = (id, ok, value) => {
-    const pending = calls.get(id);
-    if (!pending) return;
-    calls.delete(id);
-    pending[ok ? 0 : 1](ok ? value : new Error(value));
-  };
-
   window.__rustx = {
+    // A native is a synchronous request to the host, so the function the
+    // page gets answers with its value, or throws. Only the application's
+    // own pages get them: arguments are never sent to another origin.
     natives(names) {
+      if (location.origin !== window.__rustx_origin) return;
       for (const name of names) {
-        window[name] = (...args) =>
-          new Promise((resolve, reject) => {
-            const id = nextCall++;
-            calls.set(id, [resolve, reject]);
-            post({ t: "call", id, name, args });
-          });
+        window[name] = (...args) => {
+          const request = new XMLHttpRequest();
+          request.open("POST", window.__rustx_origin + "/__rustx/native/" + encodeURIComponent(name), false);
+          request.send(JSON.stringify(args));
+          const answer = JSON.parse(request.responseText);
+          if ("err" in answer) throw new Error(answer.err);
+          return answer.ok;
+        };
       }
     },
     apply(ops) {
@@ -125,6 +121,13 @@
       }
     },
   };
+
+  // What the page's own scripts throw would otherwise stay in a console
+  // nobody opened.
+  window.addEventListener("error", (event) => post({ t: "error", message: String(event.message) }));
+  window.addEventListener("unhandledrejection", (event) =>
+    post({ t: "error", message: "unhandled rejection: " + String(event.reason) })
+  );
 
   function ready() {
     const ids = Array.from(document.querySelectorAll("[id]"), (element) => element.id);

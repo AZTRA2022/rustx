@@ -128,9 +128,18 @@ pub(crate) fn scripts() -> Vec<String> {
 pub fn natives_script() -> String {
     let mut names: Vec<String> = NATIVES.with(|natives| natives.borrow().keys().cloned().collect());
     names.sort();
-    format!("window.__rustx.natives({});", serde_json::json!(names))
+    format!("window.__rustx && window.__rustx.natives({});", serde_json::json!(names))
 }
 
-pub(crate) fn lookup(name: &str) -> Option<Rc<NativeFn>> {
-    NATIVES.with(|natives| natives.borrow().get(name).cloned())
+/// Call the native `name`. A panic is an error the page can read, not a
+/// dead window.
+pub(crate) fn call(name: &str, args: &[Value]) -> Result<Value, String> {
+    let Some(native) = NATIVES.with(|natives| natives.borrow().get(name).cloned()) else {
+        return Err(format!("`{name}` is not a function the application registered"));
+    };
+    let mut outcome = Err(format!("`{name}` panicked"));
+    crate::panics::contain(&format!("the native `{name}`"), || {
+        outcome = native(args).map_err(|error| error.message);
+    });
+    outcome
 }

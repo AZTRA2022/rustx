@@ -100,20 +100,6 @@ pub(crate) fn take_ops() -> Option<String> {
     (!ops.is_empty()).then(|| Json::Array(ops).to_string())
 }
 
-/// The answer to a native the page called, by the id the page gave it.
-/// It travels with the frame's other commands, so it reaches the page
-/// after anything the native wrote.
-pub(crate) fn reply(id: u64, outcome: Result<crate::value::Value, String>) {
-    let op = match outcome {
-        Ok(value) => match crate::protocol::value_to_json(&value, 0) {
-            Ok(json) => json!(["rp", id, true, json]),
-            Err(error) => json!(["rp", id, false, error.to_string()]),
-        },
-        Err(message) => json!(["rp", id, false, message]),
-    };
-    push(op);
-}
-
 fn push(op: Json) {
     OPS.with(|ops| ops.borrow_mut().push(op));
 }

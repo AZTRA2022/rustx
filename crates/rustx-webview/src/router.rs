@@ -306,6 +306,13 @@ pub fn start_with(
     path: &str,
     screens: Screens,
 ) -> Result<(), DomError> {
+    // Asked again on every frame until it works. `install` takes what the
+    // page asked for while there was no router, so it must not run
+    // before there is a page to mount into: the next frame would find
+    // that request already used up.
+    if crate::dom::Document::current().is_none() {
+        return Err(DomError::NoContext);
+    }
     install(table, path, screens);
     crate::render::mount_app(screen, host)
 }

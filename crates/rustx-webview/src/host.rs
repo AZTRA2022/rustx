@@ -201,9 +201,22 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
     let mut context = WebContext::new(config.data_dir.clone());
     let mut builder = WebViewBuilder::new_with_web_context(&mut context)
         .with_devtools(config.devtools)
-        .with_initialization_script(INTERPRETER)
-        .with_custom_protocol(config.scheme.clone(), move |_id, request| {
+        .with_initialization_script(format!(
+            "window.__rustx_origin = {};{INTERPRETER}",
+            serde_json::json!(origin(&config.scheme))
+        ))
+        .with_custom_protocol(config.scheme.clone(), {
+            // Its own copy: wry wants this closure to be `Send + Sync`,
+            // though it only ever runs on the thread of the window.
+            let policy = std::sync::Arc::new(Policy::new(
+                &origin(&config.scheme),
+                &config.allow.iter().map(String::as_str).collect::<Vec<_>>(),
+            ));
+            move |_id, request| {
             let path = request.uri().path();
+            if let Some(name) = path.strip_prefix(NATIVE_PATH) {
+                return native(&policy, name, &request);
+            }
             let served = match &document {
                 Some(page) if path == "/" || path == entry => crate::assets::Served {
                     status: 200,
@@ -218,6 +231,7 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
                 .header("X-Content-Type-Options", "nosniff")
                 .body(Cow::Owned(served.body))
                 .unwrap_or_else(|_| Response::new(Cow::Borrowed(&b""[..])))
+            }
         })
         .with_ipc_handler({
             let (policy, hooks, control) = (Rc::clone(&policy), Rc::clone(&hooks), control.clone());
@@ -319,6 +333,43 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
     })
 }
 
+/// Where a page calls a native: a synchronous request, so the function it
+/// gets back answers with a value, as it always has.
+const NATIVE_PATH: &str = "/__rustx/native/";
+
+/// Run a native for the page and answer `{ok}` or `{err}`. Only a page of
+/// the application may: the request says where it comes from.
+fn native(policy: &Policy, name: &str, request: &wry::http::Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
+    let from = request
+        .headers()
+        .get("origin")
+        .and_then(|origin| origin.to_str().ok())
+        .unwrap_or_default();
+    let outcome = if !policy.ipc_allowed(from) {
+        Err("only the application's own pages may call a native".to_string())
+    } else {
+        let name = name.to_string();
+        std::str::from_utf8(request.body())
+            .map_err(|error| error.to_string())
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(text).map_err(|error| error.to_string()))
+            .and_then(|json| crate::protocol::json_to_value(&json, 0).map_err(|error| error.to_string()))
+            .and_then(|args| match args {
+                crate::value::Value::List(args) => crate::renderer::call(&name, &args),
+                _ => Err("the arguments are not a list".to_string()),
+            })
+    };
+    // What the native wrote to the DOM goes out with the next frame.
+    wake();
+    let body = match outcome.and_then(|value| crate::protocol::value_to_json(&value, 0).map_err(|e| e.to_string())) {
+        Ok(value) => serde_json::json!({ "ok": value }),
+        Err(message) => serde_json::json!({ "err": message }),
+    };
+    Response::builder()
+        .header(CONTENT_TYPE, "application/json")
+        .body(Cow::Owned(body.to_string().into_bytes()))
+        .unwrap_or_else(|_| Response::new(Cow::Borrowed(&b""[..])))
+}
+
 /// What the interpreter on the page is made of.
 const INTERPRETER: &str = include_str!("../assets/interpreter.js");
 
@@ -341,20 +392,9 @@ fn handle(body: &str, hooks: &Hooks, control: &Control) {
             wake();
         }
         Ok(FromPage::Error { message }) => eprintln!("rustx: the page could not run a command: {message}"),
-        Ok(FromPage::Call { id, name, args }) => {
-            let outcome = match crate::renderer::lookup(&name) {
-                None => Err(format!("`{name}` is not a function the application registered")),
-                Some(native) => {
-                    // A panic is an error the page can read, not a dead window.
-                    let mut outcome = Err(format!("`{name}` panicked"));
-                    crate::panics::contain(&format!("the native `{name}`"), || {
-                        outcome = native(&args).map_err(|error| error.message);
-                    });
-                    outcome
-                }
-            };
-            crate::dom::reply(id, outcome);
-            wake();
+        // Natives are called over the custom protocol, not this channel.
+        Ok(FromPage::Call { name, .. }) => {
+            eprintln!("rustx: `{name}` was called over IPC; natives are called with a request to {NATIVE_PATH}")
         }
         Ok(FromPage::Callback { .. }) => {
             eprintln!("rustx: a library called a prop; React boundaries are not on the webview engine yet")
