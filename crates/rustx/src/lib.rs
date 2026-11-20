@@ -35,10 +35,7 @@ pub use rustx_macros::{ToValue, main};
 // the developer to write: `#[rustx::main]`'s prelude imports them.
 #[doc(hidden)]
 pub use rustx_dom;
-#[cfg(not(feature = "webview"))]
-#[doc(hidden)]
-pub use rustx_engine;
-#[cfg(feature = "webview")]
+// Named `rustx_engine` still: the compiler's generated code writes that path.
 #[doc(hidden)]
 pub use rustx_webview as rustx_engine;
 
@@ -781,21 +778,6 @@ impl App {
             std::process::exit(exit_code);
         }
 
-        #[cfg(not(feature = "webview"))]
-        let engine_config = {
-            let index = match config.index {
-                Some(index) => resolved_asset(&index),
-                None => document_for(&assets_dir(), &config.title)?,
-            };
-            crate::rustx_engine::AppConfig {
-                title: config.title,
-                width: config.width,
-                height: config.height,
-                dressing: config.dressing,
-                index,
-            }
-        };
-        #[cfg(feature = "webview")]
         let engine_config = webview_config(
             config.title,
             config.width,
@@ -821,7 +803,6 @@ impl App {
 /// The folder is the origin's root, so a relative `src` in a page reaches
 /// its file with no `<base>`: a `file://` address would be refused by the
 /// webview, which gives the page an origin of its own.
-#[cfg(feature = "webview")]
 fn webview_config(
     title: String,
     width: u32,
@@ -861,7 +842,6 @@ fn webview_config(
 
 /// The document an application that wrote none is given, with no `<base>`:
 /// its assets are the root the page is served from.
-#[cfg(feature = "webview")]
 fn default_page(title: &str) -> String {
     let title = title.replace('&', "&amp;").replace('<', "&lt;");
     format!(

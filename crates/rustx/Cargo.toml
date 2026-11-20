@@ -14,11 +14,9 @@ categories = ["gui", "web-programming"]
 
 [dependencies]
 rustx-dom = { path = "../rustx-dom", version = "0.4.1" }
-rustx-engine = { path = "../rustx-engine", version = "0.4.1" }
-# The system-webview engine. With the feature on it replaces the CEF one: the
-# facade names whichever it is as `rustx_engine`, so an application and the
-# code the compiler writes need no change.
-rustx-webview = { path = "../rustx-webview", version = "0.4.1", optional = true }
+# The system webview. The facade names it `rustx_engine`, so an application and
+# the code the compiler writes need no change.
+rustx-webview = { path = "../rustx-webview", version = "0.4.1" }
 rustx-macros = { package = "rustx-macro", path = "../rustx-macros", version = "0.4.1" }
 # Ce que le web ne sait pas faire : le presse-papiers, les dialogues, les
 # appareils. Un répertoire par système, à l'intérieur.
@@ -33,9 +31,6 @@ rustx-os = { path = "../rustx-os", version = "0.4.1" }
 # trois lui repondait « could not find `fs` in `tokio` » a propos
 # d'une caisse qu'il n'a jamais nommee.
 tokio = { version = "1.47", features = ["full"] }
-
-[features]
-webview = ["dep:rustx-webview"]
 
 [dev-dependencies]
 # Pour lire les exemples du README et les compiler. Un exemple faux dans
