@@ -4,6 +4,8 @@ From the review of phase 1, to be handled where they are named.
 
 ## Phase 3
 
+Settled by the remote DOM (first slice, committed): point 1 (handler slots stay in Rust and the table of listeners holds weak slots, swept when it has doubled), point 2 (the handler is cloned out of its slot before it is called and a render is deferred to the next tick), point 4 (the page never sees a path: the engine's own `render.rs` and `tree.rs` do the numbering). Still open: point 3, and a test that 100 renders leave the listener table constant.
+
 1. `Patch::ReplaceHandlers` is emitted by `diff` on every render of every tag that has a handler, and `lower` gives it a fresh id each time without freeing the old one. The registry grows without bound and an old id keeps running a stale closure. `session.rs` must hold the path to id mirror: `Registry::replace(id, handlers)` keeps the id stable, `Replace` and `Remove` forget the ids of the removed subtree recursively. Test: 100 renders, constant registry size.
 2. `Registry::dispatch` and `call_back` call user code while holding `&self`. If a handler triggers a synchronous render and the registry sits in a `RefCell`, it panics with "already borrowed". Expose a lookup that returns the `Handler` or `Callback`, and call it once the borrow is released, or prove that rendering is always deferred to the next frame.
 3. The click-to-paint measure promised in `baseline.md` must also be taken on the CEF counter, with the page script written in this phase, before CEF is removed in phase 7. Complete `baseline.md` then.

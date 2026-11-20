@@ -10,9 +10,12 @@ use std::borrow::Cow;
 use std::convert::Infallible;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use tao::dpi::LogicalSize;
-use tao::event::{Event, WindowEvent};
+use tao::event::{Event, StartCause, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
 use tao::window::WindowBuilder;
 use wry::http::{Response, header::CONTENT_TYPE};
@@ -38,7 +41,13 @@ pub struct Config {
     /// [`default_data_dir`] for an installed application.
     pub data_dir: Option<PathBuf>,
     pub devtools: bool,
+    /// Scripts the page runs before its own, after the interpreter.
+    pub scripts: Vec<String>,
 }
+
+/// How long the loop waits for a frame of its own before running one: the
+/// floor under work that nothing announces, such as a write a task made.
+pub const FLOOR: Duration = Duration::from_millis(100);
 
 impl Config {
     pub fn new(title: &str, root: impl Into<PathBuf>) -> Self {
@@ -51,6 +60,7 @@ impl Config {
             allow: Vec::new(),
             data_dir: default_data_dir(title),
             devtools: cfg!(debug_assertions),
+            scripts: Vec::new(),
         }
     }
 }
@@ -96,6 +106,28 @@ impl std::error::Error for HostError {}
 
 enum Command {
     Exit,
+    Tick,
+}
+
+/// The loop's proxy, for whoever needs a frame from any thread.
+fn proxy() -> &'static Mutex<Option<EventLoopProxy<Command>>> {
+    static PROXY: OnceLock<Mutex<Option<EventLoopProxy<Command>>>> = OnceLock::new();
+    PROXY.get_or_init(|| Mutex::new(None))
+}
+
+/// A frame has been asked for and has not run yet.
+static PENDING: AtomicBool = AtomicBool::new(false);
+
+/// Ask the loop for a frame, from any thread. A burst of asks is one
+/// frame: only the first sends anything.
+pub fn wake() {
+    if PENDING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let held = proxy().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(proxy) = held.as_ref() {
+        let _ = proxy.send_event(Command::Tick);
+    }
 }
 
 /// A way to stop the loop from anywhere: it may be cloned and sent.
@@ -112,8 +144,12 @@ impl Control {
 pub struct Hooks {
     /// Called once, before the loop starts, with the way to stop it.
     pub on_start: Box<dyn Fn(&Control)>,
-    /// A message from the application's own page, after the origin check.
+    /// A message from the application's own page that is not one of the
+    /// engine's, after the origin check.
     pub on_message: Box<dyn Fn(&str, &Control)>,
+    /// A frame: drain what workers posted, then draw. By default
+    /// [`crate::frame::tick`].
+    pub on_tick: Box<dyn Fn()>,
     /// An address to give to the system browser. The default is
     /// [`rustx_os::shell::open_url`]; a test puts its own.
     pub open_external: Box<dyn Fn(&str)>,
@@ -124,6 +160,7 @@ impl Default for Hooks {
         Self {
             on_start: Box::new(|_| {}),
             on_message: Box::new(|_, _| {}),
+            on_tick: Box::new(crate::frame::tick),
             open_external: Box::new(|url| {
                 if let Err(error) = rustx_os::shell::open_url(url) {
                     eprintln!("rustx: could not open the link: {error}");
@@ -143,6 +180,9 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
     );
     let event_loop = EventLoopBuilder::<Command>::with_user_event().build();
     let control = Control(event_loop.create_proxy());
+    *proxy()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(event_loop.create_proxy());
     let window = WindowBuilder::new()
         .with_title(&config.title)
         .with_inner_size(LogicalSize::new(config.size.0, config.size.1))
@@ -154,8 +194,9 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
 
     let root = config.root.clone();
     let mut context = WebContext::new(config.data_dir.clone());
-    let builder = WebViewBuilder::new_with_web_context(&mut context)
+    let mut builder = WebViewBuilder::new_with_web_context(&mut context)
         .with_devtools(config.devtools)
+        .with_initialization_script(INTERPRETER)
         .with_custom_protocol(config.scheme.clone(), move |_id, request| {
             let served = serve(&root, request.uri().path());
             Response::builder()
@@ -170,7 +211,7 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
             move |request| {
                 let from = request.uri().to_string();
                 match policy.ipc_allowed(&from) {
-                    true => (hooks.on_message)(request.body(), &control),
+                    true => handle(request.body(), &hooks, &control),
                     false => eprintln!(
                         "rustx: ignored a message from {}: only the application's own \
                          pages may call the host",
@@ -181,7 +222,17 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
         })
         .with_navigation_handler({
             let (policy, hooks) = (Rc::clone(&policy), Rc::clone(&hooks));
-            move |url| decide(&policy, &hooks, &url)
+            move |url| {
+                let stays = decide(&policy, &hooks, &url);
+                // A page of the application is about to replace this one:
+                // every handle made for the old one is stale, and what was
+                // mounted on it is released, so a component's `Drop` runs.
+                if stays && policy.ipc_allowed(&url) {
+                    crate::dom::page_gone();
+                    crate::render::unmount_all();
+                }
+                stays
+            }
         })
         .with_new_window_req_handler({
             let (policy, hooks) = (Rc::clone(&policy), Rc::clone(&hooks));
@@ -193,6 +244,9 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
             }
         })
         .with_url(format!("{}{}", origin(&config.scheme), config.entry));
+    for script in &config.scripts {
+        builder = builder.with_initialization_script(script.clone());
+    }
 
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     let webview = builder.build(&window).map_err(|error| {
@@ -222,17 +276,67 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
     (hooks.on_start)(&control);
 
     event_loop.run(move |event, _, flow| {
-        *flow = ControlFlow::Wait;
-        let _ = (&webview, &window, &context);
+        // A frame at least every FLOOR, and at once when one is asked for.
+        *flow = ControlFlow::WaitUntil(Instant::now() + FLOOR);
+        let _ = (&window, &context);
+        let frame = || {
+            (hooks.on_tick)();
+            // One message for the whole frame, commands in the order they
+            // were written.
+            if let Some(commands) = crate::dom::take_ops()
+                && let Err(error) = webview.evaluate_script(&format!("window.__rustx.apply({commands})"))
+            {
+                eprintln!("rustx: could not send a frame to the page: {error}");
+            }
+        };
         match event {
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
             }
             | Event::UserEvent(Command::Exit) => *flow = ControlFlow::Exit,
+            Event::UserEvent(Command::Tick) => {
+                // Cleared first: a write the frame itself makes asks for the next one.
+                PENDING.store(false, Ordering::Release);
+                frame();
+            }
+            Event::NewEvents(StartCause::ResumeTimeReached { .. }) => frame(),
             _ => {}
         }
     })
+}
+
+/// What the interpreter on the page is made of.
+const INTERPRETER: &str = include_str!("../assets/interpreter.js");
+
+/// One message from the application's own page: the engine's are acted on,
+/// anything else goes to the application's hook.
+fn handle(body: &str, hooks: &Hooks, control: &Control) {
+    use crate::protocol::{FromPage, decode};
+    match decode(body) {
+        Ok(FromPage::Ready { ids }) => {
+            crate::dom::page_ready(ids);
+            wake();
+        }
+        Ok(FromPage::Event {
+            node,
+            name,
+            seq,
+            event,
+        }) => {
+            crate::mount::dispatch(node, &name, &event, seq);
+            wake();
+        }
+        Ok(FromPage::Error { message }) => eprintln!("rustx: the page could not run a command: {message}"),
+        Ok(FromPage::Call { name, .. }) => {
+            eprintln!("rustx: `{name}` was called from the page; natives are not on the webview engine yet")
+        }
+        Ok(FromPage::Callback { .. }) => {
+            eprintln!("rustx: a library called a prop; React boundaries are not on the webview engine yet")
+        }
+        // Not one of ours: the application's own message.
+        Err(_) => (hooks.on_message)(body, control),
+    }
 }
 
 /// The policy's answer to an address, acted on. `true` means load it here.

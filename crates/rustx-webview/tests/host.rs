@@ -4,83 +4,15 @@
 //! of files the test wrote, and reads the `REPORT key=value` lines it
 //! prints. Needs a desktop session, like the CEF engine's own tests.
 
-use std::io::{BufRead, BufReader, Read, Write};
+mod common;
+
+use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-struct Run {
-    messages: Vec<String>,
-    opened: Vec<String>,
-    done: bool,
-    stderr: String,
-    success: bool,
-}
-
-fn folder(name: &str, index: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("rustx-host-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("a folder");
-    std::fs::write(dir.join("index.html"), index).expect("a page");
-    dir
-}
-
-fn probe(root: &Path, extra: &[&str], envs: &[(&str, &Path)]) -> Run {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_probe"));
-    command
-        .arg("--root")
-        .arg(root)
-        .args(["--seconds", "5"])
-        .args(extra)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    for (key, value) in envs {
-        command.env(key, value);
-    }
-    let mut child = command.spawn().expect("the probe starts");
-    let stdout = child.stdout.take().expect("piped");
-    let mut stderr = child.stderr.take().expect("piped");
-    let lines = std::thread::spawn(move || {
-        BufReader::new(stdout).lines().map_while(Result::ok).collect::<Vec<_>>()
-    });
-    let errors = std::thread::spawn(move || {
-        let mut text = String::new();
-        let _ = stderr.read_to_string(&mut text);
-        text
-    });
-
-    let started = Instant::now();
-    let status = loop {
-        if let Some(status) = child.try_wait().expect("waits") {
-            break Some(status);
-        }
-        if started.elapsed() > Duration::from_secs(45) {
-            let _ = child.kill();
-            let _ = child.wait();
-            break None;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    };
-
-    let mut run = Run {
-        messages: Vec::new(),
-        opened: Vec::new(),
-        done: false,
-        stderr: errors.join().unwrap_or_default(),
-        success: status.is_some_and(|status| status.success()),
-    };
-    for line in lines.join().unwrap_or_default() {
-        match line.strip_prefix("REPORT ").and_then(|rest| rest.split_once('=')) {
-            Some(("message", value)) => run.messages.push(value.to_string()),
-            Some(("opened", value)) => run.opened.push(value.to_string()),
-            Some(("done", _)) => run.done = true,
-            _ => {}
-        }
-    }
-    run
-}
+use common::{folder, probe};
 
 #[test]
 fn the_applications_page_loads_from_its_own_origin_and_can_call_the_host() {

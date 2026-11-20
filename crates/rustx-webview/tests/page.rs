@@ -1,0 +1,128 @@
+//! Components drawn in a real window, through the commands of a frame.
+//!
+//! Each test mounts one of the probe's scenarios under `#app` and drives
+//! it from the page, the way a user would, then reads what the page ended
+//! up showing. The engine's own scenarios on CEF (`hello`) are the model;
+//! these are the ones that carry over to the webview.
+
+mod common;
+
+use common::{folder, probe};
+
+/// The page side of a scenario: waits for an element, with a helper to
+/// pause, and posts what it sees.
+const HELPERS: &str = "
+  const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+  const wait = async (id) => {
+    for (let i = 0; i < 200; i++) {
+      const found = document.getElementById(id);
+      if (found) return found;
+      await sleep(25);
+    }
+    throw new Error('no #' + id);
+  };
+  const say = (text) => window.ipc.postMessage(text);
+";
+
+fn page(script: &str) -> String {
+    format!("<!doctype html><div id=\"app\"></div><script>{HELPERS}(async () => {{ {script} }})();</script>")
+}
+
+#[test]
+fn a_counter_draws_its_first_frame_and_each_click_after_it() {
+    let root = folder(
+        "counter",
+        &page(
+            "const button = await wait('inc');
+             say('first=' + button.textContent);
+             for (let i = 0; i < 3; i++) { button.click(); await sleep(250); }
+             say('count=' + document.getElementById('inc').textContent);
+             say('fixed=' + document.getElementById('fixed').textContent);",
+        ),
+    );
+    let run = probe(&root, &["--scenario", "counter", "--seconds", "6"], &[]);
+    assert_eq!(
+        run.messages,
+        vec!["first=0", "count=3", "fixed=fixed"],
+        "{}",
+        run.stderr
+    );
+    assert!(run.stderr.is_empty(), "stderr: {}", run.stderr);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_burst_of_typing_faster_than_the_round_trip_loses_no_keystroke() {
+    // The host takes 40 ms per input and the page types every 5 ms, so
+    // every value the host sends back is older than what is in the
+    // field, and must not overwrite it. Each keystroke is appended to
+    // what the field *holds*, as a keyboard does: an overwrite is carried
+    // into every letter typed after it, and the text comes out short.
+    let root = folder(
+        "echo",
+        &page(
+            "const field = await wait('field');
+             field.focus();
+             let typed = '';
+             for (const letter of 'the quick brown fox jumps over') {
+               typed += letter;
+               field.value = field.value + letter;
+               field.dispatchEvent(new Event('input', { bubbles: true }));
+               await sleep(5);
+             }
+             await sleep(2500);
+             say('typed=' + typed);
+             say('field=' + field.value);
+             say('echo=' + document.getElementById('echo').textContent);",
+        ),
+    );
+    let delay = std::path::Path::new("40");
+    let run = probe(
+        &root,
+        &["--scenario", "echo", "--seconds", "10"],
+        &[("PROBE_INPUT_DELAY_MS", delay)],
+    );
+    let expected = "the quick brown fox jumps over";
+    assert_eq!(
+        run.messages,
+        vec![
+            format!("typed={expected}"),
+            format!("field={expected}"),
+            format!("echo={expected}")
+        ],
+        "{}",
+        run.stderr
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_keyed_list_rotates_with_the_text_before_it_left_in_place() {
+    // Moves, in a list that has a text node among its siblings: the case
+    // the CEF engine's `place` and `first_attached` were written for.
+    let root = folder(
+        "keyed",
+        &page(
+            "const rotate = await wait('rotate');
+             const order = () => Array.from(document.querySelectorAll('#list li'), (li) => li.id).join(',');
+             const head = () => document.getElementById('list').firstChild.textContent;
+             say('start=' + order() + ' head=' + head());
+             rotate.click(); await sleep(300);
+             say('once=' + order() + ' head=' + head());
+             rotate.click(); await sleep(300);
+             say('twice=' + order() + ' head=' + head());",
+        ),
+    );
+    let run = probe(&root, &["--scenario", "keyed", "--seconds", "6"], &[]);
+    assert_eq!(
+        run.messages,
+        vec![
+            "start=row-1,row-2,row-3,row-4 head=Items:",
+            "once=row-2,row-3,row-4,row-1 head=Items:",
+            "twice=row-3,row-4,row-1,row-2 head=Items:",
+        ],
+        "{}",
+        run.stderr
+    );
+    let _ = std::fs::remove_dir_all(root);
+}

@@ -2298,6 +2298,7 @@ dependencies = [
  "rustx-os",
  "serde_json",
  "tao",
+ "tokio",
  "wry",
 ]
 
