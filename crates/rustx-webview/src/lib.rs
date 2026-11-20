@@ -4,4 +4,7 @@
 //! batch of patches; what comes back is an event or a call, addressed by
 //! id. [`protocol`] is that language and nothing else yet.
 
+pub mod assets;
+pub mod host;
+pub mod policy;
 pub mod protocol;

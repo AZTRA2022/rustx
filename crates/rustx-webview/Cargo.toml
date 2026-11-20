@@ -15,4 +15,11 @@ publish = false
 
 [dependencies]
 rustx-dom = { path = "../rustx-dom", version = "0.4.1" }
+# `open_url` hands an external link to the user's browser, and refuses any
+# scheme but http, https and mailto.
+rustx-os = { path = "../rustx-os", version = "0.4.1" }
 serde_json = "1"
+# The webview and window libraries Tauri is built on. Read in the pinned
+# version, not from memory: wry 0.57 and tao 0.37.
+wry = "0.57"
+tao = "0.37"
