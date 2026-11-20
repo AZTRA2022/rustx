@@ -1,0 +1,18 @@
+[package]
+name = "rustx-webview"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+authors.workspace = true
+description = "The system-webview host of a rustx window: the wire protocol between the Rust tree and the page."
+keywords = ["webview", "wry", "gui", "desktop", "rustx"]
+categories = ["gui"]
+publish = false
+
+[dependencies]
+rustx-dom = { path = "../rustx-dom", version = "0.4.1" }
+serde_json = "1"

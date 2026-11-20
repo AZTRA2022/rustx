@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["apps/catalogue", "apps/capture", "apps/hybrid", "apps/counter", "apps/monitor", "apps/zoo", "apps/agent-manager", "apps/data-intel", "apps/vault-storage", "apps/ops-monitor", "apps/multitask-hub", "apps/utility-hub", "apps/nemo-design", "apps/video-editor", "crates/rustx", "crates/rustx-compiler", "crates/rustx-dom", "crates/rustx-engine", "crates/rustx-cli",
- "crates/rustx-lsp", "crates/rustx-macros", "crates/rustx-os"]
+ "crates/rustx-lsp", "crates/rustx-macros", "crates/rustx-os", "crates/rustx-webview"]
 
 [workspace.package]
 version = "0.4.1"

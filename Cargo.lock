@@ -1095,6 +1095,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustx-webview"
+version = "0.4.1"
+dependencies = [
+ "rustx-dom",
+ "serde_json",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
