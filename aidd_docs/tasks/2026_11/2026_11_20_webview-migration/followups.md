@@ -22,3 +22,7 @@ Release probe, Windows: 0.91 MB executable, PE subsystem 2 (no console), window 
 ## Phase 2
 
 - `guard.rs` is not touched in this phase: CEF stays active until phase 7 and its render process is still unsandboxed, so relaxing the rule now would be a security regression. The navigation policy is written in `rustx-webview`, and `guard.rs` leaves with CEF. This differs from the phase 2 file tree, which lists `guard.rs` as modified.
+
+## Phases 3 to 5 closed
+
+Delivered as a remote DOM (ops with node ids, one batch per frame) instead of `applier.js` patches; natives are a synchronous XHR to the host's custom protocol, answered `{ok}` or `{err}`; the React boundary passes props as JSON with `{"__rustx_cb": id}` for functions, ids stable per place. Verified: counter 4/4, hybrid 9/9 on the webview engine. Known limits: a callback's return value does not cross; a slow native freezes the page; `text`, `attribute`, `tag_name`, `query_selector` and `count_matching` answer a typed `DomError` on this engine. Still open: click-to-paint on both engines (`baseline.md`).
