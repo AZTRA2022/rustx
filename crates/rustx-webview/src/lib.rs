@@ -12,6 +12,7 @@ pub mod dom;
 pub mod dropped;
 mod error;
 pub mod foreign;
+pub mod files;
 pub mod frame;
 pub mod host;
 pub mod mount;

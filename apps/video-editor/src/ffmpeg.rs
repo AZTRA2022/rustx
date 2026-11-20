@@ -39,6 +39,23 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::OnceLock;
 
+/// A program run for the window must not open a console of its own, which a
+/// windowed application on Windows would otherwise show for every call.
+fn quiet(mut command: std::process::Command) -> std::process::Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    command
+}
+
+fn quiet_async(mut command: rustx::tokio::process::Command) -> rustx::tokio::process::Command {
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000);
+    command
+}
+
 /// The two programs, where this machine has them.
 #[derive(Debug, Clone)]
 pub struct Tools {
@@ -77,7 +94,7 @@ pub const MISSING: &str = "\
 fn found(program: &str) -> Option<PathBuf> {
     // Not whether it worked: `-version` exits zero, but the only
     // question that matters is whether the process started at all.
-    if std::process::Command::new(program)
+    if quiet(std::process::Command::new(program))
         .arg("-version")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -261,7 +278,7 @@ fn ratio(value: &str) -> f64 {
 
 /// `ffprobe` on a file, and what it said.
 pub fn probe(ffprobe: &Path, path: &Path) -> Result<Media, String> {
-    let output = std::process::Command::new(ffprobe)
+    let output = quiet(std::process::Command::new(ffprobe))
         .args(probe_arguments(path))
         .stdin(Stdio::null())
         .output()
@@ -635,7 +652,7 @@ pub fn tail(stderr: &[u8]) -> String {
 
 /// Draw one frame of a clip into `out`.
 pub async fn extract(ffmpeg: &Path, clip: &Clip, at: f64, out: &Path) -> Result<(), String> {
-    let output = rustx::tokio::process::Command::new(ffmpeg)
+    let output = quiet_async(rustx::tokio::process::Command::new(ffmpeg))
         .args(frame_arguments(clip, at, out))
         .stdin(Stdio::null())
         .output()
@@ -667,7 +684,7 @@ pub async fn run(ffmpeg: &Path, plan: &Plan, mut report: impl FnMut(f64)) -> Res
             .map_err(|error| format!("{} could not be written ({error}).", file.display()))?;
     }
 
-    let mut child = rustx::tokio::process::Command::new(ffmpeg)
+    let mut child = quiet_async(rustx::tokio::process::Command::new(ffmpeg))
         .args(&plan.arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -772,7 +789,7 @@ mod tests {
             ("two.mp4", "testsrc2=size=320x240:rate=30:duration=4"),
         ] {
             let file = folder.join(name);
-            let drawn = std::process::Command::new(&tools.ffmpeg)
+            let drawn = quiet(std::process::Command::new(&tools.ffmpeg))
                 .args([
                     "-hide_banner",
                     "-v",

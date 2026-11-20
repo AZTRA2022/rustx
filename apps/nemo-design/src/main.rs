@@ -7,6 +7,8 @@
 //! and a stubbed "ask an agent for a palette" button stands in
 //! honestly for the "AI agents performing designing operations" the
 //! showcase copy describes.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 
 use rustx::{App, Config};
 

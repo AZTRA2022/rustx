@@ -11,6 +11,8 @@
 //! The only JavaScript this application has is `web/src/main.jsx`, and
 //! all it says is which libraries it uses. The bridge between the two is
 //! the framework's.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 
 use rustx::{App, Config, ToValue};
 

@@ -5,6 +5,8 @@
 //! are components with props, a markdown renderer takes its content as
 //! children, and tabs keep state of their own inside React while rustx
 //! keeps state of its own around them.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 
 use rustx::{App, Config};
 

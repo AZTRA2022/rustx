@@ -225,3 +225,38 @@ fn a_slow_asynchronous_native_leaves_the_page_and_the_window_free() {
     );
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn a_page_that_writes_file_urls_gets_the_files() {
+    // A 1x1 PNG and a text file on disk, outside the page's folder.
+    let place = std::env::temp_dir().join(format!("rustx-fileurl-{}", std::process::id()));
+    std::fs::create_dir_all(&place).expect("a folder");
+    let png: &[u8] = &[
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21,
+        196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 255, 255, 63, 0, 5, 254, 2, 254, 167, 53, 129, 132,
+        0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+    ];
+    std::fs::write(place.join("a b.png"), png).expect("a png");
+    std::fs::write(place.join("note.txt"), "hello from disk").expect("a note");
+    let url = |name: &str| format!("file:///{}/{}", place.display().to_string().replace(std::path::MAIN_SEPARATOR, "/").trim_start_matches('/'), name);
+    let (image, note) = (url("a%20b.png"), url("note.txt"));
+    let root = folder(
+        "fileurl",
+        &page(&format!(
+            "const img = document.createElement('img');
+             img.src = '{image}';
+             document.body.appendChild(img);
+             for (let i = 0; i < 80 && !img.naturalWidth; i++) await sleep(50);
+             say('image=' + img.naturalWidth);
+             say('fetched=' + await (await fetch('{note}')).text());
+             const late = new Image(); document.body.appendChild(late);
+             late.setAttribute('src', '{image}');
+             for (let i = 0; i < 80 && !late.naturalWidth; i++) await sleep(50);
+             say('later=' + late.naturalWidth);"
+        )),
+    );
+    let run = probe(&root, &["--scenario", "counter", "--seconds", "8"], &[]);
+    assert_eq!(run.messages, vec!["image=1", "fetched=hello from disk", "later=1"], "{}", run.stderr);
+    let _ = std::fs::remove_dir_all(root);
+    let _ = std::fs::remove_dir_all(place);
+}

@@ -20,6 +20,8 @@
 //! through the natives below. Everything those natives do is write a
 //! value the page already declared; the editing itself stays in Rust.
 
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 pub mod ffmpeg;
 
 use rustx::{App, Config, NativeError, Value, register_native};

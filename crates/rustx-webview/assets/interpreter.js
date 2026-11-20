@@ -78,6 +78,60 @@
     return Object.fromEntries(Object.entries(value).map(([name, each]) => [name, revive(each)]));
   }
 
+  // A page may write `file://`, which the application's own origin may not
+  // load. The address is sent to the host's file route instead, wherever it
+  // appears: an attribute set from Rust, one a library set, inline CSS, and
+  // what a script fetches.
+  const local = location.origin === window.__rustx_origin;
+  function localUrl(value) {
+    if (!local || typeof value !== "string" || !/^file:\/\//i.test(value)) return value;
+    const path = value.slice(7).replace(/^\/+/, "").split(/[?#]/)[0];
+    let plain = path;
+    try {
+      plain = decodeURI(path);
+    } catch (_) {}
+    return window.__rustx_origin + "/__rustx/file/" + encodeURI(plain);
+  }
+  const URL_ATTRIBUTES = new Set(["src", "href", "poster", "data"]);
+  function rewritten(name, value) {
+    if (typeof value !== "string") return value;
+    if (URL_ATTRIBUTES.has(name)) return localUrl(value);
+    if (name === "style" && /file:\/\//i.test(value)) return value.replace(/file:\/\/[^\s"')]+/gi, localUrl);
+    return value;
+  }
+  if (local) {
+    const fix = (element) => {
+      for (const name of [...URL_ATTRIBUTES, "style"]) {
+        const value = element.getAttribute && element.getAttribute(name);
+        if (value && rewritten(name, value) !== value) element.setAttribute(name, rewritten(name, value));
+      }
+    };
+    // The document itself is observed, so this holds from the first byte:
+    // a script that runs while the page is still loading is covered.
+    new MutationObserver((records) => {
+        for (const record of records) {
+          if (record.type === "attributes") fix(record.target);
+          for (const added of record.addedNodes) {
+            if (added.nodeType !== 1) continue;
+            fix(added);
+            added.querySelectorAll("[src],[href],[poster],[data],[style]").forEach(fix);
+          }
+        }
+    }).observe(document, {
+      attributes: true,
+      attributeFilter: [...URL_ATTRIBUTES, "style"],
+      childList: true,
+      subtree: true,
+    });
+    const fetched = window.fetch;
+    window.fetch = (input, init) =>
+      fetched.call(window, typeof input === "string" ? localUrl(input) : input instanceof URL ? localUrl(input.href) : input, init);
+    const opened = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+      return opened.call(this, method, localUrl(String(url)), ...rest);
+    };
+  }
+
   const isField = (node) => /^(INPUT|TEXTAREA|SELECT)$/.test(node.tagName || "");
 
   const commands = {
@@ -91,7 +145,7 @@
       for (const child of Array.from(node.childNodes)) forget(child);
       node.textContent = text;
     },
-    sa: (id, name, value) => nodes.get(id).setAttribute(name, value),
+    sa: (id, name, value) => nodes.get(id).setAttribute(name, rewritten(name, value)),
     ra: (id, name) => nodes.get(id).removeAttribute(name),
 
     // A live property. `ack` is the last input the host has handled for
@@ -103,7 +157,7 @@
         if (ack < (node.__seq || 0)) return;
         if (node.value === value) return;
       }
-      node[name] = value;
+      node[name] = URL_ATTRIBUTES.has(name) ? localUrl(value) : value;
     },
 
     ap: (parent, child) => nodes.get(parent).appendChild(nodes.get(child)),

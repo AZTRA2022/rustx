@@ -17,6 +17,8 @@
 //! at the foot of this file, because the typeface the design calls
 //! for is a dot-matrix face and there is none on this machine. One
 //! round dot per lit cell, laid out by the page.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 
 use rustx::{App, Config};
 

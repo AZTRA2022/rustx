@@ -69,7 +69,7 @@ fn relative_path(request_path: &str) -> Option<PathBuf> {
     Some(out)
 }
 
-fn percent_decoded(text: &str) -> Option<String> {
+pub(crate) fn percent_decoded(text: &str) -> Option<String> {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut at = 0;
@@ -89,7 +89,7 @@ fn percent_decoded(text: &str) -> Option<String> {
     (!text.contains('\0')).then_some(text)
 }
 
-fn mime_of(path: &Path) -> &'static str {
+pub(crate) fn mime_of(path: &Path) -> &'static str {
     match path
         .extension()
         .and_then(|extension| extension.to_str())
@@ -109,6 +109,17 @@ fn mime_of(path: &Path) -> &'static str {
         Some("woff2") => "font/woff2",
         Some("woff") => "font/woff",
         Some("wasm") => "application/wasm",
+        Some("mp4" | "m4v") => "video/mp4",
+        Some("mov") => "video/quicktime",
+        Some("webm") => "video/webm",
+        Some("mkv") => "video/x-matroska",
+        Some("avi") => "video/x-msvideo",
+        Some("mp3") => "audio/mpeg",
+        Some("m4a") => "audio/mp4",
+        Some("wav") => "audio/wav",
+        Some("ogg" | "oga") => "audio/ogg",
+        Some("flac") => "audio/flac",
+        Some("pdf") => "application/pdf",
         Some("txt") => "text/plain; charset=utf-8",
         _ => "application/octet-stream",
     }

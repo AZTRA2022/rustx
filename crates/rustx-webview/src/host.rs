@@ -280,6 +280,25 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
             if let Some(name) = path.strip_prefix(NATIVE_PATH) {
                 return native(&policy, name, &request);
             }
+            if let Some(rest) = path.strip_prefix(crate::files::PATH) {
+                let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok());
+                let answer = crate::files::serve(
+                    rest,
+                    header("range"),
+                    header("sec-fetch-site") == Some("cross-site"),
+                );
+                let mut response = Response::builder()
+                    .status(answer.status)
+                    .header(CONTENT_TYPE, answer.mime)
+                    .header("Accept-Ranges", "bytes")
+                    .header("X-Content-Type-Options", "nosniff");
+                if let Some(range) = answer.content_range {
+                    response = response.header("Content-Range", range);
+                }
+                return response
+                    .body(Cow::Owned(answer.body))
+                    .unwrap_or_else(|_| Response::new(Cow::Borrowed(&b""[..])));
+            }
             let served = match &document {
                 Some(page) if path == "/" || path == entry => crate::assets::Served {
                     status: 200,
