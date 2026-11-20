@@ -260,3 +260,58 @@ fn a_page_that_writes_file_urls_gets_the_files() {
     let _ = std::fs::remove_dir_all(root);
     let _ = std::fs::remove_dir_all(place);
 }
+
+/// A clip made by ffmpeg in the given container, or `None` where ffmpeg is not installed.
+fn clip(place: &std::path::Path, name: &str, codecs: &[&str]) -> Option<String> {
+    let file = place.join(name);
+    let made = std::process::Command::new("ffmpeg")
+        .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=3"])
+        .args(["-f", "lavfi", "-i", "sine=frequency=440:duration=3"])
+        .args(codecs)
+        .arg(&file)
+        .status()
+        .ok()?;
+    made.success().then(|| {
+        format!("file:///{}", file.display().to_string().replace(std::path::MAIN_SEPARATOR, "/").trim_start_matches('/'))
+    })
+}
+
+#[test]
+fn a_video_from_a_file_url_decodes_plays_without_a_gesture_and_seeks() {
+    let place = std::env::temp_dir().join(format!("rustx-video-{}", std::process::id()));
+    std::fs::create_dir_all(&place).expect("a folder");
+    let formats = [
+        ("h264.mp4", vec!["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac"]),
+        ("vp9.webm", vec!["-c:v", "libvpx-vp9", "-c:a", "libopus"]),
+        ("h264.mkv", vec!["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac"]),
+        ("h264.mov", vec!["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac"]),
+    ];
+    let mut script = String::new();
+    let mut expected = Vec::new();
+    for (name, codecs) in &formats {
+        let Some(url) = clip(&place, name, codecs) else {
+            eprintln!("ffmpeg is not installed: video test skipped");
+            let _ = std::fs::remove_dir_all(&place);
+            return;
+        };
+        script.push_str(&format!(
+            "{{ const v = document.createElement('video'); v.src = '{url}'; document.body.appendChild(v);
+               let ok = true;
+               for (let i = 0; i < 100 && v.readyState < 2 && !v.error; i++) await sleep(50);
+               const decoded = v.readyState >= 2 && v.videoWidth === 320 && Math.abs(v.duration - 3) < 0.3;
+               let played = 'no';
+               try {{ await v.play(); await sleep(700); played = v.currentTime > 0.3 ? 'yes' : 'stuck'; }} catch (e) {{ played = e.name; }}
+               v.currentTime = 2; await sleep(500);
+               const seeked = v.currentTime >= 1.9;
+               say('{name}=' + decoded + '/' + played + '/' + seeked); }}\n"
+        ));
+        expected.push(format!("{name}=true/yes/true"));
+    }
+    let root = folder("video", &page(&script));
+    let run = probe(&root, &["--scenario", "counter", "--seconds", "30"], &[]);
+    // What this engine cannot decode is a finding, printed whole.
+    eprintln!("VIDEO RESULTS: {:?}", run.messages);
+    assert_eq!(run.messages, expected, "{}", run.stderr);
+    let _ = std::fs::remove_dir_all(root);
+    let _ = std::fs::remove_dir_all(place);
+}
