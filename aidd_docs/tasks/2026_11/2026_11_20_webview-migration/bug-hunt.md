@@ -25,3 +25,20 @@ Evidence column: **auto** = an automated test fails without the fix and passes w
 | 17 | Monitor | CSS grade on the `<video>` | `filter: brightness()…` | empty `style` | the page set the style on one of the two `<video>` branches | app fix | auto: `a_radix_slider_owned_by_rust_moves_the_grade` |
 | 18 | Callbacks | a Radix `Switch` per row of a list of clips, rows keyed by clip, then a clip moved | the switch of a row acts on that row's clip | it acted on the other clip | the diff compares a React boundary without its callbacks, so a render that only changed a closure (a captured index) sent no patch and the page kept calling the old closure | a boundary with callbacks is always handed over again; the host sends `fm` to the page only when the description differs | auto: `a_switch_acts_on_the_clip_its_row_names…`, `a_node_with_callbacks_is_handed_over_again…` |
 | 19 | Callbacks | a boundary with no callback of its own that holds children with callbacks (a `Card` of controls capturing a clip index) | closures replaced | stale when nothing on screen changed | the first fix of #18 looked at the top node only | `carries_callbacks` is recursive (children, nested boundaries, tags with handlers) | auto: `a_callback_anywhere_inside_a_boundary_hands_it_over_again` |
+
+## Parked probes (open, not run)
+
+| # | Surface | Probe | Why it matters |
+|---|---|---|---|
+| P1 | SVG | `<svg>`, `<path>`, `<rect>` written in `.rsx`: namespace and `getBBox()` | the interpreter uses `createElement` with no namespace; curves, waveforms, masks, keyframes depend on it |
+| P2 | Files | subtitles from `.txt`, `.md`, `.srt`: BOM, CRLF, UTF-16, empty, injection with `file:`, `javascript:`, raw HTML | encodings and the grant model |
+| P3 | Lifecycle | project save and load, flush on close | see Tier 1 below |
+| P4 | Fields | `<select>` whose options arrive later with an unchanged value; `max` and `value` changed in one render | the diff-path version of row 8 |
+| P5 | Fields | a shadcn `Input` controlled from Rust, typed in bursts | React puts a controlled input back before Rust answers |
+| P6 | Animation | `AnimatePresence` exit animation | `fu` runs before the node leaves |
+| P7 | Async | import A then B quickly; cancel on route change | races |
+| P8 | Web | `getUserMedia`, CORS `fetch` from the custom origin | devices |
+| P9 | Size | `rustx-bundle.js` is 7.2 MB with Phosphor imported as a namespace | size and start time |
+| P10 | DnD | HTML5 drag to reorder clips with wry's drop handler on | needs a real drag |
+| P11 | AE | about fifty After Effects-style features | app-only unless they hit SVG, canvas, contenteditable/IME or high-frequency playback |
+| W | Build | row 13: watch for a recurrence of an empty bundle | |
