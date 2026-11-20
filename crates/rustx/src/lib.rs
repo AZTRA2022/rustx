@@ -82,7 +82,7 @@ pub use rustx_os as os;
 
 pub use crate::rustx_engine::{
     Document, DomError, NativeError, Node, PostError, Poster, dropped, foreign, mount, mount_at_id,
-    on_context_created, on_frame, poster, register_async_native, register_native, render, router, task, window,
+    files, on_context_created, on_frame, poster, register_async_native, register_native, render, router, task, window,
 };
 
 /// Where this application keeps its own files, and what it writes

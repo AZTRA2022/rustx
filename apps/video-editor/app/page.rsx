@@ -1167,6 +1167,5 @@ fn beside(name: &str) -> std::path::PathBuf {
 // A path as the page can load it. `file:///C:/…`, with the separators
 // a URL wants rather than the ones Windows writes.
 fn as_url(path: &std::path::Path) -> String {
-    let slashed = path.display().to_string().replace('\\', "/");
-    format!("file:///{}", slashed.trim_start_matches('/'))
+    rustx::files::url(path)
 }
