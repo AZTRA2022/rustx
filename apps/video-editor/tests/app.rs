@@ -7,7 +7,7 @@ use common::scenario;
 
 /// A 3 second clip of the given container, or `None` where ffmpeg is absent.
 fn clip(name: &str) -> Option<std::path::PathBuf> {
-    let place = std::env::temp_dir().join(format!("rustx-editor-{}", std::process::id()));
+    let place = std::env::temp_dir().join(format!("rustx-editor-{}-{name}", std::process::id()));
     std::fs::create_dir_all(&place).ok()?;
     let file = place.join(name);
     std::process::Command::new("ffmpeg")
@@ -19,6 +19,25 @@ fn clip(name: &str) -> Option<std::path::PathBuf> {
         .ok()?
         .success()
         .then_some(file)
+}
+
+#[test]
+fn the_timeline_follows_the_pointer_and_zooms_with_the_wheel() {
+    let Some(file) = clip("scrub.mp4") else {
+        eprintln!("ffmpeg is not installed: skipped");
+        return;
+    };
+    let report = scenario(&format!("scrub:{}", file.display()));
+    let near = |key: &str, expected: f64| {
+        let got: f64 = report.get(key).parse().unwrap_or(-1.0);
+        assert!((got - expected).abs() < 0.35, "{key} was {got}, expected about {expected}:\n{}", report.raw());
+    };
+    near("at_middle", 1.5);
+    near("dragged", 2.4);
+    near("after_release", 2.4);
+    // Three turns of the wheel are one step of a quarter, zoomed once.
+    assert_eq!(report.get("zoom"), "1.25", "{}", report.raw());
+    let _ = std::fs::remove_dir_all(file.parent().expect("a folder"));
 }
 
 #[test]

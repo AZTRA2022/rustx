@@ -261,8 +261,13 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
 
     let root = config.root.clone();
     let (document, entry) = (config.document.clone(), config.entry.clone());
-    let mut context = WebContext::new(config.data_dir.clone());
-    let mut builder = WebViewBuilder::new_with_web_context(&mut context)
+    // The builder is made by a macro and not once: a start that fails because
+    // the last process of this application still holds the profile is tried
+    // again, and a builder is spent by `build`.
+    macro_rules! make_builder {
+        ($context:expr) => {{
+            let (root, document, entry) = (root.clone(), document.clone(), entry.clone());
+            let mut builder = WebViewBuilder::new_with_web_context($context)
         .with_devtools(config.devtools)
         .with_initialization_script(format!(
             "window.__rustx_origin = {};{INTERPRETER}",
@@ -380,30 +385,53 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
             .with_browser_accelerator_keys(config.devtools)
             .with_default_context_menus(config.devtools);
     }
+            builder
+        }};
+    }
 
     #[cfg(any(target_os = "windows", target_os = "macos"))]
-    let webview = builder.build(&window).map_err(|error| {
-        // On Windows the usual cause is the missing runtime, and the
-        // system's answer is an HRESULT that does not say so.
-        let hint = match cfg!(windows) {
-            true => {
-                " The Microsoft Edge WebView2 Runtime may be missing or damaged: install \
-                 it from developer.microsoft.com/microsoft-edge/webview2."
+    let (webview, context) = {
+        let mut attempt = 0;
+        loop {
+            let mut context = WebContext::new(config.data_dir.clone());
+            match make_builder!(&mut context).build(&window) {
+                Ok(webview) => break (webview, context),
+                // 0x800700AA: the previous run's browser process is still
+                // letting go of the profile folder. It is a matter of a
+                // moment, and a user who closes the application and opens it
+                // again is the one who meets it.
+                Err(error) if attempt < 40 && error.to_string().contains("800700AA") => {
+                    attempt += 1;
+                    std::thread::sleep(Duration::from_millis(250));
+                }
+                Err(error) => {
+                    // On Windows the usual cause is the missing runtime, and
+                    // the system's answer is an HRESULT that does not say so.
+                    let hint = match cfg!(windows) {
+                        true => {
+                            " The Microsoft Edge WebView2 Runtime may be missing or damaged: \
+                             install it from developer.microsoft.com/microsoft-edge/webview2."
+                        }
+                        false => "",
+                    };
+                    return Err(HostError(format!("could not start the webview: {error}.{hint}")));
+                }
             }
-            false => "",
-        };
-        HostError(format!("could not start the webview: {error}.{hint}"))
-    })?;
+        }
+    };
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    let webview = {
+    let (webview, context) = {
+        let mut context = WebContext::new(config.data_dir.clone());
+        let builder = make_builder!(&mut context);
         use tao::platform::unix::WindowExtUnix;
         use wry::WebViewBuilderExtUnix;
         let vbox = window
             .default_vbox()
             .ok_or_else(|| HostError("the window has no container for the webview".to_string()))?;
-        builder
+        let webview = builder
             .build_gtk(vbox)
-            .map_err(|error| HostError(format!("could not start the webview: {error}")))?
+            .map_err(|error| HostError(format!("could not start the webview: {error}")))?;
+        (webview, context)
     };
 
     // This thread draws now: a call that waits, made here, says so.

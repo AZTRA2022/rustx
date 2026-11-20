@@ -30,13 +30,51 @@
     await sleep(150);
   };
 
+  const importClip = async (path) => {
+    await type("#typed", path);
+    await press("#add-typed");
+    report("clip_name", (await wait("#clip-name"))?.textContent);
+    return wait("#monitor", 30000, (each) => each.readyState >= 2);
+  };
+  // A pointer event at a fraction of an element's width, as a hand would make one.
+  const pointer = (element, kind, fraction, extra = {}) => {
+    const box = element.getBoundingClientRect();
+    element.dispatchEvent(
+      new MouseEvent(kind, {
+        bubbles: true,
+        clientX: box.left + box.width * fraction,
+        clientY: box.top + box.height / 2,
+        ...extra,
+      })
+    );
+  };
+
   const scenarios = {
+    // Scrub the timeline with the pointer, and zoom it with the wheel.
+    async scrub(path) {
+      const video = await importClip(path);
+      const track = await wait("#track");
+      const at = () => (document.querySelector("#monitor")?.currentTime ?? -1).toFixed(1);
+      pointer(track, "mousedown", 0.5);
+      await sleep(700);
+      report("at_middle", at());
+      pointer(track, "mousemove", 0.75);
+      pointer(track, "mousemove", 0.8);
+      await sleep(700);
+      report("dragged", at());
+      pointer(track, "mouseup", 0.8);
+      pointer(track, "mousemove", 0.1);
+      await sleep(500);
+      report("after_release", at());
+      for (let i = 0; i < 3; i++) track.dispatchEvent(new WheelEvent("wheel", { bubbles: true, ctrlKey: true, deltaY: -100 }));
+      await sleep(600);
+      const wide = document.querySelector("#track").getBoundingClientRect().width;
+      report("zoom", (wide / document.querySelector("#track-scroll").clientWidth).toFixed(2));
+    },
+
     // Import a file by its path, and play it.
     async import(path) {
-      await type("#typed", path);
-      await press("#add-typed");
-      report("clip_name", (await wait("#clip-name"))?.textContent);
-      const video = await wait("#monitor", 30000, (each) => each.readyState >= 2);
+      const video = await importClip(path);
       report("decodes", !!video);
       report("duration", video ? video.duration.toFixed(1) : "none");
       await press("#play");

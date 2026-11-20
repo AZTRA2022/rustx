@@ -35,6 +35,11 @@
 // when Chromium cannot decode the file. That is a real fallback rather
 // than a second preview.
 
+// The timeline: how far it is zoomed (Ctrl + wheel), and whether the
+// pointer is held down on it, which is what makes a move a scrub.
+let mut zoom: f64 = 1.0;
+let mut scrubbing: bool = false;
+
 let mut clips: Vec<ffmpeg::Clip> = Vec::new();
 let mut selected: usize = 0;
 let mut typed: String = String::new();
@@ -556,10 +561,41 @@ fn Track() -> Element {
         .map(|(index, clip)| ClipBlock(index, clip.clone(), total))
         .collect();
 
-    return <div className="relative mt-2 flex h-20 gap-px bg-track">
-        {blocks}
-        {Playhead()}
+    // The pointer's place in the track and the track's width both come with
+    // the event, so a click maps to a time with no read of the layout.
+    return <div id="track-scroll" className="mt-2 overflow-x-auto">
+        <div id="track" className="relative flex h-20 gap-px bg-track" style={format!("width: {:.0}%", zoom * 100.0)}
+            onMouseDown={move |event| {
+                if event.button == 0 {
+                    scrubbing = true;
+                    scrub(event.local_x, event.width);
+                }
+            }}
+            onMouseMove={move |event| {
+                if scrubbing {
+                    scrub(event.local_x, event.width);
+                }
+            }}
+            onMouseUp={move |_| scrubbing = false}
+            onMouseLeave={move |_| scrubbing = false}
+            onWheel={move |event| {
+                if event.control {
+                    let step = if event.delta_y < 0.0 { 1.25 } else { 0.8 };
+                    zoom = (zoom * step).clamp(1.0, 8.0);
+                }
+            }}>
+            {blocks}
+            {Playhead()}
+        </div>
     </div>;
+}
+
+// A place along the track, as the sequence's time.
+fn scrub(local_x: f64, width: f64) {
+    if width <= 0.0 {
+        return;
+    }
+    seek_sequence((local_x / width).clamp(0.0, 1.0) * sequence_seconds());
 }
 
 fn ClipBlock(index: usize, clip: ffmpeg::Clip, total: f64) -> Element {
