@@ -47,12 +47,6 @@ fn the_engine_takes_the_drop_back_from_the_browser() {
     // Le moteur reprend donc le lâcher à Chromium, et c'est ce que ces
     // trois lignes épinglent.
     assert_eq!(
-        report().get("drop_native"),
-        "function",
-        "le moteur n'a pas posé la fonction que son écouteur appelle:\n{}",
-        report().raw()
-    );
-    assert_eq!(
         report().get("drop_prevented"),
         "true",
         "le lâcher est resté au navigateur, qui va naviguer vers le fichier:\n{}",

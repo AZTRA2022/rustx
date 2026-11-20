@@ -72,6 +72,12 @@ pub(crate) fn run_hooks() {
         return;
     }
     install_engine_natives();
+    // A page left to itself navigates to the file dropped on it. The paths
+    // come from the host (see `dropped`); the page keeps its own `ondrop`.
+    inject(
+        "rustx-dropped",
+        "for (const kind of ['dragover', 'drop']) window.addEventListener(kind, (event) => event.preventDefault());",
+    );
     let hooks = HOOKS.with(|hooks| std::mem::take(&mut *hooks.borrow_mut()));
     for hook in &hooks {
         crate::panics::contain("a hook the application registered", || hook());
