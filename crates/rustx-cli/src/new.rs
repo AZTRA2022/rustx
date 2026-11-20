@@ -497,6 +497,9 @@ fn main_for(name: &str) -> String {
         "//! `{name}`.\n\
          //!\n\
          //! The pages are in `app/`. This file is the window.\n\n\
+         // A release build is a window, not a console program: without this,\n\
+         // Windows opens a terminal behind the application.\n\
+         #![cfg_attr(not(debug_assertions), windows_subsystem = \"windows\")]\n\n\
          use rustx::{{App, Config}};\n\n\
          #[rustx::main]\n\
          fn main() -> Result<(), rustx::Error> {{\n\
