@@ -94,7 +94,27 @@
     },
   };
 
+  // A native is a message away, so it answers with a promise.
+  const calls = new Map(); // call id -> [resolve, reject]
+  let nextCall = 1;
+  commands.rp = (id, ok, value) => {
+    const pending = calls.get(id);
+    if (!pending) return;
+    calls.delete(id);
+    pending[ok ? 0 : 1](ok ? value : new Error(value));
+  };
+
   window.__rustx = {
+    natives(names) {
+      for (const name of names) {
+        window[name] = (...args) =>
+          new Promise((resolve, reject) => {
+            const id = nextCall++;
+            calls.set(id, [resolve, reject]);
+            post({ t: "call", id, name, args });
+          });
+      }
+    },
     apply(ops) {
       for (const op of ops) {
         try {

@@ -70,7 +70,9 @@ impl App {
         config.size = (self.config.width, self.config.height);
         config.entry = self.config.entry.clone();
         config.document = self.config.document.clone();
-        config.scripts = crate::renderer::scripts();
+        // Natives first: an injected script may call one at once.
+        config.scripts = vec![crate::renderer::natives_script()];
+        config.scripts.extend(crate::renderer::scripts());
 
         // `run` returns only an error: `Ok` holds an `Infallible`.
         let Err(error) = crate::host::run(config, Hooks::default());

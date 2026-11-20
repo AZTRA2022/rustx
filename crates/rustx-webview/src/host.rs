@@ -341,8 +341,20 @@ fn handle(body: &str, hooks: &Hooks, control: &Control) {
             wake();
         }
         Ok(FromPage::Error { message }) => eprintln!("rustx: the page could not run a command: {message}"),
-        Ok(FromPage::Call { name, .. }) => {
-            eprintln!("rustx: `{name}` was called from the page; natives are not on the webview engine yet")
+        Ok(FromPage::Call { id, name, args }) => {
+            let outcome = match crate::renderer::lookup(&name) {
+                None => Err(format!("`{name}` is not a function the application registered")),
+                Some(native) => {
+                    // A panic is an error the page can read, not a dead window.
+                    let mut outcome = Err(format!("`{name}` panicked"));
+                    crate::panics::contain(&format!("the native `{name}`"), || {
+                        outcome = native(&args).map_err(|error| error.message);
+                    });
+                    outcome
+                }
+            };
+            crate::dom::reply(id, outcome);
+            wake();
         }
         Ok(FromPage::Callback { .. }) => {
             eprintln!("rustx: a library called a prop; React boundaries are not on the webview engine yet")
