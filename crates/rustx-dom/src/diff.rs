@@ -151,7 +151,7 @@ fn compare(old: &Element, new: &Element, at: &Path, source: &Path, patches: &mut
             // closure is built afresh each render and may capture something
             // that moved (a row's index after a reorder), so what the page
             // calls has to be replaced even when nothing on screen changed.
-            if had != wants || !wants.callbacks.is_empty() {
+            if had != wants || wants.carries_callbacks() {
                 patches.push(Patch::ForeignProps {
                     path: at.clone(),
                     node: wants.clone(),

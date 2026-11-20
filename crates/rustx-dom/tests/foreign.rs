@@ -66,6 +66,24 @@ fn a_node_with_callbacks_is_handed_over_again_so_the_page_calls_the_latest_closu
 }
 
 #[test]
+fn a_callback_anywhere_inside_a_boundary_hands_it_over_again() {
+    // A card with no callback of its own, holding a child that has one: the
+    // shape of a panel whose controls capture the index of a clip.
+    let card = || {
+        let mut child = node("ui::Switch", "a");
+        child.callbacks.push(("onCheckedChange".to_string(), rustx_dom::Callback::new(|_| {})));
+        let mut card = node("ui::Card", "a");
+        card.children.push(ForeignChild::Node(child));
+        Element::Foreign { node: card, id: "rustx-js-3-12".to_string() }
+    };
+    let patches = diff(&card(), &card());
+    assert_eq!(patches.len(), 1, "{patches:?}");
+    assert!(matches!(patches[0], Patch::ForeignProps { .. }));
+    // And none when nothing inside calls back.
+    assert!(diff(&chart("a"), &chart("a")).is_empty());
+}
+
+#[test]
 fn changing_a_prop_patches_the_node_and_nothing_else() {
     assert_eq!(
         diff(&chart("a"), &chart("b")),

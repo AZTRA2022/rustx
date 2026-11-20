@@ -46,6 +46,31 @@ pub struct ForeignNode {
     pub children: Vec<ForeignChild>,
 }
 
+impl ForeignNode {
+    /// Does anything in this boundary, at any depth, call back into Rust?
+    ///
+    /// Equality leaves callbacks out, so it cannot say. A render that
+    /// changed only a closure (it captured a row's index, and the row
+    /// moved) is the same on screen and calls a different thing, and the
+    /// page has to be given the new one.
+    pub fn carries_callbacks(&self) -> bool {
+        fn element_has(element: &Element) -> bool {
+            match element {
+                Element::Tag(tag) => !tag.handlers.is_empty() || tag.children.iter().any(element_has),
+                Element::Fragment(children) => children.iter().any(element_has),
+                Element::Foreign { node, .. } => node.carries_callbacks(),
+                _ => false,
+            }
+        }
+        !self.callbacks.is_empty()
+            || self.children.iter().any(|child| match child {
+                ForeignChild::Node(node) => node.carries_callbacks(),
+                ForeignChild::Element(element) => element_has(element),
+                _ => false,
+            })
+    }
+}
+
 /// Two nodes are the same node when they name the same component with
 /// the same props and the same children.
 ///
