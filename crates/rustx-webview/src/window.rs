@@ -1,7 +1,7 @@
 //! What a window is, besides a page: its icon and what it says it is.
 //!
-//! The controls (minimize, maximize, drag, a second window) are phase 6 of
-//! the migration and are not here yet.
+//! The controls act on the window's own tao handle, so they are the same on
+//! every platform tao supports. A second window is not here yet.
 
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
@@ -54,4 +54,36 @@ pub fn icon() -> Option<PathBuf> {
 /// The first window has none.
 pub fn page_asked_for() -> Option<String> {
     None
+}
+
+/// Give the window an order.
+pub fn command(order: rustx_os::window::Order) {
+    crate::host::order(order);
+}
+
+macro_rules! controls {
+    ($($(#[$doc:meta])* $name:ident($($arg:ident: $ty:ty),*) => $order:expr;)*) => {
+        $($(#[$doc])* pub fn $name($($arg: $ty),*) { command($order); })*
+    };
+}
+
+use rustx_os::window::{Dressing, Order, Spread, Switchable};
+
+controls! {
+    /// Remove the system's frame: the page draws everything, and [`drag`] moves the window.
+    frameless() => Order::Dress(Dressing::None);
+    /// Put the system's frame back.
+    framed() => Order::Dress(Dressing::System);
+    minimize() => Order::Spread(Spread::Minimized);
+    maximize() => Order::Spread(Spread::Maximized);
+    restore() => Order::Spread(Spread::Normal);
+    fullscreen() => Order::Spread(Spread::Fullscreen);
+    toggle_maximize() => Order::Switch(Switchable::Maximized);
+    toggle_fullscreen() => Order::Switch(Switchable::Fullscreen);
+    /// Keep the window in front of the others, or give it back its rank.
+    on_top(above: bool) => Order::OnTop(above);
+    /// Start moving the window with the mouse: call it from the press on the page's own title bar.
+    drag() => Order::Drag;
+    /// Close the window.
+    shut() => Order::Close;
 }

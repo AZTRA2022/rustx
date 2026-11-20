@@ -155,3 +155,32 @@ fn a_native_called_from_the_page_resolves_or_rejects_and_the_window_carries_on()
     );
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn the_window_follows_the_orders_the_page_gives_it() {
+    let root = folder(
+        "controls",
+        &page(
+            "const width = () => window.innerWidth;
+             const settle = async () => { await sleep(1200); return width(); };
+             await sleep(800);
+             const normal = width();
+             order('fullscreen');
+             const full = await settle();
+             say('fullscreen_wider=' + (full > normal));
+             order('restore');
+             say('restored=' + ((await settle()) === normal));
+             order('close');
+             await sleep(8000);
+             say('still_open=yes');",
+        ),
+    );
+    let run = probe(&root, &["--scenario", "controls", "--seconds", "20"], &[]);
+    assert_eq!(
+        run.messages,
+        vec!["fullscreen_wider=true", "restored=true"],
+        "close must end the loop before the page's last message: {}",
+        run.stderr
+    );
+    let _ = std::fs::remove_dir_all(root);
+}

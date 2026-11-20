@@ -108,9 +108,55 @@ impl std::fmt::Display for HostError {
 
 impl std::error::Error for HostError {}
 
-enum Command {
+pub(crate) enum Command {
     Exit,
     Tick,
+    /// An order for the window, carried out on the loop's thread.
+    Window(rustx_os::window::Order),
+}
+
+/// Give the window an order, from any thread.
+pub(crate) fn order(order: rustx_os::window::Order) {
+    let held = proxy().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(proxy) = held.as_ref() {
+        let _ = proxy.send_event(Command::Window(order));
+    }
+}
+
+/// What an order does to a tao window.
+fn carry_out(window: &tao::window::Window, order: rustx_os::window::Order) -> bool {
+    use rustx_os::window::{Dressing, Order, Spread, Switchable};
+    use tao::window::Fullscreen;
+    let fullscreen = |on: bool| window.set_fullscreen(on.then_some(Fullscreen::Borderless(None)));
+    let spread = |how: Spread| match how {
+        Spread::Minimized => window.set_minimized(true),
+        Spread::Maximized => {
+            fullscreen(false);
+            window.set_maximized(true)
+        }
+        Spread::Normal => {
+            fullscreen(false);
+            window.set_minimized(false);
+            window.set_maximized(false)
+        }
+        Spread::Fullscreen => fullscreen(true),
+    };
+    match order {
+        Order::Dress(dressing) => window.set_decorations(dressing == Dressing::System),
+        Order::Spread(how) => spread(how),
+        Order::Switch(Switchable::Maximized) => {
+            spread(if window.is_maximized() { Spread::Normal } else { Spread::Maximized })
+        }
+        Order::Switch(Switchable::Fullscreen) => fullscreen(window.fullscreen().is_none()),
+        Order::OnTop(above) => window.set_always_on_top(above),
+        Order::Drag => {
+            if let Err(error) = window.drag_window() {
+                eprintln!("rustx: could not start a drag: {error}");
+            }
+        }
+        Order::Close => return true,
+    }
+    false
 }
 
 /// The loop's proxy, for whoever needs a frame from any thread.
@@ -322,6 +368,11 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
                 ..
             }
             | Event::UserEvent(Command::Exit) => *flow = ControlFlow::Exit,
+            Event::UserEvent(Command::Window(asked)) => {
+                if carry_out(&window, asked) {
+                    *flow = ControlFlow::Exit;
+                }
+            }
             Event::UserEvent(Command::Tick) => {
                 // Cleared first: a write the frame itself makes asks for the next one.
                 PENDING.store(false, Ordering::Release);

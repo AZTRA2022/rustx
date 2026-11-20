@@ -160,7 +160,20 @@ fn main() {
 
     // The thread that owns the window is the one that runs this, so the
     // frame callback and the loop share their state.
-    if scenario.as_deref() == Some("natives") {
+    if scenario.as_deref() == Some("controls") {
+        use rustx_webview::{NativeError, Value, register_native};
+        register_native("order", |args| match args {
+            [Value::String(word)] => match rustx_os::window::Order::from_word(word) {
+                Some(order) => {
+                    rustx_webview::window::command(order);
+                    Ok(Value::Null)
+                }
+                None => Err(NativeError::new("no such order")),
+            },
+            _ => Err(NativeError::new("order takes a word")),
+        });
+        config.scripts = vec![rustx_webview::natives_script()];
+    } else if scenario.as_deref() == Some("natives") {
         use rustx_webview::{NativeError, Value, register_native};
         register_native("add", |args| match args {
             [Value::Number(a), Value::Number(b)] => Ok(Value::Number(a + b)),
