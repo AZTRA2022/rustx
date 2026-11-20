@@ -56,6 +56,26 @@ fn a_radix_slider_owned_by_rust_moves_the_grade() {
 }
 
 #[test]
+fn a_switch_acts_on_the_clip_its_row_names_after_the_rows_are_reordered() {
+    let (Some(a), Some(b)) = (clip("a-first.mp4"), clip("b-second.mp4")) else {
+        eprintln!("ffmpeg is not installed: skipped");
+        return;
+    };
+    let report = scenario(&format!("layers:{}|{}", a.display(), b.display()));
+    assert_eq!(report.get("rows_before"), "a-first.mp4,b-second.mp4", "{}", report.raw());
+    assert_eq!(report.get("rows_after_move"), "b-second.mp4,a-first.mp4", "{}", report.raw());
+    assert_eq!(
+        report.get("states_after_toggle"),
+        "b-second.mp4=checked,a-first.mp4=unchecked",
+        "{}",
+        report.raw()
+    );
+    for file in [a, b] {
+        let _ = std::fs::remove_dir_all(file.parent().expect("a folder"));
+    }
+}
+
+#[test]
 fn an_imported_clip_decodes_and_plays() {
     let Some(file) = clip("clip one.mp4") else {
         eprintln!("ffmpeg is not installed: skipped");

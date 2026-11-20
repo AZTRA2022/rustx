@@ -169,6 +169,9 @@ pub struct Clip {
     pub brightness: f64,
     pub contrast: f64,
     pub saturation: f64,
+    /// A clip that is switched off stays on the timeline and is left out
+    /// of the render.
+    pub enabled: bool,
 }
 
 impl Clip {
@@ -189,6 +192,7 @@ impl Clip {
             brightness: 0.0,
             contrast: 1.0,
             saturation: 1.0,
+            enabled: true,
         }
     }
 
@@ -473,6 +477,8 @@ pub fn plan(
     subtitle_dir: &Path,
     font: Option<&Path>,
 ) -> Result<Plan, String> {
+    let on: Vec<Clip> = clips.iter().filter(|clip| clip.enabled).cloned().collect();
+    let clips = &on[..];
     let Some(first) = clips.first() else {
         return Err("there is nothing on the timeline to render.".to_string());
     };
@@ -1015,6 +1021,17 @@ mod tests {
         assert!(line.contains("concat=n=2:v=1:a=0[v]"), "{line}");
         assert!(!line.contains("[a]"), "{line}");
         assert!(!line.contains("-c:a"), "{line}");
+    }
+
+    #[test]
+    fn a_clip_that_is_switched_off_is_left_out_of_the_render() {
+        let mut off = clip("off.mp4", 1280, true);
+        off.enabled = false;
+        let on = clip("on.mp4", 1280, true);
+        let plan = plan(&[off.clone(), on], Path::new("out.mp4"), Path::new("subs"), None).expect("renderable");
+        let line = plan.arguments.join(" ");
+        assert!(line.contains("on.mp4") && !line.contains("off.mp4"), "{line}");
+        assert!(super::plan(&[off], Path::new("out.mp4"), Path::new("subs"), None).is_err());
     }
 
     #[test]

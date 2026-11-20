@@ -602,7 +602,11 @@ fn ClipBlock(index: usize, clip: ffmpeg::Clip, total: f64) -> Element {
     let active = selected == index;
     // A clip's width is its real trimmed share of the sequence, so the
     // declaration is computed rather than written as a class.
-    let box_style = format!("width: {:.3}%", (clip.length() / total) * 100.0);
+    let box_style = format!(
+        "width: {:.3}%; opacity: {}",
+        (clip.length() / total) * 100.0,
+        if clip.enabled { 1.0 } else { 0.35 }
+    );
     let skin = match active {
         true => "border border-mark bg-mark-soft",
         false => "border border-line bg-[#1d1c24] hover:border-faint",
@@ -647,8 +651,35 @@ fn Playhead() -> Element {
 
 fn Controls() -> Element {
     return <div className="flex w-[300px] shrink-0 flex-col border-l border-line bg-panel">
+        {Layers()}
         {Effects()}
         {Export()}
+    </div>;
+}
+
+// One row per clip, each with a Radix switch Rust owns. The rows are keyed
+// by the clip and not by place, so moving a clip moves its row, and the
+// switch on a row has to act on the clip that row shows.
+fn Layers() -> Element {
+    let rows: Vec<Element> = clips
+        .iter()
+        .enumerate()
+        .map(|(index, clip)| Layer(index, clip.name.clone(), clip.enabled))
+        .collect();
+    return <div id="layers" className="border-b border-line px-3 py-2">
+        <div className="pb-1.5 text-[10px] uppercase tracking-[0.14em] text-faint">Layers</div>
+        {rows}
+    </div>;
+}
+
+fn Layer(index: usize, name: String, on: bool) -> Element {
+    return <div key={name.clone()} id={format!("layer-row-{name}")} className="flex items-center justify-between py-1">
+        <span className="truncate text-[11px] text-text">{name.clone()}</span>
+        <Switch id={format!("layer-{name}")} checked={on}
+            onCheckedChange={move |given: rustx::Value| {
+                let now = given.as_bool().unwrap_or(false);
+                edit(index, move |clip| clip.enabled = now);
+            }} />
     </div>;
 }
 

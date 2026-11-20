@@ -43,6 +43,9 @@ thread_local! {
     /// of a number freed by a render the page has not applied yet. A
     /// container's numbers are freed when it is given back.
     static OWNED: RefCell<HashMap<u64, HashMap<String, u64>>> = RefCell::new(HashMap::new());
+    /// What the page was last told for a container: sent again only when it
+    /// differs, so a render that only replaces closures costs the page nothing.
+    static SENT: RefCell<HashMap<u64, String>> = RefCell::new(HashMap::new());
     static NEXT: Cell<u64> = const { Cell::new(1) };
     /// The components an application is willing to let React mount.
     static COMPONENTS: RefCell<HashMap<String, Builder>> = RefCell::new(HashMap::new());
@@ -79,6 +82,11 @@ pub(crate) fn hand_over(node: &ForeignNode, container: &Node) {
     let Some((props, children)) = describe_for(container.id(), node) else {
         return;
     };
+    let sent = format!("{}|{props}|{children}", node.component);
+    if SENT.with(|held| held.borrow().get(&container.id()) == Some(&sent)) {
+        return;
+    }
+    SENT.with(|held| held.borrow_mut().insert(container.id(), sent));
     crate::dom::command(json!(["fm", container.id(), node.component, props, children]));
     HANDED_OVER.with(|count| count.set(count.get() + 1));
 }
@@ -94,6 +102,7 @@ pub(crate) fn give_back(container: &Node) {
             callbacks.remove(id);
         }
     });
+    SENT.with(|held| held.borrow_mut().remove(&container.id()));
     crate::dom::command(json!(["fu", container.id()]));
     GIVEN_BACK.with(|count| count.set(count.get() + 1));
 }

@@ -109,6 +109,27 @@
       report("burst_brightness", document.querySelector("#brightness-value")?.textContent);
     },
 
+    // Two clips, the second moved before the first, then the switch on the row
+    // that is now second: it must switch off the clip that row names.
+    async layers(paths) {
+      const [first, second] = paths.split("|");
+      await importClip(first);
+      await type("#typed", second);
+      await press("#add-typed");
+      await sleep(600);
+      const rows = () => [...document.querySelectorAll("#layers [data-state]")].map((each) => each.getAttribute("data-state"));
+      const names = () => [...document.querySelectorAll("#layers [id^=layer-row-]")].map((each) => each.id.replace("layer-row-", ""));
+      report("rows_before", names().join(","));
+      await press("#move-left");
+      await sleep(600);
+      report("rows_after_move", names().join(","));
+      // The row now second is the clip that was first.
+      const switches = [...document.querySelectorAll("#layers button[role=switch]")];
+      switches[1].click();
+      await sleep(600);
+      report("states_after_toggle", names().map((name, at) => name + "=" + document.querySelectorAll("#layers button[role=switch]")[at].getAttribute("data-state")).join(","));
+    },
+
     // Import a file by its path, and play it.
     async import(path) {
       const video = await importClip(path);
