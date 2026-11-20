@@ -498,6 +498,9 @@ fn handle(body: &str, hooks: &Hooks, control: &Control) {
     match decode(body) {
         Ok(FromPage::Ready { ids }) => {
             crate::dom::page_ready(ids);
+            // A document that follows one the application had mounted on:
+            // a reload. What was mounted goes back.
+            crate::render::remount();
             wake();
         }
         Ok(FromPage::Event {

@@ -30,6 +30,11 @@ thread_local! {
     /// Behind an `Rc` each, because the registry may not be borrowed
     /// while a component renders — see [`each_entry`].
     static ROOTS: RefCell<Vec<Rc<Entry>>> = const { RefCell::new(Vec::new()) };
+    /// What the application mounted, to mount again on a new document: a
+    /// reload, a library calling `location.reload()`, a crashed renderer.
+    /// Not the roots React asks for inside its own subtrees: React makes
+    /// those again itself.
+    static REMEMBERED: RefCell<Vec<(Rc<dyn Fn() -> Element>, String)>> = const { RefCell::new(Vec::new()) };
     static RENDERS: Cell<u64> = const { Cell::new(0) };
     /// Whether this page's one frame callback has been registered.
     ///
@@ -88,6 +93,34 @@ fn each_entry<T>(registry: &RefCell<Vec<Rc<T>>>, mut visit: impl FnMut(&Rc<T>)) 
 /// The component function is called once now and again on any frame
 /// where its state changed.
 pub fn mount_app(component: impl Fn() -> Element + 'static, id: &str) -> Result<(), DomError> {
+    let component: Rc<dyn Fn() -> Element> = Rc::new(component);
+    mount_shared(Rc::clone(&component), id)?;
+    REMEMBERED.with(|held| {
+        let mut held = held.borrow_mut();
+        held.retain(|(_, each)| each != id);
+        held.push((component, id.to_string()));
+    });
+    Ok(())
+}
+
+/// Mount again what the application had mounted, on a document that has
+/// just said it is ready. State held by the components starts over, as it
+/// does when a page is reloaded; the router keeps its place.
+pub(crate) fn remount() {
+    let remembered: Vec<_> = REMEMBERED.with(|held| held.borrow().clone());
+    for (component, id) in remembered {
+        if let Err(error) = mount_shared(component, &id) {
+            eprintln!("rustx: could not mount `{id}` again on the new page: {error}");
+        }
+    }
+}
+
+/// Mount a root that is not the application's to remount: React's own.
+pub(crate) fn mount_forgotten(component: impl Fn() -> Element + 'static, id: &str) -> Result<(), DomError> {
+    mount_shared(Rc::new(component), id)
+}
+
+fn mount_shared(component: Rc<dyn Fn() -> Element>, id: &str) -> Result<(), DomError> {
     // From `rustx-dom`'s counter, not a second one of our own: a
     // component written inside another is given an instance there, and
     // two numbering schemes would hand the same number to a root and to
@@ -99,7 +132,6 @@ pub fn mount_app(component: impl Fn() -> Element + 'static, id: &str) -> Result<
     let _drawing = crate::watchdog::drawing(id);
     let instance = rustx_dom::state::next_instance();
     let root = root_node(id)?;
-    let component: Rc<dyn Fn() -> Element> = Rc::new(component);
 
     let tree = {
         let _scope = Scope::enter(instance);
@@ -147,6 +179,7 @@ pub fn renders() -> u64 {
 /// cleanup mechanism, and it is Rust's own; the framework does not
 /// invent a second one.
 pub fn unmount(id: &str) -> Result<bool, DomError> {
+    REMEMBERED.with(|held| held.borrow_mut().retain(|(_, each)| each != id));
     // Taken out of the registry under a borrow that is let go before
     // anything below runs: everything below calls into React or into
     // the application's own `Drop`, and either may reach back here.

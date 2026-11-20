@@ -320,7 +320,7 @@ pub(crate) fn mount_registered(name: &str, id: &str) -> Result<(), crate::Native
     };
     // The page is asking for the element, so it is there.
     crate::dom::vouch(id);
-    crate::render::mount_app(move || component(), id)?;
+    crate::render::mount_forgotten(move || component(), id)?;
     Ok(())
 }
 

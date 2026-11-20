@@ -377,7 +377,7 @@ fn a_pointer_event_says_where_it_is_in_the_element_and_how_big_the_element_is() 
 }
 
 #[test]
-fn a_form_submit_and_a_reload_do_not_throw_the_page_away() {
+fn a_form_submit_does_not_throw_the_page_away() {
     // A submit navigates by default, and a navigation replaces the document
     // the host holds node ids for. A marker on `window` survives only if the
     // document does.
@@ -475,4 +475,30 @@ fn a_path_in_text_rust_wrote_does_not_become_readable() {
     assert!(run.contains("REPORT message=status=403"), "{run}");
     let _ = std::fs::remove_dir_all(root);
     let _ = std::fs::remove_dir_all(place);
+}
+
+#[test]
+fn after_a_reload_the_counter_is_drawn_again_and_still_answers_clicks() {
+    // A reload is real: a library calls it, a renderer crashes, F5 with the
+    // devtools on. The host's node ids belong to the old document.
+    let root = folder(
+        "reload",
+        &page(
+            "if (!sessionStorage.getItem('reloaded')) {
+               const button = await wait('inc');
+               button.click(); await sleep(250); button.click(); await sleep(250);
+               say('before=' + document.getElementById('inc').textContent);
+               sessionStorage.setItem('reloaded', '1');
+               location.reload();
+               return;
+             }
+             const again = await wait('inc');
+             say('after_reload_first=' + again.textContent);
+             again.click(); await sleep(400);
+             say('after_click=' + document.getElementById('inc').textContent);",
+        ),
+    );
+    let run = probe(&root, &["--scenario", "counter", "--seconds", "8"], &[]);
+    assert_eq!(run.messages, vec!["before=2", "after_reload_first=0", "after_click=1"], "{}", run.stderr);
+    let _ = std::fs::remove_dir_all(root);
 }
