@@ -396,8 +396,9 @@ fn handle(body: &str, hooks: &Hooks, control: &Control) {
         Ok(FromPage::Call { name, .. }) => {
             eprintln!("rustx: `{name}` was called over IPC; natives are called with a request to {NATIVE_PATH}")
         }
-        Ok(FromPage::Callback { .. }) => {
-            eprintln!("rustx: a library called a prop; React boundaries are not on the webview engine yet")
+        Ok(FromPage::Callback { id, args }) => {
+            crate::foreign::called(id, &args);
+            wake();
         }
         // Not one of ours: the application's own message.
         Err(_) => (hooks.on_message)(body, control),

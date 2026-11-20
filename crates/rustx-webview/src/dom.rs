@@ -100,6 +100,17 @@ pub(crate) fn take_ops() -> Option<String> {
     (!ops.is_empty()).then(|| Json::Array(ops).to_string())
 }
 
+/// Append a command the module that wrote it knows the page to understand.
+pub(crate) fn command(op: Json) {
+    push(op);
+}
+
+/// The page has an element with this id, though it was not there when the
+/// page said it was ready.
+pub(crate) fn vouch(id: &str) {
+    PAGE_IDS.with(|held| held.borrow_mut().insert(id.to_string()));
+}
+
 fn push(op: Json) {
     OPS.with(|ops| ops.borrow_mut().push(op));
 }

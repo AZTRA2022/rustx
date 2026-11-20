@@ -40,6 +40,42 @@
     };
   }
 
+  // What a library passes to a prop, as the host may know it: values stay,
+  // an event becomes the short record of an event, and what cannot cross
+  // (a node, a function, a cycle) becomes null rather than refusing the call.
+  function wire(value, depth) {
+    if (value === null || value === undefined) return null;
+    switch (typeof value) {
+      case "string":
+      case "boolean":
+        return value;
+      case "number":
+        return Number.isFinite(value) ? value : null;
+      case "object":
+        break;
+      default:
+        return null;
+    }
+    if (depth > 8 || value instanceof Node) return null;
+    if (Array.isArray(value)) return value.map((each) => wire(each, depth + 1));
+    if ("target" in value && ("nativeEvent" in value || "type" in value)) return record(String(value.type || ""), value);
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    return Object.fromEntries(Object.entries(value).map(([name, each]) => [name, wire(each, depth + 1)]));
+  }
+
+  // The reverse of what the host wrote: `{__rustx_cb: n}` is a function
+  // that says it was called.
+  function revive(value) {
+    if (Array.isArray(value)) return value.map(revive);
+    if (value === null || typeof value !== "object") return value;
+    if ("__rustx_cb" in value) {
+      const id = value.__rustx_cb;
+      return (...args) => post({ t: "callback", id, args: args.map((each) => wire(each, 0)) });
+    }
+    return Object.fromEntries(Object.entries(value).map(([name, each]) => [name, revive(each)]));
+  }
+
   const isField = (node) => /^(INPUT|TEXTAREA|SELECT)$/.test(node.tagName || "");
 
   const commands = {
@@ -76,6 +112,23 @@
       if (!node) return;
       if (node.parentNode) node.parentNode.removeChild(node);
       forget(node);
+    },
+
+    // React owns this node: `window.__rustx_react` is the framework's
+    // runtime. `fu` comes before the node leaves, so cleanups run.
+    fm: (id, name, props, children) => {
+      const bridge = window.__rustx_react;
+      if (!bridge) {
+        post({ t: "error", message: "a node React owns was rendered, and the page has no window.__rustx_react" });
+        return;
+      }
+      if (bridge.mount(name, nodes.get(id), revive(props), revive(children)) === false) {
+        post({ t: "error", message: "the page has no React component named '" + name + "'" });
+      }
+    },
+    fu: (id) => {
+      const node = nodes.get(id);
+      if (window.__rustx_react && node) window.__rustx_react.unmount(node);
     },
 
     // One listener per node and kind, for as long as the node lives.
