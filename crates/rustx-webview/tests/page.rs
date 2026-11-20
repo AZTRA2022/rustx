@@ -255,7 +255,8 @@ fn a_page_that_writes_file_urls_gets_the_files() {
              say('later=' + late.naturalWidth);"
         )),
     );
-    let run = probe(&root, &["--scenario", "counter", "--seconds", "8"], &[]);
+    std::fs::write(place.join("..secret-name.txt"), "x").ok();
+    let run = probe(&root, &["--scenario", "counter", "--seconds", "8", "--files", &place.display().to_string()], &[]);
     assert_eq!(run.messages, vec!["image=1", "fetched=hello from disk", "later=1"], "{}", run.stderr);
     let _ = std::fs::remove_dir_all(root);
     let _ = std::fs::remove_dir_all(place);
@@ -308,10 +309,37 @@ fn a_video_from_a_file_url_decodes_plays_without_a_gesture_and_seeks() {
         expected.push(format!("{name}=true/yes/true"));
     }
     let root = folder("video", &page(&script));
-    let run = probe(&root, &["--scenario", "counter", "--seconds", "30"], &[]);
+    let run = probe(&root, &["--scenario", "counter", "--seconds", "30", "--files", &place.display().to_string()], &[]);
     // What this engine cannot decode is a finding, printed whole.
     eprintln!("VIDEO RESULTS: {:?}", run.messages);
     assert_eq!(run.messages, expected, "{}", run.stderr);
+    let _ = std::fs::remove_dir_all(root);
+    let _ = std::fs::remove_dir_all(place);
+}
+
+#[test]
+fn a_file_nobody_granted_cannot_be_read_by_injected_markup() {
+    let place = std::env::temp_dir().join(format!("rustx-secret-{}", std::process::id()));
+    std::fs::create_dir_all(&place).expect("a folder");
+    std::fs::write(place.join("secret.txt"), "the secret").expect("a file");
+    let address = format!(
+        "file:///{}/secret.txt",
+        place.display().to_string().replace(std::path::MAIN_SEPARATOR, "/").trim_start_matches('/')
+    );
+    let root = folder(
+        "injection",
+        &page(&format!(
+            "// What a page does with markup an attacker got into it.
+             const answer = await fetch('{address}');
+             say('status=' + answer.status);
+             say('body=' + (await answer.text()));
+             const img = new Image(); img.src = '{address}'; document.body.appendChild(img);
+             await sleep(500);
+             say('image=' + img.naturalWidth);"
+        )),
+    );
+    let run = probe(&root, &["--scenario", "counter", "--seconds", "6"], &[]);
+    assert_eq!(run.messages, vec!["status=403", "body=forbidden", "image=0"], "{}", run.stderr);
     let _ = std::fs::remove_dir_all(root);
     let _ = std::fs::remove_dir_all(place);
 }

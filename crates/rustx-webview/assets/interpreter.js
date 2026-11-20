@@ -90,13 +90,14 @@
     try {
       plain = decodeURI(path);
     } catch (_) {}
-    return window.__rustx_origin + "/__rustx/file/" + encodeURI(plain);
+    return window.__rustx_origin + "/__rustx/file/" + plain.split("/").map(encodeURIComponent).join("/");
   }
   const URL_ATTRIBUTES = new Set(["src", "href", "poster", "data"]);
   function rewritten(name, value) {
     if (typeof value !== "string") return value;
     if (URL_ATTRIBUTES.has(name)) return localUrl(value);
-    if (name === "style" && /file:\/\//i.test(value)) return value.replace(/file:\/\/[^\s"')]+/gi, localUrl);
+    if (name === "style" && /file:\/\//i.test(value))
+      return value.replace(/url\(\s*(["']?)(file:\/\/[^"')]+)\1\s*\)/gi, (_, quote, address) => "url(" + quote + localUrl(address) + quote + ")");
     return value;
   }
   if (local) {

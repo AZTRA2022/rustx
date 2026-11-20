@@ -28,6 +28,10 @@ pub fn files() -> Vec<PathBuf> {
 
 /// Said by the host when a drop lands.
 pub(crate) fn landed(paths: Vec<PathBuf>) {
+    // A file the user dropped is one the page may show.
+    for path in &paths {
+        crate::files::allow(path);
+    }
     WAITING.with(|waiting| *waiting.borrow_mut() = paths.clone());
     // Out of the table first: a hook may register another.
     let hooks = HOOKS.with(|hooks| std::mem::take(&mut *hooks.borrow_mut()));

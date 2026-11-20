@@ -140,6 +140,7 @@ fn main() {
             "--allow" => allow.push(value()),
             "--data-dir" => data_dir = Some(PathBuf::from(value())),
             "--scenario" => scenario = Some(value()),
+            "--files" => rustx_webview::files::allow(value()),
             other => {
                 eprintln!("probe: unknown argument `{other}`");
                 std::process::exit(2);
