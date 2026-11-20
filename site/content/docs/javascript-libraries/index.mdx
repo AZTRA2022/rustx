@@ -71,9 +71,9 @@ is named, because the fix is a command.
 
 ## What the boundary costs
 
-A library component is a **node rendered by React**, in the
-same process and the same document. There is no serialization, no JSON, no
-`postMessage`: what the page passes is a V8 value.
+A library component is a **node rendered by React**, in the page. Your Rust
+runs in another place, so props cross as JSON and a callback is a message
+that runs your closure a moment later.
 What that changes for the code is read in
 [props that cross](/docs/javascript-libraries/props-that-cross).
 

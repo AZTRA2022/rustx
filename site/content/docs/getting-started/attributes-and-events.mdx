@@ -24,7 +24,7 @@ return <button
 
 ## What a value becomes
 
-On a lowercase tag there is no V8 object to build — the attribute goes
+On a lowercase tag there is no JavaScript object to build — the attribute goes
 onto a DOM node, and a DOM attribute is text. So `{…}` is converted
 with `to_string()`, and **anything that implements `Display` works**:
 

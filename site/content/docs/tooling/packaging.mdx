@@ -32,17 +32,11 @@ for `--release` says so instead of doing nothing.
 
 ## Why the folder is the application
 
-The `.exe` the linker makes is a Chromium host. Chromium reads
-`libcef.dll`, the `.pak` files, `icudtl.dat`, `v8_context_snapshot.bin`
-and `locales/` from beside that binary, and the executable starts
-*itself* again as the engine's helper processes — so the same file has
-to sit next to all of them. Moving the `.exe` alone gives a program
-that does not start, and the dialog the system shows for that names a
-library rather than a cause.
-
-In one debug build on a development machine the folder held 236 files
-and 412 MB. `locales/` alone is 51 MB of `.pak` files, and a package
-without it starts with no text in its menus.
+The `.exe` the linker makes draws its window with the webview the system
+already has (WebView2, WKWebView or WebKitGTK), so it carries no engine
+and is a few megabytes. What it reads from beside itself is the
+application's own `assets/`, which is why the folder, and not the `.exe`
+alone, is what ships.
 
 `rustx package` copies what the program reads and leaves what cargo
 left for cargo: no `.pdb`, no `.d`, no build scripts, no other binary
@@ -107,7 +101,7 @@ what the updater downloads.
 |---|---|
 | **Windows** | a setup `.exe`. An Inno Setup script is written beside the folder, and `ISCC.exe` is run when [Inno Setup](https://jrsoftware.org/isdl.php) is installed — looked for in `Program Files` and in `%LOCALAPPDATA%\Programs`, which is where a per-user `winget install JRSoftware.InnoSetup` puts it. The result installs per user and needs no administrator rights, with a Start-menu group, an optional desktop icon and an uninstaller |
 | **Linux** | a `.deb`, written without any tool at all — see below. It installs under `/opt/<name>`, links `/usr/bin/<name>`, puts the icon in the hicolor theme and the licence in `/usr/share/doc`. An `install.sh` and a matching `uninstall.sh` go in the folder for everywhere else |
-| **macOS** | the package *is* a `.app` bundle — `Info.plist`, the Chromium framework under `Contents/Frameworks`, and the five helper `.app`s CEF opens for its subprocesses. `pkgbuild` turns it into a `.pkg` that installs into `/Applications`, and `hdiutil` into a `.dmg` beside it |
+| **macOS** | the package *is* a `.app` bundle — `Info.plist` and the binary with its assets under `Contents/MacOS`. `pkgbuild` turns it into a `.pkg` that installs into `/Applications`, and `hdiutil` into a `.dmg` beside it |
 
 ### The `.deb` needs nothing installed
 
@@ -117,8 +111,7 @@ a framework that cannot package. So rustx writes the format, which it
 can because the format is three files in an `ar` archive:
 `debian-binary`, `control.tar.gz` and `data.tar.gz`.
 
-It declares the twenty-five libraries Chromium links against —
-`libgtk-3-0`, `libnss3`, `libgbm1` and the rest — so that the package
+It depends on `libwebkit2gtk-4.1-0` and `libgtk-3-0`, so that the package
 cannot install and then fail to start, which is what a `.deb` with no
 `Depends` does. It reports its own installed size, which is what a
 software centre shows before the download begins.
@@ -149,7 +142,7 @@ that page.
 |---|---|
 | **Windows** | the whole version resource — publisher, product name, product version, copyright, original file name — plus the display name, the comment and the uninstall icon that "Programs and Features" shows |
 | **Linux** | `Maintainer`, `Description` with its indented long form, `Installed-Size`, `Depends`, `Section`, `Priority`, and the desktop entry's `Name`, `Comment`, `Icon` and `StartupWMClass` |
-| **macOS** | `Info.plist`: `CFBundleIdentifier`, both version strings, `LSMinimumSystemVersion`, `NSHighResolutionCapable`, and `LSUIElement` on each helper so that a subprocess does not appear in the Dock |
+| **macOS** | `Info.plist`: `CFBundleIdentifier`, both version strings, `LSMinimumSystemVersion`, `NSHighResolutionCapable` |
 
 `Maintainer` is the one field `dpkg` is strict about: it wants
 `Name <email>`, which is the shape `authors = ["A <a@b.test>"]` already
@@ -241,26 +234,20 @@ Two folders, and they are not the same thing.
 %LOCALAPPDATA%\rustx\<title, lowercased, dashes between words>\
 ```
 
-is the engine's: Chromium's profile, its caches, `engine.log`, and the
-unpacked copy of `assets/`. The name comes from the title because
-Chromium allows one process per profile folder. Do not store your own
-files there.
+is the webview's profile folder on Windows: its caches and cookies. Do not
+store your own files there.
 
 Your own files go in [`rustx::data`](/docs/the-system/app-data), which is
-a different folder on purpose: one Chromium may clear and one it may
+a different folder on purpose: one the webview may clear and one it may
 not.
 
 ## Two things that stop a start
 
-Run as administrator, Chromium 156 relaunches itself without the rights
-and exits. The application sees `cef::initialize returned 0`, and the
-engine adds a sentence naming the cause. Start it as an ordinary user,
-or pass `--do-not-de-elevate`.
+A Windows machine without the Microsoft Edge WebView2 Runtime exits with
+code 1 and a message naming it: install it from
+developer.microsoft.com/microsoft-edge/webview2. On Linux the
+`libwebkit2gtk-4.1` package has to be installed, which the `.deb` declares.
 
-A machine with no usable 3D driver gives a blank window and a log full
-of `Failed to create shared context`. `RUSTX_SOFTWARE=1` in the
-environment makes the engine composite on the processor. See
-[troubleshooting](/docs/tooling/troubleshooting).
 
 ## What is still not written
 
@@ -275,8 +262,8 @@ environment makes the engine composite on the processor. See
 - **Cross-packaging.** `rustx package` packages for the machine it runs
   on, because it gathers what that machine's build left beside the
   binary. A macOS release is built on a Mac.
-- **A verified Mac.** The `.app` layout, the helper bundles and the
-  `Info.plist` are written from Apple's and CEF's documentation and have
+- **A verified Mac.** The `.app` layout, and the
+  `Info.plist` are written from Apple's documentation and have
   never been built or opened on a Mac. See
   [platforms](/docs/the-system/platforms).
 
@@ -287,13 +274,11 @@ environment makes the engine composite on the processor. See
    and `rustx::data` are both named from it, so changing it later moves
    the user's data.
 3. `assets/icon.ico` exists, and is a real `.ico`.
-4. No `rustx dev` or earlier window is still running: it holds
-   `libcef.dll`, and the build says which file is held.
-5. `rustx package` finishes without a message about the logo or the
+4. `rustx package` finishes without a message about the logo or the
    signature.
-6. The folder runs from a place where the project does not exist — copy
+5. The folder runs from a place where the project does not exist — copy
    it to another machine, or another folder, and start it.
-7. It runs as an ordinary user.
+6. It runs as an ordinary user.
 8. Attach the `.zip` to the release, with the same tag as the version in
    `Cargo.toml`, so that the updater of the version before this one
    finds it.

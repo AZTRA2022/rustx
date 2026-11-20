@@ -8,9 +8,8 @@ cargo install rustx-cli      # rustx new, dev, build, run
 ```
 
 You need <Brand name="rust">Rust</Brand> 1.88 or later. Nothing else:
-<Brand name="cef">CEF</Brand> — the browser engine — arrives with the
-`cef` package on the first build, and an application that uses no npm
-library needs neither <Brand name="node" /> nor <Brand name="npm" />.
+the window is drawn by the webview the system already has, so no engine is
+downloaded, and an application that uses no npm library needs neither <Brand name="node" /> nor <Brand name="npm" />.
 
 For JavaScript libraries, you need <Brand name="node" /> and
 <Brand name="npm" />, as for any project that uses them.
@@ -73,8 +72,7 @@ fn main() -> Result<(), rustx::Error> {
 `#[rustx::main]` does all the rest: it compiles the `.rsx` files in `app/` into
 Rust, writes the route table, builds the JavaScript package and the
 style sheet if there is a `package.json`, finds or writes
-`assets/index.html`, and shuts down the Chromium subprocesses before
-they touch anything. None of these lines varies from one
+`assets/index.html`, and opens the window. None of these lines varies from one
 application to another, so none of them has to be written.
 
 There is **no `build.rs`**, and nothing to configure.
