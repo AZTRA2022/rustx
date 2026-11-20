@@ -182,6 +182,23 @@ fn texts() -> Element {
         .build()
 }
 
+/// A component that owns something with a `Drop`, as one that holds a file or
+/// a device does: closing the window must run it.
+struct Owned;
+
+impl Drop for Owned {
+    fn drop(&mut self) {
+        if let Ok(path) = std::env::var("PROBE_DROP_FILE") {
+            let _ = std::fs::write(path, "dropped");
+        }
+    }
+}
+
+fn owner() -> Element {
+    let _held: State<Option<std::rc::Rc<Owned>>> = cell(slot!(), || Some(std::rc::Rc::new(Owned)));
+    Element::tag("div").attribute("id", attr("id", "owner").1).build()
+}
+
 fn keyed() -> Element {
     let order: State<Vec<u32>> = cell(slot!(), || vec![1, 2, 3, 4]);
     let rotated = order.clone();
@@ -298,11 +315,23 @@ fn main() {
             "events" => events,
             "fields" => fields,
             "texts" => texts,
+            "owner" => owner,
             other => {
                 eprintln!("probe: no scenario `{other}`");
                 std::process::exit(2);
             }
         };
+        if name == "owner" {
+            rustx_webview::register_native("order", |args| {
+                if let [rustx_webview::Value::String(word)] = args
+                    && let Some(order) = rustx_os::window::Order::from_word(word)
+                {
+                    rustx_webview::window::command(order);
+                }
+                Ok(rustx_webview::Value::Null)
+            });
+            config.scripts = vec![rustx_webview::natives_script()];
+        }
         let mounted = std::cell::Cell::new(false);
         rustx_webview::on_frame(move || {
             if mounted.get() || rustx_webview::Document::current().is_none() {

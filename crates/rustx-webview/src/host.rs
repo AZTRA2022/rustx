@@ -131,6 +131,19 @@ pub(crate) fn script(code: String) {
     }
 }
 
+/// What a window owes the application when it closes: what is mounted is
+/// taken off, so a component's `Drop` runs (a file saved, a device let go),
+/// and the async runtime stops. tao's loop never returns, so this is the
+/// only moment there is. Once only, whichever way the window closes.
+fn shut_down() {
+    static DONE: AtomicBool = AtomicBool::new(false);
+    if DONE.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    crate::render::unmount_all();
+    crate::runtime::stop();
+}
+
 /// Give the window an order, from any thread.
 pub(crate) fn order(order: rustx_os::window::Order) {
     let held = proxy().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -457,7 +470,11 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
                 event: WindowEvent::CloseRequested,
                 ..
             }
-            | Event::UserEvent(Command::Exit) => *flow = ControlFlow::Exit,
+            | Event::UserEvent(Command::Exit) => {
+                shut_down();
+                *flow = ControlFlow::Exit;
+            }
+            Event::LoopDestroyed => shut_down(),
             Event::UserEvent(Command::Script(code)) => {
                 if let Err(error) = webview.evaluate_script(&code) {
                     eprintln!("rustx: could not answer the page: {error}");
@@ -465,6 +482,7 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
             }
             Event::UserEvent(Command::Window(asked)) => {
                 if carry_out(&window, asked) {
+                    shut_down();
                     *flow = ControlFlow::Exit;
                 }
             }

@@ -528,3 +528,24 @@ fn a_burst_of_wheel_and_move_events_is_one_message_per_frame_with_the_turns_adde
     assert_eq!((downs, total), (20, 200), "{:?}", run.reports);
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn closing_the_window_drops_what_the_components_own() {
+    let place = std::env::temp_dir().join(format!("rustx-dropfile-{}.txt", std::process::id()));
+    let _ = std::fs::remove_file(&place);
+    let root = folder(
+        "owner",
+        &page("await wait('owner'); await sleep(300); order('close'); await sleep(5000);"),
+    );
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_probe"))
+        .arg("--root")
+        .arg(&root)
+        .args(["--scenario", "owner", "--seconds", "20"])
+        .env("PROBE_DROP_FILE", &place)
+        .output()
+        .expect("the probe runs");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(std::fs::read_to_string(&place).ok().as_deref(), Some("dropped"), "nothing ran on close");
+    let _ = std::fs::remove_file(place);
+    let _ = std::fs::remove_dir_all(root);
+}
