@@ -126,3 +126,32 @@ fn a_keyed_list_rotates_with_the_text_before_it_left_in_place() {
     );
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn a_native_called_from_the_page_resolves_or_rejects_and_the_window_carries_on() {
+    let root = folder(
+        "natives",
+        &page(
+            "const outcome = async (call) => { try { return 'ok:' + await call(); } catch (e) { return 'err:' + e.message; } };
+             say(await outcome(() => add(2, 3)));
+             say(await outcome(() => fails()));
+             say(await outcome(() => panics()));
+             say(await outcome(() => add(1, 1)));
+             say(await outcome(() => add('x')));",
+        ),
+    );
+    let run = probe(&root, &["--scenario", "natives", "--seconds", "5"], &[]);
+    assert_eq!(
+        run.messages,
+        vec![
+            "ok:5",
+            "err:it failed",
+            "err:`panics` panicked",
+            "ok:2",
+            "err:add takes two numbers"
+        ],
+        "{}",
+        run.stderr
+    );
+    let _ = std::fs::remove_dir_all(root);
+}

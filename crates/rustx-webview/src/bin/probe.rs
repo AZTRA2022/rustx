@@ -160,7 +160,16 @@ fn main() {
 
     // The thread that owns the window is the one that runs this, so the
     // frame callback and the loop share their state.
-    if let Some(name) = scenario {
+    if scenario.as_deref() == Some("natives") {
+        use rustx_webview::{NativeError, Value, register_native};
+        register_native("add", |args| match args {
+            [Value::Number(a), Value::Number(b)] => Ok(Value::Number(a + b)),
+            _ => Err(NativeError::new("add takes two numbers")),
+        });
+        register_native("fails", |_| Err(NativeError::new("it failed")));
+        register_native("panics", |_| panic!("on purpose"));
+        config.scripts = vec![rustx_webview::natives_script()];
+    } else if let Some(name) = scenario {
         let component: fn() -> Element = match name.as_str() {
             "counter" => counter,
             "echo" => echo,

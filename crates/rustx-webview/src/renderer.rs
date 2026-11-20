@@ -125,7 +125,7 @@ pub(crate) fn scripts() -> Vec<String> {
 }
 
 /// The script that gives the page a function for each registered native.
-pub(crate) fn natives_script() -> String {
+pub fn natives_script() -> String {
     let mut names: Vec<String> = NATIVES.with(|natives| natives.borrow().keys().cloned().collect());
     names.sort();
     format!("window.__rustx.natives({});", serde_json::json!(names))
