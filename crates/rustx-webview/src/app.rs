@@ -81,6 +81,7 @@ impl App {
                 config.size = (width as u32, height as u32);
             }
             config.decorations = spec["frameless"] != true;
+            config.fragment = spec["at"].as_str().map(str::to_string);
             hooks.on_start = Box::new(|control| {
                 let control = control.clone();
                 std::thread::spawn(move || {

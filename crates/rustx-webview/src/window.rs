@@ -152,6 +152,9 @@ pub fn open(what: What) -> Result<Window, crate::error::EngineError> {
     let child = std::env::current_exe()
         .and_then(|exe| {
             std::process::Command::new(exe)
+                // What the first window was started with, so a scenario or a
+                // report path reaches the second.
+                .args(std::env::args().skip(1).filter(|arg| !arg.starts_with(ARGUMENT)))
                 .arg(format!("{ARGUMENT}{spec}"))
                 .stdin(std::process::Stdio::piped())
                 .spawn()

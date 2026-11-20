@@ -41,6 +41,8 @@ pub struct Config {
     /// [`default_data_dir`] for an installed application.
     pub data_dir: Option<PathBuf>,
     pub devtools: bool,
+    /// What follows `#` in the first address: how a second window learns its route.
+    pub fragment: Option<String>,
     /// The system's frame around the window.
     pub decorations: bool,
     /// Scripts the page runs before its own, after the interpreter.
@@ -65,6 +67,7 @@ impl Config {
             allow: Vec::new(),
             data_dir: default_data_dir(title),
             devtools: cfg!(debug_assertions),
+            fragment: None,
             decorations: true,
             scripts: Vec::new(),
             document: None,
@@ -328,7 +331,12 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
                 NewWindowResponse::Deny
             }
         })
-        .with_url(format!("{}{}", origin(&config.scheme), config.entry));
+        .with_url(format!(
+            "{}{}{}",
+            origin(&config.scheme),
+            config.entry,
+            config.fragment.as_deref().map(|route| format!("#{route}")).unwrap_or_default()
+        ));
     for script in &config.scripts {
         builder = builder.with_initialization_script(script.clone());
     }
