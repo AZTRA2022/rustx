@@ -438,3 +438,41 @@ fn a_field_written_before_what_it_depends_on_still_shows_its_value() {
     assert_eq!(run.messages[7], "select_after=c", "{:?}", run.messages);
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn a_path_in_text_rust_wrote_does_not_become_readable() {
+    let place = std::env::temp_dir().join(format!("rustx-text-secret-{}", std::process::id()));
+    std::fs::create_dir_all(&place).expect("a folder");
+    let secret = place.join("secret.txt");
+    std::fs::write(&secret, "the secret").expect("a file");
+    let address = format!(
+        "file:///{}",
+        secret.display().to_string().replace(std::path::MAIN_SEPARATOR, "/").trim_start_matches('/')
+    );
+    let root = folder(
+        "texts",
+        &page(&format!(
+            "await wait('typed');
+             await sleep(300);
+             say('title=' + document.querySelector('[title]').title.length);
+             const answer = await fetch('{address}');
+             say('status=' + answer.status);"
+        )),
+    );
+    let run = {
+        // The probe reads the path from its environment.
+        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_probe"));
+        command
+            .arg("--root")
+            .arg(&root)
+            .args(["--scenario", "texts", "--seconds", "5"])
+            .env("PROBE_SECRET", &secret)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let output = command.output().expect("the probe runs");
+        String::from_utf8_lossy(&output.stdout).to_string()
+    };
+    assert!(run.contains("REPORT message=status=403"), "{run}");
+    let _ = std::fs::remove_dir_all(root);
+    let _ = std::fs::remove_dir_all(place);
+}

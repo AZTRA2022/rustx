@@ -72,9 +72,33 @@ pub fn url(path: impl AsRef<Path>) -> String {
     format!("{PATH}{}", encoded.join("/"))
 }
 
-/// Grant every `file://` address found in `text`, which is a value Rust is
-/// about to write into the page.
-pub(crate) fn grant_urls_in(text: &str) {
+/// Grant what an attribute Rust is about to write will make the page load:
+/// the address in `src`, `href`, `poster` or `data`, and the `url(...)` of a
+/// `style`. Only those, the same places the interpreter rewrites: a `title`,
+/// a `data-*`, or the value of a field says what a person or a file wrote,
+/// and a path in it is text, not a decision of the application.
+pub(crate) fn grant_attribute(name: &str, value: &str) {
+    match name {
+        "src" | "href" | "poster" | "data" => {
+            if value.trim_start().to_ascii_lowercase().starts_with("file://") {
+                grant_urls_in(value.trim_start());
+            }
+        }
+        "style" => {
+            let mut rest = value;
+            while let Some(at) = rest.to_ascii_lowercase().find("url(") {
+                let inside = rest[at + 4..].trim_start().trim_start_matches(['"', '\'']);
+                if inside.to_ascii_lowercase().starts_with("file://") {
+                    grant_urls_in(inside);
+                }
+                rest = &rest[at + 4..];
+            }
+        }
+        _ => {}
+    }
+}
+
+fn grant_urls_in(text: &str) {
     let mut rest = text;
     while let Some(at) = rest.to_ascii_lowercase().find("file://") {
         let after = &rest[at + 7..];
@@ -243,6 +267,19 @@ mod tests {
         assert_eq!(serve(&encoded(&secret), None, false).status, 403);
         grant_urls_in(&format!("background: url(\"file:///{}\")", encoded(&secret)));
         grant_urls_in(&format!("file:///{}", encoded(&secret)));
+        assert_eq!(serve(&encoded(&secret), None, false).status, 200);
+        let _ = std::fs::remove_file(secret);
+    }
+
+    #[test]
+    fn only_the_attributes_that_load_something_grant_a_path() {
+        let secret = file_of(b"secret", "from-a-title.txt");
+        let address = format!("file:///{}", encoded(&secret));
+        for name in ["title", "aria-label", "data-path", "value", "alt"] {
+            grant_attribute(name, &address);
+        }
+        assert_eq!(serve(&encoded(&secret), None, false).status, 403);
+        grant_attribute("style", &format!("background:url('{address}')"));
         assert_eq!(serve(&encoded(&secret), None, false).status, 200);
         let _ = std::fs::remove_file(secret);
     }

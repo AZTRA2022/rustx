@@ -227,7 +227,7 @@ impl Node {
         if name == "id" {
             PAGE_IDS.with(|held| held.borrow_mut().insert(value.to_string()));
         }
-        crate::files::grant_urls_in(value);
+        crate::files::grant_attribute(name, value);
         push(json!(["sa", self.id, name, value]));
         Ok(())
     }
@@ -253,7 +253,6 @@ impl Node {
     pub fn set_text_property(&self, name: &str, text: &str) -> Result<(), DomError> {
         self.alive()?;
         let ack = ACKS.with(|held| held.borrow().get(&self.id).copied().unwrap_or(0));
-        crate::files::grant_urls_in(text);
         push(json!(["sp", self.id, name, text, ack]));
         Ok(())
     }

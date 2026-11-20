@@ -169,6 +169,19 @@ fn fields() -> Element {
         .build()
 }
 
+/// Text a person or a file wrote, put in places that are not addresses: a
+/// path in it must not become readable by the page.
+fn texts() -> Element {
+    let path = std::env::var("PROBE_SECRET").unwrap_or_default();
+    let address = format!("file:///{}", path.replace('\\', "/").trim_start_matches('/'));
+    Element::tag("div")
+        .attribute("title", attr("title", &address).1)
+        .attribute("data-note", attr("data-note", &address).1)
+        .child(Element::tag("input").attribute("id", attr("id", "typed").1).attribute("value", attr("value", &address).1).build())
+        .child(Element::Text(address))
+        .build()
+}
+
 fn keyed() -> Element {
     let order: State<Vec<u32>> = cell(slot!(), || vec![1, 2, 3, 4]);
     let rotated = order.clone();
@@ -284,6 +297,7 @@ fn main() {
             "keyed" => keyed,
             "events" => events,
             "fields" => fields,
+            "texts" => texts,
             other => {
                 eprintln!("probe: no scenario `{other}`");
                 std::process::exit(2);
