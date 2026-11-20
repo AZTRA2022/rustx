@@ -2226,6 +2226,7 @@ dependencies = [
  "rustx-engine",
  "rustx-macro",
  "rustx-os",
+ "rustx-webview",
  "syn 2.0.119",
  "tokio",
 ]

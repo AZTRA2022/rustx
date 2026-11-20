@@ -6,9 +6,12 @@
 //! is an event, addressed to the node the host built. See [`dom`] and
 //! [`protocol`].
 
+mod app;
 pub mod assets;
 pub mod dom;
-mod foreign;
+pub mod dropped;
+mod error;
+pub mod foreign;
 pub mod frame;
 pub mod host;
 pub mod mount;
@@ -16,13 +19,19 @@ mod panics;
 pub mod policy;
 pub mod protocol;
 pub mod render;
+mod renderer;
+pub mod router;
 pub mod runtime;
 pub mod task;
 pub mod tree;
 mod value;
 pub mod watchdog;
+pub mod window;
 
+pub use app::{App, AppConfig, Bootstrap, bootstrap};
 pub use dom::{Document, DomError, Node};
+pub use error::EngineError;
 pub use frame::{PostError, Poster, on_frame, poster};
 pub use mount::{mount, mount_at_id};
+pub use renderer::{inject, on_context_created, register_native};
 pub use value::{NativeError, Value};

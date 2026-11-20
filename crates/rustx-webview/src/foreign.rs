@@ -14,6 +14,10 @@ thread_local! {
     static SAID: Cell<bool> = const { Cell::new(false) };
 }
 
+/// Let React mount a component of the application by `name`. Kept for the
+/// facade; React is not hosted yet, so nothing asks for it.
+pub fn register_component(_name: &str, _component: impl Fn() -> rustx_dom::Element + 'static) {}
+
 /// Hand a component to React. Says that it cannot, the first time.
 pub(crate) fn hand_over(node: &ForeignNode, _container: &Node) {
     if SAID.with(|said| said.replace(true)) {

@@ -43,6 +43,9 @@ pub struct Config {
     pub devtools: bool,
     /// Scripts the page runs before its own, after the interpreter.
     pub scripts: Vec<String>,
+    /// A document served at `entry` and at `/` instead of a file, for an
+    /// application whose assets have no `index.html`.
+    pub document: Option<String>,
 }
 
 /// How long the loop waits for a frame of its own before running one: the
@@ -61,6 +64,7 @@ impl Config {
             data_dir: default_data_dir(title),
             devtools: cfg!(debug_assertions),
             scripts: Vec::new(),
+            document: None,
         }
     }
 }
@@ -193,12 +197,21 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
     let policy = Rc::new(policy);
 
     let root = config.root.clone();
+    let (document, entry) = (config.document.clone(), config.entry.clone());
     let mut context = WebContext::new(config.data_dir.clone());
     let mut builder = WebViewBuilder::new_with_web_context(&mut context)
         .with_devtools(config.devtools)
         .with_initialization_script(INTERPRETER)
         .with_custom_protocol(config.scheme.clone(), move |_id, request| {
-            let served = serve(&root, request.uri().path());
+            let path = request.uri().path();
+            let served = match &document {
+                Some(page) if path == "/" || path == entry => crate::assets::Served {
+                    status: 200,
+                    mime: "text/html; charset=utf-8",
+                    body: page.clone().into_bytes(),
+                },
+                _ => serve(&root, path),
+            };
             Response::builder()
                 .status(served.status)
                 .header(CONTENT_TYPE, served.mime)
