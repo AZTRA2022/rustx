@@ -116,7 +116,11 @@ pub(crate) fn build_into(
 fn build_tag(document: &Document, tag: &TagElement) -> Result<(Node, MountedNode), DomError> {
     let node = document.create_element(&tag.tag)?;
 
-    for (name, value) in &tag.attributes {
+    // What a field *holds* is set last: a `<select>` has no option to choose
+    // before its children exist, and a range clamps `value` to the `min` and
+    // `max` it has so far. Written as `value` first, as people do, the field
+    // would otherwise show the first option and the default range.
+    for (name, value) in tag.attributes.iter().filter(|(name, _)| !is_a_property(name)) {
         set_attribute(&node, name, value)?;
     }
 
@@ -130,6 +134,9 @@ fn build_tag(document: &Document, tag: &TagElement) -> Result<(Node, MountedNode
     let mut children = Vec::new();
     for child in &tag.children {
         children.push(build_into(document, child, &node)?);
+    }
+    for (name, value) in tag.attributes.iter().filter(|(name, _)| is_a_property(name)) {
+        set_attribute(&node, name, value)?;
     }
 
     Ok((

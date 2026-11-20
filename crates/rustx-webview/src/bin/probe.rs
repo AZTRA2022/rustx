@@ -118,6 +118,57 @@ fn events() -> Element {
         .build()
 }
 
+/// Every kind of field, controlled from Rust, with `value` written before the
+/// attributes and children it depends on, as a developer writes it.
+fn fields() -> Element {
+    let select: State<String> = cell(slot!(), || "b".to_string());
+    let (chose, shown) = (select.clone(), select.get());
+    let number: State<String> = cell(slot!(), || "1.5".to_string());
+    let typed = number.clone();
+    let range: State<String> = cell(slot!(), || "150".to_string());
+    let dragged = range.clone();
+    let option = |name: &str| Element::tag("option").attribute("value", attr("value", name).1).child(Element::Text(name.to_string())).build();
+    let on = |state: State<String>, kind: &'static str| {
+        Handler::new(move |event| {
+            report(&format!("changed_{kind}"), &event.value);
+            state.set(event.value)
+        })
+    };
+    Element::tag("div")
+        .child(
+            Element::tag("select")
+                .attribute("id", attr("id", "sel").1)
+                .attribute("value", attr("value", &shown).1)
+                .handler("onChange", on(chose, "sel"))
+                .child(option("a"))
+                .child(option("b"))
+                .child(option("c"))
+                .build(),
+        )
+        .child(
+            Element::tag("input")
+                .attribute("id", attr("id", "rng").1)
+                .attribute("value", attr("value", &range.get()).1)
+                .attribute("type", attr("type", "range").1)
+                .attribute("min", attr("min", "0").1)
+                .attribute("max", attr("max", "200").1)
+                .handler("onInput", on(dragged, "rng"))
+                .build(),
+        )
+        .child(
+            Element::tag("input")
+                .attribute("id", attr("id", "num").1)
+                .attribute("type", attr("type", "number").1)
+                .attribute("value", attr("value", &number.get()).1)
+                .handler("onInput", on(typed, "num"))
+                .build(),
+        )
+        .child(Element::tag("input").attribute("id", attr("id", "chk").1).attribute("type", attr("type", "checkbox").1).attribute("checked", AttributeValue::Flag(true)).build())
+        .child(Element::tag("textarea").attribute("id", attr("id", "ta").1).attribute("value", attr("value", "one\r\ntwo").1).build())
+        .child(Element::tag("input").attribute("id", attr("id", "col").1).attribute("type", attr("type", "color").1).attribute("value", attr("value", "#ff8800").1).build())
+        .build()
+}
+
 fn keyed() -> Element {
     let order: State<Vec<u32>> = cell(slot!(), || vec![1, 2, 3, 4]);
     let rotated = order.clone();
@@ -232,6 +283,7 @@ fn main() {
             "echo" => echo,
             "keyed" => keyed,
             "events" => events,
+            "fields" => fields,
             other => {
                 eprintln!("probe: no scenario `{other}`");
                 std::process::exit(2);

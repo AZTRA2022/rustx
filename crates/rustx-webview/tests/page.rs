@@ -399,3 +399,42 @@ fn a_form_submit_and_a_reload_do_not_throw_the_page_away() {
     assert_eq!(run.messages, vec!["marker_after_submit=alive submits=1 url="], "{}", run.stderr);
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn a_field_written_before_what_it_depends_on_still_shows_its_value() {
+    let root = folder(
+        "fields",
+        &page(
+            "await wait('col');
+             await sleep(300);
+             const live = (id) => document.getElementById(id);
+             say('select=' + live('sel').value);
+             say('range=' + live('rng').value);
+             say('number=' + live('num').value);
+             say('checked=' + live('chk').checked);
+             say('textarea=' + JSON.stringify(live('ta').value));
+             say('color=' + live('col').value);
+             // The user types '1.' into the number field: the field shows it, its value is empty.
+             live('num').focus(); live('num').select();
+             document.execCommand('insertText', false, '2.');
+             await sleep(400);
+             say('typed_number_shows=' + live('num').validity.badInput + '/' + live('num').value);
+             // And chooses another option.
+             live('sel').value = 'c';
+             live('sel').dispatchEvent(new Event('change', { bubbles: true }));
+             await sleep(400);
+             say('select_after=' + live('sel').value);",
+        ),
+    );
+    let run = probe(&root, &["--scenario", "fields", "--seconds", "6"], &[]);
+    eprintln!("FIELDS: {:?}", run.messages);
+    assert_eq!(
+        run.messages[..6],
+        ["select=b", "range=150", "number=1.5", "checked=true", "textarea=\"one\\ntwo\"", "color=#ff8800"],
+        "{} {:?}",
+        run.stderr,
+        run.messages
+    );
+    assert_eq!(run.messages[7], "select_after=c", "{:?}", run.messages);
+    let _ = std::fs::remove_dir_all(root);
+}
