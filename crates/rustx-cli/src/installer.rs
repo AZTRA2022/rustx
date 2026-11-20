@@ -277,10 +277,8 @@ pub fn inno_script(read: &build::Project, folder: &Path, binary: &str, pages: &P
          Name: \"english\"; MessagesFile: \"compiler:Default.isl\"\n\
          \n\
          [Files]\n\
-         ; The whole folder: the `.exe` starts itself as Chromium's\n\
-         ; helper processes and reads `libcef.dll`, the `.pak` files and\n\
-         ; `locales\\` from beside itself, so a file left out is a\n\
-         ; program that does not start.\n\
+         ; The whole folder: the `.exe` and its `assets\\`. The window is\n\
+         ; drawn by the WebView2 runtime the system already has.\n\
          Source: \"{source}\\*\"; DestDir: \"{{app}}\"; \
          Flags: recursesubdirs createallsubdirs ignoreversion\n\
          \n\
@@ -452,8 +450,7 @@ fn macos(read: &build::Project, folder: &Path, pages: &Pages) -> Made {
     }
 
     if let Some(identity) = std::env::var_os("RUSTX_SIGN_IDENTITY") {
-        // Deep, because the bundle holds the framework and the helper
-        // apps, and macOS refuses a bundle whose insides are unsigned.
+        // Deep, because macOS refuses a bundle whose insides are unsigned.
         match Command::new("codesign")
             .arg("--force")
             .arg("--deep")
@@ -642,9 +639,8 @@ pub fn install_script(read: &build::Project, binary: &str) -> String {
          \ticons=\"${{XDG_DATA_HOME:-$HOME/.local/share}}/icons/hicolor/256x256/apps\"\n\
          fi\n\
          \n\
-         # The whole folder: the binary starts itself as Chromium's\n\
-         # helper processes and reads libcef.so, the .pak files and\n\
-         # locales/ from beside itself.\n\
+         # The whole folder: the binary and its assets/. The window is\n\
+         # drawn by WebKitGTK, which the system provides.\n\
          mkdir -p \"$prefix\" \"$applications\" \"$icons\"\n\
          cp -R \"$here/.\" \"$prefix/\"\n\
          chmod +x \"$prefix/{binary}\"\n\
@@ -774,7 +770,7 @@ fn linux(read: &build::Project, folder: &Path, binary: &str, pages: &Pages) -> M
         maintainer: maintainer(&read.about.publisher),
         description: described(read),
         architecture: deb::architecture().to_string(),
-        depends: deb::CHROMIUM_NEEDS.to_string(),
+        depends: deb::WEBVIEW_NEEDS.to_string(),
         section: "utils".to_string(),
         homepage: String::new(),
         files,
