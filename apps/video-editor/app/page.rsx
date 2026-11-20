@@ -386,7 +386,7 @@ fn Picture() -> Element {
     // the same refusal again on every frame.
     let proxy = beside(&ffmpeg::proxy_name(&clip.media.path));
     if proxy.is_file() {
-        let paint = css_look(clip.look.clone());
+        let paint = format!("filter: {}{}", css_look(clip.look.clone()), clip.grade_css());
         return <video id="monitor" src={as_url(&proxy)} data-cmd={command.clone()}
             preload="auto" className="max-h-full max-w-full object-contain" style={paint}>
         </video>;
@@ -407,7 +407,7 @@ fn Picture() -> Element {
         </div>;
     }
 
-    let paint = css_look(clip.look.clone());
+    let paint = format!("filter: {}{}", css_look(clip.look.clone()), clip.grade_css());
     return <video id="monitor" src={as_url(&clip.media.path)} data-cmd={command.clone()}
         preload="auto" className="max-h-full max-w-full object-contain" style={paint}>
     </video>;
@@ -417,7 +417,7 @@ fn Picture() -> Element {
 // note at the top of this file for the two it cannot.
 fn css_look(look: String) -> String {
     match look.as_str() {
-        "bw" => "filter: grayscale(1)".to_string(),
+        "bw" => "grayscale(1) ".to_string(),
         _ => String::new(),
     }
 }
@@ -714,6 +714,13 @@ fn Effects() -> Element {
         </div>
 
         <div className="border-b border-line px-3 py-2">
+            <div className="pb-1.5 text-[10px] uppercase tracking-[0.14em] text-faint">Grade</div>
+            {GradeSlider("Brightness".to_string(), "brightness".to_string(), clip.brightness, -1.0, 1.0, index)}
+            {GradeSlider("Contrast".to_string(), "contrast".to_string(), clip.contrast, 0.0, 2.0, index)}
+            {GradeSlider("Saturation".to_string(), "saturation".to_string(), clip.saturation, 0.0, 3.0, index)}
+        </div>
+
+        <div className="border-b border-line px-3 py-2">
             <div className="pb-1.5 text-[10px] uppercase tracking-[0.14em] text-faint">Subtitle</div>
             <input id="subtitle" placeholder="burned in by ffmpeg" value={clip.subtitle.clone()}
                 onInput={move |event| set_subtitle(index, event.value.clone())}
@@ -726,6 +733,32 @@ fn Effects() -> Element {
             {OrderButton("trash".to_string(), "Remove".to_string(), "remove".to_string(), true, 0)}
         </div>
     </Card>;
+}
+
+// One grade control: a Radix slider (components/ui/slider.tsx) that Rust
+// owns. It is told its value on every render and says where the thumb went
+// as a list, which is how Radix writes it.
+fn GradeSlider(name: String, id: String, value: f64, low: f64, high: f64, index: usize) -> Element {
+    let key = id.clone();
+    return <label className="block pb-1.5">
+        <span className="flex items-baseline justify-between">
+            <span className="text-[10px] uppercase tracking-[0.14em] text-faint">{name}</span>
+            <span id={format!("{id}-value")} className="text-[11px] tabular-nums text-muted">{format!("{value:.2}")}</span>
+        </span>
+        <Slider id={id} value={vec![value]} min={low} max={high} step={0.05}
+            onValueChange={move |given: rustx::Value| {
+                // A library's prop is a value, and Radix passes a list.
+                let Some(now) = given.as_list().and_then(|list| list.first()).and_then(|first| first.as_f64()) else {
+                    return;
+                };
+                let which = key.clone();
+                edit(index, move |clip| match which.as_str() {
+                    "brightness" => clip.brightness = now,
+                    "contrast" => clip.contrast = now,
+                    _ => clip.saturation = now,
+                });
+            }} />
+    </label>;
 }
 
 // Warm and cool are `colortemperature`, and CSS has nothing that does

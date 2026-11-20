@@ -72,6 +72,43 @@
       report("zoom", (wide / document.querySelector("#track-scroll").clientWidth).toFixed(2));
     },
 
+    // Move a Radix slider with the keyboard, which is how its own tests do it,
+    // and read what Rust made of it.
+    async grade(path) {
+      await importClip(path);
+      const thumb = await wait("#brightness [role=slider], [id=brightness] [role=slider], [role=slider]");
+      const readout = () => document.querySelector("#brightness-value")?.textContent;
+      report("brightness_start", readout());
+      thumb.focus();
+      for (let i = 0; i < 4; i++) {
+        thumb.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+        await sleep(120);
+      }
+      await sleep(500);
+      report("brightness_after", readout());
+      report("thumb_after", thumb.getAttribute("aria-valuenow"));
+      const monitor = document.querySelector("#monitor");
+      report("monitor_style_attribute", monitor ? monitor.getAttribute("style") : "no monitor");
+      report("monitor_css", monitor?.style.filter || "");
+    },
+
+    // Four key presses before Rust has answered any of them: a drag is faster
+    // than the round trip, and a controlled component reads the value it was
+    // last given.
+    async grade_burst(path) {
+      await importClip(path);
+      const thumb = await wait("[role=slider]");
+      thumb.focus();
+      // One task each, a few milliseconds apart: faster than the host's answer,
+      // slower than a single task, which no user can produce.
+      for (let i = 0; i < 4; i++) {
+        thumb.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+        await sleep(4);
+      }
+      await sleep(900);
+      report("burst_brightness", document.querySelector("#brightness-value")?.textContent);
+    },
+
     // Import a file by its path, and play it.
     async import(path) {
       const video = await importClip(path);
@@ -87,6 +124,7 @@
 
   const [name, ...rest] = scenario.split(":");
   (async () => {
+    report("started", name);
     try {
       if (scenarios[name]) await scenarios[name](rest.join(":"));
       else report("error", "no scenario " + name);

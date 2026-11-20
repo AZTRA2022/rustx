@@ -77,6 +77,7 @@ fn an_event_crosses_as_a_record_and_comes_back_whole() {
         delta_x: 5.0,
         delta_y: -120.0,
         current_id: "timeline".to_string(),
+        numbers: vec![0.2, 40.0],
     };
     assert_eq!(Event::from_value(&event.as_value()), event);
 }

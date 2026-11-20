@@ -41,6 +41,21 @@ fn the_timeline_follows_the_pointer_and_zooms_with_the_wheel() {
 }
 
 #[test]
+fn a_radix_slider_owned_by_rust_moves_the_grade() {
+    let Some(file) = clip("grade.mp4") else {
+        eprintln!("ffmpeg is not installed: skipped");
+        return;
+    };
+    let report = scenario(&format!("grade:{}", file.display()));
+    assert_eq!(report.get("brightness_start"), "0.00", "{}", report.raw());
+    // Four steps of a twentieth.
+    assert_eq!(report.get("brightness_after"), "0.20", "{}", report.raw());
+    assert_eq!(report.get("thumb_after"), "0.2", "{}", report.raw());
+    assert!(report.get("monitor_css").contains("brightness(1.2"), "{}", report.raw());
+    let _ = std::fs::remove_dir_all(file.parent().expect("a folder"));
+}
+
+#[test]
 fn an_imported_clip_decodes_and_plays() {
     let Some(file) = clip("clip one.mp4") else {
         eprintln!("ffmpeg is not installed: skipped");
@@ -51,5 +66,16 @@ fn an_imported_clip_decodes_and_plays() {
     assert_eq!(report.get("decodes"), "true", "{}", report.raw());
     assert_eq!(report.get("duration"), "3.0", "{}", report.raw());
     assert_eq!(report.get("played"), "true", "{}", report.raw());
+    let _ = std::fs::remove_dir_all(file.parent().expect("a folder"));
+}
+
+#[test]
+fn a_burst_of_slider_steps_is_not_collapsed_by_the_round_trip() {
+    let Some(file) = clip("burst.mp4") else {
+        eprintln!("ffmpeg is not installed: skipped");
+        return;
+    };
+    let report = scenario(&format!("grade_burst:{}", file.display()));
+    assert_eq!(report.get("burst_brightness"), "0.20", "{}", report.raw());
     let _ = std::fs::remove_dir_all(file.parent().expect("a folder"));
 }

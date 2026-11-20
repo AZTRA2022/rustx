@@ -352,6 +352,9 @@ pub struct Event {
     /// `event.currentTarget.id`: the element the handler is on, where `id`
     /// is the one inside it that was hit.
     pub current_id: String,
+    /// What a library passed as a list of numbers, a slider's `[0.2]` or a
+    /// range's `[10, 40]`, which has no `value` to put it in.
+    pub numbers: Vec<f64>,
 }
 
 impl Event {
@@ -394,6 +397,10 @@ impl Event {
             ("delta_x".to_string(), Value::Number(self.delta_x)),
             ("delta_y".to_string(), Value::Number(self.delta_y)),
             ("current_id".to_string(), Value::String(self.current_id.clone())),
+            (
+                "numbers".to_string(),
+                Value::List(self.numbers.iter().map(|each| Value::Number(*each)).collect()),
+            ),
         ])
     }
 
@@ -432,6 +439,11 @@ impl Event {
                 delta_x: number("delta_x"),
                 delta_y: number("delta_y"),
                 current_id: text("current_id"),
+                numbers: value
+                    .get("numbers")
+                    .and_then(|held| held.as_list())
+                    .map(|list| list.iter().filter_map(Value::as_f64).collect())
+                    .unwrap_or_default(),
                 kind: text("kind"),
                 value: text("value"),
                 id: text("id"),
@@ -448,8 +460,18 @@ impl Event {
             },
             Value::Number(number) => Self {
                 value: format!("{number}"),
+                numbers: vec![*number],
                 ..Default::default()
             },
+            // A list of numbers is `numbers`; `value` is the first, as text.
+            Value::List(list) => {
+                let numbers: Vec<f64> = list.iter().filter_map(Value::as_f64).collect();
+                Self {
+                    value: list.first().map(|first| first.as_str().map(str::to_string).unwrap_or_else(|| numbers.first().map(|n| format!("{n}")).unwrap_or_default())).unwrap_or_default(),
+                    numbers,
+                    ..Default::default()
+                }
+            }
             Value::Bool(whether) => Self {
                 checked: *whether,
                 value: whether.to_string(),

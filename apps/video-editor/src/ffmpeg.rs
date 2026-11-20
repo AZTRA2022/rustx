@@ -164,6 +164,11 @@ pub struct Clip {
     /// A key of [`look_filter`].
     pub look: String,
     pub subtitle: String,
+    /// The grade: `eq` in ffmpeg, `brightness()`, `contrast()` and
+    /// `saturate()` in the monitor. Unchanged is 0, 1 and 1.
+    pub brightness: f64,
+    pub contrast: f64,
+    pub saturation: f64,
 }
 
 impl Clip {
@@ -181,7 +186,35 @@ impl Clip {
             end,
             look: "none".to_string(),
             subtitle: String::new(),
+            brightness: 0.0,
+            contrast: 1.0,
+            saturation: 1.0,
         }
+    }
+
+    /// ffmpeg's `eq` for this clip's grade, or `None` when it is untouched.
+    pub fn grade_filter(&self) -> Option<String> {
+        let unchanged = self.brightness.abs() < 1e-9
+            && (self.contrast - 1.0).abs() < 1e-9
+            && (self.saturation - 1.0).abs() < 1e-9;
+        (!unchanged).then(|| {
+            format!(
+                "eq=brightness={:.2}:contrast={:.2}:saturation={:.2}",
+                self.brightness, self.contrast, self.saturation
+            )
+        })
+    }
+
+    /// The same grade as the CSS of the monitor. `eq`'s brightness adds to
+    /// the picture and CSS's multiplies it, so the two agree closely and not
+    /// exactly: the monitor is a preview, the render is the result.
+    pub fn grade_css(&self) -> String {
+        format!(
+            "brightness({:.2}) contrast({:.2}) saturate({:.2})",
+            1.0 + self.brightness,
+            self.contrast,
+            self.saturation
+        )
     }
 
     /// How long this clip is after its trim.
@@ -314,10 +347,13 @@ pub fn frame_arguments(clip: &Clip, at: f64, out: &Path) -> Vec<String> {
         "-frames:v".to_string(),
         "1".to_string(),
     ];
-    let look = look_filter(&clip.look);
-    if !look.is_empty() {
+    let chain: Vec<String> = [Some(look_filter(&clip.look).to_string()).filter(|look| !look.is_empty()), clip.grade_filter()]
+        .into_iter()
+        .flatten()
+        .collect();
+    if !chain.is_empty() {
         arguments.push("-vf".to_string());
-        arguments.push(look.to_string());
+        arguments.push(chain.join(","));
     }
     arguments.push("-q:v".to_string());
     arguments.push("4".to_string());
@@ -490,6 +526,10 @@ pub fn plan(
         if !look.is_empty() {
             video.push(',');
             video.push_str(look);
+        }
+        if let Some(grade) = clip.grade_filter() {
+            video.push(',');
+            video.push_str(&grade);
         }
         // After the look, not before: `format=gray` is how black and
         // white is done, and the concat filter wants every input in the
@@ -975,6 +1015,21 @@ mod tests {
         assert!(line.contains("concat=n=2:v=1:a=0[v]"), "{line}");
         assert!(!line.contains("[a]"), "{line}");
         assert!(!line.contains("-c:a"), "{line}");
+    }
+
+    #[test]
+    fn a_grade_is_in_the_graph_and_in_the_frame_and_absent_when_untouched() {
+        let mut one = clip("a.mp4", 1280, true);
+        assert_eq!(one.grade_filter(), None);
+        let plain = plan(&[one.clone()], Path::new("out.mp4"), Path::new("subs"), None).expect("renderable");
+        assert!(!plain.arguments.join(" ").contains("eq="));
+        one.brightness = 0.25;
+        one.saturation = 1.5;
+        assert_eq!(one.grade_filter().as_deref(), Some("eq=brightness=0.25:contrast=1.00:saturation=1.50"));
+        let graded = plan(&[one.clone()], Path::new("out.mp4"), Path::new("subs"), None).expect("renderable");
+        assert!(graded.arguments.join(" ").contains("eq=brightness=0.25:contrast=1.00:saturation=1.50,format=yuv420p"));
+        assert!(frame_arguments(&one, 1.0, Path::new("f.jpg")).join(" ").contains("-vf eq=brightness=0.25"));
+        assert_eq!(one.grade_css(), "brightness(1.25) contrast(1.00) saturate(1.50)");
     }
 
     #[test]
