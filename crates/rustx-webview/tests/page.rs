@@ -549,3 +549,31 @@ fn closing_the_window_drops_what_the_components_own() {
     let _ = std::fs::remove_file(place);
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn the_engine_keeps_the_promises_the_old_one_was_tested_for() {
+    // A thousand rows with one changing, ten thousand posted updates, and a
+    // released component: no page script, the host measures itself.
+    let root = folder("engine", &page("await wait('app'); await sleep(8000);"));
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_probe"))
+        .arg("--root")
+        .arg(&root)
+        .args(["--scenario", "engine", "--seconds", "12"])
+        .output()
+        .expect("the probe runs");
+    let text = String::from_utf8_lossy(&output.stdout).to_string();
+    let read = |key: &str| -> u64 {
+        text.lines()
+            .find_map(|line| line.strip_prefix(&format!("REPORT {key}=")))
+            .and_then(|value| value.trim().parse().ok())
+            .unwrap_or_else(|| panic!("no {key}:\n{text}\n{}", String::from_utf8_lossy(&output.stderr)))
+    };
+    assert_eq!(read("engine_one_row_patches"), 1, "{text}");
+    assert!(read("engine_first_render_ms") < 2000, "{text}");
+    assert!(read("engine_one_row_micros") < 50_000, "{text}");
+    assert_eq!(read("engine_posted_total"), 10_000, "{text}");
+    let renders = read("engine_renders_for_posts") - read("engine_renders_before_posts");
+    assert!(renders < 500, "ten thousand updates caused {renders} renders:\n{text}");
+    assert_eq!(read("engine_drops_after_unmount"), 1, "{text}");
+    let _ = std::fs::remove_dir_all(root);
+}

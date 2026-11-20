@@ -199,6 +199,126 @@ fn owner() -> Element {
     Element::tag("div").attribute("id", attr("id", "owner").1).build()
 }
 
+/// The old engine's parity checks that need no page: a thousand rows with one
+/// changing, ten thousand posted updates, and a component that is released.
+/// Everything is reported as `engine_*`, then `engine_done`.
+fn engine() {
+    use rustx_webview::render::{last_render, mount_app, renders, unmount};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    thread_local! {
+        static ROWS: RefCell<Option<State<Vec<u32>>>> = const { RefCell::new(None) };
+        static COUNT: RefCell<Option<State<u64>>> = const { RefCell::new(None) };
+    }
+    static DROPS: AtomicU64 = AtomicU64::new(0);
+    struct Guard;
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            DROPS.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    let heavy = || {
+        let rows: State<Vec<u32>> = cell(slot!(), || (0..1000).collect());
+        ROWS.with(|held| *held.borrow_mut() = Some(rows.clone()));
+        let mut list = Element::tag("ul").attribute("id", attr("id", "rows").1);
+        for (at, value) in rows.get().into_iter().enumerate() {
+            list = list.child(
+                Element::tag("li")
+                    .key(at.to_string())
+                    .child(Element::Text(format!("row {value}")))
+                    .build(),
+            );
+        }
+        list.build()
+    };
+    let counter = || {
+        let count: State<u64> = cell(slot!(), || 0);
+        COUNT.with(|held| *held.borrow_mut() = Some(count.clone()));
+        Element::tag("span").attribute("id", attr("id", "n").1).child(Element::Text(count.get().to_string())).build()
+    };
+    let owned = || {
+        let _guard: State<Option<Rc<Guard>>> = cell(slot!(), || Some(Rc::new(Guard)));
+        Element::tag("i").build()
+    };
+
+    let step = std::cell::Cell::new(0u32);
+    rustx_webview::on_frame(move || {
+        if rustx_webview::Document::current().is_none() {
+            return;
+        }
+        match step.get() {
+            0 => {
+                let started = std::time::Instant::now();
+                mount_app(heavy, "app").expect("mounts");
+                report("engine_first_render_ms", &started.elapsed().as_millis().to_string());
+                step.set(1);
+            }
+            1 => {
+                // One row of a thousand changes.
+                ROWS.with(|held| held.borrow().as_ref().expect("mounted").update(|rows| rows[500] = 9999));
+                step.set(2);
+            }
+            2 => {
+                let (micros, patches) = last_render();
+                report("engine_one_row_patches", &patches.to_string());
+                report("engine_one_row_micros", &micros.to_string());
+                step.set(3);
+            }
+            3 => {
+                let _ = unmount("app");
+                mount_app(counter, "app").expect("mounts");
+                let before = renders();
+                report("engine_renders_before_posts", &before.to_string());
+                // Ten thousand increments from four threads, handed to the loop.
+                let poster = rustx_webview::poster();
+                let done = Arc::new(AtomicU64::new(0));
+                for _ in 0..4 {
+                    let (poster, done) = (poster.clone(), Arc::clone(&done));
+                    std::thread::spawn(move || {
+                        for _ in 0..2500 {
+                            let _ = poster.post(|| {
+                                COUNT.with(|held| held.borrow().as_ref().expect("mounted").update(|n| *n += 1))
+                            });
+                        }
+                        done.fetch_add(1, Ordering::SeqCst);
+                    });
+                }
+                DONE.with(|held| *held.borrow_mut() = Some(done));
+                step.set(4);
+            }
+            4 => {
+                let finished = DONE.with(|held| held.borrow().as_ref().is_some_and(|d| d.load(Ordering::SeqCst) == 4));
+                let count = COUNT.with(|held| held.borrow().as_ref().map(|c| c.get()).unwrap_or(0));
+                if finished && count == 10_000 {
+                    report("engine_posted_total", &count.to_string());
+                    report("engine_renders_for_posts", &renders().to_string());
+                    step.set(5);
+                }
+            }
+            5 => {
+                let _ = unmount("app");
+                mount_app(owned, "app").expect("mounts");
+                step.set(6);
+            }
+            6 => {
+                let _ = unmount("app");
+                report("engine_drops_after_unmount", &DROPS.load(Ordering::SeqCst).to_string());
+                report("engine_done", "1");
+                step.set(7);
+            }
+            _ => {}
+        }
+    });
+}
+
+thread_local! {
+    static DONE: std::cell::RefCell<Option<std::sync::Arc<std::sync::atomic::AtomicU64>>> = const { std::cell::RefCell::new(None) };
+}
+use std::sync::Arc;
+
 fn keyed() -> Element {
     let order: State<Vec<u32>> = cell(slot!(), || vec![1, 2, 3, 4]);
     let rotated = order.clone();
@@ -307,6 +427,8 @@ fn main() {
             Ok(Value::Null)
         });
         config.scripts = vec![rustx_webview::natives_script()];
+    } else if scenario.as_deref() == Some("engine") {
+        engine();
     } else if let Some(name) = scenario {
         let component: fn() -> Element = match name.as_str() {
             "counter" => counter,
