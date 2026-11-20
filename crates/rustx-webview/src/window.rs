@@ -5,6 +5,7 @@
 
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
+use rustx_os::window::Dressing;
 
 /// What an application says it is.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -50,10 +51,130 @@ pub fn icon() -> Option<PathBuf> {
         .clone()
 }
 
+/// What a second window is before it exists. It is a process of its own,
+/// as every window was on the CEF engine, so it has its own state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct What {
+    pub name: String,
+    pub title: String,
+    pub width: u32,
+    pub height: u32,
+    /// The route it opens on.
+    pub at: String,
+    pub dressing: Dressing,
+}
+
+impl What {
+    pub fn new(name: impl Into<String>) -> Self {
+        let name = name.into();
+        Self {
+            title: name.clone(),
+            name,
+            width: 900,
+            height: 640,
+            at: "/".to_string(),
+            dressing: Dressing::System,
+        }
+    }
+    pub fn titled(mut self, title: impl Into<String>) -> Self {
+        self.title = title.into();
+        self
+    }
+    pub fn size(mut self, width: u32, height: u32) -> Self {
+        self.width = width;
+        self.height = height;
+        self
+    }
+    pub fn at(mut self, route: impl Into<String>) -> Self {
+        self.at = route.into();
+        self
+    }
+    /// Without the system's frame: the page draws it, and [`drag`] moves the window.
+    pub fn frameless(mut self) -> Self {
+        self.dressing = Dressing::None;
+        self
+    }
+}
+
+/// An open window, by name. Dropping it does not close it: a handler opens
+/// one and returns. [`Window::close`] does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Window {
+    name: String,
+}
+
+impl Window {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Close the window. The process behind it ends when its pipe does.
+    pub fn close(&self) {
+        children().with(|held| held.borrow_mut().remove(&self.name));
+    }
+}
+
+const ARGUMENT: &str = "--rustx-window=";
+
+thread_local! {
+    static CHILDREN: std::cell::RefCell<std::collections::HashMap<String, std::process::Child>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+fn children() -> &'static std::thread::LocalKey<
+    std::cell::RefCell<std::collections::HashMap<String, std::process::Child>>,
+> {
+    &CHILDREN
+}
+
+/// A route as the router writes it, whatever was typed.
+fn route(asked: &str) -> String {
+    let trimmed = asked.trim();
+    match trimmed {
+        "" => "/".to_string(),
+        _ if trimmed.starts_with('/') => trimmed.to_string(),
+        _ => format!("/{trimmed}"),
+    }
+}
+
+/// Open a second window: this executable again, told what to show. It
+/// stays open while the pipe on its input does, so it goes with this
+/// process, and with [`Window::close`].
+pub fn open(what: What) -> Result<Window, crate::error::EngineError> {
+    let name = what.name.clone();
+    if children().with(|held| held.borrow_mut().get_mut(&name).is_some_and(|child| child.try_wait().ok().flatten().is_none())) {
+        return Ok(Window { name });
+    }
+    let spec = serde_json::json!({
+        "title": what.title, "width": what.width, "height": what.height,
+        "at": route(&what.at), "frameless": what.dressing == Dressing::None,
+    });
+    let child = std::env::current_exe()
+        .and_then(|exe| {
+            std::process::Command::new(exe)
+                .arg(format!("{ARGUMENT}{spec}"))
+                .stdin(std::process::Stdio::piped())
+                .spawn()
+        })
+        .map_err(|error| crate::error::EngineError::EngineInit(format!("could not open a window: {error}")))?;
+    children().with(|held| held.borrow_mut().insert(name.clone(), child));
+    Ok(Window { name })
+}
+
+/// What this process was told to be, when it is a second window.
+pub(crate) fn asked() -> Option<serde_json::Value> {
+    static SPEC: std::sync::OnceLock<Option<serde_json::Value>> = std::sync::OnceLock::new();
+    SPEC.get_or_init(|| {
+        std::env::args()
+            .find_map(|arg| arg.strip_prefix(ARGUMENT).map(str::to_string))
+            .and_then(|text| serde_json::from_str(&text).ok())
+    })
+    .clone()
+}
+
 /// The route this window was opened on, when it is not the first one.
-/// The first window has none.
 pub fn page_asked_for() -> Option<String> {
-    None
+    asked()?.get("at")?.as_str().map(str::to_string)
 }
 
 /// Give the window an order.
@@ -67,7 +188,7 @@ macro_rules! controls {
     };
 }
 
-use rustx_os::window::{Dressing, Order, Spread, Switchable};
+use rustx_os::window::{Order, Spread, Switchable};
 
 controls! {
     /// Remove the system's frame: the page draws everything, and [`drag`] moves the window.
@@ -86,4 +207,22 @@ controls! {
     drag() => Order::Drag;
     /// Close the window.
     shut() => Order::Close;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_route_is_written_the_way_the_router_writes_it() {
+        assert_eq!(route(""), "/");
+        assert_eq!(route("pause"), "/pause");
+        assert_eq!(route(" /a/b "), "/a/b");
+    }
+
+    #[test]
+    fn a_window_is_framed_until_it_says_otherwise() {
+        assert_eq!(What::new("x").dressing, Dressing::System);
+        assert_eq!(What::new("x").frameless().dressing, Dressing::None);
+    }
 }

@@ -70,12 +70,31 @@ impl App {
         config.size = (self.config.width, self.config.height);
         config.entry = self.config.entry.clone();
         config.document = self.config.document.clone();
+        config.decorations = self.config.dressing == rustx_os::window::Dressing::System;
+        let mut hooks = Hooks::default();
+        if let Some(spec) = crate::window::asked() {
+            // A second window: what it was told to be, and gone with its parent.
+            if let Some(title) = spec["title"].as_str() {
+                config.title = title.to_string();
+            }
+            if let (Some(width), Some(height)) = (spec["width"].as_u64(), spec["height"].as_u64()) {
+                config.size = (width as u32, height as u32);
+            }
+            config.decorations = spec["frameless"] != true;
+            hooks.on_start = Box::new(|control| {
+                let control = control.clone();
+                std::thread::spawn(move || {
+                    let _ = std::io::copy(&mut std::io::stdin(), &mut std::io::sink());
+                    control.exit();
+                });
+            });
+        }
         // Natives first: an injected script may call one at once.
         config.scripts = vec![crate::renderer::natives_script()];
         config.scripts.extend(crate::renderer::scripts());
 
         // `run` returns only an error: `Ok` holds an `Infallible`.
-        let Err(error) = crate::host::run(config, Hooks::default());
+        let Err(error) = crate::host::run(config, hooks);
         Err(EngineError::EngineInit(error.to_string()))
     }
 }

@@ -41,6 +41,8 @@ pub struct Config {
     /// [`default_data_dir`] for an installed application.
     pub data_dir: Option<PathBuf>,
     pub devtools: bool,
+    /// The system's frame around the window.
+    pub decorations: bool,
     /// Scripts the page runs before its own, after the interpreter.
     pub scripts: Vec<String>,
     /// A document served at `entry` and at `/` instead of a file, for an
@@ -63,6 +65,7 @@ impl Config {
             allow: Vec::new(),
             data_dir: default_data_dir(title),
             devtools: cfg!(debug_assertions),
+            decorations: true,
             scripts: Vec::new(),
             document: None,
         }
@@ -235,6 +238,7 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(event_loop.create_proxy());
     let window = WindowBuilder::new()
         .with_title(&config.title)
+        .with_decorations(config.decorations)
         .with_inner_size(LogicalSize::new(config.size.0, config.size.1))
         .build(&event_loop)
         .map_err(|error| HostError(format!("could not open the window: {error}")))?;
@@ -293,6 +297,14 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
                 }
             }
         })
+        .with_drag_drop_handler(|event| {
+            if let wry::DragDropEvent::Drop { paths, .. } = event {
+                crate::dropped::landed(paths);
+                wake();
+            }
+            // The page's own `ondrop` runs as well.
+            false
+        })
         .with_navigation_handler({
             let (policy, hooks) = (Rc::clone(&policy), Rc::clone(&hooks));
             move |url| {
@@ -346,6 +358,8 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
             .map_err(|error| HostError(format!("could not start the webview: {error}")))?
     };
 
+    // This thread draws now: a call that waits, made here, says so.
+    rustx_os::blocking::draws_here();
     (hooks.on_start)(&control);
 
     event_loop.run(move |event, _, flow| {

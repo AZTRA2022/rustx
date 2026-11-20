@@ -26,3 +26,7 @@ Release probe, Windows: 0.91 MB executable, PE subsystem 2 (no console), window 
 ## Phases 3 to 5 closed
 
 Delivered as a remote DOM (ops with node ids, one batch per frame) instead of `applier.js` patches; natives are a synchronous XHR to the host's custom protocol, answered `{ok}` or `{err}`; the React boundary passes props as JSON with `{"__rustx_cb": id}` for functions, ids stable per place. Verified: counter 4/4, hybrid 9/9 on the webview engine. Known limits: a callback's return value does not cross; a slow native freezes the page; `text`, `attribute`, `tag_name`, `query_selector` and `count_matching` answer a typed `DomError` on this engine. Still open: click-to-paint on both engines (`baseline.md`).
+
+## Phase 6 closed
+
+Controls are orders carried out on tao's window (not `Pane::from_handle`): tested on Windows (fullscreen, restore, close); macOS and Linux are the same tao calls, not run here. Dropped files come from wry's drag-drop handler with real paths (unit-tested, not driven by a real drop). A second window is a child process of the same executable (`--rustx-window=<json>`), as every window was a render process on CEF; it ends when its stdin pipe closes, so it goes with its parent or `Window::close`. `rustx_os::blocking::draws_here()` is called by the host. `on_frame` in video-editor and a manual run of monitor's second window are still to be observed.
