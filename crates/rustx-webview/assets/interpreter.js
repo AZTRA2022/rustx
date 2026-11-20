@@ -154,6 +154,16 @@
     };
   }
 
+  // Events that come in bursts, held until the next frame.
+  const BURSTS = new Set(["mousemove", "pointermove", "wheel", "scroll", "drag", "dragover", "touchmove"]);
+  const pending = new Map();
+  let scheduled = false;
+  function flush() {
+    scheduled = false;
+    for (const message of pending.values()) post(message);
+    pending.clear();
+  }
+
   const isField = (node) => /^(INPUT|TEXTAREA|SELECT)$/.test(node.tagName || "");
 
   const commands = {
@@ -214,6 +224,25 @@
       const node = nodes.get(id);
       node.addEventListener(kind, (event) => {
         const message = { t: "event", node: id, name: kind, seq: 0, event: record(kind, event) };
+        // A pointer that moves or a wheel that turns fires faster than the
+        // host can answer, and each event is a message and a render. One per
+        // frame is sent, the last, with the turns of a wheel added up.
+        if (BURSTS.has(kind)) {
+          const key = id + ":" + kind;
+          const before = pending.get(key);
+          if (before && kind === "wheel") {
+            message.event.delta_x += before.event.delta_x;
+            message.event.delta_y += before.event.delta_y;
+          }
+          pending.set(key, message);
+          if (!scheduled) {
+            scheduled = true;
+            requestAnimationFrame(flush);
+          }
+          return;
+        }
+        // Whatever was waiting happened first.
+        flush();
         // A field's input is numbered, so the host can say which input a
         // value it sends back already includes.
         if (isField(node) && (kind === "input" || kind === "change")) {

@@ -502,3 +502,29 @@ fn after_a_reload_the_counter_is_drawn_again_and_still_answers_clicks() {
     assert_eq!(run.messages, vec!["before=2", "after_reload_first=0", "after_click=1"], "{}", run.stderr);
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn a_burst_of_wheel_and_move_events_is_one_message_per_frame_with_the_turns_added_up() {
+    let root = folder(
+        "burst",
+        &page(
+            "const box = await wait('box');
+             for (let i = 0; i < 20; i++) {
+               box.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 10 }));
+               box.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: i }));
+             }
+             await sleep(400);",
+        ),
+    );
+    let run = probe(&root, &["--scenario", "events", "--seconds", "5"], &[]);
+    let wheels: Vec<_> = run.reports.iter().filter(|(key, _)| key == "event_wheel").collect();
+    let downs = run.reports.iter().filter(|(key, _)| key == "event_mousedown").count();
+    // Every mousedown is kept and in order, so what waited before it is sent
+    // first: the wheel turns are split between them but none is lost.
+    let total: i64 = wheels
+        .iter()
+        .filter_map(|(_, value)| value.split("wheel=0,").nth(1)?.split(' ').next()?.parse::<i64>().ok())
+        .sum();
+    assert_eq!((downs, total), (20, 200), "{:?}", run.reports);
+    let _ = std::fs::remove_dir_all(root);
+}
