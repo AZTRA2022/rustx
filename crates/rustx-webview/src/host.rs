@@ -119,6 +119,16 @@ pub(crate) enum Command {
     Tick,
     /// An order for the window, carried out on the loop's thread.
     Window(rustx_os::window::Order),
+    /// A script for the page, from any thread.
+    Script(String),
+}
+
+/// Run `code` in the page, on the loop's thread.
+pub(crate) fn script(code: String) {
+    let held = proxy().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(proxy) = held.as_ref() {
+        let _ = proxy.send_event(Command::Script(code));
+    }
 }
 
 /// Give the window an order, from any thread.
@@ -390,6 +400,11 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
                 ..
             }
             | Event::UserEvent(Command::Exit) => *flow = ControlFlow::Exit,
+            Event::UserEvent(Command::Script(code)) => {
+                if let Err(error) = webview.evaluate_script(&code) {
+                    eprintln!("rustx: could not answer the page: {error}");
+                }
+            }
             Event::UserEvent(Command::Window(asked)) => {
                 if carry_out(&window, asked) {
                     *flow = ControlFlow::Exit;
@@ -465,10 +480,8 @@ fn handle(body: &str, hooks: &Hooks, control: &Control) {
             wake();
         }
         Ok(FromPage::Error { message }) => eprintln!("rustx: the page could not run a command: {message}"),
-        // Natives are called over the custom protocol, not this channel.
-        Ok(FromPage::Call { name, .. }) => {
-            eprintln!("rustx: `{name}` was called over IPC; natives are called with a request to {NATIVE_PATH}")
-        }
+        // An asynchronous native: the answer comes back as a script.
+        Ok(FromPage::Call { id, name, args }) => crate::renderer::call_async(id, &name, &args),
         Ok(FromPage::Callback { id, args }) => {
             crate::foreign::called(id, &args);
             wake();

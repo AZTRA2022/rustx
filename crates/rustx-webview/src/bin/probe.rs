@@ -181,6 +181,23 @@ fn main() {
         });
         register_native("fails", |_| Err(NativeError::new("it failed")));
         register_native("panics", |_| panic!("on purpose"));
+        rustx_webview::register_async_native("slow", |args| {
+            let again = args.first().cloned().unwrap_or(Value::Null);
+            async move {
+                tokio::time::sleep(Duration::from_millis(1500)).await;
+                Ok(again)
+            }
+        });
+        rustx_webview::register_async_native("slow_fails", |_| async {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            Err(NativeError::new("slow failure"))
+        });
+        rustx_webview::register_async_native("slow_panics", |_| async {
+            if true {
+                panic!("on purpose");
+            }
+            Ok(Value::Null)
+        });
         config.scripts = vec![rustx_webview::natives_script()];
     } else if let Some(name) = scenario {
         let component: fn() -> Element = match name.as_str() {

@@ -25,7 +25,7 @@ counter 4/4, hybrid 9/9, monitor 6/6, capture 7/7, zoo 6/6, catalogue 3/3, the r
 
 ## Changes of behaviour a user of the framework should know
 
-- A native call is a synchronous request to the host: the page waits, and a slow native freezes it.
+- `register_native` is a synchronous request to the host: the page waits, and a slow one freezes it. `register_async_native` answers with a promise and runs its future on the async runtime, so the window stays free (tested with a 1.5 s native while other natives and timers keep running).
 - A callback's return value does not cross to the JavaScript library.
 - `text`, `attribute`, `tag_name`, `query_selector` and `count_matching` answer a typed `DomError` instead of reading the page.
 - A second window is another process of the same executable, so it has its own state, as on CEF.

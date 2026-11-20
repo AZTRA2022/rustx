@@ -15,12 +15,19 @@ use crate::value::{NativeError, Value};
 /// The shape of a function the page can call.
 pub type NativeFn = dyn Fn(&[Value]) -> Result<Value, NativeError>;
 
+/// The future an asynchronous native returns. It runs on the async runtime,
+/// never on the window's thread, so it must be `Send`.
+pub type NativeFuture = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, NativeError>> + Send>>;
+
+type AsyncNativeFn = dyn Fn(&[Value]) -> NativeFuture;
+
 /// The prefix the engine keeps for itself.
 pub const RESERVED: &str = "__rustx_";
 
 thread_local! {
     static HOOKS: RefCell<Vec<Box<dyn Fn()>>> = const { RefCell::new(Vec::new()) };
     static NATIVES: RefCell<HashMap<String, Rc<NativeFn>>> = RefCell::new(HashMap::new());
+    static ASYNC_NATIVES: RefCell<HashMap<String, Rc<AsyncNativeFn>>> = RefCell::new(HashMap::new());
     static SCRIPTS: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
     static RAN: Cell<bool> = const { Cell::new(false) };
 }
@@ -63,6 +70,62 @@ pub fn register_native(
             .borrow_mut()
             .insert(name.to_string(), Rc::new(function))
     });
+}
+
+/// Make a Rust function callable from the page under `name`, answering with
+/// a promise. The closure runs at once on the window's thread and must only
+/// start the work: the future it returns runs on the async runtime, so a long
+/// one leaves the page and the window free, as a Server Action does.
+pub fn register_async_native<F, Fut>(name: &str, function: F)
+where
+    F: Fn(&[Value]) -> Fut + 'static,
+    Fut: std::future::Future<Output = Result<Value, NativeError>> + Send + 'static,
+{
+    if name.starts_with(RESERVED) {
+        eprintln!("rustx: `{name}` was not registered. Names beginning with `{RESERVED}` belong to the engine.");
+        return;
+    }
+    ASYNC_NATIVES.with(|natives| {
+        natives
+            .borrow_mut()
+            .insert(name.to_string(), Rc::new(move |args| Box::pin(function(args))))
+    });
+}
+
+/// Start the asynchronous native `name` for call `id`: the answer is sent to
+/// the page as a script once the future is done.
+pub(crate) fn call_async(id: u64, name: &str, args: &[Value]) {
+    let started = ASYNC_NATIVES.with(|natives| natives.borrow().get(name).cloned()).ok_or_else(|| {
+        format!("`{name}` is not an asynchronous function the application registered")
+    });
+    let mut future = None;
+    let started = started.and_then(|native| {
+        crate::panics::contain(&format!("the native `{name}`"), || future = Some(native(args)));
+        future.take().ok_or_else(|| format!("`{name}` panicked"))
+    });
+    let work = match started {
+        Ok(work) => work,
+        Err(message) => return settle(id, Err(message)),
+    };
+    let runtime = crate::runtime::handle();
+    runtime.clone().spawn(async move {
+        // A panic in the future ends its task, not the worker: it is the
+        // page's rejection.
+        let outcome = match runtime.spawn(work).await {
+            Ok(outcome) => outcome.map_err(|error| error.message),
+            Err(_) => Err("the native panicked".to_string()),
+        };
+        settle(id, outcome);
+    });
+}
+
+/// Tell the page how call `id` ended.
+fn settle(id: u64, outcome: Result<Value, String>) {
+    let (ok, value) = match outcome.and_then(|value| crate::protocol::value_to_json(&value, 0).map_err(|e| e.to_string())) {
+        Ok(value) => (true, value),
+        Err(message) => (false, serde_json::json!(message)),
+    };
+    crate::host::script(format!("window.__rustx.settle({id},{ok},{value})"));
 }
 
 /// Run the hooks, once. The hooks themselves are let go of before any is
@@ -152,7 +215,13 @@ pub(crate) fn scripts() -> Vec<String> {
 pub fn natives_script() -> String {
     let mut names: Vec<String> = NATIVES.with(|natives| natives.borrow().keys().cloned().collect());
     names.sort();
-    format!("window.__rustx && window.__rustx.natives({});", serde_json::json!(names))
+    let mut asynchronous: Vec<String> = ASYNC_NATIVES.with(|natives| natives.borrow().keys().cloned().collect());
+    asynchronous.sort();
+    format!(
+        "window.__rustx && window.__rustx.natives({}, {});",
+        serde_json::json!(names),
+        serde_json::json!(asynchronous)
+    )
 }
 
 /// Call the native `name`. A panic is an error the page can read, not a

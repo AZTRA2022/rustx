@@ -184,3 +184,44 @@ fn the_window_follows_the_orders_the_page_gives_it() {
     );
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn a_slow_asynchronous_native_leaves_the_page_and_the_window_free() {
+    let root = folder(
+        "slow",
+        &page(
+            "const started = performance.now();
+             const slow = window.slow(42);
+             // While it runs, the host still answers other natives and the
+             // page still runs its own timers.
+             let ticks = 0;
+             const timer = setInterval(() => ticks++, 50);
+             for (let i = 0; i < 3; i++) await sleep(100), window.add(i, 1);
+             const freeAfter = performance.now() - started;
+             say('free_while_pending=' + (freeAfter < 1000));
+             say('ticks_ran=' + (ticks >= 3));
+             say('slow=' + (await slow));
+             clearInterval(timer);
+             say('waited=' + (performance.now() - started >= 1400));
+             try { await window.slow_fails(); } catch (error) { say('rejected=' + error.message); }
+             try { await window.slow_panics(); } catch (error) { say('panic_rejected=yes'); }
+             say('still_alive=' + window.add(1, 2));",
+        ),
+    );
+    let run = probe(&root, &["--scenario", "natives", "--seconds", "8"], &[]);
+    assert_eq!(
+        run.messages,
+        vec![
+            "free_while_pending=true",
+            "ticks_ran=true",
+            "slow=42",
+            "waited=true",
+            "rejected=slow failure",
+            "panic_rejected=yes",
+            "still_alive=3",
+        ],
+        "{}",
+        run.stderr
+    );
+    let _ = std::fs::remove_dir_all(root);
+}

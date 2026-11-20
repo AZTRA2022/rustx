@@ -5,6 +5,8 @@
   if (window.top !== window || window.__rustx) return;
 
   const nodes = new Map(); // id -> DOM node
+  const waiting = new Map(); // call id -> {resolve, reject}
+  let calls = 0;
   const post = (message) => window.ipc.postMessage(JSON.stringify(message));
 
   // A node left the document: forget its id and the ids of everything
@@ -151,8 +153,18 @@
     // A native is a synchronous request to the host, so the function the
     // page gets answers with its value, or throws. Only the application's
     // own pages get them: arguments are never sent to another origin.
-    natives(names) {
+    natives(names, asynchronous) {
       if (location.origin !== window.__rustx_origin) return;
+      // An asynchronous native answers with a promise, and the page keeps
+      // running while the host works: the answer comes back to `settle`.
+      for (const name of asynchronous || []) {
+        window[name] = (...args) =>
+          new Promise((resolve, reject) => {
+            const id = ++calls;
+            waiting.set(id, { resolve, reject });
+            post({ t: "call", id, name, args: args.map((each) => wire(each, 0)) });
+          });
+      }
       for (const name of names) {
         window[name] = (...args) => {
           const request = new XMLHttpRequest();
@@ -163,6 +175,13 @@
           return answer.ok;
         };
       }
+    },
+    settle(id, ok, value) {
+      const call = waiting.get(id);
+      if (!call) return;
+      waiting.delete(id);
+      if (ok) call.resolve(value);
+      else call.reject(new Error(String(value)));
     },
     apply(ops) {
       for (const op of ops) {

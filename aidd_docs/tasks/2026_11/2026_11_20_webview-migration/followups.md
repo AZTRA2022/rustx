@@ -30,3 +30,7 @@ Delivered as a remote DOM (ops with node ids, one batch per frame) instead of `a
 ## Phase 6 closed
 
 Controls are orders carried out on tao's window (not `Pane::from_handle`): tested on Windows (fullscreen, restore, close); macOS and Linux are the same tao calls, not run here. Dropped files come from wry's drag-drop handler with real paths (unit-tested, not driven by a real drop). A second window is a child process of the same executable (`--rustx-window=<json>`), as every window was a render process on CEF; it ends when its stdin pipe closes, so it goes with its parent or `Window::close`. `rustx_os::blocking::draws_here()` is called by the host. `on_frame` in video-editor and a manual run of monitor's second window are still to be observed.
+
+## Slow natives
+
+A synchronous native froze the page and the window loop. `register_async_native` is the answer: the closure starts the work on the window thread, the returned `Send` future runs on tokio, and the result reaches the page as a promise through a script sent by the loop. Panics and errors reject. Synchronous natives stay, because the engine's own (`rustx_scenario`, `rustx_report`, `rustx_about`) and the pages' scripts read them as plain values.

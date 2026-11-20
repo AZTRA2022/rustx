@@ -77,9 +77,12 @@ Code in your own `.rsx` pages is never compiled to JavaScript. See
 - what only the window knows, such as the real path of a dropped file, and what
   only the window can do, such as obeying a window command.
 
-A native runs on the window thread while the page waits for it, so a slow native
-freezes the page for as long as it takes. Keep natives short and put long work
-in a task.
+A native registered with `register_native` runs on the window thread while the
+page waits for it, so a slow one freezes the page. Short answers are what it is
+for. For work that takes time, register it with `register_async_native`: the
+page gets a promise, the future runs on the async runtime, and the window keeps
+drawing and answering clicks until the promise settles, as with a Server Action
+awaited from a component.
 
 Two windows are two processes, so two separate states. The `let mut` at the
 top of a page is not shared between them.
