@@ -92,6 +92,32 @@ fn echo() -> Element {
         .build()
 }
 
+/// A box whose handlers say what the host was told about each event, so a
+/// test can check the whole payload with no application in the way.
+fn events() -> Element {
+    let said = |kind: &'static str| {
+        Handler::new(move |event| {
+            report(
+                &format!("event_{kind}"),
+                &format!(
+                    "x={} y={} local={},{} size={}x{} button={} wheel={},{} current={} target={} key={} value={}",
+                    event.x, event.y, event.local_x, event.local_y, event.width, event.height, event.button,
+                    event.delta_x, event.delta_y, event.current_id, event.id, event.key, event.value
+                ),
+            )
+        })
+    };
+    Element::tag("div")
+        .attribute("id", attr("id", "box").1)
+        .attribute("style", attr("style", "position:absolute;left:100px;top:50px;width:200px;height:80px").1)
+        .handler("onMouseDown", said("mousedown"))
+        .handler("onWheel", said("wheel"))
+        .handler("onContextMenu", said("contextmenu"))
+        .handler("onKeyDown", said("keydown"))
+        .child(Element::tag("span").attribute("id", attr("id", "inner").1).child(Element::Text("inner".to_string())).build())
+        .build()
+}
+
 fn keyed() -> Element {
     let order: State<Vec<u32>> = cell(slot!(), || vec![1, 2, 3, 4]);
     let rotated = order.clone();
@@ -205,6 +231,7 @@ fn main() {
             "counter" => counter,
             "echo" => echo,
             "keyed" => keyed,
+            "events" => events,
             other => {
                 eprintln!("probe: no scenario `{other}`");
                 std::process::exit(2);

@@ -343,3 +343,59 @@ fn a_file_nobody_granted_cannot_be_read_by_injected_markup() {
     let _ = std::fs::remove_dir_all(root);
     let _ = std::fs::remove_dir_all(place);
 }
+
+#[test]
+fn a_pointer_event_says_where_it_is_in_the_element_and_how_big_the_element_is() {
+    let root = folder(
+        "events",
+        &page(
+            "const box = await wait('box');
+             const inner = document.getElementById('inner');
+             // clientX 160, clientY 70 is 60,20 inside a box at 100,50.
+             inner.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 160, clientY: 70, button: 2 }));
+             await sleep(200);
+             box.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -120, deltaX: 5 }));
+             await sleep(200);
+             box.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'k' }));
+             await sleep(300);",
+        ),
+    );
+    let run = probe(&root, &["--scenario", "events", "--seconds", "5"], &[]);
+    let said = |kind: &str| {
+        run.reports
+            .iter()
+            .find(|(key, _)| key == &format!("event_{kind}"))
+            .map(|(_, value)| value.clone())
+            .unwrap_or_else(|| panic!("no {kind} event: {} {:?}", run.stderr, run.reports))
+    };
+    let down = said("mousedown");
+    assert!(down.contains("x=160 y=70 local=60,20 size=200x80 button=2"), "{down}");
+    assert!(down.contains("current=box target=inner"), "{down}");
+    assert!(said("wheel").contains("wheel=5,-120"), "{}", said("wheel"));
+    assert!(said("keydown").contains("key=k"), "{}", said("keydown"));
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_form_submit_and_a_reload_do_not_throw_the_page_away() {
+    // A submit navigates by default, and a navigation replaces the document
+    // the host holds node ids for. A marker on `window` survives only if the
+    // document does.
+    let root = folder(
+        "submit",
+        &page(
+            "window.marker = 'alive';
+             const form = document.createElement('form');
+             form.innerHTML = '<input name=q value=x><button id=go>go</button>';
+             document.body.appendChild(form);
+             let submitted = 0;
+             form.addEventListener('submit', () => submitted++);
+             document.getElementById('go').click();
+             await sleep(1200);
+             say('marker_after_submit=' + window.marker + ' submits=' + submitted + ' url=' + location.search);",
+        ),
+    );
+    let run = probe(&root, &["--scenario", "counter", "--seconds", "5"], &[]);
+    assert_eq!(run.messages, vec!["marker_after_submit=alive submits=1 url="], "{}", run.stderr);
+    let _ = std::fs::remove_dir_all(root);
+}

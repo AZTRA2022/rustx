@@ -369,6 +369,17 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
     for script in &config.scripts {
         builder = builder.with_initialization_script(script.clone());
     }
+    // The browser's own chrome is for development: reload, print, zoom, view
+    // source and the context menu would each break an application that is not
+    // a web page. Left on only where the devtools are.
+    builder = builder.with_hotkeys_zoom(config.devtools).with_back_forward_navigation_gestures(false);
+    #[cfg(windows)]
+    {
+        use wry::WebViewBuilderExtWindows;
+        builder = builder
+            .with_browser_accelerator_keys(config.devtools)
+            .with_default_context_menus(config.devtools);
+    }
 
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     let webview = builder.build(&window).map_err(|error| {

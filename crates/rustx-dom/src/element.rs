@@ -314,7 +314,7 @@ pub enum AttributeValue {
 /// `checked`. Empty rather than an `Option` for each, because a page
 /// that asks for the text of a field it knows is a field wants the
 /// text, not a choice to unwrap.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Event {
     /// `click`, `input`, `keydown` — the DOM's own name.
     pub kind: String,
@@ -333,6 +333,25 @@ pub struct Event {
     pub alt: bool,
     /// `Meta`: the Windows key, or `Cmd` on a Mac.
     pub meta: bool,
+    /// `event.clientX` and `clientY`: where the pointer is in the window.
+    pub x: f64,
+    pub y: f64,
+    /// The pointer relative to the element the handler is on, which is
+    /// what a timeline, a slider or a canvas wants: `local_x / width` is
+    /// how far along it the pointer is, with no read of the layout.
+    pub local_x: f64,
+    pub local_y: f64,
+    /// The size of the element the handler is on, when the event fired.
+    pub width: f64,
+    pub height: f64,
+    /// `event.button`: 0 main, 1 middle, 2 secondary.
+    pub button: i32,
+    /// `event.deltaX` and `deltaY` of a wheel.
+    pub delta_x: f64,
+    pub delta_y: f64,
+    /// `event.currentTarget.id`: the element the handler is on, where `id`
+    /// is the one inside it that was hit.
+    pub current_id: String,
 }
 
 impl Event {
@@ -365,6 +384,16 @@ impl Event {
             ("control".to_string(), Value::Bool(self.control)),
             ("alt".to_string(), Value::Bool(self.alt)),
             ("meta".to_string(), Value::Bool(self.meta)),
+            ("x".to_string(), Value::Number(self.x)),
+            ("y".to_string(), Value::Number(self.y)),
+            ("local_x".to_string(), Value::Number(self.local_x)),
+            ("local_y".to_string(), Value::Number(self.local_y)),
+            ("width".to_string(), Value::Number(self.width)),
+            ("height".to_string(), Value::Number(self.height)),
+            ("button".to_string(), Value::Number(f64::from(self.button))),
+            ("delta_x".to_string(), Value::Number(self.delta_x)),
+            ("delta_y".to_string(), Value::Number(self.delta_y)),
+            ("current_id".to_string(), Value::String(self.current_id.clone())),
         ])
     }
 
@@ -390,8 +419,19 @@ impl Event {
                 .and_then(|held| held.as_bool())
                 .unwrap_or(false)
         };
+        let number = |key: &str| value.get(key).and_then(|held| held.as_f64()).unwrap_or(0.0);
         match value {
             Value::Record(_) => Self {
+                x: number("x"),
+                y: number("y"),
+                local_x: number("local_x"),
+                local_y: number("local_y"),
+                width: number("width"),
+                height: number("height"),
+                button: number("button") as i32,
+                delta_x: number("delta_x"),
+                delta_y: number("delta_y"),
+                current_id: text("current_id"),
                 kind: text("kind"),
                 value: text("value"),
                 id: text("id"),

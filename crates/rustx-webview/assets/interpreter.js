@@ -29,8 +29,24 @@
   // What the host may know about an event: a short list, not the event.
   function record(kind, event) {
     const target = event.target || {};
+    // The element the handler is on: where the pointer is in it, and how big it is.
+    const at = event.currentTarget;
+    const box = at && at.getBoundingClientRect ? at.getBoundingClientRect() : null;
+    const number = (value) => (Number.isFinite(value) ? value : 0);
+    const x = number(event.clientX);
+    const y = number(event.clientY);
     return {
       kind,
+      x,
+      y,
+      local_x: box ? x - box.left : 0,
+      local_y: box ? y - box.top : 0,
+      width: box ? box.width : 0,
+      height: box ? box.height : 0,
+      button: number(event.button),
+      delta_x: number(event.deltaX),
+      delta_y: number(event.deltaY),
+      current_id: (at && at.id) || "",
       value: target.value === undefined || target.value === null ? "" : String(target.value),
       id: target.id || "",
       key: event.key || "",
@@ -124,6 +140,11 @@
       childList: true,
       subtree: true,
     });
+    // A form that submits replaces the document, and with it every node the
+    // host holds an id for. The handlers still run; the navigation does not.
+    // Rust cannot cancel it (its handler runs after a round trip), so it is
+    // decided here, once, for every form of the application's own pages.
+    document.addEventListener("submit", (event) => event.preventDefault());
     const fetched = window.fetch;
     window.fetch = (input, init) =>
       fetched.call(window, typeof input === "string" ? localUrl(input) : input instanceof URL ? localUrl(input.href) : input, init);

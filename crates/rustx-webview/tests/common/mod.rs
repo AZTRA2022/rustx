@@ -12,6 +12,8 @@ pub struct Run {
     pub messages: Vec<String>,
     pub opened: Vec<String>,
     pub done: bool,
+    /// Every other `REPORT key=value`, in order.
+    pub reports: Vec<(String, String)>,
     pub stderr: String,
     pub success: bool,
 }
@@ -65,6 +67,7 @@ pub fn probe(root: &Path, extra: &[&str], envs: &[(&str, &Path)]) -> Run {
         messages: Vec::new(),
         opened: Vec::new(),
         done: false,
+        reports: Vec::new(),
         stderr: errors.join().unwrap_or_default(),
         success: status.is_some_and(|status| status.success()),
     };
@@ -73,6 +76,7 @@ pub fn probe(root: &Path, extra: &[&str], envs: &[(&str, &Path)]) -> Run {
             Some(("message", value)) => run.messages.push(value.to_string()),
             Some(("opened", value)) => run.opened.push(value.to_string()),
             Some(("done", _)) => run.done = true,
+            Some((key, value)) => run.reports.push((key.to_string(), value.to_string())),
             _ => {}
         }
     }
