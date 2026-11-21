@@ -385,7 +385,10 @@ mod windows {
             }
             Err(why) => {
                 remove(folder)?;
-                say(&format!("{name} is removed. (The setup's window could not open: {why})"), "Setup");
+                say(
+                    &format!("{name} is removed. (The setup's window could not open: {why})"),
+                    "Setup",
+                );
                 Ok(())
             }
         }

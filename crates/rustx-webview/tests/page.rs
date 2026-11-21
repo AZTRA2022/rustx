@@ -802,7 +802,11 @@ fn a_window_that_remembers_comes_back_where_and_as_big_as_it_was_left() {
              say('still_open=yes');",
         ),
     );
-    let run = probe(&first, &["--scenario", "controls", "--seconds", "20"], &envs);
+    let run = probe(
+        &first,
+        &["--scenario", "controls", "--seconds", "20"],
+        &envs,
+    );
     assert!(run.stderr.is_empty(), "{}", run.stderr);
     // Second run: nothing set; it reports the size it was given.
     let second = folder(
@@ -815,7 +819,11 @@ fn a_window_that_remembers_comes_back_where_and_as_big_as_it_was_left() {
              say('still_open=yes');",
         ),
     );
-    let run = probe(&second, &["--scenario", "controls", "--seconds", "20"], &envs);
+    let run = probe(
+        &second,
+        &["--scenario", "controls", "--seconds", "20"],
+        &envs,
+    );
     let _ = rustx_os::data::remove(&title, "window-state.json");
     // The page's own size is in logical pixels, whatever the scale.
     assert_eq!(run.messages, vec!["size=777x555"], "{}", run.stderr);
