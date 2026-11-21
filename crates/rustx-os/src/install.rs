@@ -362,6 +362,53 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// What signtool does to a stamped exe: pad to 8 bytes, point the security
+    /// directory at the end, append a certificate table.
+    #[cfg(windows)]
+    #[test]
+    fn the_stamp_survives_a_certificate_table() {
+        use std::io::{Seek, SeekFrom, Write};
+        let root = std::env::temp_dir().join(format!("rustx-sign-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let exe = root.join("signed.exe");
+        std::fs::copy(std::env::current_exe().unwrap(), &exe).unwrap();
+        let stamp = Stamp {
+            name: "Demo".into(),
+            version: "1.2.3".into(),
+            publisher: "Me".into(),
+            license: "Line one\nC:\\dir\\n".into(),
+        };
+        write_stamp(&exe, &stamp).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&exe)
+            .unwrap();
+        let len = f.seek(SeekFrom::End(0)).unwrap();
+        let start = len.div_ceil(8) * 8;
+        f.write_all(&vec![0; (start - len) as usize]).unwrap();
+        f.write_all(&[7; 64]).unwrap();
+        let mut head = [0_u8; 64];
+        f.seek(SeekFrom::Start(0)).unwrap();
+        std::io::Read::read_exact(&mut f, &mut head).unwrap();
+        let pe = u32::from_le_bytes(head[60..64].try_into().unwrap()) as u64;
+        let mut magic = [0_u8; 2];
+        f.seek(SeekFrom::Start(pe + 24)).unwrap();
+        std::io::Read::read_exact(&mut f, &mut magic).unwrap();
+        let directories = if u16::from_le_bytes(magic) == 0x20b {
+            112
+        } else {
+            96
+        };
+        f.seek(SeekFrom::Start(pe + 24 + directories + 32)).unwrap();
+        f.write_all(&(start as u32).to_le_bytes()).unwrap();
+        f.write_all(&64_u32.to_le_bytes()).unwrap();
+        drop(f);
+        assert_eq!(read_stamp_of(&exe), Some(stamp));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn names_become_folders_the_systems_accept() {
         assert_eq!(slug("My App: 2"), "my-app-2");
@@ -378,6 +425,8 @@ pub struct Stamp {
     pub name: String,
     pub version: String,
     pub publisher: String,
+    /// The licence text to accept, empty when the project has none.
+    pub license: String,
 }
 
 const TRAILER: &[u8; 10] = b"RXINSTALL1";
@@ -387,10 +436,16 @@ pub fn write_stamp(binary: &Path, stamp: &Stamp) -> Result<(), OsError> {
     use std::io::Write;
     let line = |text: &str| text.replace(['\n', '\r'], " ");
     let body = format!(
-        "name={}\nversion={}\npublisher={}\n",
+        "name={}\nversion={}\npublisher={}\nlicense={}\n",
         line(&stamp.name),
         line(&stamp.version),
-        line(&stamp.publisher)
+        line(&stamp.publisher),
+        // One line: backslash and newline are escaped.
+        stamp
+            .license
+            .replace('\\', "\\\\")
+            .replace('\r', "")
+            .replace('\n', "\\n")
     );
     let mut out = std::fs::OpenOptions::new()
         .append(true)
@@ -402,17 +457,36 @@ pub fn write_stamp(binary: &Path, stamp: &Stamp) -> Result<(), OsError> {
         .map_err(|e| file(e, "the install stamp"))
 }
 
+fn unescape(text: &str) -> String {
+    let mut out = String::new();
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some(other) => out.push(other),
+            None => {}
+        }
+    }
+    out
+}
+
 fn stamp_from(text: &str) -> Stamp {
     let mut stamp = Stamp {
         name: String::new(),
         version: String::new(),
         publisher: String::new(),
+        license: String::new(),
     };
     for line in text.lines() {
         match line.split_once('=') {
             Some(("name", v)) => stamp.name = v.into(),
             Some(("version", v)) => stamp.version = v.into(),
             Some(("publisher", v)) => stamp.publisher = v.into(),
+            Some(("license", v)) => stamp.license = unescape(v),
             _ => {}
         }
     }
@@ -423,6 +497,33 @@ fn stamp_from(text: &str) -> Stamp {
 pub fn read_stamp() -> Option<Stamp> {
     let binary = std::env::current_exe().ok()?;
     read_stamp_of(&binary)
+}
+
+/// Where the Authenticode certificate table of a signed PE file starts.
+fn certificate_start(file: &mut std::fs::File) -> Option<u64> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut head = [0_u8; 64];
+    file.seek(SeekFrom::Start(0)).ok()?;
+    file.read_exact(&mut head).ok()?;
+    if &head[..2] != b"MZ" {
+        return None;
+    }
+    let pe = u32::from_le_bytes(head[60..64].try_into().ok()?) as u64;
+    let mut optional = [0_u8; 2];
+    file.seek(SeekFrom::Start(pe + 24)).ok()?;
+    file.read_exact(&mut optional).ok()?;
+    // Data directories begin at 96 (PE32) or 112 (PE32+) into the optional header; entry 4 is security.
+    let directories = match u16::from_le_bytes(optional) {
+        0x10b => 96,
+        0x20b => 112,
+        _ => return None,
+    };
+    let mut entry = [0_u8; 8];
+    file.seek(SeekFrom::Start(pe + 24 + directories + 4 * 8))
+        .ok()?;
+    file.read_exact(&mut entry).ok()?;
+    let offset = u32::from_le_bytes(entry[..4].try_into().ok()?) as u64;
+    (offset != 0).then_some(offset)
 }
 
 /// The stamp of a given binary.
@@ -446,10 +547,28 @@ pub fn read_stamp_of(binary: &Path) -> Option<Stamp> {
             name: value("CFBundleName")?,
             version: value("CFBundleShortVersionString").unwrap_or_default(),
             publisher: value("RustxPublisher").unwrap_or_default(),
+            // The licence of a bundle is an asset beside the binary.
+            license: String::new(),
         });
     }
     let mut file = std::fs::File::open(binary).ok()?;
-    let end = file.seek(SeekFrom::End(0)).ok()?;
+    let mut end = file.seek(SeekFrom::End(0)).ok()?;
+    // Signing appends a certificate table after the stamp: read up to it.
+    if let Some(cert) = certificate_start(&mut file) {
+        end = cert;
+        // The table starts on an 8-byte boundary, so up to 7 bytes of padding follow the stamp.
+        let mut back = 0;
+        while back < 8 && end > 14 {
+            let mut tail = [0_u8; 10];
+            file.seek(SeekFrom::Start(end - 10)).ok()?;
+            file.read_exact(&mut tail).ok()?;
+            if &tail == TRAILER {
+                break;
+            }
+            end -= 1;
+            back += 1;
+        }
+    }
     if end < 14 {
         return None;
     }
@@ -483,6 +602,7 @@ mod stamp_tests {
             name: "My App".into(),
             version: "1.0.0".into(),
             publisher: "me".into(),
+            license: "Be kind.\nLine \\two".into(),
         };
         write_stamp(&path, &stamp).unwrap();
         assert_eq!(read_stamp_of(&path), Some(stamp));

@@ -57,7 +57,11 @@ pub fn watch(project: &Path) -> Result<(), String> {
     build::read(project)?;
 
     let mut watched = Watched::new(
-        &[project.join("app"), project.join("src")],
+        &[
+            project.join("app"),
+            project.join("src"),
+            project.join("system"),
+        ],
         &["rsx", "rs", "css", "js", "jsx", "ts", "tsx", "json", "html"],
         &[rustx_compiler::bundle::SERVED],
     );

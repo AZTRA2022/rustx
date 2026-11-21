@@ -762,7 +762,8 @@ impl App {
         // A binary made installable that is not installed shows its system
         // pages first; `--install --silent` and `--uninstall --silent` need no window.
         crate::setup::declare_permissions(config.permissions.clone());
-        let mode = crate::setup::detect(config.portable);
+        // No route table (`#[rustx::main(pages)]`) means no system pages to show.
+        let mode = crate::setup::detect(config.portable || routes.is_none());
         if let Some(code) = crate::setup::silent() {
             std::process::exit(code);
         }

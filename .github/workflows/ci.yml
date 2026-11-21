@@ -323,6 +323,9 @@ jobs:
           kill $pid || true
           cat "$report"
           grep -q "done=yes" "$report"
+          # The licence step showed the LICENSE carried in the single exe.
+          grep -q "licence=Licence" "$report"
+          grep -q "licence_text=.*Counter sample licence" "$report"
           test -f "$installed"
           # The installed copy starts and stays up.
           $runner "$installed" &

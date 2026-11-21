@@ -137,6 +137,7 @@ pub fn info() -> Info {
         name: String::new(),
         version: String::new(),
         publisher: String::new(),
+        license: String::new(),
     });
     Info {
         mode,
@@ -144,7 +145,11 @@ pub fn info() -> Info {
             .map(|p| p.display().to_string())
             .unwrap_or_default(),
         installed_version: install::installed_version(&stamp.name),
-        license: license_text(),
+        license: if stamp.license.is_empty() {
+            license_text()
+        } else {
+            stamp.license.clone()
+        },
         name: stamp.name,
         version: stamp.version,
         publisher: stamp.publisher,

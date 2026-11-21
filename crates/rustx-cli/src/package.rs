@@ -99,6 +99,10 @@ pub fn run(project: &Path, options: &Options) -> Result<Packaged, String> {
     gather_beside(&exe, &mut gathered)?;
     gather_assets(project, &mut gathered)?;
     if cfg!(target_os = "macos") {
+        // A bundle cannot carry a stamp, so the licence travels as an asset.
+        if let Some(path) = licence_path(project) {
+            gathered.push(("assets/LICENSE".to_string(), path));
+        }
         in_a_bundle(&mut gathered, &read.about.name, &read.binary);
     }
 
@@ -135,6 +139,7 @@ pub fn run(project: &Path, options: &Options) -> Result<Packaged, String> {
                 name: read.about.name.clone(),
                 version: read.about.version.clone(),
                 publisher: read.about.publisher.clone(),
+                license: licence_of(project).unwrap_or_default(),
             },
         )
         .map_err(|error| format!("the install stamp could not be written ({error})."))?;
@@ -208,6 +213,17 @@ fn walk(directory: &Path, prefix: &str, into: &mut Vec<(String, PathBuf)>) {
 /// copying them here is what lets somebody swap a logo or patch the
 /// document in a shipped package without a compiler. An application
 /// with no `assets/` has nothing to copy and that is not an error.
+fn licence_path(project: &Path) -> Option<PathBuf> {
+    ["LICENSE", "LICENSE.txt", "LICENSE.md"]
+        .iter()
+        .map(|name| project.join(name))
+        .find(|path| path.is_file())
+}
+
+fn licence_of(project: &Path) -> Option<String> {
+    std::fs::read_to_string(licence_path(project)?).ok()
+}
+
 fn gather_assets(project: &Path, into: &mut Vec<(String, PathBuf)>) -> Result<(), String> {
     let root = project.join("assets");
     if !root.is_dir() {

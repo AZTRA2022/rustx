@@ -65,10 +65,14 @@
         const button = (text) => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === text);
         let left = 600;
         const look = () => {
-          const go = button("Install");
-          if (go && !go.disabled && !window.__clicked) {
-            rustx_report("welcome", document.querySelector("h1").textContent);
-            window.__clicked = true;
+          // With a LICENSE: Install-or-Next, then the Licence step, then Accept.
+          const go = button("Install") || button("Next") || button("Accept and install");
+          const title = document.querySelector("h1");
+          if (go && !go.disabled && title && !window.__clicked) {
+            rustx_report(title.textContent === "Licence" ? "licence" : "welcome", title.textContent);
+            // The licence text itself must be on the page.
+            if (title.textContent === "Licence") rustx_report("licence_text", (document.querySelector("pre") || {}).textContent || "");
+            window.__clicked = go.textContent === "Accept and install" || go.textContent === "Install";
             go.click();
           }
           const h1 = document.querySelector("h1");
