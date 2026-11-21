@@ -93,3 +93,11 @@ body {
   outline: 1px solid var(--action);
   outline-offset: 1px;
 }
+
+/* No scrollbars anywhere: everything still scrolls, nothing draws a bar. */
+* {
+  scrollbar-width: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+}

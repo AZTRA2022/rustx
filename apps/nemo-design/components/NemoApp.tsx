@@ -81,7 +81,8 @@ function Tip({ label, children }: { label: string; children: React.ReactElement 
   )
 }
 
-const square = "size-11 shrink-0 rounded-2xl md:size-[50px] border border-line bg-card text-muted hover:bg-accent hover:text-white"
+const squareBase = "shrink-0 rounded-2xl border border-line bg-card text-muted hover:bg-accent hover:text-white"
+const square = "size-11 md:size-[50px] " + squareBase
 
 function Editor() {
   const [ws, setWs] = useState<Workspace>(load)
@@ -379,7 +380,8 @@ function Editor() {
   return (
     <div className="fixed inset-0 flex flex-col bg-stage font-sans text-text">
       {/* ---------------------------------------------------------------- top bar */}
-      <div className="flex flex-none items-center gap-2 px-2.5 py-2 max-md:flex-wrap md:gap-2.5">
+      <div className="flex flex-none items-center gap-2 py-2 pl-2.5 pr-32 max-lg:flex-wrap md:gap-2.5">
+        <div className="flex min-w-0 flex-1 items-center gap-2 max-lg:basis-full md:gap-2.5">
         <Tip label="Show or hide the side panels">
           <Button aria-label="Show or hide the side panels" variant="ghost" size="icon" onClick={() => setPanelOpen(!panelOpen)} className={cn(square, panelOpen && "text-white")}>
             <PanelLeft className="size-5" />
@@ -388,7 +390,7 @@ function Editor() {
         <svg width="26" height="26" viewBox="0 0 22 22" aria-hidden="true" className="mx-1 flex-none">
           {[0, 1, 2, 3].map((r) => [0, 1, 2, 3].map((c) => <circle key={`${r}${c}`} cx={4 + c * 4.6} cy={4 + r * 4.6} r="1.6" className={["fill-red-400", "fill-amber-400", "fill-green-400", "fill-blue-400"][(r + c) % 4]} />))}
         </svg>
-        <Tabs value={ws.active} onValueChange={(v) => setWs({ ...ws, active: v })} className="min-w-0 overflow-hidden">
+        <Tabs value={ws.active} onValueChange={(v) => setWs({ ...ws, active: v })} className="min-w-0 shrink overflow-hidden">
           <TabsList className="h-[50px] gap-2 overflow-x-auto bg-transparent p-0">
             {ws.projects.map((p) => (
               <TabsTrigger
@@ -440,7 +442,9 @@ function Editor() {
             <Plus className="size-5" />
           </Button>
         </Tip>
-        <div className="h-11 min-w-4 flex-1 md:h-[50px]" onPointerDown={() => windowOrder("drag")} onDoubleClick={() => windowOrder("maximize")} />
+        <div className="h-11 min-w-2 flex-1 md:h-[50px]" onPointerDown={() => windowOrder("drag")} onDoubleClick={() => windowOrder("maximize")} />
+        </div>
+        <div className="flex flex-none items-center gap-2 max-lg:ml-auto md:gap-2.5">
         <Tip label="Undo (Ctrl+Z)">
           <Button aria-label="Undo" variant="ghost" size="icon" disabled={!h.past.length} onClick={undo} className={square}>
             <ArrowLeft />
@@ -453,7 +457,7 @@ function Editor() {
         </Tip>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button aria-label="Duration" variant="ghost" className={cn(square, "w-auto gap-2.5 px-4 text-[15px] text-text")}>
+            <Button aria-label="Duration" variant="ghost" className={cn(squareBase, "h-11 w-auto gap-2 px-3 text-[15px] text-text md:h-[50px] md:gap-2.5 md:px-4")}>
               <Timer className="size-[22px]" /> {project.duration}s <ChevronDown className="size-3.5 text-faint max-sm:hidden" />
             </Button>
           </DropdownMenuTrigger>
@@ -481,16 +485,6 @@ function Editor() {
         <Button aria-label="Export" onClick={exportVideo} disabled={exporting !== null} className="h-[50px] min-w-[104px] rounded-2xl px-[22px] text-base font-semibold shadow-none">
           {exporting === null ? "Export" : `${exporting}%`}
         </Button>
-        <div className="ml-1 flex items-center">
-          <Button aria-label="Minimize" variant="ghost" size="icon" onClick={() => windowOrder("minimize")} className="size-9 rounded-full text-faint hover:bg-accent hover:text-white">
-            <Minus className="size-4" />
-          </Button>
-          <Button aria-label="Maximize" variant="ghost" size="icon" onClick={() => windowOrder("maximize")} className="size-9 rounded-full text-faint hover:bg-accent hover:text-white">
-            <Square className="size-3.5" />
-          </Button>
-          <Button aria-label="Close" variant="ghost" size="icon" onClick={() => windowOrder("close")} className="size-9 rounded-full text-faint hover:bg-red-500 hover:text-white">
-            <X className="size-4" />
-          </Button>
         </div>
       </div>
 
@@ -614,6 +608,17 @@ function Editor() {
           </div>
         </div>
       </div>
+      <div className="fixed right-2 top-2 z-50 flex items-center rounded-full bg-stage/80 backdrop-blur">
+          <Button aria-label="Minimize" variant="ghost" size="icon" onClick={() => windowOrder("minimize")} className="size-9 rounded-full text-faint hover:bg-accent hover:text-white">
+            <Minus className="size-4" />
+          </Button>
+          <Button aria-label="Maximize" variant="ghost" size="icon" onClick={() => windowOrder("maximize")} className="size-9 rounded-full text-faint hover:bg-accent hover:text-white">
+            <Square className="size-3.5" />
+          </Button>
+          <Button aria-label="Close" variant="ghost" size="icon" onClick={() => windowOrder("close")} className="size-9 rounded-full text-faint hover:bg-red-500 hover:text-white">
+            <X className="size-4" />
+          </Button>
+        </div>
     </div>
   )
 }
