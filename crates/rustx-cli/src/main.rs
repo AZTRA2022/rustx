@@ -170,9 +170,6 @@ fn make_it(release: bool, then_run: bool) -> i32 {
         // it. What else a release artefact needs goes to stderr, where
         // a person reads it and a pipe does not.
         println!("{}", exe.display());
-        if release {
-            eprint!("{}", rustx_cli::build::says_what_ships(&exe));
-        }
         return 0;
     }
     match std::process::Command::new(&exe).current_dir(&here).status() {

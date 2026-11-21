@@ -3,6 +3,110 @@ title: "Packaging"
 description: "`rustx package`: the folder that ships, the archive, the installer, the signature, and updating an application from its release page."
 ---
 
+## From source to a release
+
+Do these in order, once per release. Each step says where to write the thing and
+what you see when it is right.
+
+### 1. Be able to build on the machine you package for
+
+`rustx package` packages for the machine it runs on: a Windows release is built on Windows,
+a Linux one on Linux, a macOS one on a Mac.
+
+| | you need |
+|---|---|
+| Windows | Rust with the MSVC toolchain (Visual Studio Build Tools). Running it needs the WebView2 Runtime, which Windows 11 and current Windows 10 already have |
+| Linux | `libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libxdo-dev`, and `desktop-file-utils` if you want the `.deb` checked |
+| macOS | the Xcode command line tools (`xcode-select --install`) |
+
+Node is only needed if the project has a `package.json`.
+
+### 2. Say who the application is
+
+Write each fact once, where it already lives:
+
+```toml
+# Cargo.toml
+[package]
+name = "my-app"
+version = "1.4.0"                       # the release number, and the updater's comparison
+description = "What it does, in a line" # the file description
+authors = ["Ada <ada@example.com>"]     # the first one is the publisher
+```
+
+```rust
+// src/main.rs
+Config::new("My App")                   // the name users see, the Start-menu entry, the data folder
+```
+
+Choose the title now: the user's data folder is named from it, so changing it later
+moves their data.
+
+### 3. Give it a logo
+
+Put the files in `assets/` and name the one your system uses in `Config`:
+
+| file | used for | how it is found |
+|---|---|---|
+| `assets/icon.ico` | Windows: the window, the taskbar, the `.exe` in the explorer, the Start-menu shortcut | found by its name, or `.icon("assets/icon.ico")` |
+| `assets/icon.png` (256x256) | Linux: the `.deb`, and the desktop entry of the self-installed copy | found by its name |
+| `assets/icon.icns` | macOS: the `.app`, the Dock, the installer | **named**: `.icon("assets/icon.icns")` (the name lookup is for `icon.ico` only) |
+
+A file with the wrong extension is refused with a sentence, not shipped: a `.png` renamed
+`.ico` is detected. `rustx package` does not convert between formats. To make a Windows
+icon from a PNG: `magick icon.png -define icon:auto-resize=16,32,48,256 icon.ico`. If a
+logo is missing, `rustx package` says so once and the system icon is used.
+
+### 4. Add what users click through (all optional)
+
+| | |
+|---|---|
+| `LICENSE`, `LICENSE.txt` or `LICENSE.md` beside `Cargo.toml` | the licence step of the installer. It is read at package time and carried inside the binary, so the single `.exe` shows it |
+| `system/*.rsx` | your own install, update, uninstall, licence, permissions, about and settings screens. Without the file the framework's default is used. See [The app is its own installer](#the-app-is-its-own-installer) |
+| `Config::permissions(&["camera"])` | what the permissions screen lists (and the macOS usage descriptions) |
+| `Config::updates("owner/name")` | the GitHub repository where you publish releases: the settings screen then checks for updates, and downloads and installs them. See [Updating from a release page](#updating-from-a-release-page) |
+| `Config::portable()` | the application never installs itself and runs from where it is |
+
+### 5. Build and package
+
+```sh
+cd my-app
+rustx package
+```
+
+It builds in release, stamps the binary (name, version, icon, and "I can install myself"),
+signs it if you set a signing variable (see [Signing](#signing)), and writes, in `dist/`:
+
+| on | you get |
+|---|---|
+| Windows | `dist/my-app-1.4.0-windows/my-app.exe` (the program, which is its own installer) and `dist/my-app-1.4.0-windows.zip` |
+| Linux | `dist/my-app-1.4.0-linux/` (the program, `install.sh`, `uninstall.sh`), `dist/my-app-1.4.0-linux.deb` beside it, and `dist/my-app-1.4.0-linux.zip` |
+| macOS | `dist/my-app-1.4.0-macos/My App.app`, `dist/my-app-1.4.0-macos.pkg` and `.dmg` beside it, and `dist/my-app-1.4.0-macos.zip` |
+
+It prints the path of the `.zip` (or of the folder with `--no-zip`) and, on the error
+stream, a summary of what it made and anything it could not do: a missing logo, a signature it
+was asked for and could not make. Read that summary: a package can be produced and still lack
+its icon. Options: `--debug`, `--no-zip`, `--out <dir>`. It exits `0` when it worked and `1`
+when it did not.
+
+### 6. Try it as a user would
+
+1. Copy the `.zip` to another folder or machine and unpack it (it must not need your project).
+2. Run the program. Outside its install location it shows the install wizard: Install,
+   then it starts the installed copy. Windows: `%LOCALAPPDATA%\Programs\My App`.
+3. Look at the other screens without installing: `RUSTX_START=/__system/about` (also
+   `settings`, `permissions`, `license`, `install`, `update`, `uninstall`), and
+   `RUSTX_THEME=light` or `dark`.
+4. Remove it: `my-app --uninstall` (or from Apps & features on Windows).
+
+### 7. Publish
+
+Attach the `.zip` to a GitHub release of the repository you gave `Config::updates`. Use the
+same tag as the version in `Cargo.toml` (`v1.4.0` or `1.4.0`), so that the copy of the
+version before this one finds it. See [Updating from a release page](#updating-from-a-release-page).
+
+## What `rustx package` does
+
 ```sh
 rustx package
 ```
@@ -32,17 +136,11 @@ for `--release` says so instead of doing nothing.
 
 ## Why the folder is the application
 
-The `.exe` the linker makes is a Chromium host. Chromium reads
-`libcef.dll`, the `.pak` files, `icudtl.dat`, `v8_context_snapshot.bin`
-and `locales/` from beside that binary, and the executable starts
-*itself* again as the engine's helper processes — so the same file has
-to sit next to all of them. Moving the `.exe` alone gives a program
-that does not start, and the dialog the system shows for that names a
-library rather than a cause.
-
-In one debug build on a development machine the folder held 236 files
-and 412 MB. `locales/` alone is 51 MB of `.pak` files, and a package
-without it starts with no text in its menus.
+The `.exe` the linker makes draws its window with the webview the system
+already has (WebView2, WKWebView or WebKitGTK), so it carries no engine
+and is a few megabytes. What it reads from beside itself is the
+application's own `assets/`, which is why the folder, and not the `.exe`
+alone, is what ships.
 
 `rustx package` copies what the program reads and leaves what cargo
 left for cargo: no `.pdb`, no `.d`, no build scripts, no other binary
@@ -105,9 +203,9 @@ what the updater downloads.
 
 | | |
 |---|---|
-| **Windows** | a setup `.exe`. An Inno Setup script is written beside the folder, and `ISCC.exe` is run when [Inno Setup](https://jrsoftware.org/isdl.php) is installed — looked for in `Program Files` and in `%LOCALAPPDATA%\Programs`, which is where a per-user `winget install JRSoftware.InnoSetup` puts it. The result installs per user and needs no administrator rights, with a Start-menu group, an optional desktop icon and an uninstaller |
+| **Windows** | the stamped application `.exe` itself, which installs itself (see below). `RUSTX_INSTALLER=inno` writes an Inno Setup script and runs `ISCC.exe` instead |
 | **Linux** | a `.deb`, written without any tool at all — see below. It installs under `/opt/<name>`, links `/usr/bin/<name>`, puts the icon in the hicolor theme and the licence in `/usr/share/doc`. An `install.sh` and a matching `uninstall.sh` go in the folder for everywhere else |
-| **macOS** | the package *is* a `.app` bundle — `Info.plist`, the Chromium framework under `Contents/Frameworks`, and the five helper `.app`s CEF opens for its subprocesses. `pkgbuild` turns it into a `.pkg` that installs into `/Applications`, and `hdiutil` into a `.dmg` beside it |
+| **macOS** | the package *is* a `.app` bundle — `Info.plist` and the binary with its assets under `Contents/MacOS`. `pkgbuild` turns it into a `.pkg` that installs into `/Applications`, and `hdiutil` into a `.dmg` beside it |
 
 ### The `.deb` needs nothing installed
 
@@ -117,8 +215,7 @@ a framework that cannot package. So rustx writes the format, which it
 can because the format is three files in an `ar` archive:
 `debian-binary`, `control.tar.gz` and `data.tar.gz`.
 
-It declares the twenty-five libraries Chromium links against —
-`libgtk-3-0`, `libnss3`, `libgbm1` and the rest — so that the package
+It depends on `libwebkit2gtk-4.1-0` and `libgtk-3-0`, so that the package
 cannot install and then fail to start, which is what a `.deb` with no
 `Depends` does. It reports its own installed size, which is what a
 software centre shows before the download begins.
@@ -149,20 +246,80 @@ that page.
 |---|---|
 | **Windows** | the whole version resource — publisher, product name, product version, copyright, original file name — plus the display name, the comment and the uninstall icon that "Programs and Features" shows |
 | **Linux** | `Maintainer`, `Description` with its indented long form, `Installed-Size`, `Depends`, `Section`, `Priority`, and the desktop entry's `Name`, `Comment`, `Icon` and `StartupWMClass` |
-| **macOS** | `Info.plist`: `CFBundleIdentifier`, both version strings, `LSMinimumSystemVersion`, `NSHighResolutionCapable`, and `LSUIElement` on each helper so that a subprocess does not appear in the Dock |
+| **macOS** | `Info.plist`: `CFBundleIdentifier`, both version strings, `LSMinimumSystemVersion`, `NSHighResolutionCapable` |
 
 `Maintainer` is the one field `dpkg` is strict about: it wants
 `Name <email>`, which is the shape `authors = ["A <a@b.test>"]` already
 has. A bare name gets an obviously fake address rather than a build
 that fails.
 
-None of this can fail the package. With no Inno Setup you still get the
+None of this can fail the package. With the Inno route and no Inno Setup you still get the
 folder, the archive, and a sentence naming the script and what reads it
 — which is also how a build machine does it: keep the script, run
 `ISCC` there. The `installers` job of `.github/workflows/ci.yml` does
 exactly that, on all three systems, and on Linux it reads the
 hand-written `.deb` back with `dpkg-deb`, installs it, validates the
 desktop entry and removes it again.
+
+## The app is its own installer
+
+There is no separate setup program. `rustx package` stamps the application
+binary installable, and run outside its install location it shows an install
+wizard, copies itself into place, registers itself, and starts the installed
+copy. The same binary removes itself with `--uninstall`.
+
+| | installs to | registered as |
+|---|---|---|
+| Windows | `%LOCALAPPDATA%\Programs\<name>` | a Start menu shortcut and an entry in Apps & features |
+| macOS | `~/Applications/<name>.app` | the bundle |
+| Linux | `~/.local/share/<name>/` | a `.desktop` entry and a link in `~/.local/bin` |
+
+No administrator anywhere. A newer binary run over an older install shows the
+update wizard. `--install --silent` and `--uninstall --silent` skip every
+screen, for scripts and CI. It never happens in a debug build, under
+`cargo run` or `rustx dev`; `Config::portable()` opts an application out.
+
+The screens are RSX pages in a `system/` folder beside `app/`, under locked
+names, each optional:
+
+```text
+system/install.rsx     the install wizard
+system/update.rsx      the update wizard
+system/uninstall.rsx   the uninstall page
+system/license.rsx     the licence
+system/permissions.rsx what the app uses, said before the system asks
+system/about.rsx       name, version, publisher, licence
+system/settings.rsx    start with the session, check for updates
+```
+
+The last four are opened by the application whenever it wants:
+`rustx::setup::open("about")`, and `rustx::setup::close()` goes back. The
+permissions it uses are declared with `Config::permissions(&["camera"])`.
+`RUSTX_START=/__system/about` opens one first, to look at it.
+
+A page you did not write is the framework's default. They are never routed by
+your application and never wrapped by `app/layout.rsx`. They call
+`rustx::setup`:
+
+```rust
+let info = rustx::setup::info();    // mode, name, version, publisher, destination,
+                                    // installed_version, license
+task(async move {
+    let result = rustx::setup::install(|percent| progress = percent as u32);
+    // …
+});
+rustx::setup::launch()?;            // start the installed copy
+rustx::setup::quit();
+```
+
+Any other name in `system/` is refused with the list of the locked ones.
+
+The defaults are drawn with the framework's theme (`--rx-bg`, `--rx-fg`, `--rx-muted`, `--rx-border`, in
+light or dark by the system's preference, with Inter) and fill the whole window, whatever the
+application's own stylesheet does. In a frameless window they draw a bar to drag and the three marks
+(see [commanding the window](/docs/the-window/commanding-the-window)). To see one, run the
+application with `RUSTX_START=/__system/<name>` (add `RUSTX_THEME=light` or `dark`); the pictures CI
+takes of all seven on each system are the `screens-*` artifacts of a run.
 
 ## Signing
 
@@ -173,7 +330,8 @@ environment variables and no configuration file.
 |---|---|
 | `RUSTX_SIGN_PFX`, `RUSTX_SIGN_PASSWORD` | Windows: a certificate file, signed with `signtool` |
 | `RUSTX_SIGN_SUBJECT` | Windows: a certificate already in the machine's store, by subject name |
-| `RUSTX_SIGN_IDENTITY` | macOS: an identity for `codesign`, applied to the bundle before the `.dmg` |
+| `RUSTX_MAC_IDENTITY` | macOS: an identity for `codesign` (`-` signs ad hoc, with no certificate), applied to the `.app` |
+| `RUSTX_NOTARY_PROFILE` | macOS: a `notarytool` keychain profile; the bundle is submitted, waited for and stapled |
 
 With none of them set, nothing is signed and nothing is said: an
 unsigned build is the normal case for anybody who has not bought a
@@ -185,11 +343,18 @@ Both the binary and the installer are signed on Windows. SmartScreen
 judges the file the user double-clicked, so signing one and not the
 other still gets the warning.
 
-What is **not** done: notarisation. `xcrun notarytool` needs an Apple
-developer account and a round trip to Apple's service, and nothing here
-uploads anything on your behalf.
+The install stamp is written before signing, and the reader stops at the
+Windows certificate table, so a signed single exe still installs itself
+(a unit test fakes the table; the CI job signs ad hoc on macOS and runs
+`codesign --verify`). Notarisation is written and has not been run against
+Apple's service: it needs an account, and CI has none.
 
 ## Updating from a release page
+
+Set `Config::updates("owner/name")` and the default `system/settings.rsx`
+shows *Updates*: check, download with the digest verified, install, restart.
+`RUSTX_UPDATE_API` points the check at another server speaking GitHub's JSON
+(CI serves one over loopback and clicks *Check*; a wrong digest is refused).
 
 ```rust
 match rustx::update::from_github("owner/my-app")? {
@@ -241,33 +406,39 @@ Two folders, and they are not the same thing.
 %LOCALAPPDATA%\rustx\<title, lowercased, dashes between words>\
 ```
 
-is the engine's: Chromium's profile, its caches, `engine.log`, and the
-unpacked copy of `assets/`. The name comes from the title because
-Chromium allows one process per profile folder. Do not store your own
-files there.
+is the webview's profile folder on Windows: its caches and cookies. Do not
+store your own files there.
 
 Your own files go in [`rustx::data`](/docs/the-system/app-data), which is
-a different folder on purpose: one Chromium may clear and one it may
+a different folder on purpose: one the webview may clear and one it may
 not.
 
-## Two things that stop a start
+## A machine without the web view
 
-Run as administrator, Chromium 156 relaunches itself without the rights
-and exits. The application sees `cef::initialize returned 0`, and the
-engine adds a sentence naming the cause. Start it as an ordinary user,
-or pass `--do-not-de-elevate`.
+A Windows machine without the Microsoft Edge WebView2 Runtime is asked, in
+a native box (there is no page yet): download Microsoft's Evergreen
+bootstrapper, run it, and start again. Refusing leaves the error naming the
+runtime. It is offered once: the copy it starts afterwards carries `RUSTX_BOOTSTRAPPED`
+and never offers again, so a failed install ends with the error and not in a loop. A test
+downloads and runs a stand-in installer over loopback, and a CI step on a Windows runner points
+`WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` at an empty folder and runs the packaged application
+with `RUSTX_BOOTSTRAP=auto`, which downloads Microsoft's real bootstrapper. That step has not
+run yet. On Linux the
+`libwebkit2gtk-4.1` package has to be installed, which the `.deb` declares.
 
-A machine with no usable 3D driver gives a blank window and a log full
-of `Failed to create shared context`. `RUSTX_SOFTWARE=1` in the
-environment makes the engine composite on the processor. See
-[troubleshooting](/docs/tooling/troubleshooting).
 
 ## What is still not written
 
-- **Notarisation and stapling on macOS**, as above.
+- **Notarisation run against Apple**, as above: written, never run.
+- **Sidecar binaries.** The installed copy is the single binary, so a program shipped
+  beside it would not be installed; this needs the installer to carry a folder first.
+- **Window effects** (Mica, acrylic, vibrancy): a platform crate per system, not added.
+- **A hot patch of the running program.** Measured: the linker is about 10% of an
+  edit-to-window rebuild (3.7 s with the default, 3.4 s with `rust-lld`, counter,
+  debug), so the compile is what costs; a native hot patch was not worth its risk.
 - **An `.rpm` or an AppImage.** The `.deb` is written directly because
   its format allows it; these two do not.
-- **An MSI.** Inno Setup's `.exe` is what this writes; an MSI is a
+- **An MSI.** The application `.exe` that installs itself is what this writes; an MSI is a
   different tool and a different format.
 - **Converting an icon between formats.** Give it `icon.ico`,
   `icon.png` and `icon.icns`; rustx will not turn one into another, and
@@ -275,25 +446,24 @@ environment makes the engine composite on the processor. See
 - **Cross-packaging.** `rustx package` packages for the machine it runs
   on, because it gathers what that machine's build left beside the
   binary. A macOS release is built on a Mac.
-- **A verified Mac.** The `.app` layout, the helper bundles and the
-  `Info.plist` are written from Apple's and CEF's documentation and have
+- **A verified Mac.** The `.app` layout, and the
+  `Info.plist` are written from Apple's documentation and have
   never been built or opened on a Mac. See
   [platforms](/docs/the-system/platforms).
 
 ## A release checklist
 
-1. `Cargo.toml` has the version and the `authors` you want users to see.
+1. `Cargo.toml` has the version, the description and the `authors` you want users to see.
 2. `Config::new("…")` holds the final title. The engine's profile folder
    and `rustx::data` are both named from it, so changing it later moves
    the user's data.
-3. `assets/icon.ico` exists, and is a real `.ico`.
-4. No `rustx dev` or earlier window is still running: it holds
-   `libcef.dll`, and the build says which file is held.
-5. `rustx package` finishes without a message about the logo or the
-   signature.
-6. The folder runs from a place where the project does not exist — copy
+3. The logo for each system you ship exists and is the real format (`assets/icon.ico`,
+   `assets/icon.png`, `assets/icon.icns`).
+4. `LICENSE` is there if the installer should show one.
+5. `rustx package` finishes without a message about the logo or the signature.
+6. The folder runs from a place where the project does not exist: copy
    it to another machine, or another folder, and start it.
-7. It runs as an ordinary user.
+7. It installs, starts and uninstalls as an ordinary user, with no administrator.
 8. Attach the `.zip` to the release, with the same tag as the version in
    `Cargo.toml`, so that the updater of the version before this one
    finds it.

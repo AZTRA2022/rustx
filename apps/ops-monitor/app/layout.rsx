@@ -39,6 +39,10 @@ fn Layout(children: Element) -> Element {
                 .map(|path| path.display().to_string())
                 .unwrap_or_else(|_| ".".to_string());
         }
+    });
+
+    // The system answers when it answers: beside the window, not on it.
+    task(async move {
         shell_name = match rustx::terminal::shell() {
             Ok(shell) => shell.name,
             Err(_) => "none found".to_string(),

@@ -59,9 +59,9 @@ pub fn text() -> String {
          reads the same three in the same order, so it looks where cargo wrote.\n\
          \n\
          `rustx package` builds in release, stamps the binary, and copies into\n\
-         one folder everything the program reads at run time: the `.exe`, the\n\
-         engine's own runtime -- `libcef.dll`, the `.pak` files, `icudtl.dat`,\n\
-         `locales/` -- and the application's own `assets/`. It writes\n\
+         one folder everything the program reads at run time: the `.exe`, which\n\
+         draws with the system's webview, and the application's own `assets/`.\n\
+         It writes\n\
          `rustx-release.json` beside them, which names the version and carries\n\
          the SHA-256 of every file, and a `.zip` of the whole folder unless it\n\
          is told not to. That folder runs from anywhere, including a machine\n\

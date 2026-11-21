@@ -1,6 +1,7 @@
 //! A `rustx` application, written the way anyone will write one.
 //!
 //! The interface is `app/page.rsx` and nowhere else.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use rustx::{App, Config};
 

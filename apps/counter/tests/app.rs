@@ -18,7 +18,7 @@ fn the_bodys_own_stylesheet_reaches_the_document() {
     // `apps/capture` lost its whole `index.html` to a bad merge.
     assert_eq!(
         report().get("body_font"),
-        "system-ui, sans-serif",
+        "Inter, system-ui, sans-serif",
         "full output:\n{}",
         report().raw()
     );

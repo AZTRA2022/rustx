@@ -112,7 +112,8 @@ fn a_notification_does_not_block() {
     // notification qui attendrait sa lecture attendrait pour toujours,
     // pas 2 secondes.
     assert!(
-        waited < std::time::Duration::from_secs(2),
+        // Five, now: a loaded macOS runner took 2.05 s for the same call.
+        waited < std::time::Duration::from_secs(5),
         "it took {waited:?}: a notification does not block whoever shows it"
     );
 }

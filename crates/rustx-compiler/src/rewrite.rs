@@ -120,6 +120,20 @@ fn edits_for(source: &str, component: &Component) -> Vec<Edit> {
         edits.extend(awaited_edits(source, waited));
     }
 
+    // The work a handler starts is held here, so it stops with the component.
+    if !component.handler_tasks.is_empty() {
+        let (line, column) = line_and_column(source, component.body.start);
+        edits.push(Edit {
+            span: Span {
+                start: component.body.start + 1,
+                end: component.body.start + 1,
+            },
+            text: format!(
+                " let __bag = rustx_dom::state::keep_at(rustx_dom::state::Slot {{ file: file!(), line: {line}u32, column: {column}u32 }}, rustx_engine::task::Bag::default);"
+            ),
+        });
+    }
+
     // A `let mut` nothing writes to is left exactly as it was written —
     // there is no state to keep — but the warning it earns names a
     // generated file, so it is silenced where it is generated. On the
@@ -459,7 +473,23 @@ fn future_task(
     call: &crate::promote::Call,
     slot: &str,
 ) -> String {
-    let text = &source[call.arguments.start..call.arguments.end];
+    let (preamble, arguments, _) = future_parts(source, component, call.arguments);
+    // The token every handle in the preamble shares with the `Task`.
+    // Dropping the token cancels it, so a write this future had already
+    // posted is refused rather than applied to the page that came next
+    // -- the only thing that stops it for a value found by a name,
+    // because a name outlives every page.
+    format!(
+        "rustx_dom::state::keep_at({slot}, || {{          let __cancel = rustx_dom::state::Cancel::new(); {preamble}         rustx_engine::task::spawn_future_until(__cancel, {arguments}) }})"
+    )
+}
+
+/// What a future needs around it: the handles it writes through (built before
+/// it, on the thread that draws), its own text with the writes turned into
+/// remote writes, and the names of the component's own values it uses.
+fn future_parts(source: &str, component: &Component, span: Span) -> (String, String, Vec<String>) {
+    let text = &source[span.start..span.end];
+    let mut used: Vec<String> = Vec::new();
     let mut preamble = String::new();
     // Every read and every capture of every value, gathered before a
     // single write is rewritten. A write's right-hand side may name
@@ -472,13 +502,12 @@ fn future_task(
     let mut edits = Vec::new();
 
     for promoted in &component.promoted {
-        let (reads, mutations) =
-            crate::promote::uses_in(source, &promoted.name, call.arguments, true);
+        let (reads, mutations) = crate::promote::uses_in(source, &promoted.name, span, true);
         // The inline captures of a format string count as reads here
         // too: a loop that writes a file writes `format!("clics:
         // {clics}")`, and that is the line this whole mechanism exists
         // for.
-        let captures = capture_edits(source, &promoted.name, call.arguments);
+        let captures = capture_edits(source, &promoted.name, span);
         // A value the block never names needs no handle, and a handle
         // per page value would be a line of preamble for nothing.
         if reads.is_empty() && mutations.is_empty() && captures.is_empty() {
@@ -513,6 +542,7 @@ fn future_task(
             ));
         } else {
             preamble.push_str(&format!("let {name} = {name}.{handle}(&__cancel); "));
+            used.push(name.to_string());
         }
         reads_and_captures.extend(read_edits);
         reads_and_captures.extend(captures);
@@ -529,7 +559,7 @@ fn future_task(
             source,
             name,
             mutation,
-            call.arguments,
+            span,
             &reads_and_captures,
             Owning::Moved,
         );
@@ -542,18 +572,8 @@ fn future_task(
             .filter(|edit| !swallowed.iter().any(|write| contains(*write, edit.span))),
     );
 
-    let arguments = apply_relative(text, call.arguments.start, edits);
-    let arguments = arguments.trim();
-    // The token every handle in the preamble shares with the `Task`.
-    // Dropping the token cancels it, so a write this future had already
-    // posted is refused rather than applied to the page that came next
-    // -- the only thing that stops it for a value found by a name,
-    // because a name outlives every page.
-    format!(
-        "rustx_dom::state::keep_at({slot}, || {{ \
-         let __cancel = rustx_dom::state::Cancel::new(); {preamble}\
-         rustx_engine::task::spawn_future_until(__cancel, {arguments}) }})"
-    )
+    let arguments = apply_relative(text, span.start, edits);
+    (preamble, arguments.trim().to_string(), used)
 }
 
 /// The arguments of a method call, as the text between its parentheses
@@ -706,6 +726,7 @@ fn handlers_of(component: &Component) -> Vec<Span> {
                 .chain(promoted.reads.iter().copied())
                 .chain(promoted.captures.iter().copied())
         })
+        .chain(component.handler_tasks.iter().map(|call| call.span))
         .filter_map(|span| component.handler_around(span))
         .collect();
     spans.sort_by_key(|span| span.start);
@@ -735,6 +756,27 @@ fn rewrite_handler(source: &str, component: &Component, handler: Span) -> Option
     let mut inner_edits = Vec::new();
     let mut captured: Vec<&str> = Vec::new();
 
+    // A `task(async …)` written in the handler: started when the handler runs,
+    // held by the component. What it uses is its own rewrite's business, so
+    // the handler's pass leaves its bytes alone.
+    let tasks: Vec<&crate::promote::Call> = component
+        .handler_tasks
+        .iter()
+        .filter(|call| contains(handler, call.span))
+        .collect();
+    let in_a_task = |span: Span| tasks.iter().any(|call| contains(call.span, span));
+    let mut task_names: Vec<String> = Vec::new();
+    for call in &tasks {
+        let (preamble, arguments, used) = future_parts(source, component, call.arguments);
+        task_names.extend(used);
+        inner_edits.push(Edit {
+            span: call.span,
+            text: format!(
+                "{{ let __cancel = rustx_dom::state::Cancel::new(); {preamble}                 __bag.with(|bag| bag.hold(rustx_engine::task::spawn_future_until(__cancel, {arguments}))); }}"
+            ),
+        });
+    }
+
     // Reads are gathered first, because a mutation's replacement copies
     // its own right-hand side out of the source and any read inside it
     // has to be applied to that copy. `n = n + 1` is one statement with
@@ -743,7 +785,7 @@ fn rewrite_handler(source: &str, component: &Component, handler: Span) -> Option
     let mut reads: Vec<(&str, Edit)> = Vec::new();
     for promoted in &component.promoted {
         for read in &promoted.reads {
-            if contains(handler, *read) {
+            if contains(handler, *read) && !in_a_task(*read) {
                 reads.push((
                     promoted.name.as_str(),
                     Edit {
@@ -758,7 +800,7 @@ fn rewrite_handler(source: &str, component: &Component, handler: Span) -> Option
     for promoted in &component.promoted {
         let mut touched = false;
         for mutation in &promoted.mutations {
-            if !contains(handler, mutation.span) {
+            if !contains(handler, mutation.span) || in_a_task(mutation.span) {
                 continue;
             }
             touched = true;
@@ -774,6 +816,11 @@ fn rewrite_handler(source: &str, component: &Component, handler: Span) -> Option
             inner_edits.push(edit);
         }
         if !touched && promoted.reads.iter().any(|read| contains(handler, *read)) {
+            touched = true;
+        }
+        // A value only a task writes still has to be owned by the handler: the
+        // task's handles are made from it.
+        if task_names.iter().any(|name| name == &promoted.name) {
             touched = true;
         }
         if touched {
@@ -799,7 +846,10 @@ fn rewrite_handler(source: &str, component: &Component, handler: Span) -> Option
     // And the captures of a format string written inside the handler,
     // which are reads too — just ones written in prose.
     for promoted in &component.promoted {
-        let theirs = capture_edits(source, &promoted.name, handler);
+        let theirs: Vec<Edit> = capture_edits(source, &promoted.name, handler)
+            .into_iter()
+            .filter(|edit| !in_a_task(edit.span))
+            .collect();
         if theirs.is_empty() {
             continue;
         }
@@ -809,7 +859,7 @@ fn rewrite_handler(source: &str, component: &Component, handler: Span) -> Option
         inner_edits.extend(theirs);
     }
 
-    if captured.is_empty() {
+    if captured.is_empty() && tasks.is_empty() {
         return None;
     }
 
@@ -820,10 +870,13 @@ fn rewrite_handler(source: &str, component: &Component, handler: Span) -> Option
 
     // A handler outlives the render that built it, so it owns clones of
     // the handles rather than borrowing the locals.
-    let clones: String = captured
+    let mut clones: String = captured
         .iter()
         .map(|name| format!("let {name} = {name}.clone(); "))
         .collect();
+    if !tasks.is_empty() {
+        clones.push_str("let __bag = __bag.clone(); ");
+    }
 
     Some(Edit {
         span: handler,

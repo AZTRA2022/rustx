@@ -58,7 +58,7 @@ that still wraps the new screen keeps its cells.
 ```rust
 Config::new("My app")
     .start("/settings")            // `/` by default
-    .not_found(NotFound)           // otherwise: "This page does not exist."
+    .not_found(NotFound)           // otherwise: "This page could not be found."
 ```
 
 Everything else — the precedence between two routes that describe the same

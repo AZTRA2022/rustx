@@ -75,7 +75,7 @@ This list is as important as the one above.
   not gated per call or per route. The user sees the system's own dialogs, and
   nothing more.
 - **Devices ask the system.** The camera, the microphone and the screen go
-  through Chromium and the permissions of the operating system. See
+  through the web view and the permissions of the operating system. See
   [devices](/docs/the-system/devices).
 - **The `.rsx` and `assets/` are files on disk.** The executable reads
   `assets/index.html` and the JavaScript bundle from the project folder it was
@@ -91,8 +91,7 @@ This list is as important as the one above.
    the window's content as pages, and fetch data from Rust.
 3. Treat every argument of a native as untrusted input.
 4. Add an npm library as you would add a crate: because you looked at it.
-5. Do not run the application as administrator. Chromium 156 refuses it
-   anyway, see [packaging](/docs/tooling/packaging).
+5. Do not run the application as administrator: nothing in it needs it.
 
 ## Storing a token
 

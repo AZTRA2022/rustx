@@ -71,11 +71,22 @@ is named, because the fix is a command.
 
 ## What the boundary costs
 
-A library component is a **node rendered by React**, in the
-same process and the same document. There is no serialization, no JSON, no
-`postMessage`: what the page passes is a V8 value.
+A library component is a **node rendered by React**, in the page. Your Rust
+runs in another place, so props cross as JSON and a callback is a message
+that runs your closure a moment later.
 What that changes for the code is read in
 [props that cross](/docs/javascript-libraries/props-that-cross).
 
 An application that writes no capitalized tag has neither React, nor
 esbuild, nor `node_modules`: there is no package by default.
+
+## Keeping a library out of the tags
+
+Every declared library is a source of tags, imported whole into the page's bundle,
+because a page may write any export of any of them. A library your own components
+import (a 7 MB icon set, say) can be left out of the tags, and only what those
+components use is bundled:
+
+```json
+{ "rustxNoTags": ["@phosphor-icons/react"], "dependencies": { … } }
+```

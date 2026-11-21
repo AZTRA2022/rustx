@@ -150,3 +150,31 @@ fn a_component_the_project_wrote_outside_ui_is_offered_too() {
     // And what `shadcn add` wrote is still there.
     assert!(names.contains(&"Card"), "{names:?}");
 }
+
+#[test]
+fn a_package_that_names_its_types_only_inside_its_exports_map_is_listed() {
+    // Modern packages carry no top-level `types`: the declarations are found
+    // under `exports["."]`, in whichever condition holds them.
+    let root = std::env::temp_dir().join(format!("rustx-libraries-exports-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let app = Application(root.clone());
+    written(
+        &root.join("package.json"),
+        "{ \"dependencies\": { \"modern\": \"1.0.0\" } }",
+    );
+    written(
+        &root.join("node_modules/modern/package.json"),
+        "{ \"name\": \"modern\", \"description\": \"has { braces }\", \"exports\": { \".\": { \"import\": { \"types\": \"./dist/index.d.mts\", \"default\": \"./dist/index.mjs\" }, \"require\": \"./dist/index.cjs\" } } }",
+    );
+    written(
+        &root.join("node_modules/modern/dist/index.d.mts"),
+        "export declare function Gauge(): void;\nexport { Dial } from './dial';\n",
+    );
+    let names: Vec<String> = libraries::exports_for(&root)
+        .into_iter()
+        .map(|e| e.name)
+        .collect();
+    assert!(names.contains(&"Gauge".to_string()), "{names:?}");
+    assert!(names.contains(&"Dial".to_string()), "{names:?}");
+    drop(app);
+}

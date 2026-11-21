@@ -224,7 +224,7 @@ fn main() -> Result<(), rustx::Error> {
 
 `assets/icon.ico` is found without being declared. `.version(…)` is what the
 About screen shows. See [the window](/docs/the-window) and
-[configuration](/docs/tooling/configuration).
+[configuration](/docs/getting-started/configuration).
 
 ## 7. Build it
 
@@ -251,7 +251,7 @@ rustx package
 ```
 
 That writes `dist/notes-0.1.0-windows/` and the same folder as a `.zip`, and
-makes an installer when Inno Setup is on the machine. Read
+makes a setup `.exe` that needs no tool on the machine. Read
 [packaging](/docs/tooling/packaging) before you hand it over — it says what to
 test first, and how an application updates itself afterwards.
 

@@ -29,14 +29,15 @@ use std::path::{Path, PathBuf};
 pub use rustx_macros::{ToValue, main};
 
 // The two crates the compiler's generated code names —
-// `rustx_dom::Element`, `rustx_engine::task::spawn`. They come through
+// `rustx_dom::Element`, `crate::rustx_engine::task::spawn`. They come through
 // the facade so that an application declares one crate in its
 // `Cargo.toml`, which is what the documentation promises. Nothing for
 // the developer to write: `#[rustx::main]`'s prelude imports them.
 #[doc(hidden)]
 pub use rustx_dom;
+// Named `rustx_engine` still: the compiler's generated code writes that path.
 #[doc(hidden)]
-pub use rustx_engine;
+pub use rustx_webview as rustx_engine;
 
 /// The rest of the runtime, for an application that wants more than
 /// time: `rustx::tokio::sync`, `rustx::tokio::select!`.
@@ -79,10 +80,13 @@ pub use rustx_os::{
 /// commands, and two things cannot carry one name.
 pub use rustx_os as os;
 
-pub use rustx_engine::{
-    Document, DomError, NativeError, Node, PostError, Poster, dropped, foreign, mount, mount_at_id,
-    on_context_created, on_frame, poster, register_native, render, router, task, window,
+pub use crate::rustx_engine::{
+    Document, DomError, NativeError, Node, PostError, Poster, dropped, files, foreign, mount,
+    mount_at_id, on_context_created, on_frame, poster, register_async_native, register_native,
+    render, router, task, window,
 };
+
+pub mod setup;
 
 /// Where this application keeps its own files, and what it writes
 /// there.
@@ -110,7 +114,7 @@ pub mod data {
     /// The name the folder is under: the application's own, as
     /// `Config::new` was given it.
     fn app() -> String {
-        let named = rustx_engine::window::about().name;
+        let named = crate::rustx_engine::window::about().name;
         if named.is_empty() {
             // Before `App::new` has run -- a test, a tool -- there is
             // no title yet. A folder nobody chose is better than a
@@ -198,7 +202,7 @@ pub mod update {
     pub use rustx_os::update::{Outcome, Release, clean, restart};
 
     fn app() -> String {
-        let named = rustx_engine::window::about().name;
+        let named = crate::rustx_engine::window::about().name;
         if named.is_empty() {
             "rustx-app".to_string()
         } else {
@@ -209,7 +213,7 @@ pub mod update {
     /// The version this build says it is -- `Config::version(…)`, which
     /// `rustx build` also stamps into the binary.
     fn running() -> String {
-        rustx_engine::window::about().version
+        crate::rustx_engine::window::about().version
     }
 
     /// Is there a newer release than the one running?
@@ -247,8 +251,18 @@ pub mod update {
     }
 }
 
+/// The default screens, as elements, for an application that wants one inside
+/// its own layout: Next.js's `notFound()`, `forbidden()`, `unauthorized()` and
+/// its error page.
+pub mod screens {
+    pub use crate::rustx_engine::router::{
+        error_screen, forbidden_screen as forbidden, not_found_screen as not_found,
+        unauthorized_screen as unauthorized,
+    };
+}
+
 /// What can go wrong while an application starts.
-pub type Error = rustx_engine::EngineError;
+pub type Error = crate::rustx_engine::EngineError;
 
 /// A component of the application, by the name it was written with.
 pub type NamedComponent = (&'static str, fn() -> Element);
@@ -292,11 +306,28 @@ pub type Asset = (&'static str, &'static [u8]);
 /// written in a `task(async { … })`.
 #[doc(hidden)]
 pub fn block_on<T>(work: impl std::future::Future<Output = T>) -> T {
-    rustx_engine::runtime::block_on(work)
+    crate::rustx_engine::runtime::block_on(work)
 }
 
 /// Said by `#[rustx::main]`, which is where `env!` reads the
 /// application's own crate rather than this one.
+/// Said by `#[rustx::main]` with what the crate's own `Cargo.toml` says, so the
+/// About screen knows a version without `Config::version`.
+#[doc(hidden)]
+pub fn install_package(version: &str, authors: &str, description: &str) {
+    PACKAGE.with(|held| {
+        *held.borrow_mut() = (
+            version.to_string(),
+            authors.split(':').next().unwrap_or_default().to_string(),
+            description.to_string(),
+        )
+    });
+}
+
+thread_local! {
+    static PACKAGE: RefCell<(String, String, String)> = const { RefCell::new((String::new(), String::new(), String::new())) };
+}
+
 #[doc(hidden)]
 pub fn install_manifest_dir(directory: &str) {
     MANIFEST_DIR.with(|held| *held.borrow_mut() = Some(PathBuf::from(directory)));
@@ -344,6 +375,14 @@ pub fn assets_dir() -> PathBuf {
 }
 
 fn found_assets_dir() -> PathBuf {
+    // `rustx dev` serves the project's own folder, so a saved asset is what the
+    // reloaded page shows. A built application has the files carried instead.
+    if std::env::var_os("RUSTX_RELOAD").is_some() {
+        let live = manifest_dir().join("assets");
+        if live.is_dir() {
+            return live;
+        }
+    }
     let beside = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(|directory| directory.join("assets")));
@@ -388,7 +427,7 @@ fn unpacked_assets(carried: &'static [Asset]) -> Option<PathBuf> {
 }
 
 fn unpacking_directory() -> Option<PathBuf> {
-    let slug = rustx_engine::window::about().name;
+    let slug = crate::rustx_engine::window::about().name;
     let slug = slugged(if slug.is_empty() { "rustx-app" } else { &slug });
     let root = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
@@ -479,9 +518,15 @@ pub struct Config {
     mounts: Vec<(String, fn() -> Element)>,
     hooks: Vec<std::rc::Rc<dyn Fn()>>,
     icon: Option<PathBuf>,
-    about: rustx_engine::window::About,
+    about: crate::rustx_engine::window::About,
     dressing: rustx_os::window::Dressing,
     scrollbars: bool,
+    plan: crate::rustx_engine::window::Plan,
+    portable: bool,
+    permissions: Vec<String>,
+    updates: Option<String>,
+    redirects: Vec<(String, String)>,
+    capabilities: Option<Vec<String>>,
 }
 
 impl Config {
@@ -500,18 +545,111 @@ impl Config {
             mounts: Vec::new(),
             hooks: Vec::new(),
             icon: None,
-            about: rustx_engine::window::About {
+            about: crate::rustx_engine::window::About {
                 name: title,
                 ..Default::default()
             },
             dressing: rustx_os::window::Dressing::System,
             scrollbars: true,
+            plan: Default::default(),
+            portable: false,
+            permissions: Vec::new(),
+            updates: None,
+            redirects: Vec::new(),
+            capabilities: None,
         }
     }
 
     pub fn size(mut self, width: u32, height: u32) -> Self {
         self.width = width;
         self.height = height;
+        self
+    }
+
+    /// The application never installs itself: it runs from wherever it is.
+    /// By default a binary that `rustx package` made installable shows the
+    /// pages of `system/` when it is run outside its install location.
+    pub fn portable(mut self) -> Self {
+        self.portable = true;
+        self
+    }
+
+    /// The only functions the page may call (a Tauri capability file): any other
+    /// native, however it was registered, is refused with a message.
+    pub fn capabilities(mut self, natives: &[&str]) -> Self {
+        self.capabilities = Some(natives.iter().map(|n| n.to_string()).collect());
+        self
+    }
+
+    /// `from` always shows the screen at `to` (the `redirects` of a Next.js config).
+    pub fn redirect(mut self, from: &str, to: &str) -> Self {
+        self.redirects.push((from.to_string(), to.to_string()));
+        self
+    }
+
+    /// Where releases are published, `owner/name` on GitHub: the settings screen
+    /// of `system/` then offers to check for an update and install it.
+    pub fn updates(mut self, repository: &str) -> Self {
+        self.updates = Some(repository.to_string());
+        self
+    }
+
+    /// The permissions this application uses (`"camera"`, `"microphone"`,
+    /// `"location"`, `"notifications"`, `"files"`): what the permissions
+    /// screen of `system/` lists, in words, before the system asks.
+    pub fn permissions(mut self, names: &[&str]) -> Self {
+        self.permissions = names.iter().map(|n| n.to_string()).collect();
+        self
+    }
+
+    /// The window will not shrink below this (logical pixels).
+    pub fn min_size(mut self, width: u32, height: u32) -> Self {
+        self.plan.min_size = Some((width, height));
+        self
+    }
+
+    /// The window will not grow beyond this (logical pixels).
+    pub fn max_size(mut self, width: u32, height: u32) -> Self {
+        self.plan.max_size = Some((width, height));
+        self
+    }
+
+    /// Whether the user can resize the window by its edges. On by default.
+    pub fn resizable(mut self, resizable: bool) -> Self {
+        self.plan.resizable = resizable;
+        self
+    }
+
+    /// Open in the middle of the primary screen.
+    pub fn centered(mut self) -> Self {
+        self.plan.centered = true;
+        self
+    }
+
+    /// Open at this place (logical pixels from the top left of the desktop).
+    pub fn position(mut self, x: i32, y: i32) -> Self {
+        self.plan.position = Some((x, y));
+        self
+    }
+
+    /// Keep the window in front of the others.
+    pub fn always_on_top(mut self) -> Self {
+        self.plan.always_on_top = true;
+        self
+    }
+
+    /// Open where the user left the window: size, position, maximised.
+    /// Written under the application's data folder; ignored if that place
+    /// is no longer on a screen.
+    pub fn remember_window(mut self) -> Self {
+        self.plan.remember = true;
+        self
+    }
+
+    /// The colour behind the page while it loads, so a dark application
+    /// does not open with a white flash.
+    pub fn background(mut self, red: u8, green: u8, blue: u8) -> Self {
+        self.plan.background = Some((red, green, blue));
         self
     }
 
@@ -660,7 +798,7 @@ impl Config {
 
 /// An application whose configuration has been checked.
 pub struct App {
-    inner: rustx_engine::App,
+    inner: crate::rustx_engine::App,
 }
 
 impl App {
@@ -674,8 +812,30 @@ impl App {
     pub fn new(config: Config) -> Result<Self, Error> {
         let routes = ROUTES.with(Cell::get);
         let components = COMPONENTS.with(|held| held.borrow().clone());
+        // A binary made installable that is not installed shows its system
+        // pages first; `--install --silent` and `--uninstall --silent` need no window.
+        crate::setup::declare_permissions(config.permissions.clone());
+        crate::setup::declare_updates(config.updates.clone());
+        if let Some(allowed) = &config.capabilities {
+            let names: Vec<&str> = allowed.iter().map(String::as_str).collect();
+            crate::rustx_engine::restrict_natives(&names);
+        }
+        for (from, to) in &config.redirects {
+            router::redirect(from, to);
+        }
+        // No route table (`#[rustx::main(pages)]`) means no system pages to show.
+        let mode = crate::setup::detect(config.portable || routes.is_none());
+        if let Some(code) = crate::setup::silent() {
+            std::process::exit(code);
+        }
         let host = config.host.clone();
-        let start = config.start.clone();
+        let start = mode
+            .page()
+            .map(str::to_string)
+            // `RUSTX_START=/__system/about` opens that route first: for looking at a
+            // screen without navigating to it, and for tests.
+            .or_else(|| std::env::var("RUSTX_START").ok())
+            .unwrap_or_else(|| config.start.clone());
         // The engine brings both fallback screens; an application that
         // named one replaces that one and keeps the other.
         let screens = router::Screens {
@@ -689,29 +849,31 @@ impl App {
         // holding, when `rustx dev` is the one that started it. Nothing
         // else sets `RUSTX_CARRIED`, so outside a watching loop this is
         // one lookup and nothing more.
-        rustx_engine::on_context_created(carry_state);
+        crate::rustx_engine::on_context_created(carry_state);
 
         if let Some(routes) = routes {
-            rustx_engine::on_context_created(move || start_router(routes, &host, &start, screens));
+            crate::rustx_engine::on_context_created(move || {
+                start_router(routes, &host, &start, screens)
+            });
         }
-        rustx_engine::on_context_created(move || {
+        crate::rustx_engine::on_context_created(move || {
             for (name, component) in &components {
                 foreign::register_component(name, *component);
             }
         });
-        rustx_engine::on_context_created(install_shared_native);
-        rustx_engine::on_context_created(install_about_native);
+        crate::rustx_engine::on_context_created(install_shared_native);
+        crate::rustx_engine::on_context_created(install_about_native);
         // The other half of the React boundary. An application says
         // which libraries it uses — `rustx.use({ recharts })` — and
         // writes its components in `.rsx`; the bridge between the two
         // is the framework's, so the framework brings it.
         let scrollbars = config.scrollbars;
-        rustx_engine::on_context_created(move || {
-            rustx_engine::inject("react-runtime", include_str!("../assets/runtime.js"));
+        crate::rustx_engine::on_context_created(move || {
+            crate::rustx_engine::inject("react-runtime", include_str!("../assets/runtime.js"));
             // And the application's own libraries, after the runtime
             // that reads them. Both go in through the frame, in order.
             if let Some(name) = BUNDLE.with(Cell::get) {
-                rustx_engine::inject(
+                crate::rustx_engine::inject(
                     "app-bundle",
                     &format!(
                         "(() => {{ const put = () => {{ \r
@@ -727,7 +889,7 @@ impl App {
             // have to name either. JavaScript puts it there because
             // that is what the engine can put in a page.
             if let Some(css) = STYLESHEET.with(Cell::get) {
-                rustx_engine::inject(
+                crate::rustx_engine::inject(
                     "app-stylesheet",
                     &format!(
                         // Waited for, not assumed: what the engine puts
@@ -752,51 +914,151 @@ impl App {
             // `::-webkit-scrollbar` on purpose is not overruled by a
             // sheet it did not write.
             if !scrollbars {
-                rustx_engine::inject("app-scrollbars", &hidden_scrollbars());
+                crate::rustx_engine::inject("app-scrollbars", &hidden_scrollbars());
             }
         });
         for (id, component) in config.mounts {
-            rustx_engine::on_context_created(move || mount_when_ready(id.clone(), component));
+            crate::rustx_engine::on_context_created(move || {
+                mount_when_ready(id.clone(), component)
+            });
         }
         for hook in config.hooks {
-            rustx_engine::on_context_created(move || hook());
+            crate::rustx_engine::on_context_created(move || hook());
         }
 
         // The window's own logo and what the application says it is.
         // Declared before the sub-processes leave, because the render
         // process answers `rustx_about()` and it never comes back here.
-        rustx_engine::window::declare(
+        crate::rustx_engine::window::plan(config.plan.clone());
+        crate::rustx_engine::window::set_frameless(
+            config.dressing == rustx_os::window::Dressing::None,
+        );
+        let mut about = config.about;
+        // What Config did not say, Cargo.toml did.
+        PACKAGE.with(|held| {
+            let (version, publisher, description) = held.borrow().clone();
+            if about.version.is_empty() {
+                about.version = version;
+            }
+            if about.publisher.is_empty() {
+                about.publisher = publisher;
+            }
+            if about.description.is_empty() {
+                about.description = description;
+            }
+        });
+        crate::rustx_engine::window::declare(
             config
                 .icon
                 .map(|icon| resolved_asset(&icon))
                 .or_else(default_icon),
-            config.about,
+            about,
         );
 
-        if let rustx_engine::Bootstrap::Child { exit_code } = rustx_engine::bootstrap() {
+        if let crate::rustx_engine::Bootstrap::Child { exit_code } =
+            crate::rustx_engine::bootstrap()
+        {
             std::process::exit(exit_code);
         }
 
-        let index = match config.index {
-            Some(index) => resolved_asset(&index),
-            None => document_for(&assets_dir(), &config.title)?,
-        };
+        let engine_config = webview_config(
+            config.title,
+            config.width,
+            config.height,
+            config.dressing,
+            config.index,
+        );
 
         Ok(Self {
-            inner: rustx_engine::App::new(rustx_engine::AppConfig {
-                title: config.title,
-                width: config.width,
-                height: config.height,
-                dressing: config.dressing,
-                index,
-            })?,
+            inner: crate::rustx_engine::App::new(engine_config)?,
         })
     }
 
     /// Open the window and run until it closes.
     pub fn run(self) -> Result<(), Error> {
-        self.inner.run()
+        let outcome = self.inner.run();
+        // A machine without the web view runtime: say so natively, install it
+        // when allowed, and start again.
+        // Once only: a child started after an install that did not help must not offer again.
+        if let Err(failure) = &outcome
+            && rustx_os::bootstrap::is_missing_runtime(&failure.to_string())
+            && std::env::var_os("RUSTX_BOOTSTRAPPED").is_none()
+        {
+            let name = crate::rustx_engine::window::about().name;
+            match rustx_os::bootstrap::offer_runtime(&name) {
+                Ok(true) => {
+                    if let Ok(exe) = std::env::current_exe() {
+                        let _ = std::process::Command::new(exe)
+                            .args(std::env::args().skip(1))
+                            .env("RUSTX_BOOTSTRAPPED", "1")
+                            .spawn();
+                    }
+                    return Ok(());
+                }
+                Ok(false) => {}
+                Err(why) => eprintln!("rustx: {why}"),
+            }
+        }
+        outcome
     }
+}
+
+/// What the webview engine is given: the folder to serve, the page to start
+/// on and, when the assets hold none, a document served from memory.
+///
+/// The folder is the origin's root, so a relative `src` in a page reaches
+/// its file with no `<base>`: a `file://` address would be refused by the
+/// webview, which gives the page an origin of its own.
+fn webview_config(
+    title: String,
+    width: u32,
+    height: u32,
+    dressing: rustx_os::window::Dressing,
+    index: Option<PathBuf>,
+) -> crate::rustx_engine::AppConfig {
+    let (root, entry, document) = match index {
+        Some(index) => {
+            let index = resolved_asset(&index);
+            let name = index
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "index.html".to_string());
+            let root = index
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(assets_dir);
+            (root, format!("/{name}"), None)
+        }
+        None => {
+            let assets = assets_dir();
+            let document = (!assets.join("index.html").is_file()).then(|| default_page(&title));
+            (assets, "/index.html".to_string(), document)
+        }
+    };
+    crate::rustx_engine::AppConfig {
+        title,
+        width,
+        height,
+        root,
+        entry,
+        document,
+        dressing,
+    }
+}
+
+/// The document an application that wrote none is given, with no `<base>`:
+/// its assets are the root the page is served from.
+fn default_page(title: &str) -> String {
+    let title = title.replace('&', "&amp;").replace('<', "&lt;");
+    format!(
+        "<!doctype html>\n<html>\n  <head>\n    <meta charset=\"utf-8\" />\n    \
+         <title>{title}</title>\n    <style>\n      \
+         :root {{ color-scheme: light dark; }}\n      \
+         body {{ font-family: system-ui, sans-serif; margin: 0; }}\n    \
+         </style>\n  </head>\n  <body>\n    \
+         <!-- The screens go here. They are written in app/. -->\n    \
+         <div id=\"app\"></div>\n  </body>\n</html>\n"
+    )
 }
 
 /// The router is started on the first frame where its host element is
@@ -818,11 +1080,11 @@ fn start_router(
     // passe devant tout le reste parce que c'est une demande explicite
     // —, puis l'écran qui était ouvert quand `rustx dev` a remplacé le
     // dernier processus, puis la route de départ de l'application.
-    let start = rustx_engine::window::page_asked_for()
+    let start = crate::rustx_engine::window::page_asked_for()
         .or_else(rustx_dom::carried::page)
         .unwrap_or_else(|| start.to_string());
     let started = Cell::new(false);
-    rustx_engine::on_frame(move || {
+    crate::rustx_engine::on_frame(move || {
         if started.get() {
             return;
         }
@@ -1042,7 +1304,7 @@ fn manifest_dir() -> PathBuf {
 /// own components.
 fn mount_when_ready(id: String, component: fn() -> Element) {
     let done = Cell::new(false);
-    rustx_engine::on_frame(move || {
+    crate::rustx_engine::on_frame(move || {
         if done.get() {
             return;
         }
@@ -1122,8 +1384,8 @@ fn resolved_asset(written: &Path) -> PathBuf {
 /// holding a copy: a number written twice is a number that is wrong in
 /// one of the two places.
 fn install_about_native() {
-    rustx_engine::register_native("rustx_about", |_arguments| {
-        let about = rustx_engine::window::about();
+    crate::rustx_engine::register_native("rustx_about", |_arguments| {
+        let about = crate::rustx_engine::window::about();
         Ok(Value::Record(vec![
             ("name".to_string(), Value::String(about.name)),
             ("version".to_string(), Value::String(about.version)),

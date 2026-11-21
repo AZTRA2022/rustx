@@ -61,8 +61,7 @@ fn main() -> Result<(), rustx::Error> {
 `#[rustx::main]` does the rest: it compiles the `.rsx` files in `app/` into Rust,
 writes the route table, builds the JavaScript package and the
 style sheet if there is a `package.json`, finds or writes `assets/index.html`,
-and shuts down the Chromium subprocesses before they touch
-anything.
+and starts the window.
 
 There is **no `build.rs`**, and nothing to configure.
 

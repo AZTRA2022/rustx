@@ -29,8 +29,8 @@ fn main() -> Result<(), rustx::Error> {
 ```
 
 `#[rustx::main]` compiles every `.rsx` under `app/` into the binary,
-hands the router the route table it generated, and leaves the CEF
-sub-process before it touches anything. All of it is ordinary Rust that
+hands the router the route table it generated, and starts the
+window. All of it is ordinary Rust that
 could have been written by hand, which is what lets an application that
 outgrows the attribute reach for `rustx_engine` directly and keep
 going.
@@ -87,7 +87,7 @@ of four lines, a page, and the `package.json`, `tsconfig.json` and
 | **`rustx-app`** | **this one — what an application depends on** |
 | `rustx-dom` | the element tree, state, routes |
 | `rustx-compiler` | `.rsx` → Rust, and the JavaScript bundle |
-| `rustx-engine` | the CEF host: the frame loop, the router, React |
+| `rustx-webview` | the host on the system's webview: the frame loop, the router, React |
 | `rustx-macro` | `#[rustx::main]` |
 | `rustx-os` | the clipboard, dialogs, the tray, devices |
 | `rustx-cli` | `rustx new`, `dev`, `build`, `run` |

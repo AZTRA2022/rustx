@@ -20,6 +20,8 @@
 //! through the natives below. Everything those natives do is write a
 //! value the page already declared; the editing itself stays in Rust.
 
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 pub mod ffmpeg;
 
 use rustx::{App, Config, NativeError, Value, register_native};
@@ -69,14 +71,15 @@ fn transport() {
         Ok(Value::Null)
     });
 
-    // Whether this build of Chromium could decode the file at all. It
-    // can — the CEF binaries here carry H.264 and AAC — but a file the
-    // user imports may be anything, and a monitor that stays black
-    // with nothing said is the failure this reports.
+    // Whether the system's web view could decode the file at all. What it
+    // decodes is the system's own: WebView2 uses Windows' codecs, WKWebView
+    // Apple's, WebKitGTK whatever GStreamer plugins are installed. A file the
+    // user imports may be anything, and a monitor that stays black with
+    // nothing said is the failure this reports.
     register_native("editor_media", |arguments| {
         let ok = matches!(arguments.first(), Some(Value::Bool(true)));
         rustx::store::shared("decodes", || true).set(ok);
-        // Chromium's own words when it refuses the file, which is the
+        // The web view's own words when it refuses the file, which is the
         // difference between a black monitor and a sentence a person
         // can act on.
         if let (false, Some(Value::String(said))) = (ok, arguments.get(1)) {

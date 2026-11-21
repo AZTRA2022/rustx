@@ -14,6 +14,7 @@
 //! kept value, so leaving the screen closes it, and the bar's thread
 //! belongs to the layout, so it keeps running while the screens under it
 //! change.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod devices;
 

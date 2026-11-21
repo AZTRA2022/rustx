@@ -3,13 +3,18 @@ title: "The not-found screen"
 description: "not_found, start, and what Config says about the router."
 ---
 
+The defaults are Next.js's own pages, with the same markup, colours (black on white, white on black
+by the system's preference) and Inter as the font: `404 | This page could not be found.`, and for a page
+that fell over `Application error: an exception has occurred…` with what the panic said under it.
+The font and the colours are in [fonts and theme](/docs/getting-started/fonts-and-theme).
+
 `Config` says where it starts, and what is shown for a route that
 nobody declared.
 
 ```rust
 Config::new("My app")
     .start("/settings")          // `/` by default
-    .not_found(NotFound)         // otherwise: "This page does not exist."
+    .not_found(NotFound)         // otherwise: "This page could not be found."
 ```
 
 ## The screen itself
@@ -75,7 +80,7 @@ A second window, however, opens on the route it is given —
 `What::new("tool").at("/tool")` — and not on `start`. See
 [several windows](/docs/the-window/several-windows).
 
-<Callout type="warn" title="This page does not exist.">
+<Callout type="warn" title="This page could not be found.">
 This is the default screen of `not_found`. When it appears without having been wanted: check the path passed to `navigate`, the name of the folder in
 `app/`, and the `.start(…)` of `Config`.
 </Callout>

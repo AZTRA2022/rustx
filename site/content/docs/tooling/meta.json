@@ -3,7 +3,6 @@
   "pages": [
     "index",
     "the-commands",
-    "configuration",
     "environment",
     "the-editor",
     "the-packages",

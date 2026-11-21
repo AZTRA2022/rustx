@@ -6,6 +6,7 @@
 //! each with its own tasks and its own blocked work, is. That is what
 //! this app is — several projects, their tasks, and one roll-up that
 //! shows where the whole set is stuck — with no backend behind it.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use rustx::{App, Config};
 

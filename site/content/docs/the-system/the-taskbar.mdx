@@ -120,8 +120,8 @@ its own About box and knows it.
 | | |
 |---|---|
 | **Windows** | written and run. `FlashWindowEx` and `ITaskbarList3` for attention, `ShellAboutW` for the panel |
-| **Linux** | `attention` written, never run. `about` refuses |
-| **macOS** | both written, never compiled for a Mac |
+| **Linux** | `attention` written; compiled on a CI Linux runner, not driven on a desktop. `about` refuses |
+| **macOS** | both written; compiled on a CI Mac, not driven on a desktop |
 
 The tests cover the arithmetic — a fraction clamped into range, turned
 into the ten-thousandths Windows wants — and the refusals: a window that

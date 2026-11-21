@@ -279,3 +279,29 @@ fn a_library_prop_that_is_not_a_dom_event_stays_a_value() {
         "une prop de bibliothèque a été lue comme un évènement : {emitted}"
     );
 }
+
+#[test]
+fn a_component_prop_annotated_with_event_is_handed_an_event() {
+    // BUG.md: `onClick={move |event: rustx_dom::Event| …}` on a library
+    // component got a `Value` and rustc said "expected Value, found Event".
+    for annotation in ["rustx_dom::Event", "Event"] {
+        let rust = rewrite_one(&format!(
+            "fn P() -> Element {{\n    return <Textarea onClick={{move |event: {annotation}| drop(event)}} />;\n}}"
+        ));
+        assert!(rust.contains("Event :: from_value"), "{annotation}: {rust}");
+    }
+}
+
+#[test]
+fn an_unannotated_component_prop_stays_a_value() {
+    for closure in [
+        "move |value| drop(value)",
+        "move |a, b| drop((a, b))",
+        "move || ()",
+    ] {
+        let rust = rewrite_one(&format!(
+            "fn P() -> Element {{\n    return <Textarea onClick={{{closure}}} />;\n}}"
+        ));
+        assert!(!rust.contains("Event :: from_value"), "{closure}: {rust}");
+    }
+}

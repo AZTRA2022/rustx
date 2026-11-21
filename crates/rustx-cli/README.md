@@ -95,10 +95,9 @@ binary; on macOS a minimal `.app` bundle.
 `cargo build` still works. The binary it makes simply looks anonymous in
 an explorer window.
 
-Stdout is the one path to the binary, because a script reads it. A
-release build also says, on stderr, what Chromium needs beside that
-binary to start: a rustx application is a Chromium host, and the
-directory is the artefact, not the `.exe` alone.
+Stdout is the one path to the binary, because a script reads it. The
+binary draws with the system's webview, so it is the application: the
+assets it reads travel beside it in `rustx package`.
 
 ## What it needs on the machine
 
@@ -146,7 +145,7 @@ by hand from three Win32 calls, with no `build.rs` and no dependency.
 | `rustx-app` | what an application depends on |
 | `rustx-dom` | the element tree, state, routes |
 | `rustx-compiler` | `.rsx` → Rust, and the JavaScript bundle |
-| `rustx-engine` | the CEF host |
+| `rustx-webview` | the host on the system's webview |
 | `rustx-macro` | `#[rustx::main]` |
 | `rustx-os` | the clipboard, dialogs, the tray, devices |
 | **`rustx-cli`** | **this one** |
@@ -154,7 +153,7 @@ by hand from three Win32 calls, with no `build.rs` and no dependency.
 
 This crate depends on `rustx-compiler` alone, for the names of the files
 the build generates. It does not link the browser engine: a command line
-that loaded CEF to read an application's name would be absurd.
+that loaded the web view to read an application's name would be absurd.
 
 Rust 1.88 or newer, edition 2024. Licensed under MIT or Apache-2.0, at
 your option.

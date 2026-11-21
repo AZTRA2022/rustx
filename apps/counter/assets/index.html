@@ -4,16 +4,13 @@
     <meta charset="utf-8" />
     <title>Counter</title>
     <style>
-      :root { color-scheme: dark; }
+            :root { color-scheme: light dark; }
       body {
-        font-family: system-ui, sans-serif;
+        font-family: Inter, system-ui, sans-serif;
         margin: 0;
-        display: grid;
-        place-items: center;
-        height: 100vh;
-        gap: 1rem;
-        background: #16161a;
-        color: #fffffe;
+        min-height: 100vh;
+        background: var(--rx-bg);
+        color: var(--rx-fg);
       }
       button {
         font: inherit;
@@ -41,6 +38,101 @@
       // underneath it was working perfectly. The framework drives its
       // own frames from a timer when that happens; so does this.
       const rustx_soon = (then) => setTimeout(then, 16);
+      // The install wizard (system/install.rsx, here the framework's default),
+      // driven the way a person would: click Install, wait for Ready.
+      // Any single screen: the first heading it draws.
+      if (rustx_scenario() === "screen") {
+        let left = 300;
+        const look = () => {
+          const h1 = document.querySelector("h1");
+          if (h1 && h1.textContent.trim()) {
+            rustx_report("heading", h1.textContent.trim());
+            rustx_report("done", "yes");
+            return;
+          }
+          if (left-- <= 0) {
+            rustx_report("done", "no");
+            return;
+          }
+          rustx_soon(look);
+        };
+        look();
+      }
+      // Settings, "Check for updates": against a release page the CI serves.
+      if (rustx_scenario() === "update") {
+        let left = 400;
+        const look = () => {
+          const go = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Check");
+          if (go && !window.__clicked) {
+            window.__clicked = true;
+            go.click();
+          }
+          if (document.body.textContent.includes("Version 9.0.0 is available")) {
+            rustx_report("update", "found");
+            rustx_report("done", "yes");
+            return;
+          }
+          if (left-- <= 0) {
+            rustx_report("gave_up_on", document.body.textContent.slice(0, 160));
+            rustx_report("done", "no");
+            return;
+          }
+          rustx_soon(look);
+        };
+        look();
+      }
+      // The frameless window's own controls: Maximize changes the size, Close ends the process.
+      if (rustx_scenario() === "chrome") {
+        let left = 300;
+        const by = (label) => document.querySelector('[aria-label="' + label + '"]');
+        const wait = () => {
+          if (by("Maximize")) {
+            rustx_report("width_before", String(window.innerWidth));
+            by("Maximize").click();
+            setTimeout(() => {
+              rustx_report("width_after", String(window.innerWidth));
+              rustx_report("done", "yes");
+              by("Close").click();
+            }, 2500);
+            return;
+          }
+          if (left-- <= 0) {
+            rustx_report("done", "no");
+            return;
+          }
+          rustx_soon(wait);
+        };
+        wait();
+      }
+      if (rustx_scenario() === "install") {
+        const button = (text) => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === text);
+        let left = 600;
+        const look = () => {
+          // With a LICENSE: Install-or-Next, then the Licence step, then Accept.
+          const go = button("Install") || button("Next") || button("Accept and install");
+          const title = document.querySelector("h1");
+          if (go && !go.disabled && title && !window.__clicked) {
+            rustx_report(title.textContent === "Licence" ? "licence" : "welcome", title.textContent);
+            // The licence text itself must be on the page.
+            if (title.textContent === "Licence") rustx_report("licence_text", (document.querySelector("pre") || {}).textContent || "");
+            window.__clicked = go.textContent === "Accept and install" || go.textContent === "Install";
+            go.click();
+          }
+          const h1 = document.querySelector("h1");
+          if (h1 && h1.textContent === "Ready") {
+            rustx_report("finished", h1.textContent);
+            rustx_report("done", "yes");
+            return;
+          }
+          if (left-- <= 0) {
+            rustx_report("gave_up_on", document.body.textContent.slice(0, 120));
+            rustx_report("done", "no");
+            return;
+          }
+          rustx_soon(look);
+        };
+        look();
+      }
       if (rustx_scenario() === "page") {
         // The effective font of the document, read before anything
         // else touches the page: `body { font-family: system-ui,

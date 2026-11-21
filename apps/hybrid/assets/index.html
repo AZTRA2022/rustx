@@ -67,10 +67,22 @@
               () => {
             rustx_report("answer_later", text("#reponse"));
 
+            // A task started by a click, not by the render: it writes after
+            // a sleep, and the screen shows it.
+            document.querySelector("#start-saved").click();
+            waitFor(
+              () => text("#saved") === "42",
+              () => {
+                rustx_report("handler_task_wrote", text("#saved"));
+                window.__savedSeen = true;
+              }
+            );
+
             // A thousand writes with nothing between them, applied by
             // the frame that drained them.
             waitFor(
-              () => text("#burst") === "1000",
+              // After the click's task has written, so the page is still here.
+              () => text("#burst") === "1000" && window.__savedSeen === true,
               () => {
                 rustx_report("burst_total", text("#burst"));
                 rustx_report("renders_for_the_burst", text("#drawn"));

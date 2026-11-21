@@ -11,9 +11,9 @@ macro, no `store::`. <Brand name="npm" /> libraries
 `.rsx` itself. The `main.rs` of a project
 is four lines, because the ceremony is the framework's job.
 
-<Brand name="rust" /> and <Brand name="react" /> live in **the same process**: an `onClick` is a
-function call, not a serialized message, and props cross the boundary
-as V8 values.
+<Brand name="rust" /> and <Brand name="react" /> meet in one window: your Rust runs in the application's process, React in the
+system webview's page. An `onClick` runs your Rust closure, and props cross the
+boundary as JSON.
 
 <Callout title="Status">
 Windows is written and measured. macOS and Linux compile and refuse by

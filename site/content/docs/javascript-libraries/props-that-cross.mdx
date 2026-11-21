@@ -3,8 +3,9 @@ title: "Props that cross"
 description: "`#[derive(ToValue)]`, `record(…)`, children, callbacks, and what `Value` can carry."
 ---
 
-What is passed to a JavaScript component is a V8 value, in the same
-process: no JSON, no serialized bridge.
+What is passed to a JavaScript component is JSON: `null`, booleans, numbers,
+strings, lists and objects of these. A function becomes a callback that sends a
+message back, and its return value does not cross.
 
 ```rust
 #[derive(ToValue)]

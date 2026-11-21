@@ -418,3 +418,82 @@ fn two_libraries_that_come_to_one_name_are_refused() {
         .is_none()
     );
 }
+
+#[test]
+fn a_library_the_manifest_says_is_not_a_tag_is_not_imported_whole() {
+    let project = somewhere("no-tags");
+    std::fs::write(
+        project.join("package.json"),
+        "{ \"dependencies\": { \"recharts\": \"1\", \"@phosphor-icons/react\": \"2\" }, \"rustxNoTags\": [\"@phosphor-icons/react\"] }",
+    )
+    .unwrap();
+    let declared = ["recharts".to_string(), "@phosphor-icons/react".to_string()];
+    let entry = rustx_compiler::bundle::entry_for_in(&declared, &project);
+    assert!(entry.contains("import * as recharts"), "{entry}");
+    assert!(!entry.contains("phosphor"), "{entry}");
+    // Without the line, every library is a tag, as before.
+    std::fs::write(project.join("package.json"), "{}").unwrap();
+    let entry = rustx_compiler::bundle::entry_for_in(&declared, &project);
+    assert!(entry.contains("phosphor"), "{entry}");
+    let _ = std::fs::remove_dir_all(project);
+}
+
+#[test]
+fn a_manifest_with_awkward_values_still_gives_its_dependencies_and_nothing_else() {
+    let manifest = r#"{
+      "name": "x",
+      "description": "mentions \"dependencies\" and a } brace, and a [ bracket",
+      "scripts": { "build": "echo { \"dependencies\": 1 }" },
+      "peerDependencies": { "wrong": "1" },
+      "dependencies": {
+        "react": ">=17, <19",
+        "@scope/pkg": "^1.0.0",
+        "alias": "npm:other@1.0.0",
+        "with-dash": "git+https://example.com/a,b.git"
+      },
+      "devDependencies": { "esbuild": "0.23.1" },
+      "rustxNoTags": ["@scope/pkg", "alias"]
+    }"#;
+    let found = rustx_compiler::bundle::dependencies_in(manifest);
+    assert_eq!(found, vec!["react", "@scope/pkg", "alias", "with-dash"]);
+    assert_eq!(
+        rustx_compiler::bundle::no_tags_in(manifest),
+        vec!["@scope/pkg", "alias"]
+    );
+    assert!(rustx_compiler::bundle::dependencies_in("{}").is_empty());
+    assert!(rustx_compiler::bundle::dependencies_in("not json at all {").is_empty());
+}
+
+#[test]
+fn a_package_whose_only_entry_is_a_conditional_exports_map_is_importable() {
+    let app = somewhere("conditional-exports");
+    write_package(
+        &app,
+        "{\"dependencies\": {\"dotted\": \"1.0.0\", \"flat\": \"1.0.0\", \"nested\": \"1.0.0\"}}",
+    );
+    // The root written as a dot with conditions.
+    install(
+        &app,
+        "dotted",
+        "{\"name\": \"dotted\", \"exports\": {\".\": {\"import\": \"./i.mjs\", \"require\": \"./i.cjs\"}, \"./extra\": \"./extra.js\"}}",
+    );
+    // Conditions straight under `exports`, no dot at all.
+    install(
+        &app,
+        "flat",
+        "{\"name\": \"flat\", \"exports\": {\"import\": \"./i.mjs\", \"default\": \"./i.cjs\"}}",
+    );
+    // A root nested inside conditions, with a string value containing a brace.
+    install(
+        &app,
+        "nested",
+        "{\"name\": \"nested\", \"description\": \"a } brace\", \"exports\": {\".\": {\"node\": {\"import\": \"./n.mjs\"}, \"default\": \"./d.js\"}}}",
+    );
+    for package in ["dotted", "flat", "nested"] {
+        assert_eq!(
+            rustx_compiler::bundle::installed(&app, package),
+            rustx_compiler::bundle::Installed::Importable,
+            "{package}"
+        );
+    }
+}

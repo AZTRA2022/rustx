@@ -403,7 +403,19 @@ pub fn entry_for(dependencies: &[String]) -> String {
 /// The same, for an application whose own components are to be imported
 /// when it has any.
 pub fn entry_for_in(dependencies: &[String], app: &Path) -> String {
-    entry_for_with(dependencies, index_for(app).is_some())
+    // A page may write any export of any library as a tag, so every library is
+    // imported whole by default. An application that knows better says so:
+    // `"rustxNoTags": ["@phosphor-icons/react"]` in package.json leaves a
+    // library out of the tags (its own components still import it), which is
+    // what keeps a 7 MB icon set out of the page's bundle.
+    let manifest = std::fs::read_to_string(app.join("package.json")).unwrap_or_default();
+    let skipped = no_tags_in(&manifest);
+    let named: Vec<String> = dependencies
+        .iter()
+        .filter(|package| !skipped.contains(package))
+        .cloned()
+        .collect();
+    entry_for_with(&named, index_for(app).is_some())
 }
 
 fn entry_for_with(dependencies: &[String], own: bool) -> String {
@@ -569,25 +581,80 @@ pub fn build(app: &Path) -> Result<Built, String> {
     let out = app.join(DIRECTORY);
     std::fs::create_dir_all(&out)
         .map_err(|error| format!("rustx could not write {}: {error}", out.display()))?;
+    // One build of this bundle at a time, across processes. The attribute
+    // expands once for the binary and once for its test target, at the same
+    // moment, and both ran esbuild onto the same `bundle.js`: one read it
+    // while the other had truncated it, and copied an empty file into the
+    // assets. The page then had no libraries, until the next build.
+    let _alone = BuildLock::take(&out);
     // The index of the application's own components, first: the entry
     // imports it, and esbuild reads what is on disk.
+    // Written only when it differs, so that "nothing changed" is something the
+    // files can say: see `current` below.
+    let mut inputs_changed = false;
+    let mut write_if_different = |path: &Path, text: String| -> Result<(), String> {
+        if std::fs::read_to_string(path).ok().as_deref() != Some(text.as_str()) {
+            inputs_changed = true;
+            std::fs::write(path, text)
+                .map_err(|error| format!("rustx could not write {}: {error}", path.display()))?;
+        }
+        Ok(())
+    };
     if let Some(index) = index_for(app) {
-        let beside = out.join("ui.ts");
-        std::fs::write(&beside, index)
-            .map_err(|error| format!("rustx could not write {}: {error}", beside.display()))?;
+        write_if_different(&out.join("ui.ts"), index)?;
     }
 
     let entry = out.join("entry.js");
-    std::fs::write(&entry, entry_for_in(&dependencies, app))
-        .map_err(|error| format!("rustx could not write {}: {error}", entry.display()))?;
+    write_if_different(&entry, entry_for_in(&dependencies, app))?;
 
     let bundle = out.join("bundle.js");
+    // esbuild is a second of a save's time on a large application, and most
+    // saves are a page: the bundle is kept when its entry is the same and
+    // nothing it is built from (the manifest, the lock file, the application's
+    // own components) is newer than it.
+    let current = !inputs_changed && bundle_is_current(app, &bundle);
     // The stylesheet esbuild writes beside the bundle when a library
     // imports its own: a stale one from the last build must not outlive
     // the library that wrote it.
-    let _ = std::fs::remove_file(out.join("bundle.css"));
-    let finished = std::process::Command::new(&esbuild)
-        .arg(&entry)
+    if !current {
+        let _ = std::fs::remove_file(out.join("bundle.css"));
+        run_esbuild(&esbuild, &entry, &bundle, app)?;
+    }
+    finish(app, &out, &bundle, stylesheet)
+}
+
+/// Is the bundle on disk newer than everything it is built from?
+fn bundle_is_current(app: &Path, bundle: &Path) -> bool {
+    let Some(built) = std::fs::metadata(bundle)
+        .and_then(|about| about.modified())
+        .ok()
+    else {
+        return false;
+    };
+    fn newest(path: &Path, into: &mut Option<std::time::SystemTime>) {
+        let Ok(about) = std::fs::metadata(path) else {
+            return;
+        };
+        if about.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(path) {
+                for entry in entries.flatten() {
+                    newest(&entry.path(), into);
+                }
+            }
+        } else if let Ok(when) = about.modified() {
+            *into = Some(into.map_or(when, |seen| seen.max(when)));
+        }
+    }
+    let mut latest = None;
+    for input in ["package.json", "package-lock.json", "components", "lib"] {
+        newest(&app.join(input), &mut latest);
+    }
+    latest.is_none_or(|input| input <= built)
+}
+
+fn run_esbuild(esbuild: &Path, entry: &Path, bundle: &Path, app: &Path) -> Result<(), String> {
+    let finished = std::process::Command::new(esbuild)
+        .arg(entry)
         .arg("--bundle")
         .arg("--format=iife")
         .arg("--target=chrome120")
@@ -620,7 +687,16 @@ pub fn build(app: &Path) -> Result<Built, String> {
             String::from_utf8_lossy(&finished.stderr).trim()
         ));
     }
+    Ok(())
+}
 
+/// What follows the bundle: where the document reaches it, and the stylesheet.
+fn finish(
+    app: &Path,
+    out: &Path,
+    bundle: &Path,
+    stylesheet: Option<PathBuf>,
+) -> Result<Built, String> {
     // Beside the document, under a name nobody would write by hand.
     //
     // A bundle is a megabyte of JavaScript, and a megabyte handed to
@@ -635,12 +711,12 @@ pub fn build(app: &Path) -> Result<Built, String> {
         std::fs::create_dir_all(assets)
             .map_err(|error| format!("rustx could not write {}: {error}", assets.display()))?;
     }
-    crate::build::copy_if_changed(&bundle, &beside)
+    crate::build::copy_if_changed(bundle, &beside)
         .map_err(|error| format!("rustx could not write {}: {error}", beside.display()))?;
 
     Ok(Built {
         bundle: Some(beside),
-        stylesheet: with_the_libraries_css(&out, stylesheet)?,
+        stylesheet: with_the_libraries_css(out, stylesheet)?,
     })
 }
 
@@ -673,6 +749,41 @@ fn with_the_libraries_css(
     crate::build::copy_if_changed(&next, &combined)
         .map_err(|error| format!("rustx could not write {}: {error}", combined.display()))?;
     Ok(Some(combined))
+}
+
+/// Held while one process builds the bundle: a directory, because creating
+/// one is the operation every file system refuses to do twice.
+struct BuildLock(PathBuf);
+
+impl BuildLock {
+    fn take(out: &Path) -> Self {
+        let held = out.join(".bundle-lock");
+        let since = std::time::Instant::now();
+        loop {
+            if std::fs::create_dir(&held).is_ok() {
+                return Self(held);
+            }
+            // A build killed half way leaves its lock behind: after two
+            // minutes it is nobody's.
+            let stale = std::fs::metadata(&held)
+                .and_then(|about| about.modified())
+                .map(|when| {
+                    when.elapsed().unwrap_or_default() > std::time::Duration::from_secs(120)
+                })
+                .unwrap_or(false);
+            if stale || since.elapsed() > std::time::Duration::from_secs(180) {
+                let _ = std::fs::remove_dir(&held);
+                continue;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+}
+
+impl Drop for BuildLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir(&self.0);
+    }
 }
 
 /// What the bundle is called beside the application's document.
@@ -867,29 +978,107 @@ pub fn arguments_for(dialect: Dialect, input: &Path, output: &Path) -> Vec<Strin
 /// JSON parser. `devDependencies` are left out on purpose — a tool is
 /// not a library of the page.
 pub fn dependencies_in(manifest: &str) -> Vec<String> {
-    let Some(at) = manifest.find("\"dependencies\"") else {
-        return Vec::new();
-    };
-    let Some(open) = manifest[at..].find('{') else {
-        return Vec::new();
-    };
-    let open = at + open;
-    let Some(close) = manifest[open..].find('}') else {
-        return Vec::new();
-    };
-
     let mut names = Vec::new();
-    let body = &manifest[open + 1..open + close];
-    for pair in body.split(',') {
-        let Some(key) = pair.split(':').next() else {
+    for_each_member(manifest, "dependencies", |key| names.push(key.to_string()));
+    names
+}
+
+/// The strings of a top-level array of the manifest (`"rustxNoTags": ["a", "b"]`).
+fn strings_at(manifest: &str, wanted: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut in_array = false;
+    let (mut depth, mut inside, mut escaped) = (0_i32, false, false);
+    let (mut current, mut last_key, mut array_depth) = (String::new(), String::new(), 0);
+    for letter in manifest.chars() {
+        if inside {
+            match (escaped, letter) {
+                (true, _) => {
+                    current.push(letter);
+                    escaped = false;
+                }
+                (false, '\\') => escaped = true,
+                (false, '"') => {
+                    inside = false;
+                    if in_array && depth == array_depth {
+                        found.push(std::mem::take(&mut current));
+                    } else if depth == 1 {
+                        last_key = std::mem::take(&mut current);
+                    } else {
+                        current.clear();
+                    }
+                }
+                (false, _) => current.push(letter),
+            }
             continue;
-        };
-        let name = key.trim().trim_matches('"').trim();
-        if !name.is_empty() {
-            names.push(name.to_string());
+        }
+        match letter {
+            '"' => inside = true,
+            '{' => depth += 1,
+            '}' => depth -= 1,
+            '[' => {
+                depth += 1;
+                if depth == 2 && last_key == wanted {
+                    in_array = true;
+                    array_depth = depth;
+                }
+            }
+            ']' => {
+                if in_array && depth == array_depth {
+                    in_array = false;
+                }
+                depth -= 1;
+            }
+            _ => {}
         }
     }
-    names
+    found
+}
+
+/// Walk a `package.json` as text, aware of strings (a brace or a comma inside
+/// one is not structure) and call `each(key)` for every key of the object the
+/// top-level member `under` holds.
+fn for_each_member(manifest: &str, under: &str, mut each: impl FnMut(&str)) {
+    let (mut depth, mut inside, mut escaped) = (0_i32, false, false);
+    let (mut current, mut top_key) = (String::new(), String::new());
+    let mut pending_key: Option<(i32, String)> = None;
+    for letter in manifest.chars() {
+        if inside {
+            match (escaped, letter) {
+                (true, _) => {
+                    current.push(letter);
+                    escaped = false;
+                }
+                (false, '\\') => escaped = true,
+                (false, '"') => {
+                    inside = false;
+                    pending_key = Some((depth, std::mem::take(&mut current)));
+                }
+                (false, _) => current.push(letter),
+            }
+            continue;
+        }
+        match letter {
+            '"' => inside = true,
+            ':' => {
+                if let Some((at, key)) = pending_key.take() {
+                    if at == 1 {
+                        top_key = key;
+                    } else if at == 2 && top_key == under {
+                        each(&key);
+                    }
+                }
+            }
+            '{' | '[' => depth += 1,
+            '}' | ']' => depth -= 1,
+            ',' => pending_key = None,
+            _ => {}
+        }
+    }
+}
+
+/// The libraries package.json says are not tags of the page.
+pub fn no_tags_in(manifest: &str) -> Vec<String> {
+    strings_at(manifest, "rustxNoTags")
 }
 
 /// The application's own esbuild, if it installed one.

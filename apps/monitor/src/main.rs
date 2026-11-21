@@ -4,6 +4,7 @@
 //! page is one value two components read, and the thread that drives it
 //! is a `task` the panel keeps — so leaving the page stops it, with no
 //! cleanup written anywhere.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use rustx::{App, Config};
 

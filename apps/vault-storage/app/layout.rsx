@@ -12,9 +12,9 @@ let mut said: String = String::new();
 let mut sealed_count: u32 = 0;
 
 fn Layout(children: Element) -> Element {
-    effect((), || {
-        // A passphrase the machine was asked to keep comes back here,
-        // from the platform's own credential store.
+    // A passphrase the machine was asked to keep comes back here, from the
+    // platform's own credential store, beside the window and not on it.
+    task(async move {
         if let Ok(Some(kept)) = rustx::secret::fetch("Cryostasis", "passphrase") {
             passphrase = kept;
             remembered = true;

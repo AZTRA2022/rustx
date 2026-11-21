@@ -56,28 +56,19 @@ pub struct Package {
     pub description: String,
     /// `amd64`, `arm64`. Debian's names, not Rust's.
     pub architecture: String,
-    /// What has to be installed for this to start. Chromium needs a
-    /// dozen X and GTK libraries, and a package that does not say so
-    /// installs and then does not open.
+    /// What has to be installed for this to start: WebKitGTK and GTK, and
+    /// a package that does not say so installs and then does not open.
     pub depends: String,
     pub section: String,
     pub homepage: String,
     pub files: Vec<Entry>,
 }
 
-/// The libraries CEF links against on a desktop Linux.
-///
-/// Taken from Chromium's own packaging rather than guessed: these are
-/// the names its `.deb` declares, minus the ones that only matter to a
-/// browser's own sandbox helper. A package that declares none of them
-/// installs and then dies on the first `dlopen`, which looks to a user
-/// like the application is broken rather than incomplete.
-pub const CHROMIUM_NEEDS: &str = "libc6, libgcc-s1, libstdc++6, libglib2.0-0, libgtk-3-0, \
-                                  libnss3, libnspr4, libatk1.0-0, libatk-bridge2.0-0, \
-                                  libcups2, libdrm2, libdbus-1-3, libxcb1, libxkbcommon0, \
-                                  libx11-6, libxcomposite1, libxdamage1, libxext6, libxfixes3, \
-                                  libxrandr2, libgbm1, libpango-1.0-0, libcairo2, libasound2, \
-                                  libexpat1, libudev1";
+/// What a desktop Linux needs to draw the window: WebKitGTK, the engine of
+/// the system webview. A package that declares none of it installs and then
+/// dies on the first `dlopen`, which looks to a user like the application
+/// is broken rather than incomplete.
+pub const WEBVIEW_NEEDS: &str = "libc6, libgcc-s1, libstdc++6, libgtk-3-0, libwebkit2gtk-4.1-0";
 
 /// Debian's name for the architecture this build runs on.
 pub fn architecture() -> &'static str {

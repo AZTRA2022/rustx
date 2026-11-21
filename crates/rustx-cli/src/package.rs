@@ -2,19 +2,15 @@
 //!
 //! What this answers, said plainly, because the documentation used to
 //! say "not written" for all of it: a rustx application is not one
-//! file. The `.exe` the linker makes is a Chromium host, and Chromium
-//! reads `libcef.dll`, the `.pak` files, `icudtl.dat`,
-//! `v8_context_snapshot.bin` and `locales/` from beside that binary.
-//! `rustx build` printed one path and then a paragraph explaining that
-//! the path was not the application; a developer who copied it got a
-//! program that does not start, and the dialog Windows shows for that
-//! names a library rather than a cause.
-//!
-//! So this command does the copying. It builds, stamps, gathers
-//! everything the binary needs — including the application's own
+//! file in spirit, but on the system webview it carries no engine: the
+//! `.exe` the linker makes draws its window with the webview the system
+//! already has, so the folder holds the binary and the application's own
 //! `assets/`, which the runtime looks for beside the executable before
-//! it looks anywhere else — writes a manifest of what it gathered, and
-//! optionally puts the whole thing in one `.zip`.
+//! it looks anywhere else.
+//!
+//! This command builds, stamps, gathers what the binary needs, writes a
+//! manifest of what it gathered, and optionally puts the whole thing in
+//! one `.zip`.
 //!
 //! What it deliberately does not do is invent a format. The folder is
 //! the artefact; the archive is the same folder, zipped, because that
@@ -70,10 +66,6 @@ pub fn run(project: &Path, options: &Options) -> Result<Packaged, String> {
     let release = !options.debug;
     let read = build::read(project)?;
     let exe = build::run(release, project)?;
-    let from = exe
-        .parent()
-        .ok_or_else(|| format!("{} has no directory", exe.display()))?
-        .to_path_buf();
 
     let folder = format!(
         "{}-{}-{}",
@@ -104,9 +96,13 @@ pub fn run(project: &Path, options: &Options) -> Result<Packaged, String> {
         .map_err(|error| format!("{} could not be made ({error}).", into.display()))?;
 
     let mut gathered: Vec<(String, PathBuf)> = Vec::new();
-    gather_beside(&from, &exe, &mut gathered)?;
+    gather_beside(&exe, &mut gathered)?;
     gather_assets(project, &mut gathered)?;
     if cfg!(target_os = "macos") {
+        // A bundle cannot carry a stamp, so the licence travels as an asset.
+        if let Some(path) = licence_path(project) {
+            gathered.push(("assets/LICENSE".to_string(), path));
+        }
         in_a_bundle(&mut gathered, &read.about.name, &read.binary);
     }
 
@@ -133,7 +129,26 @@ pub fn run(project: &Path, options: &Options) -> Result<Packaged, String> {
         finish_the_bundle(&into, &read)?;
     }
 
-    let signed = sign(&into.join(exe.file_name().unwrap_or_default()));
+    // The binary may install itself: stamped before it is signed, because a
+    // signature covers what is in the file. A Mac bundle says it in its
+    // Info.plist instead, which the resources step wrote.
+    if !cfg!(target_os = "macos") {
+        rustx_os::install::write_stamp(
+            &into.join(exe.file_name().unwrap_or_default()),
+            &rustx_os::install::Stamp {
+                name: read.about.name.clone(),
+                version: read.about.version.clone(),
+                publisher: read.about.publisher.clone(),
+                license: licence_of(project).unwrap_or_default(),
+            },
+        )
+        .map_err(|error| format!("the install stamp could not be written ({error})."))?;
+    }
+    let signed = if cfg!(target_os = "macos") {
+        sign_bundle(&into)
+    } else {
+        sign(&into.join(exe.file_name().unwrap_or_default()))
+    };
 
     let manifest = manifest_of(&read, &into, &gathered)?;
     std::fs::write(into.join(MANIFEST), manifest)
@@ -162,46 +177,21 @@ pub fn run(project: &Path, options: &Options) -> Result<Packaged, String> {
     })
 }
 
-/// Everything in the build directory that the program needs at run
-/// time, which is everything cargo did not leave there for cargo.
-///
-/// `build::ships_with` is the same answer `rustx build --release`
-/// already prints, so the package holds exactly what that paragraph
-/// named. Directories are walked — `locales/` is 51 MB of `.pak` files
-/// and a package without it starts with no text in its menus.
-fn gather_beside(from: &Path, exe: &Path, into: &mut Vec<(String, PathBuf)>) -> Result<(), String> {
-    let binary = exe
+/// The binary: the system's webview is the engine, so nothing else of the
+/// build directory travels.
+fn gather_beside(exe: &Path, into: &mut Vec<(String, PathBuf)>) -> Result<(), String> {
+    let name = exe
         .file_name()
         .unwrap_or_default()
         .to_string_lossy()
         .to_string();
-    let entries = std::fs::read_dir(from)
-        .map_err(|error| format!("{} could not be read ({error}).", from.display()))?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().to_string();
-        if !build::ships_with(&name) {
-            continue;
-        }
-        if path.is_dir() {
-            if build::runtime_directory(&name) {
-                walk(&path, &name, into);
-            }
-            continue;
-        }
-        if path.is_file() && build::runtime_file(&name, &binary) {
-            into.push((name, path));
-        }
-    }
-    if !into.iter().any(|(name, _)| {
-        name.eq_ignore_ascii_case(&exe.file_name().unwrap_or_default().to_string_lossy())
-    }) {
+    if !exe.is_file() {
         return Err(format!(
-            "{} was built and is not in {}, so there is nothing to package.",
-            exe.display(),
-            from.display()
+            "{} was built and is not there, so there is nothing to package.",
+            exe.display()
         ));
     }
+    into.push((name, exe.to_path_buf()));
     Ok(())
 }
 
@@ -227,6 +217,17 @@ fn walk(directory: &Path, prefix: &str, into: &mut Vec<(String, PathBuf)>) {
 /// copying them here is what lets somebody swap a logo or patch the
 /// document in a shipped package without a compiler. An application
 /// with no `assets/` has nothing to copy and that is not an error.
+fn licence_path(project: &Path) -> Option<PathBuf> {
+    ["LICENSE", "LICENSE.txt", "LICENSE.md"]
+        .iter()
+        .map(|name| project.join(name))
+        .find(|path| path.is_file())
+}
+
+fn licence_of(project: &Path) -> Option<String> {
+    std::fs::read_to_string(licence_path(project)?).ok()
+}
+
 fn gather_assets(project: &Path, into: &mut Vec<(String, PathBuf)>) -> Result<(), String> {
     let root = project.join("assets");
     if !root.is_dir() {
@@ -245,10 +246,9 @@ fn gather_assets(project: &Path, into: &mut Vec<(String, PathBuf)>) -> Result<()
 /// On macOS the folder is not the application: a bundle is.
 ///
 /// A loose binary on a Mac has no name in the Dock, no icon, no
-/// `Info.plist` and no way to be dragged into Applications, and CEF
-/// looks for `Chromium Embedded Framework.framework` inside
-/// `Contents/Frameworks`. So the gathered names are rewritten into the
-/// layout Apple and CEF both document, and nothing is copied twice.
+/// `Info.plist` and no way to be dragged into Applications. So the
+/// gathered names are rewritten into the layout Apple documents, and
+/// nothing is copied twice.
 ///
 /// The binary stays beside its `assets/`, which is `Contents/MacOS`:
 /// the runtime reads them from the executable's own directory, and
@@ -257,11 +257,7 @@ fn gather_assets(project: &Path, into: &mut Vec<(String, PathBuf)>) -> Result<()
 fn in_a_bundle(gathered: &mut [(String, PathBuf)], name: &str, binary: &str) {
     let app = format!("{name}.app");
     for (held, _) in gathered.iter_mut() {
-        let first = held.split('/').next().unwrap_or(held).to_string();
-        *held = if first.ends_with(".framework") || first.eq_ignore_ascii_case("Frameworks") {
-            let rest = held.strip_prefix("Frameworks/").unwrap_or(held);
-            format!("{app}/Contents/Frameworks/{rest}")
-        } else if held.as_str() == binary {
+        *held = if held.as_str() == binary {
             format!("{app}/Contents/MacOS/{binary}")
         } else {
             format!("{app}/Contents/MacOS/{held}")
@@ -269,16 +265,7 @@ fn in_a_bundle(gathered: &mut [(String, PathBuf)], name: &str, binary: &str) {
     }
 }
 
-/// The five helper suffixes CEF names on macOS.
-///
-/// Chromium starts each kind of subprocess from its own bundle so that
-/// the system can give them different entitlements, and it finds them
-/// by this exact name. They are copies of the application's own binary
-/// because a rustx executable already starts itself as its helpers --
-/// there is no second program to build.
-const HELPERS: [&str; 5] = ["", " (GPU)", " (Plugin)", " (Renderer)", " (Alerts)"];
-
-/// `Info.plist` for the bundle and for each helper.
+/// `Info.plist` for the bundle.
 ///
 /// `"true"` and `"false"` become `<true/>` and `<false/>`: a boolean
 /// written as a string is read as true whatever it says, which would
@@ -308,8 +295,7 @@ fn escaped_xml(text: &str) -> String {
         .replace('>', "&gt;")
 }
 
-/// What the copy loop could not copy: the property lists, the icon, and
-/// the helper bundles.
+/// What the copy loop could not copy: the property list and the icon.
 fn finish_the_bundle(into: &Path, read: &build::Project) -> Result<(), String> {
     let name = &read.about.name;
     let slug = slug(name);
@@ -336,6 +322,7 @@ fn finish_the_bundle(into: &Path, read: &build::Project) -> Result<(), String> {
     }
 
     let version = read.about.version.clone();
+    let publisher = read.about.publisher.clone();
     let identifier = format!("dev.rustx.{slug}");
     let mut keys: Vec<(&str, &str)> = vec![
         ("CFBundleDevelopmentRegion", "en"),
@@ -350,46 +337,36 @@ fn finish_the_bundle(into: &Path, read: &build::Project) -> Result<(), String> {
         ("LSMinimumSystemVersion", "11.0"),
         ("NSHighResolutionCapable", "true"),
         ("NSSupportsAutomaticGraphicsSwitching", "true"),
+        // The binary may install itself: see `rustx_os::install::read_stamp`.
+        ("RustxInstallable", "true"),
+        ("RustxPublisher", &publisher),
     ];
     if icon.is_some() {
         keys.push(("CFBundleIconFile", &icon_name));
     }
+    // macOS ends an app that touches the camera or microphone without saying why.
+    let reasons: Vec<(&str, String)> = read
+        .permissions
+        .iter()
+        .filter_map(|permission| usage_key(permission))
+        .map(|key| (key, format!("{name} uses this to do what you asked of it.")))
+        .collect();
+    for (key, why) in &reasons {
+        keys.push((key, why));
+    }
     write_text(&contents.join("Info.plist"), &info_plist(&keys))?;
 
-    // The helpers. Each is a bundle of its own holding a copy of this
-    // same binary, which is what CEF opens for a renderer or the GPU.
-    let frameworks = contents.join("Frameworks");
-    for suffix in HELPERS {
-        let helper = format!("{name} Helper{suffix}");
-        let inside = frameworks.join(format!("{helper}.app")).join("Contents");
-        let where_to = inside.join("MacOS");
-        std::fs::create_dir_all(&where_to)
-            .map_err(|error| format!("{} could not be made ({error}).", where_to.display()))?;
-        std::fs::copy(&binary, where_to.join(&helper))
-            .map_err(|error| format!("{helper} could not be copied ({error})."))?;
-        let kind = suffix.trim().trim_matches(['(', ')']).to_ascii_lowercase();
-        let helper_id = if kind.is_empty() {
-            format!("{identifier}.helper")
-        } else {
-            format!("{identifier}.helper.{kind}")
-        };
-        let keys: Vec<(&str, &str)> = vec![
-            ("CFBundleDisplayName", &helper),
-            ("CFBundleExecutable", &helper),
-            ("CFBundleIdentifier", &helper_id),
-            ("CFBundleInfoDictionaryVersion", "6.0"),
-            ("CFBundleName", &helper),
-            ("CFBundlePackageType", "APPL"),
-            ("CFBundleShortVersionString", &version),
-            ("CFBundleVersion", &version),
-            // Not in the Dock and not in the window switcher: a helper
-            // process is not an application the user opened.
-            ("LSUIElement", "true"),
-            ("NSHighResolutionCapable", "true"),
-        ];
-        write_text(&inside.join("Info.plist"), &info_plist(&keys))?;
-    }
     Ok(())
+}
+
+/// The Info.plist key macOS wants for a permission an application names.
+fn usage_key(permission: &str) -> Option<&'static str> {
+    match permission {
+        "camera" => Some("NSCameraUsageDescription"),
+        "microphone" => Some("NSMicrophoneUsageDescription"),
+        "location" => Some("NSLocationUsageDescription"),
+        _ => None,
+    }
 }
 
 fn write_text(path: &Path, text: &str) -> Result<(), String> {
@@ -452,6 +429,78 @@ pub fn sign(exe: &Path) -> Option<Result<String, String>> {
              with the Windows SDK; the Developer Command Prompt has it on the PATH."
         ))),
     }
+}
+
+/// Sign the `.app` with `RUSTX_MAC_IDENTITY` (`-` signs ad hoc, which needs no
+/// certificate), and notarise it when `RUSTX_NOTARY_PROFILE` names a
+/// `notarytool` keychain profile.
+fn sign_bundle(into: &Path) -> Option<Result<String, String>> {
+    let identity = std::env::var("RUSTX_MAC_IDENTITY").ok()?;
+    let bundle = std::fs::read_dir(into)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| path.extension().is_some_and(|e| e == "app"))?;
+    let run = |program: &str, args: &[&std::ffi::OsStr]| -> Result<(), String> {
+        let out = std::process::Command::new(program)
+            .args(args)
+            .output()
+            .map_err(|e| format!("`{program}` could not be run ({e})"))?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "`{program}` refused: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ))
+        }
+    };
+    let os = |text: &'static str| std::ffi::OsStr::new(text);
+    let mut said = format!("signed with {identity}");
+    let outcome = (|| {
+        run(
+            "codesign",
+            &[
+                os("--force"),
+                os("--deep"),
+                os("--options"),
+                os("runtime"),
+                os("--sign"),
+                std::ffi::OsStr::new(&identity),
+                bundle.as_os_str(),
+            ],
+        )?;
+        if let Ok(profile) = std::env::var("RUSTX_NOTARY_PROFILE") {
+            let zip = bundle.with_extension("notarize.zip");
+            run(
+                "ditto",
+                &[
+                    os("-c"),
+                    os("-k"),
+                    os("--keepParent"),
+                    bundle.as_os_str(),
+                    zip.as_os_str(),
+                ],
+            )?;
+            let sent = run(
+                "xcrun",
+                &[
+                    os("notarytool"),
+                    os("submit"),
+                    zip.as_os_str(),
+                    os("--keychain-profile"),
+                    std::ffi::OsStr::new(&profile),
+                    os("--wait"),
+                ],
+            );
+            let _ = std::fs::remove_file(&zip);
+            sent?;
+            run("xcrun", &[os("stapler"), os("staple"), bundle.as_os_str()])?;
+            said.push_str(" and notarised");
+        }
+        Ok(())
+    })();
+    Some(outcome.map(|()| said))
 }
 
 /// The manifest an updater reads: what this release is, and the digest
@@ -578,38 +627,18 @@ pub fn says_what_it_made(packaged: &Packaged) -> String {
 mod tests {
     use super::*;
 
-    /// What a package is allowed to hold. The first one made carried
-    /// another application's `.exe`, CEF's `CMakeLists.txt` and its
-    /// `bootstrap.exe`: a workspace builds every binary into one
-    /// directory, and "everything that is not cargo's own" was the
-    /// wrong question.
+    /// What a package is allowed to hold: this application's binary. A
+    /// workspace builds every binary into one directory, and "everything
+    /// that is not cargo's own" shipped another application's `.exe`.
     #[test]
-    fn a_package_holds_the_engine_and_this_applications_binary_and_nothing_else() {
+    fn a_package_holds_this_applications_binary_and_nothing_else() {
         let ours = "mon-app.exe";
-        for named in [
-            "libcef.dll",
-            "chrome_elf.dll",
-            "icudtl.dat",
-            "resources.pak",
-            "chrome_100_percent.pak",
-            "v8_context_snapshot.bin",
-            "vk_swiftshader_icd.json",
-            "vulkan-1.dll",
-            "CREDITS.html",
-            "mon-app.exe",
-        ] {
-            assert!(
-                build::runtime_file(named, ours),
-                "{named} is part of the application and was left behind"
-            );
-        }
+        assert!(build::runtime_file("mon-app.exe", ours));
         for named in [
             "rustx.exe",
             "another-app.exe",
-            "bootstrap.exe",
-            "bootstrapc.exe",
-            "CMakeLists.txt",
-            "archive.json",
+            "libcef.dll",
+            "resources.pak",
             "mon-app.d",
         ] {
             assert!(
@@ -617,26 +646,15 @@ mod tests {
                 "{named} was shipped and nothing reads it"
             );
         }
-        assert!(build::runtime_directory("locales"));
-        assert!(build::runtime_directory(
-            "Chromium Embedded Framework.framework"
-        ));
-        assert!(!build::runtime_directory("deps"));
-        assert!(!build::runtime_directory("build"));
     }
 
     /// The one piece of the macOS bundle that can be checked from a
     /// machine that is not a Mac: where each gathered name lands.
     #[test]
-    fn a_bundle_puts_the_framework_in_frameworks_and_the_rest_beside_the_binary() {
+    fn a_bundle_puts_the_binary_and_the_assets_in_macos() {
         let mut gathered = vec![
             ("counter".to_string(), PathBuf::from("/b/counter")),
-            (
-                "Chromium Embedded Framework.framework/Resources/icudtl.dat".to_string(),
-                PathBuf::from("/b/x"),
-            ),
             ("assets/index.html".to_string(), PathBuf::from("/b/y")),
-            ("Frameworks/libEGL.dylib".to_string(), PathBuf::from("/b/z")),
         ];
         in_a_bundle(&mut gathered, "My App", "counter");
         let names: Vec<&str> = gathered.iter().map(|(name, _)| name.as_str()).collect();
@@ -644,9 +662,7 @@ mod tests {
             names,
             vec![
                 "My App.app/Contents/MacOS/counter",
-                "My App.app/Contents/Frameworks/Chromium Embedded Framework.framework/Resources/icudtl.dat",
-                "My App.app/Contents/MacOS/assets/index.html",
-                "My App.app/Contents/Frameworks/libEGL.dylib",
+                "My App.app/Contents/MacOS/assets/index.html"
             ]
         );
     }
@@ -677,9 +693,9 @@ mod tests {
     fn the_manifest_names_the_release_and_every_file_in_it() {
         let directory =
             std::env::temp_dir().join(format!("rustx-package-manifest-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(directory.join("locales"));
+        let _ = std::fs::create_dir_all(directory.join("assets"));
         std::fs::write(directory.join("mon-app.exe"), b"binary").expect("a binary");
-        std::fs::write(directory.join("locales").join("fr.pak"), b"pak").expect("a pak");
+        std::fs::write(directory.join("assets").join("a.txt"), b"text").expect("an asset");
 
         let read = build::Project {
             binary: "mon-app".to_string(),
@@ -690,12 +706,13 @@ mod tests {
                 publisher: String::new(),
             },
             icon: None,
+            permissions: Vec::new(),
         };
         let gathered = vec![
             ("mon-app.exe".to_string(), directory.join("mon-app.exe")),
             (
-                "locales/fr.pak".to_string(),
-                directory.join("locales").join("fr.pak"),
+                "assets/a.txt".to_string(),
+                directory.join("assets").join("a.txt"),
             ),
         ];
 
@@ -703,7 +720,7 @@ mod tests {
 
         assert!(manifest.contains("\"version\": \"1.2.3\""), "{manifest}");
         assert!(manifest.contains("\"name\": \"Mon App\""), "{manifest}");
-        assert!(manifest.contains("locales/fr.pak"), "{manifest}");
+        assert!(manifest.contains("assets/a.txt"), "{manifest}");
         assert!(
             manifest.contains(&rustx_os::digest::sha256_hex(b"binary")),
             "the digest of the binary is in it: {manifest}"

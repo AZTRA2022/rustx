@@ -70,6 +70,11 @@ fn the_main_it_writes_is_four_lines_long() {
         .collect();
     assert!(code.len() <= 7, "too much ceremony: {code:?}");
     assert!(main.contains("#[rustx::main]"), "got {main}");
+    // BUG.md: a terminal opened behind every release build on Windows.
+    assert!(
+        main.contains("#![cfg_attr(not(debug_assertions), windows_subsystem = \"windows\")]"),
+        "got {main}"
+    );
     assert!(main.contains("App::new(Config::new("), "got {main}");
     assert!(main.contains("app.run()"), "got {main}");
     let _ = fs::remove_dir_all(&into);

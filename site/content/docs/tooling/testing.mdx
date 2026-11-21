@@ -44,7 +44,7 @@ page calls `name_problem(&name)` and the test calls the same function.
 
 There is no documented harness that renders a `.rsx` page without a window. The
 generated pages sit in a private module of your crate. If you need to see what a
-component returns without Chromium, the types are public through the facade:
+component returns without a window, the types are public through the facade:
 `rustx::Element`, and the state cells in `rustx::state`. The repository's own
 tests of those, in `crates/rustx-dom/tests/`, show how.
 
@@ -57,7 +57,6 @@ collects what the script reports. The pieces are all in the framework:
 |---|---|
 | `--scenario=<name>` | a command-line argument. `rustx_scenario()` in the page returns the name |
 | `--report=<path>` | a file. `rustx_report(key, value)` appends the line `REPORT key=value` to it |
-| `--do-not-de-elevate` | lets the suite run from an administrator terminal |
 
 Both natives are installed on every page. An application that is not under test
 gets an empty string from `rustx_scenario()`, so a script that checks for a name
@@ -115,7 +114,7 @@ fn two_clicks_count_two() {
         .spawn()
         .expect("the application should start");
 
-    // Chromium takes seconds to start, and tens of seconds with no GPU.
+    // A window takes a moment to start.
     // Wait for the line, not for a fixed time.
     let found = wait_for(&report, "REPORT after_two_clicks=2", Duration::from_secs(120));
 
@@ -144,31 +143,15 @@ the dashes of the crate name.
 ## Rules the repository's harness learned
 
 - **One window at a time.** The suite takes a lock so that no two scenarios run
-  together. Several Chromium instances starting at once can take minutes.
+  together. Several windows starting at once make each other slow.
 - **A unique report file** for each run, containing the process id and the time.
   A fixed name was read stale on Windows.
-- **Wait for the report, not for a delay.** Starting Chromium takes two seconds
-  on one machine and forty on another.
-
-## On a machine with no GPU
-
-A virtual machine or a remote desktop may give Chromium no 3D context. The log
-then says `Failed to create shared context`, no frames are produced, and every
-scenario that waits on one reports nothing. Run the suite with
-`RUSTX_SOFTWARE=1`:
-
-```sh
-RUSTX_SOFTWARE=1 cargo test
-```
-
-On Windows PowerShell, set it first with `$env:RUSTX_SOFTWARE = "1"`.
+- **Wait for the report, not for a delay.** Starting a window takes a fraction of a second
+  on one machine and several on another.
 
 ## In CI
 
-The repository has no CI configuration, and a scenario needs a window to exist.
-The only platform written is Windows, so a CI job needs a Windows runner with a logged-in
-session or a virtual display, and `RUSTX_SOFTWARE=1`. That recipe has not been
-verified. Report the setup that works for you.
+`.github/workflows/ci.yml` runs the gates on Windows, compiles on macOS and Linux, and runs the webview tests on Linux under Xvfb. Only the Windows job has been run by the author; the others were written from the documentation of each system.
 
 For the other checks, the repository runs these:
 

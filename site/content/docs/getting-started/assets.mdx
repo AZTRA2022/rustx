@@ -26,7 +26,7 @@ The `.gitignore` it writes excludes `/target`, `/node_modules`,
 ## How a path resolves
 
 The page is loaded from a `file://` URL: the real `assets/index.html` on disk.
-A relative URL in the page is resolved against that folder by Chromium, like in
+A relative URL in the page is resolved against that folder by the web view, like in
 any local HTML file.
 
 ```rust
@@ -83,7 +83,7 @@ above, that is `assets/fonts/Inter.woff2`. A font needs no network, because it
 is read from disk.
 
 <Callout type="info" title="This did not work until recently">
-A page is a `file://` document, and Chromium gives every `file://`
+A page is a `file://` document, and the web view gives every `file://`
 document an origin of its own — so a *fetch* from one is cross-origin
 and refused. A stylesheet loads, an `<img src>` loads, and a font does
 not, because a font is fetched with CORS and an image is not. The result
@@ -94,12 +94,12 @@ so does a `fetch` of a file beside the document.
 
 The generic families — what `sans-serif`, `serif` and `monospace` mean —
 are set to this platform's own: `Segoe UI`, `Helvetica Neue`,
-`DejaVu Sans`. Left unset, Chromium's fallback for every one of them is
+`DejaVu Sans`. Left unset, the web view's fallback for every one of them is
 Times New Roman, on every platform.
 
 ## Images
 
-Chromium decodes PNG, JPEG, WebP, AVIF and SVG. The framework does not touch
+The web view decodes PNG, JPEG, WebP, AVIF and SVG. The framework does not touch
 them, so:
 
 - save an image at the size it is shown, or at twice that for a high-density

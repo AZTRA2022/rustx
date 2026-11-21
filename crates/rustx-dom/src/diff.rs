@@ -147,7 +147,11 @@ fn compare(old: &Element, new: &Element, at: &Path, source: &Path, patches: &mut
             // tree it should have now. A child whose props changed is a
             // change to this boundary, because the boundary is the node
             // and everything under it is React's.
-            if had != wants {
+            // And when it has callbacks, which the comparison cannot see: a
+            // closure is built afresh each render and may capture something
+            // that moved (a row's index after a reorder), so what the page
+            // calls has to be replaced even when nothing on screen changed.
+            if had != wants || wants.carries_callbacks() {
                 patches.push(Patch::ForeignProps {
                     path: at.clone(),
                     node: wants.clone(),

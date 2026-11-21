@@ -4,9 +4,10 @@ description: "Registering a Rust function that JavaScript calls, the values that
 ---
 
 A Route Handler, a Server Action or a Tauri command is how a web page asks the
-other side to do something. In rustx the other side is the same process.
+other side to do something. In rustx the other side is your process.
 A **native** is a Rust function installed on the page's JavaScript global. It
-is called like any function and answers at once.
+is called like any function and answers with its value, or throws: under the
+hood a synchronous request, so the page waits while it runs.
 
 The other direction, Rust drawing inside a React tree, has its own pages:
 [props that cross](/docs/javascript-libraries/props-that-cross) and
@@ -33,7 +34,7 @@ fn main() -> Result<(), rustx::Error> {
 ```
 
 The closure is `Fn(&[Value]) -> Result<Value, NativeError>`. It is not `Send`
-and not `Sync`: it runs on the render thread, where V8 lives.
+and not `Sync`: it runs on the window thread, while the page waits.
 
 It is registered inside `on_context_created` because the page's JavaScript
 context exists in the renderer process, and the renderer never reaches the

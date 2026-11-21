@@ -176,8 +176,8 @@ is not an error.
 | | |
 |---|---|
 | **Windows** | written and run. Explorer for `reveal`, `shell32`'s recent documents, `HKCU\Software\Classes` for associations and schemes, `ShellExecuteW` for a link |
-| **Linux** | written, never run. The file manager is reached over D-Bus, the recent list is `recently-used.xbel` (and is refused), and a scheme is a `.desktop` file with `x-scheme-handler/` plus `xdg-mime default`. A link is `xdg-open` |
-| **macOS** | written, never compiled for a Mac. `open` for both a link and `reveal`; a scheme is `CFBundleURLTypes` patched into the running bundle's `Info.plist`, then `lsregister -f` |
+| **Linux** | written; compiled on a CI Linux runner, not driven on a desktop. The file manager is reached over D-Bus, the recent list is `recently-used.xbel` (and is refused), and a scheme is a `.desktop` file with `x-scheme-handler/` plus `xdg-mime default`. A link is `xdg-open` |
+| **macOS** | written; compiled on a CI Mac, not driven on a desktop. `open` for both a link and `reveal`; a scheme is `CFBundleURLTypes` patched into the running bundle's `Info.plist`, then `lsregister -f` |
 
 A file **association** on macOS is still refused, and for a reason that
 does not apply to a scheme: an association is declared by the bundle

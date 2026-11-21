@@ -1,0 +1,68 @@
+---
+title: "Fonts and theme"
+description: "Inter by default, the colours of the framework's own screens as CSS variables, and how your application changes any of it."
+---
+
+Every window starts with a font and a palette, so that an application with no
+stylesheet at all is not Times New Roman on white.
+
+## The font
+
+**Inter**, the variable font, is the font of `html` in every window. It is
+carried in the binary (the latin, latin-ext, cyrillic, greek and vietnamese
+subsets, under the SIL Open Font License) as `data:` URIs, so a window makes no
+request and works offline. The browser decodes only the subset a page's text
+needs.
+
+It is a default and never an override. The framework's rules are in
+`@layer rustx-base`, and a rule your application writes is outside every layer,
+so it wins in whatever order the stylesheets come:
+
+```css
+/* assets/index.html or tailwind.css */
+html { font-family: Georgia, serif; }      /* wins */
+code { font-family: ui-monospace, monospace; }
+```
+
+A page that sets `fontFamily` on `body` or below keeps it. Only `html` has Inter.
+There is no setting to turn the font off, because there is nothing to turn off: name
+your own and it is used. The other glyphs fall back to the system's, so a script
+outside the five subsets (Arabic, Hebrew, CJK) is drawn in the system font.
+
+## The theme
+
+Black on white, or white on black by the system's preference, as Next.js's own
+default pages are. It is written as CSS variables on `:root`:
+
+| | light | dark |
+|---|---|---|
+| `--rx-bg` | `#fff` | `#000` |
+| `--rx-fg` | `#000` | `#fff` |
+| `--rx-muted` | `#666` | `#a1a1a1` |
+| `--rx-border` | `#eaeaea` | `#333` |
+| `--rx-accent` | `#0070f3` | `#3291ff` |
+| `--rx-danger` | `#c62a2f` | `#ff6369` |
+
+Use them in your own pages and they follow the system, and the framework's screens
+and yours look alike:
+
+```rust
+<div style={{ background: "var(--rx-bg)", color: "var(--rx-fg)", border: "1px solid var(--rx-border)" }}>
+```
+
+To define your own, set the same names on `:root` in your stylesheet: yours wins
+over the layer. `RUSTX_THEME=light` or `RUSTX_THEME=dark` forces one theme to look at it, without
+changing the system's.
+
+## What uses them
+
+The seven screens of `system/` (install, update, uninstall, licence, permissions,
+about, settings) and the default not-found and error screens: `404 | This page could
+not be found.`, and `Application error: …` with what the panic said below it.
+`rustx::screens::{not_found, forbidden, unauthorized, error_screen}` give them as
+elements to put in your own layout (`403`, `401`). See
+[the not-found screen](/docs/the-router/the-not-found-screen) and
+[packaging](/docs/tooling/packaging) for `system/`.
+
+A frameless window also gets, on every screen the framework draws, a bar to drag and the
+three marks: see [commanding the window](/docs/the-window/commanding-the-window).

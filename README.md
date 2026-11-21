@@ -8,9 +8,9 @@ Components live in `.rsx` files — JSX's syntax, Rust's language — and a
 from the `.rsx` itself, and a project's `main.rs` is four lines, because
 the ceremony is the framework's job.
 
-Rust and React live in **the same process**: an `onClick` is a function
-call, not a serialised message, and props cross the boundary as V8
-values.
+Rust runs in the application's process and React in the system webview's
+page. An `onClick` runs your Rust closure, and props cross the boundary as
+JSON: values, and callbacks that call back into Rust.
 
 > **State of the work.** The workspace is `0.4.1` and on crates.io. The
 > API can still move. Windows is written and measured; macOS and Linux
@@ -24,9 +24,10 @@ values.
 cargo install rustx-cli      # rustx new, dev, build, run
 ```
 
-Rust 1.88 or newer, and nothing else: CEF — the browser engine — arrives
-with the `cef` crate on the first build. An application that uses no npm
-library needs neither Node nor npm. For JavaScript libraries, Node and
+Rust 1.88 or newer, and nothing else: the window is drawn by the webview the
+system already has (WebView2 on Windows, WKWebView on macOS, WebKitGTK on
+Linux), so an application is a few megabytes and no engine is downloaded.
+An application that uses no npm library needs neither Node nor npm. For JavaScript libraries, Node and
 npm, like any project that uses them.
 
 ```sh
@@ -233,7 +234,7 @@ Eight crates, all published at `0.4.1`.
 | `rustx-lsp` | what an editor asks about an `.rsx` |
 | `rustx-compiler` | `.rsx` → `.rs`, and the position map |
 | `rustx-dom` | the tree, the state, the diff, the routes |
-| `rustx-engine` | the CEF host, the frame loop, the router |
+| `rustx-webview` | the host on the system's webview, the frame loop, the router |
 | `rustx-os` | the clipboard, the dialogs, the tray, the rest of the system |
 | `rustx-macro` | `#[rustx::main]`, `#[derive(ToValue)]` |
 
@@ -272,7 +273,7 @@ closing that leaves `Vec<u32>` and `=>` alone; and inside a `{ }`,
 The gates run with `powershell -File scripts/gates.ps1`, and `-List`
 prints them. `.github/workflows/ci.yml` runs the same ones, plus the two
 Node trees and the jobs that build, on Linux and macOS, the parts that
-do not need CEF.
+need no system webview.
 
 ## The licence
 

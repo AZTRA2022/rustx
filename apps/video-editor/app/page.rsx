@@ -9,10 +9,12 @@
 //
 // What is real and what is not, said once, here:
 //
-//   - the CEF build this window runs on has no H.264 and no AAC, so
-//     an mp4 does not play in it and a WebM does. Rather than refuse
-//     most footage, ffmpeg builds a preview proxy of such a file once
-//     and the monitor plays that; the render always uses the original;
+//   - what the monitor can play is what the system's web view decodes:
+//     on Windows, WebView2 plays H.264 and AAC; elsewhere it depends on
+//     the system's codecs. A file it refuses is said so (editor_media),
+//     and `ffmpeg::proxy_plan` is the answer an editor gives -- a preview
+//     proxy -- written and tested, not yet wired into the page. The render
+//     always uses the original;
 //   - the monitor is a `<video>` playing the file off disk. Play,
 //     pause, stop, seek, frame stepping, in and out points, volume and
 //     the keyboard are all that element, driven from Rust;
@@ -20,7 +22,7 @@
 //     going, so the sequence plays as the cut — but the hand-off is a
 //     reload of the element, so there is a gap of a frame or two at
 //     each cut that the rendered file does not have;
-//   - J cannot be reverse play. Chromium refuses a negative
+//   - J cannot be reverse play. The web view refuses a negative
 //     `playbackRate`, so J steps a second back and pauses, and the
 //     shortcut line says so;
 //   - the colour filter is previewed only where the preview is honest.
@@ -32,8 +34,13 @@
 //     are real work and neither is faked here.
 //
 // The still that `ffmpeg` can extract is kept for one job: the monitor
-// when Chromium cannot decode the file. That is a real fallback rather
+// when the web view cannot decode the file. That is a real fallback rather
 // than a second preview.
+
+// The timeline: how far it is zoomed (Ctrl + wheel), and whether the
+// pointer is held down on it, which is what makes a move a scrub.
+let mut zoom: f64 = 1.0;
+let mut scrubbing: bool = false;
 
 let mut clips: Vec<ffmpeg::Clip> = Vec::new();
 let mut selected: usize = 0;
@@ -381,7 +388,7 @@ fn Picture() -> Element {
     // the same refusal again on every frame.
     let proxy = beside(&ffmpeg::proxy_name(&clip.media.path));
     if proxy.is_file() {
-        let paint = css_look(clip.look.clone());
+        let paint = format!("filter: {}{}", css_look(clip.look.clone()), clip.grade_css());
         return <video id="monitor" src={as_url(&proxy)} data-cmd={command.clone()}
             preload="auto" className="max-h-full max-w-full object-contain" style={paint}>
         </video>;
@@ -402,7 +409,7 @@ fn Picture() -> Element {
         </div>;
     }
 
-    let paint = css_look(clip.look.clone());
+    let paint = format!("filter: {}{}", css_look(clip.look.clone()), clip.grade_css());
     return <video id="monitor" src={as_url(&clip.media.path)} data-cmd={command.clone()}
         preload="auto" className="max-h-full max-w-full object-contain" style={paint}>
     </video>;
@@ -412,7 +419,7 @@ fn Picture() -> Element {
 // note at the top of this file for the two it cannot.
 fn css_look(look: String) -> String {
     match look.as_str() {
-        "bw" => "filter: grayscale(1)".to_string(),
+        "bw" => "grayscale(1) ".to_string(),
         _ => String::new(),
     }
 }
@@ -556,17 +563,52 @@ fn Track() -> Element {
         .map(|(index, clip)| ClipBlock(index, clip.clone(), total))
         .collect();
 
-    return <div className="relative mt-2 flex h-20 gap-px bg-track">
-        {blocks}
-        {Playhead()}
+    // The pointer's place in the track and the track's width both come with
+    // the event, so a click maps to a time with no read of the layout.
+    return <div id="track-scroll" className="mt-2 overflow-x-auto">
+        <div id="track" className="relative flex h-20 gap-px bg-track" style={format!("width: {:.0}%", zoom * 100.0)}
+            onMouseDown={move |event| {
+                if event.button == 0 {
+                    scrubbing = true;
+                    scrub(event.local_x, event.width);
+                }
+            }}
+            onMouseMove={move |event| {
+                if scrubbing {
+                    scrub(event.local_x, event.width);
+                }
+            }}
+            onMouseUp={move |_| scrubbing = false}
+            onMouseLeave={move |_| scrubbing = false}
+            onWheel={move |event| {
+                if event.control {
+                    let step = if event.delta_y < 0.0 { 1.25 } else { 0.8 };
+                    zoom = (zoom * step).clamp(1.0, 8.0);
+                }
+            }}>
+            {blocks}
+            {Playhead()}
+        </div>
     </div>;
+}
+
+// A place along the track, as the sequence's time.
+fn scrub(local_x: f64, width: f64) {
+    if width <= 0.0 {
+        return;
+    }
+    seek_sequence((local_x / width).clamp(0.0, 1.0) * sequence_seconds());
 }
 
 fn ClipBlock(index: usize, clip: ffmpeg::Clip, total: f64) -> Element {
     let active = selected == index;
     // A clip's width is its real trimmed share of the sequence, so the
     // declaration is computed rather than written as a class.
-    let box_style = format!("width: {:.3}%", (clip.length() / total) * 100.0);
+    let box_style = format!(
+        "width: {:.3}%; opacity: {}",
+        (clip.length() / total) * 100.0,
+        if clip.enabled { 1.0 } else { 0.35 }
+    );
     let skin = match active {
         true => "border border-mark bg-mark-soft",
         false => "border border-line bg-[#1d1c24] hover:border-faint",
@@ -611,8 +653,35 @@ fn Playhead() -> Element {
 
 fn Controls() -> Element {
     return <div className="flex w-[300px] shrink-0 flex-col border-l border-line bg-panel">
+        {Layers()}
         {Effects()}
         {Export()}
+    </div>;
+}
+
+// One row per clip, each with a Radix switch Rust owns. The rows are keyed
+// by the clip and not by place, so moving a clip moves its row, and the
+// switch on a row has to act on the clip that row shows.
+fn Layers() -> Element {
+    let rows: Vec<Element> = clips
+        .iter()
+        .enumerate()
+        .map(|(index, clip)| Layer(index, clip.name.clone(), clip.enabled))
+        .collect();
+    return <div id="layers" className="border-b border-line px-3 py-2">
+        <div className="pb-1.5 text-[10px] uppercase tracking-[0.14em] text-faint">Layers</div>
+        {rows}
+    </div>;
+}
+
+fn Layer(index: usize, name: String, on: bool) -> Element {
+    return <div key={name.clone()} id={format!("layer-row-{name}")} className="flex items-center justify-between py-1">
+        <span className="truncate text-[11px] text-text">{name.clone()}</span>
+        <Switch id={format!("layer-{name}")} checked={on}
+            onCheckedChange={move |given: rustx::Value| {
+                let now = given.as_bool().unwrap_or(false);
+                edit(index, move |clip| clip.enabled = now);
+            }} />
     </div>;
 }
 
@@ -678,6 +747,13 @@ fn Effects() -> Element {
         </div>
 
         <div className="border-b border-line px-3 py-2">
+            <div className="pb-1.5 text-[10px] uppercase tracking-[0.14em] text-faint">Grade</div>
+            {GradeSlider("Brightness".to_string(), "brightness".to_string(), clip.brightness, -1.0, 1.0, index)}
+            {GradeSlider("Contrast".to_string(), "contrast".to_string(), clip.contrast, 0.0, 2.0, index)}
+            {GradeSlider("Saturation".to_string(), "saturation".to_string(), clip.saturation, 0.0, 3.0, index)}
+        </div>
+
+        <div className="border-b border-line px-3 py-2">
             <div className="pb-1.5 text-[10px] uppercase tracking-[0.14em] text-faint">Subtitle</div>
             <input id="subtitle" placeholder="burned in by ffmpeg" value={clip.subtitle.clone()}
                 onInput={move |event| set_subtitle(index, event.value.clone())}
@@ -690,6 +766,32 @@ fn Effects() -> Element {
             {OrderButton("trash".to_string(), "Remove".to_string(), "remove".to_string(), true, 0)}
         </div>
     </Card>;
+}
+
+// One grade control: a Radix slider (components/ui/slider.tsx) that Rust
+// owns. It is told its value on every render and says where the thumb went
+// as a list, which is how Radix writes it.
+fn GradeSlider(name: String, id: String, value: f64, low: f64, high: f64, index: usize) -> Element {
+    let key = id.clone();
+    return <label className="block pb-1.5">
+        <span className="flex items-baseline justify-between">
+            <span className="text-[10px] uppercase tracking-[0.14em] text-faint">{name}</span>
+            <span id={format!("{id}-value")} className="text-[11px] tabular-nums text-muted">{format!("{value:.2}")}</span>
+        </span>
+        <Slider id={id} value={vec![value]} min={low} max={high} step={0.05}
+            onValueChange={move |given: rustx::Value| {
+                // A library's prop is a value, and Radix passes a list.
+                let Some(now) = given.as_list().and_then(|list| list.first()).and_then(|first| first.as_f64()) else {
+                    return;
+                };
+                let which = key.clone();
+                edit(index, move |clip| match which.as_str() {
+                    "brightness" => clip.brightness = now,
+                    "contrast" => clip.contrast = now,
+                    _ => clip.saturation = now,
+                });
+            }} />
+    </label>;
 }
 
 // Warm and cool are `colortemperature`, and CSS has nothing that does
@@ -823,7 +925,7 @@ fn StatusBar() -> Element {
         <span id="status" className="truncate">{said()}</span>
         <span className="flex-1"></span>
         <span className="shrink-0 text-faint">
-            {"Space play · K pause · L faster · J a second back (Chromium cannot play in reverse) · ←/→ frame · shift+←/→ second · I/O in and out · Home/End · M mute"}
+            {"Space play · K pause · L faster · J a second back (a web view cannot play in reverse) · ←/→ frame · shift+←/→ second · I/O in and out · Home/End · M mute"}
         </span>
     </div>;
 }
@@ -865,7 +967,7 @@ fn act(what: String) {
                 tell(format!("start:{:.3}", played.clamp(clip.start, clip.end)));
             }
         }
-        // Not reverse play: Chromium refuses a negative playbackRate,
+        // Not reverse play: The web view refuses a negative playbackRate,
         // so this is the honest half of J — stop, and a second back.
         "j" => {
             tell("pause".to_string());
@@ -1167,6 +1269,5 @@ fn beside(name: &str) -> std::path::PathBuf {
 // A path as the page can load it. `file:///C:/…`, with the separators
 // a URL wants rather than the ones Windows writes.
 fn as_url(path: &std::path::Path) -> String {
-    let slashed = path.display().to_string().replace('\\', "/");
-    format!("file:///{}", slashed.trim_start_matches('/'))
+    rustx::files::url(path)
 }

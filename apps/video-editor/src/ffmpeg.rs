@@ -39,6 +39,23 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::OnceLock;
 
+/// A program run for the window must not open a console of its own, which a
+/// windowed application on Windows would otherwise show for every call.
+fn quiet(mut command: std::process::Command) -> std::process::Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    command
+}
+
+fn quiet_async(mut command: rustx::tokio::process::Command) -> rustx::tokio::process::Command {
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000);
+    command
+}
+
 /// The two programs, where this machine has them.
 #[derive(Debug, Clone)]
 pub struct Tools {
@@ -77,7 +94,7 @@ pub const MISSING: &str = "\
 fn found(program: &str) -> Option<PathBuf> {
     // Not whether it worked: `-version` exits zero, but the only
     // question that matters is whether the process started at all.
-    if std::process::Command::new(program)
+    if quiet(std::process::Command::new(program))
         .arg("-version")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -147,6 +164,14 @@ pub struct Clip {
     /// A key of [`look_filter`].
     pub look: String,
     pub subtitle: String,
+    /// The grade: `eq` in ffmpeg, `brightness()`, `contrast()` and
+    /// `saturate()` in the monitor. Unchanged is 0, 1 and 1.
+    pub brightness: f64,
+    pub contrast: f64,
+    pub saturation: f64,
+    /// A clip that is switched off stays on the timeline and is left out
+    /// of the render.
+    pub enabled: bool,
 }
 
 impl Clip {
@@ -164,7 +189,36 @@ impl Clip {
             end,
             look: "none".to_string(),
             subtitle: String::new(),
+            brightness: 0.0,
+            contrast: 1.0,
+            saturation: 1.0,
+            enabled: true,
         }
+    }
+
+    /// ffmpeg's `eq` for this clip's grade, or `None` when it is untouched.
+    pub fn grade_filter(&self) -> Option<String> {
+        let unchanged = self.brightness.abs() < 1e-9
+            && (self.contrast - 1.0).abs() < 1e-9
+            && (self.saturation - 1.0).abs() < 1e-9;
+        (!unchanged).then(|| {
+            format!(
+                "eq=brightness={:.2}:contrast={:.2}:saturation={:.2}",
+                self.brightness, self.contrast, self.saturation
+            )
+        })
+    }
+
+    /// The same grade as the CSS of the monitor. `eq`'s brightness adds to
+    /// the picture and CSS's multiplies it, so the two agree closely and not
+    /// exactly: the monitor is a preview, the render is the result.
+    pub fn grade_css(&self) -> String {
+        format!(
+            "brightness({:.2}) contrast({:.2}) saturate({:.2})",
+            1.0 + self.brightness,
+            self.contrast,
+            self.saturation
+        )
     }
 
     /// How long this clip is after its trim.
@@ -261,7 +315,7 @@ fn ratio(value: &str) -> f64 {
 
 /// `ffprobe` on a file, and what it said.
 pub fn probe(ffprobe: &Path, path: &Path) -> Result<Media, String> {
-    let output = std::process::Command::new(ffprobe)
+    let output = quiet(std::process::Command::new(ffprobe))
         .args(probe_arguments(path))
         .stdin(Stdio::null())
         .output()
@@ -297,10 +351,16 @@ pub fn frame_arguments(clip: &Clip, at: f64, out: &Path) -> Vec<String> {
         "-frames:v".to_string(),
         "1".to_string(),
     ];
-    let look = look_filter(&clip.look);
-    if !look.is_empty() {
+    let chain: Vec<String> = [
+        Some(look_filter(&clip.look).to_string()).filter(|look| !look.is_empty()),
+        clip.grade_filter(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    if !chain.is_empty() {
         arguments.push("-vf".to_string());
-        arguments.push(look.to_string());
+        arguments.push(chain.join(","));
     }
     arguments.push("-q:v".to_string());
     arguments.push("4".to_string());
@@ -310,11 +370,10 @@ pub fn frame_arguments(clip: &Clip, at: f64, out: &Path) -> Vec<String> {
 
 /// A preview proxy, as a command line.
 ///
-/// The CEF build this window runs on has no H.264 and no AAC — a WebM
-/// of VP8 and Vorbis plays, an mp4 does not, and most footage is an
-/// mp4. Measured here rather than assumed: the monitor refused
-/// `a.mp4` with `DEMUXER_ERROR`, and played the same picture as
-/// `a.webm`.
+/// A web view may not decode what a camera wrote (the old CEF build had no
+/// H.264 and no AAC: it refused `a.mp4` with `DEMUXER_ERROR` and played the
+/// same picture as `a.webm`; WebView2 uses Windows' codecs and plays it).
+/// This plan is kept, tested, and not wired into the page.
 ///
 /// An editor's answer to a file it cannot play is a proxy, and this is
 /// one: the whole file, once, into something the window can decode, at
@@ -420,6 +479,8 @@ pub fn plan(
     subtitle_dir: &Path,
     font: Option<&Path>,
 ) -> Result<Plan, String> {
+    let on: Vec<Clip> = clips.iter().filter(|clip| clip.enabled).cloned().collect();
+    let clips = &on[..];
     let Some(first) = clips.first() else {
         return Err("there is nothing on the timeline to render.".to_string());
     };
@@ -473,6 +534,10 @@ pub fn plan(
         if !look.is_empty() {
             video.push(',');
             video.push_str(look);
+        }
+        if let Some(grade) = clip.grade_filter() {
+            video.push(',');
+            video.push_str(&grade);
         }
         // After the look, not before: `format=gray` is how black and
         // white is done, and the concat filter wants every input in the
@@ -635,7 +700,7 @@ pub fn tail(stderr: &[u8]) -> String {
 
 /// Draw one frame of a clip into `out`.
 pub async fn extract(ffmpeg: &Path, clip: &Clip, at: f64, out: &Path) -> Result<(), String> {
-    let output = rustx::tokio::process::Command::new(ffmpeg)
+    let output = quiet_async(rustx::tokio::process::Command::new(ffmpeg))
         .args(frame_arguments(clip, at, out))
         .stdin(Stdio::null())
         .output()
@@ -667,7 +732,7 @@ pub async fn run(ffmpeg: &Path, plan: &Plan, mut report: impl FnMut(f64)) -> Res
             .map_err(|error| format!("{} could not be written ({error}).", file.display()))?;
     }
 
-    let mut child = rustx::tokio::process::Command::new(ffmpeg)
+    let mut child = quiet_async(rustx::tokio::process::Command::new(ffmpeg))
         .args(&plan.arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -772,7 +837,7 @@ mod tests {
             ("two.mp4", "testsrc2=size=320x240:rate=30:duration=4"),
         ] {
             let file = folder.join(name);
-            let drawn = std::process::Command::new(&tools.ffmpeg)
+            let drawn = quiet(std::process::Command::new(&tools.ffmpeg))
                 .args([
                     "-hide_banner",
                     "-v",
@@ -958,6 +1023,68 @@ mod tests {
         assert!(line.contains("concat=n=2:v=1:a=0[v]"), "{line}");
         assert!(!line.contains("[a]"), "{line}");
         assert!(!line.contains("-c:a"), "{line}");
+    }
+
+    #[test]
+    fn a_clip_that_is_switched_off_is_left_out_of_the_render() {
+        let mut off = clip("off.mp4", 1280, true);
+        off.enabled = false;
+        let on = clip("on.mp4", 1280, true);
+        let plan = plan(
+            &[off.clone(), on],
+            Path::new("out.mp4"),
+            Path::new("subs"),
+            None,
+        )
+        .expect("renderable");
+        let line = plan.arguments.join(" ");
+        assert!(
+            line.contains("on.mp4") && !line.contains("off.mp4"),
+            "{line}"
+        );
+        assert!(super::plan(&[off], Path::new("out.mp4"), Path::new("subs"), None).is_err());
+    }
+
+    #[test]
+    fn a_grade_is_in_the_graph_and_in_the_frame_and_absent_when_untouched() {
+        let mut one = clip("a.mp4", 1280, true);
+        assert_eq!(one.grade_filter(), None);
+        let plain = plan(
+            &[one.clone()],
+            Path::new("out.mp4"),
+            Path::new("subs"),
+            None,
+        )
+        .expect("renderable");
+        assert!(!plain.arguments.join(" ").contains("eq="));
+        one.brightness = 0.25;
+        one.saturation = 1.5;
+        assert_eq!(
+            one.grade_filter().as_deref(),
+            Some("eq=brightness=0.25:contrast=1.00:saturation=1.50")
+        );
+        let graded = plan(
+            &[one.clone()],
+            Path::new("out.mp4"),
+            Path::new("subs"),
+            None,
+        )
+        .expect("renderable");
+        assert!(
+            graded
+                .arguments
+                .join(" ")
+                .contains("eq=brightness=0.25:contrast=1.00:saturation=1.50,format=yuv420p")
+        );
+        assert!(
+            frame_arguments(&one, 1.0, Path::new("f.jpg"))
+                .join(" ")
+                .contains("-vf eq=brightness=0.25")
+        );
+        assert_eq!(
+            one.grade_css(),
+            "brightness(1.25) contrast(1.00) saturate(1.50)"
+        );
     }
 
     #[test]

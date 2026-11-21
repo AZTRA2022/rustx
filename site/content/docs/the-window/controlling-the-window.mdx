@@ -1,0 +1,104 @@
+---
+title: "Controlling the window"
+description: "Size, limits, position, focus, visibility, events, a close guard and remembered state: all of it from Rust."
+---
+
+A window is made from the `Config` and then answers to functions of
+`rustx::window`, from any thread.
+
+## Before it opens
+
+```rust
+rustx::Config::new("Studio")
+    .size(1200, 800)
+    .min_size(800, 500)
+    .centered()                 // or .position(x, y)
+    .background(18, 18, 22)     // behind the page while it loads
+    .remember_window()          // size, position, maximised: where the user left it
+    .always_on_top()
+    .resizable(true)
+```
+
+The window is built hidden and shown when the page draws its first frame, so a
+dark application never opens with a white flash. If the page never answers it
+is shown after a second and a bit.
+
+`remember_window()` writes `window-state.json` in the application's data folder
+(see [app data](/docs/the-system/app-data)) when the user stops moving it and when it
+closes. A saved place that is no longer on a screen is ignored.
+
+## After it opens
+
+```rust
+use rustx::window;
+
+window::set_title("Studio — untitled");
+window::set_size(900, 600);          // logical pixels, clamped to the limits
+window::set_position(40, 40);
+window::set_min_size(Some((640, 400)));
+window::set_max_size(None);
+window::set_resizable(false);
+window::center();
+window::focus();
+window::hide();  window::show();
+window::skip_taskbar(true);          // Windows and Linux
+window::click_through(true);         // mouse events pass to what is behind
+
+let now = window::state();           // x, y, width, height, scale, maximized, minimized,
+                                     // fullscreen, focused, visible
+```
+
+`state()` is kept up to date by the loop and is read from any thread.
+
+## A title per route
+
+A `<title>` anywhere in a page's tree names the window while the page is
+shown, like a Next.js `metadata.title`. A change of `document.title` after the
+page is ready becomes the window's title; the title the page started with does
+not (`Config::new` already says it).
+
+## More than one window
+
+`window::open(What::new("inspector").size(400, 300))` starts a second window as
+its own process, linked by a pipe. The first window orders it:
+
+```rust
+let inspector = window::open(What::new("inspector"))?;
+inspector.set_title("Retitled");
+inspector.set_size(520, 410);
+inspector.set_position(40, 40);
+```
+
+## Redirects and capabilities
+
+```rust
+Config::new("App")
+    .redirect("/old", "/new")                       // /old shows /new, query kept
+    .capabilities(&["save_note", "read_note"])  // a page may call only the natives you registered under these names
+```
+
+A native outside the list is refused with a message; the engine's own `rustx_…`
+natives (the router) are never closed.
+
+## Everything else
+
+`window::with(|w| …)` runs a closure on the window's tao handle, on the loop's
+thread, from whichever thread asked. Whatever tao can do with a window is one
+call away, and `rustx::window::tao` is the crate itself.
+
+## Hearing about it
+
+```rust
+window::on_event(|event| match event {
+    window::Event::Resized { width, height } => { /* … */ }
+    window::Event::Moved { x, y } => { /* … */ }
+    window::Event::Focused(on) => { /* … */ }
+    window::Event::CloseRequested => { /* … */ }
+});
+
+// Keep the window when there is unsaved work: return false.
+window::confirm_close(|| !unsaved());
+```
+
+`confirm_close` is asked when the user closes the window (the ×, Alt+F4).
+`window::shut()` and the process ending are not asked.

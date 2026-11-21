@@ -548,6 +548,33 @@ fn foreign_node(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, Com
         1
     }
 
+    /// Is the first parameter written `: Event` or `: some::path::Event`?
+    ///
+    /// A developer who annotates it has said what they want, whatever the
+    /// component is: `onClick={move |event: rustx_dom::Event| …}` on a
+    /// library's `Textarea` was handed a `Value` and rustc refused it.
+    fn annotated_event(code: &str) -> bool {
+        let written = code.trim();
+        let written = written.strip_prefix("move").unwrap_or(written).trim_start();
+        let Some(rest) = written.strip_prefix('|') else {
+            return false;
+        };
+        let mut depth = 0usize;
+        let mut first = String::new();
+        for letter in rest.chars() {
+            match letter {
+                '(' | '[' | '{' | '<' => depth += 1,
+                ')' | ']' | '}' | '>' => depth = depth.saturating_sub(1),
+                ',' | '|' if depth == 0 => break,
+                _ => {}
+            }
+            first.push(letter);
+        }
+        first
+            .split_once(':')
+            .is_some_and(|(_, ty)| ty.trim().rsplit("::").next() == Some("Event"))
+    }
+
     let mut props = Vec::new();
     let mut callbacks = Vec::new();
     for attribute in &tag.attributes {
@@ -587,8 +614,10 @@ fn foreign_node(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, Com
             // Une prop d'un composant, elle, reste une valeur : ce
             // qu'une bibliothèque passe a `onValueChange` est ce
             // qu'elle veut, et seul le DOM garantit un evenement.
-            let an_event = !crate::tags::looks_like_a_component(export)
-                && crate::attributes::is_event(&attribute.name);
+            let annotated = annotated_event(code);
+            let an_event = annotated
+                || (!crate::tags::looks_like_a_component(export)
+                    && crate::attributes::is_event(&attribute.name));
             let given: Vec<proc_macro2::TokenStream> = (0..taken(code))
                 .map(|at| {
                     let at = Literal::usize_suffixed(at);
@@ -607,7 +636,7 @@ fn foreign_node(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, Com
             // appelee : sans attente, `event.value` ne se lit pas
             // encore. `taking_an_event` est cette attente, et elle rend
             // la closure telle quelle.
-            let inner = if an_event && taken(code) == 1 {
+            let inner = if an_event && !annotated && taken(code) == 1 {
                 quote! { rustx_dom::taking_an_event(#inner) }
             } else {
                 inner

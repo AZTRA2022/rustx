@@ -219,5 +219,24 @@
     "prefix": "rcomment",
     "description": "A comment inside markup, which is read and discarded.",
     "body": ["{/* $0 */}"]
+  },
+  "A page title": {
+    "prefix": "rtitle",
+    "description": "A <title> in a page names the window while the page is shown.",
+    "body": ["<title>${1:Page name}</title>"]
+  },
+  "A system page": {
+    "prefix": "rsystem",
+    "description": "A page of system/ (install, update, about, settings...): the screens the OS asks an application for.",
+    "body": [
+      "fn Page() -> Element {",
+      "\tlet info = rustx::setup::info();",
+      "\treturn <div>",
+      "\t\t<h1>{info.name.clone()}</h1>",
+      "\t\t$0",
+      "\t\t<button onClick={move |_| { rustx::setup::close(); }}>Close</button>",
+      "\t</div>;",
+      "}"
+    ]
   }
 }

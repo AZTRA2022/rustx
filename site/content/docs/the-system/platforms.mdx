@@ -35,17 +35,18 @@ rather than on somebody else's machine three weeks later — and it is
 *this* machine's target, so it catches a changed signature and a syntax
 error, and nothing else.
 
-<Callout type="warn" title="Only Windows has ever been executed">
-Every line of `rustx-os` that has actually run has run on Windows. The
-Linux files were written on a Windows machine and have never run on
-Linux. The macOS files have never been compiled for an Apple target at
-all — `shortcut.rs`, `tray.rs` and `window.rs` there go through `objc2`,
-and were type-checked on Windows against `objc2` built for GNUstep,
-which is not the same library. Each of those files says so at its own
-top.
-
-Treat anything in the two right-hand columns below as "written, and
-waiting for its first run".
+<Callout type="warn" title="What the CI runs, and what only a person can">
+Every pull request builds `rustx-os` on a GitHub Windows, macOS and Linux runner
+and runs its tests there (`.github/workflows/ci.yml`): the macOS files compile
+against the real Apple frameworks and the Linux ones against the real
+libraries. The 182 unit tests and the test files for autostart, devices, dialogs, a
+single instance, shortcuts and the notification run on both (counted in the
+CI log); the clipboard, the secret store, the file manager and the screens
+have tests only on Windows, and the window's own tests run on Linux (2) and
+Windows only. What a runner cannot do is
+drive a desktop: no screen, no tray, no dialog answered by a person, no
+camera. Those parts are written and type-checked, and have been seen to work
+only on Windows. Each file says so at its own head.
 </Callout>
 
 ## Capability by capability
@@ -61,11 +62,11 @@ what the file does, not that anyone has seen it do it.
 | `instance` | written — a Unix domain socket | written — the same socket code |
 | `dialog` | written — `zenity`/`kdialog` | written — `osascript`'s `choose file` |
 | `devices` | written — `/sys/class/video4linux` | written — `system_profiler` |
-| `window` | written — X11 through `x11rb`, and Wayland through XWayland | written — `NSWindow`, never compiled for a Mac |
-| `shortcut` | **refuses.** Needs a desktop portal over D-Bus | written — Carbon's `RegisterEventHotKey`, never compiled for a Mac |
-| `tray` | **refuses.** Needs a `StatusNotifierItem` over D-Bus | written — `NSStatusItem`, never compiled for a Mac |
+| `window` | written — X11 through `x11rb`, and Wayland through XWayland | written — `NSWindow`, compiled on a CI Mac |
+| `shortcut` | **refuses.** Needs a desktop portal over D-Bus | written — Carbon's `RegisterEventHotKey`, compiled on a CI Mac |
+| `tray` | **refuses.** Needs a `StatusNotifierItem` over D-Bus | written — `NSStatusItem`, compiled on a CI Mac |
 | `about` | **refuses.** Linux has no system About panel: `GtkAboutDialog` is GTK's, and no desktop protocol defines one | written — the standard panel |
-| `menu` | **refuses.** X11 and Wayland have no menu; a toolkit draws one, and linking GTK for it would cost the whole of GTK and a second event loop. Draw it in the page | written — `NSMenu`, never compiled for a Mac |
+| `menu` | **refuses.** X11 and Wayland have no menu; a toolkit draws one, and linking GTK for it would cost the whole of GTK and a second event loop. Draw it in the page | written — `NSMenu`, compiled on a CI Mac |
 | `data` | written — the XDG base directories | written — `~/Library/{Application Support,Caches,Logs}` |
 | `update` | written. The HTTP under it is `curl`, then `wget` | the same |
 | `attention`, `audio`, `bluetooth`, `capture`, `color`, `net`, `print`, `screen`, `secret`, `shell`, `system`, `terminal` | written | written |
@@ -131,7 +132,7 @@ they answer with a `Result`, and the refusal is the answer.
 
 Everything [the window](/docs/the-window) commands — frameless, the
 toggles, full screen, moving — is written for Windows and for Linux
-(X11), and written but never compiled for macOS. Windows is the only one
+(X11), and for macOS (compiled on a CI Mac). Windows is the only one
 that has been seen to work. This is the part most tied to the system in
 the whole framework: a window frame, a `WM_NCCALCSIZE` and Aero Snap
 have no portable equivalent.
@@ -142,7 +143,7 @@ have no portable equivalent.
 |---|---|
 | Windows | `windows`, Microsoft's own bindings, and only in this crate |
 | Linux | `x11rb`, whose connection is pure Rust and links neither `libX11` nor `libxcb` |
-| macOS | `objc2` alone, already in the tree through `cef` |
+| macOS | `objc2` alone, already in the tree through `wry` |
 
 Nothing above `rustx-os` hears about any of them.
 

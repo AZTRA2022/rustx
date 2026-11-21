@@ -18,6 +18,7 @@
 //! pages share values of them: a value a page declares is kept by its
 //! name for the whole application, and a type declared inside one page
 //! module would be a different type in the next one.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use rustx::{App, Config, ToValue};
 

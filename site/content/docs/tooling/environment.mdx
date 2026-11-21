@@ -11,18 +11,22 @@ environment is the process's own.
 
 | | |
 |---|---|
-| `RUSTX_SOFTWARE` | `1` composes the window on the processor. For machines with no 3D driver. Unset or `0` is off |
-| `RUSTX_TRACE` | set to anything, it traces the messages between the window and the page, and each page context |
-| `LOCALAPPDATA` | where the engine puts its profile folder. The temporary folder is used if it is unset |
+| `LOCALAPPDATA` | where the web view puts its profile folder. The temporary folder is used if it is unset |
+| `RUSTX_TRACE` | set to anything, the host prints when the page is ready and why the window was shown |
+| `RUSTX_SHOW_NOW` | set to anything, the window is shown at once instead of when the page is ready (to compare the two starts) |
 | `RUSTX_CARRIED` | set by `rustx dev` on the process it launches, to hand over state. Do not set it yourself |
+| `RUSTX_RELOAD` | set by `rustx dev`: the file it touches when an asset changed, so the page reloads in place. Do not set it yourself |
+| `RUSTX_START` | a route to open first (`/__system/about`, `/settings`), instead of the application's start route. For looking at one screen |
+| `RUSTX_THEME` | `light` or `dark`: forces the default theme, to look at both without changing the system's |
+| `RUSTX_FORCE_INSTALL` | a debug build never shows the install screens; this makes it, to try them |
+| `RUSTX_UPDATE_API` | the base address of the release page the updater asks, instead of `https://api.github.com` (a test over loopback, a GitHub Enterprise host) |
+| `RUSTX_BOOTSTRAP` | `auto` installs a missing WebView2 runtime without asking first (CI); `RUSTX_BOOTSTRAP_URL` replaces Microsoft's download address |
+| `RUSTX_BOOTSTRAPPED` | set by the program on the copy it starts after installing the runtime, so that it never offers twice. Do not set it yourself |
+| `RUSTX_MAC_IDENTITY`, `RUSTX_NOTARY_PROFILE` | read by `rustx package` on a Mac: the `codesign` identity (`-` signs ad hoc) and the `notarytool` keychain profile. See [packaging](/docs/tooling/packaging) |
+| `RUSTX_INSTALLER` | `inno` makes `rustx package` write an Inno Setup script and run `ISCC` on Windows instead of the stamped application binary installing itself |
 
-`RUSTX_SOFTWARE` has to be true in every process of the application. The
-environment is what all of them share, which is why it is a variable and not a
-flag.
-
-The engine also reads two command-line arguments that are not environment but
-belong in the same list: `--do-not-de-elevate`, which Chromium reads, and
-`--scenario=<name>` with `--report=<path>`, which the test harness uses. See
+The engine also reads command-line arguments that are not environment but
+belong in the same list: `--scenario=<name>` with `--report=<path>`, which the test harness uses. See
 [testing](/docs/tooling/testing).
 
 The build reads `CARGO_MANIFEST_DIR`, which cargo sets. `rustx` as a command
@@ -58,7 +62,7 @@ Config::new("My app")
 ```
 
 This is the way to keep the version in one place. See
-[configuration](/docs/tooling/configuration).
+[configuration](/docs/getting-started/configuration).
 
 ## Secrets
 

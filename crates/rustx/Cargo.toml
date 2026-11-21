@@ -14,7 +14,9 @@ categories = ["gui", "web-programming"]
 
 [dependencies]
 rustx-dom = { path = "../rustx-dom", version = "0.4.1" }
-rustx-engine = { path = "../rustx-engine", version = "0.4.1" }
+# The system webview. The facade names it `rustx_engine`, so an application and
+# the code the compiler writes need no change.
+rustx-webview = { path = "../rustx-webview", version = "0.4.1" }
 rustx-macros = { package = "rustx-macro", path = "../rustx-macros", version = "0.4.1" }
 # Ce que le web ne sait pas faire : le presse-papiers, les dialogues, les
 # appareils. Un répertoire par système, à l'intérieur.

@@ -7,6 +7,7 @@
 //! is `recharts`, off npm, fed real `let mut` state from Rust. The
 //! chat calls `answer_from`, below — a stubbed reply function, not a
 //! paid API — honestly, rather than pretending it reached one.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use rustx::{App, Config};
 

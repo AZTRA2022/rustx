@@ -74,7 +74,7 @@ cloning. See [keep, effect, task](/docs/getting-started/keep-effect-task).
 
 ## Who reads them
 
-The camera, the microphone and the screen are **read** afterwards by Chromium —
+The camera, the microphone and the screen are **read** afterwards by the web view —
 `getUserMedia`, `getDisplayMedia` — with the system's permissions.
 This is the same code as on the web, and there is no layer to learn on top of it:
 
@@ -150,7 +150,7 @@ RFCOMM, a protocol per device, which is a library and not a function.
 
 ## Recording and capture
 
-For a **video** stream, Chromium already gives you `MediaRecorder` and
+For a **video** stream, the web view already gives you `MediaRecorder` and
 `getDisplayMedia`, and nothing in rustx wraps them.
 
 For a **still image** of the screen there is now

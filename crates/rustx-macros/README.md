@@ -27,7 +27,7 @@ fn main() -> Result<(), rustx::Error> {
 ```
 
 Around that, the attribute adds what does not vary between
-applications: leaving the CEF sub-process before it touches anything,
+applications: starting the window,
 finding `assets/index.html`, compiling every `.rsx` under `app/` into
 the binary, and handing the router the route table it generated. A
 developer who writes those is reading the framework's own plumbing in

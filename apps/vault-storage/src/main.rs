@@ -25,6 +25,7 @@
 //! the bitmap font at the foot of this file, because the typeface the
 //! design calls for is a 5×7 pixel face and there is no such font on
 //! the machine. Thirty-five cells a letter, laid out by the page.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use rustx::{App, Config};
 

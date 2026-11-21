@@ -136,8 +136,8 @@ machine is.
 | | |
 |---|---|
 | **Windows** | written and run. Core Audio — `IMMDeviceEnumerator`, `IAudioEndpointVolume` — which is the API the sound panel and the taskbar icon use themselves, so the level read here is exactly the one the user sees move |
-| **Linux** | written, never run. PulseAudio through its command line |
-| **macOS** | written, never compiled for a Mac. `osascript`'s `output volume` |
+| **Linux** | written; compiled on a CI Linux runner, not driven on a desktop. PulseAudio through its command line |
+| **macOS** | written; compiled on a CI Mac, not driven on a desktop. `osascript`'s `output volume` |
 
 The test asserts what must be true of any machine's answer rather than
 pinning a device list: at most one default per direction, the default

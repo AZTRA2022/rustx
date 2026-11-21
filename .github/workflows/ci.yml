@@ -9,10 +9,11 @@
 # written and measured on, and the only one on which an application has
 # ever been run. The gates run there in full.
 #
-# **The macOS and Linux jobs compile what they can, and no more.** The
-# framework draws with CEF, which the `cef` crate fetches and links on
-# first build; the crates that do not touch it are compiled on all three
-# platforms, and that is deliberately the whole claim. `rustx-os`
+# **The macOS and Linux jobs compile, and run what a runner can.** The
+# framework draws with the system's webview (WebView2, WKWebView,
+# WebKitGTK through wry); a Linux runner has no desktop, so its page
+# tests run under Xvfb. Whether that is enough is what the first runs
+# will say -- these jobs were written on Windows and not yet run. `rustx-os`
 # matters most here: `lib.rs` compile-checks the other platforms'
 # modules through a `mod *_also_compiles` trick so a Windows build
 # catches their syntax errors, but a trick is not a target. These jobs
@@ -68,7 +69,6 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          # CEF is large and its build is the slowest thing here.
           key: windows-gates
 
       - uses: actions/setup-node@v4
@@ -133,11 +133,37 @@ jobs:
       # by proxy, built by the compiler that actually targets it. If
       # `rustx-os` is going to claim macOS and Linux support one day,
       # this is the job that has to be green first.
+      # wry's Linux backend: WebKitGTK 4.1 and what tao draws with.
+      - name: What the system webview needs (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends             libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libxdo-dev xvfb
+
       - name: rustx-os, for this platform
         run: cargo check -p rustx-os --all-targets
 
+      - name: The webview host, for this platform
+        run: cargo check -p rustx-webview --all-targets
+
+      # A hosted Mac can open windows; if this ever cannot, the log says why.
+      - name: The webview host, its tests (macOS)
+        if: runner.os == 'macOS'
+        run: cargo test -p rustx-webview -- --test-threads=1
+
+      # Numbers for the one thing that differs on the hosted Mac: see the test.
+      - name: What the Mac says about the window's size
+        if: runner.os == 'macOS'
+        run: cargo test -p rustx-webview --test page -- --test-threads=1 --nocapture macos_size_diagnostic
+
+      - name: The webview host, its tests (Linux, under Xvfb)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a cargo test -p rustx-webview
+
+      # Retried once: a macOS runner sometimes cannot fork the next test binary
+      # ("Resource temporarily unavailable") after the device tests.
       - name: rustx-os, its own tests
-        run: cargo test -p rustx-os
+        run: cargo test -p rustx-os || cargo test -p rustx-os -- --test-threads=1
 
       # The compiler, the DOM, the macros and the language server are
       # plain Rust: they have no business being platform-dependent, and
@@ -162,8 +188,8 @@ jobs:
   # installer that platform's users double-click.
   #
   # It is a job of its own rather than a step of the gates because it
-  # is the only one that needs CEF to build away from Windows, which
-  # has never been done -- and a red job here says exactly that,
+  # builds away from Windows with the system webview, which has not
+  # been run on a runner yet -- and a red job here says exactly that,
   # instead of hiding inside a longer one.
   installers:
     name: it ships (${{ matrix.os }})
@@ -182,51 +208,43 @@ jobs:
         with:
           key: installers-${{ matrix.os }}
 
-      # Chromium links against these on a desktop Linux, and a runner
-      # is not a desktop. The same list the `.deb` declares as its
-      # `Depends`, which is the point: if this step is wrong, the
-      # package's dependencies are wrong too.
-      - name: What Chromium links against (Linux)
+      # The webview the `.deb` depends on (libwebkit2gtk-4.1-0 comes with
+      # the dev package), and `desktop-file-validate` for what it installs.
+      - name: What the system webview needs (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libgtk-3-0 libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
-            libcups2 libdrm2 libgbm1 libasound2t64 libxkbcommon0 \
-            libxcomposite1 libxdamage1 libxrandr2 libxfixes3 libxext6 \
-            libpango-1.0-0 libcairo2
-          # `desktop-file-validate`, which this job runs on what the
-          # `.deb` installed.
-          sudo apt-get install -y --no-install-recommends desktop-file-utils
-
-      # The tool that turns the generated script into a setup `.exe`.
-      # Without it `rustx package` writes the script and says so, which
-      # is correct behaviour and not what this job is here to prove.
-      - name: Inno Setup (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          choco install innosetup --no-progress -y
-          # `rustx package` looks in Program Files and in the per-user
-          # Programs folder; chocolatey installs machine-wide.
-          Get-ChildItem "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          sudo apt-get install -y --no-install-recommends             libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libxdo-dev             desktop-file-utils xvfb
 
       - name: Package the example application
         shell: bash
         working-directory: apps/counter
+        env:
+          RUSTX_MAC_IDENTITY: ${{ runner.os == 'macOS' && '-' || '' }}
         run: cargo run -p rustx-cli --bin rustx -- package --out ../../dist
+
+
+      # Ad hoc signing needs no certificate: it proves `rustx package` signs the
+      # bundle and that the signature holds (a real identity is RUSTX_MAC_IDENTITY).
+      - name: The bundle is signed
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -eu
+          codesign --verify --deep --strict --verbose=2 dist/counter-*-macos/Counter.app
 
       # What each platform must have produced. A missing file fails
       # here, with the directory listed, rather than leaving a green
       # tick over an empty folder.
       - name: The installer is there
         shell: bash
+        timeout-minutes: 10
         run: |
           set -eu
           ls -la dist/
           case "${{ runner.os }}" in
           Windows)
-            ls dist/*-setup.exe
+            ls dist/counter-*-windows/counter.exe
             ;;
           Linux)
             ls dist/*.deb
@@ -244,6 +262,12 @@ jobs:
             test -x /usr/bin/counter
             test -f /usr/share/applications/counter.desktop
             desktop-file-validate /usr/share/applications/counter.desktop
+            # It starts, and stays up, on a virtual display.
+            xvfb-run -a /usr/bin/counter &
+            pid=$!
+            sleep 8
+            kill -0 $pid
+            kill $pid || true
             sudo dpkg -r counter
             ;;
           macOS)
@@ -252,16 +276,195 @@ jobs:
             # which is what tells us the `.pkg` is addressable rather
             # than merely present.
             if [ -f dist/*.pkg ]; then pkgutil --payload-files dist/*.pkg | head -20; fi
+            # The project's own screens (apps/counter/installer/*.html) are in the
+            # package's resources: productbuild wrapped the component.
+            pkgutil --expand dist/*.pkg "$RUNNER_TEMP/expanded"
+            ls "$RUNNER_TEMP/expanded/Resources"
+            test -f "$RUNNER_TEMP/expanded/Resources/welcome.html"
+            # Install it, and start what was installed.
+            if [ -f dist/*.pkg ]; then
+              sudo installer -pkg dist/*.pkg -target /
+              test -d /Applications/Counter.app
+              binary=$(ls /Applications/Counter.app/Contents/MacOS/* | head -1)
+              "$binary" 2> "$RUNNER_TEMP/app.err" &
+              pid=$!
+              sleep 8
+              cat "$RUNNER_TEMP/app.err" || true
+              kill -0 $pid
+              kill $pid || true
+            fi
             ;;
           esac
+
+      # The packaged binary is its own installer: it shows the install wizard
+      # (system/install.rsx, the framework's default here), a scenario clicks
+      # Install, and the installed copy starts, then removes itself.
+      - name: The app installs itself
+        shell: bash
+        timeout-minutes: 12
+        run: |
+          set -eu
+          # Git Bash turns a value that looks like /path into a Windows path.
+          export MSYS_NO_PATHCONV=1
+          # Git Bash's kill ends only the proxy: the WebView2 children keep the profile for a minute.
+          stop_app() { if [ "${{ runner.os }}" = "Windows" ]; then taskkill /F /T /PID "$(cat /proc/$1/winpid 2>/dev/null || echo $1)" >/dev/null 2>&1 || true; else kill $1 2>/dev/null || true; fi; }
+          home="$RUNNER_TEMP/selfinstall"
+          mkdir -p "$home/local" "$home/roam" "$home/home"
+          report="$home/report.txt"
+          case "${{ runner.os }}" in
+          Windows)
+            export LOCALAPPDATA="$(cygpath -w "$home/local")" APPDATA="$(cygpath -w "$home/roam")"
+            exe=$(ls dist/counter-*-windows/counter.exe)
+            installed="$LOCALAPPDATA/Programs/Counter/counter.exe"
+            runner=""
+            ;;
+          Linux)
+            export HOME="$home/home"
+            exe=$(ls dist/counter-*-linux/counter)
+            installed="$HOME/.local/share/counter/counter"
+            runner="xvfb-run -a"
+            ;;
+          macOS)
+            export HOME="$home/home"
+            exe=$(ls -d dist/counter-*-macos/Counter.app)/Contents/MacOS/counter
+            installed="$HOME/Applications/Counter.app/Contents/MacOS/counter"
+            runner=""
+            ;;
+          esac
+          $runner "$exe" --scenario=install --report="$report" &
+          pid=$!
+          for i in $(seq 1 90); do grep -q "done=" "$report" 2>/dev/null && break; sleep 1; done
+          stop_app $pid
+          cat "$report"
+          grep -q "done=yes" "$report"
+          # The licence step showed the LICENSE carried in the single exe.
+          grep -q "licence=Licence" "$report"
+          grep -q "licence_text=.*Counter sample licence" "$report"
+          test -f "$installed"
+          # The installed copy starts and stays up.
+          $runner "$installed" &
+          pid=$!
+          sleep 8
+          kill -0 $pid
+          stop_app $pid
+          sleep 2
+          # The frameless window's own controls: Maximize is clicked, Close is clicked, and the
+          # process has to end by itself. (Dragging is a hand test.) Xvfb has no window manager,
+          # so the width is only asserted where there is one.
+          rm -f "$home/chrome.txt"
+          $runner "$installed" --scenario=chrome --report="$home/chrome.txt" &
+          pid=$!
+          for i in $(seq 1 60); do grep -q "done=" "$home/chrome.txt" 2>/dev/null && break; sleep 1; done
+          cat "$home/chrome.txt"
+          grep -q "done=yes" "$home/chrome.txt"
+          for i in $(seq 1 30); do kill -0 $pid 2>/dev/null || break; sleep 1; done
+          if kill -0 $pid 2>/dev/null; then echo "Close did not end the process"; kill $pid; exit 1; fi
+          if [ "${{ runner.os }}" != "Linux" ]; then
+            before=$(sed -n 's/.*width_before=//p' "$home/chrome.txt")
+            after=$(sed -n 's/.*width_after=//p' "$home/chrome.txt")
+            test "$after" -gt "$before"
+          fi
+          # The OS-facing screens of system/ open from the installed copy.
+          for screen in about license permissions settings; do
+            rm -f "$home/screen.txt"
+            RUSTX_START="/__system/$screen" $runner "$installed" --scenario=screen --report="$home/screen.txt" &
+            pid=$!
+            for i in $(seq 1 60); do grep -q "done=" "$home/screen.txt" 2>/dev/null && break; sleep 1; done
+            stop_app $pid
+            sleep 1
+            cat "$home/screen.txt"
+            grep -q "done=yes" "$home/screen.txt"
+          done
+          # A picture of each OS-facing screen, for a person to look at: no Mac or Windows needed.
+          shots="$PWD/screens"
+          mkdir -p "$shots"
+          shoot() {
+            case "${{ runner.os }}" in
+            Windows)
+              powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; \$b=[System.Windows.Forms.SystemInformation]::VirtualScreen; \$m=New-Object System.Drawing.Bitmap \$b.Width,\$b.Height; \$g=[System.Drawing.Graphics]::FromImage(\$m); \$g.CopyFromScreen(\$b.Location,[System.Drawing.Point]::Empty,\$b.Size); \$m.Save('$(cygpath -w "$1")')" ;;
+            macOS) screencapture -x "$1" ;;
+            Linux) import -window root "$1" ;;
+            esac
+          }
+          for screen in install uninstall update license permissions about settings; do
+            rm -f "$home/screen.txt"
+            if [ "${{ runner.os }}" = "Linux" ]; then
+              # One X server for the app and the picture.
+              export SHOT="$shots/$screen.png" INSTALLED="$installed" SCREEN="$screen" REPORT="$home/screen.txt"
+              xvfb-run -a -s "-screen 0 1280x800x24" bash -c 'RUSTX_START="/__system/$SCREEN" "$INSTALLED" --scenario=screen --report="$REPORT" & p=$!; for i in $(seq 1 60); do grep -q "done=" "$REPORT" 2>/dev/null && break; sleep 1; done; sleep 2; import -window root "$SHOT"; kill $p || true'
+            else
+              RUSTX_START="/__system/$screen" "$installed" --scenario=screen --report="$home/screen.txt" &
+              pid=$!
+              for i in $(seq 1 60); do grep -q "done=" "$home/screen.txt" 2>/dev/null && break; sleep 1; done
+              sleep 2
+              shoot "$shots/$screen.png" || echo "no picture for $screen"
+              stop_app $pid
+              sleep 1
+            fi
+            grep -q "done=yes" "$home/screen.txt"
+          done
+          ls -l "$shots"
+          # Settings checks for updates against a release page served over loopback.
+          site="$home/releases"
+          mkdir -p "$site/repos/owner/counter/releases"
+          printf '%s' '{"tag_name":"v9.0.0","body":"new","assets":[{"name":"counter-windows-linux-macos.zip","browser_download_url":"http://127.0.0.1:8765/x.zip","size":4}]}' > "$site/repos/owner/counter/releases/latest"
+          (cd "$site" && $(command -v python3 || command -v python) -m http.server 8765 --bind 127.0.0.1 >/dev/null 2>&1 &) 
+          sleep 2
+          rm -f "$home/screen.txt"
+          RUSTX_UPDATE_API="http://127.0.0.1:8765" RUSTX_START="/__system/settings" $runner "$installed" --scenario=update --report="$home/screen.txt" &
+          pid=$!
+          for i in $(seq 1 60); do grep -q "done=" "$home/screen.txt" 2>/dev/null && break; sleep 1; done
+          stop_app $pid
+          sleep 4
+          cat "$home/screen.txt"
+          grep -q "update=found" "$home/screen.txt"
+          # And removes itself.
+          "$installed" --uninstall --silent
+          for i in $(seq 1 30); do [ -e "$installed" ] || break; sleep 1; done
+          test ! -e "$installed"
+
+      # A Windows machine without the WebView2 runtime: the program offers it (here accepted
+      # automatically), downloads Microsoft's bootstrapper for real, starts again once, and ends
+      # with the runtime error instead of looping. The runner already has the runtime, so the
+      # empty folder below stands for its absence.
+      - name: A missing web view runtime is offered once
+        if: runner.os == 'Windows'
+        shell: bash
+        timeout-minutes: 8
+        run: |
+          set -u
+          export MSYS_NO_PATHCONV=1
+          exe=$(ls dist/counter-*-windows/counter.exe)
+          mkdir -p "$RUNNER_TEMP/no-runtime"
+          export WEBVIEW2_BROWSER_EXECUTABLE_FOLDER="$(cygpath -w "$RUNNER_TEMP/no-runtime")"
+          export RUSTX_BOOTSTRAP=auto
+          set +e
+          timeout 240 "$exe" 2> "$RUNNER_TEMP/bootstrap.err"
+          code=$?
+          set -e
+          sleep 20
+          cat "$RUNNER_TEMP/bootstrap.err"
+          test $code -ne 124
+          test "$(grep -c 'running the web view runtime installer' "$RUNNER_TEMP/bootstrap.err")" -ge 1
+          grep -q "WebView2 Runtime" "$RUNNER_TEMP/bootstrap.err"
+          # The child that started again does not run the installer a second time.
+          test "$(grep -c 'running the web view runtime installer' "$RUNNER_TEMP/bootstrap.err")" -le 1
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screens-${{ matrix.os }}
+          path: screens/*.png
+          if-no-files-found: warn
+          retention-days: 14
 
       - uses: actions/upload-artifact@v4
         with:
           name: installer-${{ matrix.os }}
-          # The folder is 400 MB and the archive is already in it; only
+          # The folder is in the archive already; only
           # what a user would download goes up.
           path: |
-            dist/*-setup.exe
+            dist/*.zip
             dist/*.deb
             dist/*.pkg
             dist/*.dmg

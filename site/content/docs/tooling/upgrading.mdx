@@ -53,10 +53,9 @@ report.
 ## When you build the first time
 
 - Close every window of the application, and any `rustx dev` that is still
-  running. They hold `libcef.dll`, and the build says which file is held.
-- The engine is a dependency, `cef`, pinned by `rustx-engine` to a Chromium
-  release. A new release of rustx may ask for a new engine, and the first build
-  after it fetches that. Expect a long first build.
+  running. They hold the executable, and the build says which file is held.
+- The engine is the system's web view: there is nothing to fetch, and an
+  upgrade does not change the browser the application runs in.
 - Rust 1.88 or later is required.
 
 ## The changelog

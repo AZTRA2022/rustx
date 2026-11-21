@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
-members = ["apps/catalogue", "apps/capture", "apps/hybrid", "apps/counter", "apps/monitor", "apps/zoo", "apps/agent-manager", "apps/data-intel", "apps/vault-storage", "apps/ops-monitor", "apps/multitask-hub", "apps/utility-hub", "apps/nemo-design", "apps/video-editor", "crates/rustx", "crates/rustx-compiler", "crates/rustx-dom", "crates/rustx-engine", "crates/rustx-cli",
- "crates/rustx-lsp", "crates/rustx-macros", "crates/rustx-os"]
+members = ["apps/catalogue", "apps/capture", "apps/hybrid", "apps/counter", "apps/monitor", "apps/zoo", "apps/agent-manager", "apps/data-intel", "apps/vault-storage", "apps/ops-monitor", "apps/multitask-hub", "apps/utility-hub", "apps/nemo-design", "apps/video-editor", "crates/rustx", "crates/rustx-compiler", "crates/rustx-dom", "crates/rustx-cli",
+ "crates/rustx-lsp", "crates/rustx-macros", "crates/rustx-os", "crates/rustx-webview"]
 
 [workspace.package]
 version = "0.4.1"
@@ -15,3 +15,8 @@ repository = "https://github.com/AZTRA2022/rustx"
 homepage = "https://github.com/AZTRA2022/rustx"
 readme = "README.md"
 authors = ["aztra"]
+
+# Debug info is most of what a debug build writes and links. Line tables keep
+# backtraces and breakpoints by line, and make `target` and linking much smaller.
+[profile.dev]
+debug = "line-tables-only"

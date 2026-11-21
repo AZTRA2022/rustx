@@ -9,10 +9,9 @@ description: "Closing the window, what stops the application, and what a running
 <button onClick={|_| { rustx::window::shut(); }}>×</button>
 ```
 
-`shut()` closes the window where the page is drawn. The message goes to
-Chromium, which dismantles its window itself: the framework sends a
-`WM_CLOSE` and destroys nothing by force — the window has the right to
-ask in turn.
+`shut()` closes the window where the page is drawn. The window is closed by the host, which first takes what is mounted off
+the page so that what a component owns is dropped (a file saved, a device
+let go). Nothing is destroyed by force.
 
 ## A named window
 

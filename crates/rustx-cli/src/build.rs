@@ -23,6 +23,8 @@ pub struct Project {
     pub about: About,
     /// Absolute, so that a stamp does not depend on where it was run.
     pub icon: Option<PathBuf>,
+    /// What `.permissions(&[..])` names in the source: they become the macOS usage descriptions.
+    pub permissions: Vec<String>,
 }
 
 /// Read what the project says about itself.
@@ -81,7 +83,22 @@ pub fn read(project: &Path) -> Result<Project, String> {
             publisher,
         },
         icon,
+        permissions: permissions_in(&source),
     })
+}
+
+/// The names inside `.permissions(&["camera", ...])`, wherever the source says it.
+fn permissions_in(source: &str) -> Vec<String> {
+    let Some(at) = source.find(".permissions(&[") else {
+        return Vec::new();
+    };
+    let rest = &source[at + ".permissions(&[".len()..];
+    let list = rest.split(']').next().unwrap_or_default();
+    list.split('"')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_string)
+        .collect()
 }
 
 /// The cargo to run.
@@ -129,13 +146,6 @@ pub fn says_no_cargo(error: &std::io::Error) -> String {
 /// Build it, then stamp what cargo produced.
 pub fn run(release: bool, project: &Path) -> Result<PathBuf, String> {
     let read = read(project)?;
-
-    // A build that cannot win, said before it is started: cargo's own
-    // message for this is an access error inside a build script, and it
-    // names neither the file nor the window that is holding it.
-    if let Some(file) = held(project, release) {
-        return Err(says_it_is_held(&file));
-    }
 
     let mut cargo = cargo_command();
     cargo.arg("build").current_dir(project);
@@ -302,205 +312,11 @@ fn configured(text: &str) -> Option<String> {
     None
 }
 
-/// The runtime file a program still running holds, if there is one.
-///
-/// CEF's build script puts `libcef.dll` and its neighbours next to the
-/// binary by deleting what is there and copying again. A window still
-/// open from an earlier run has that library loaded, so Windows refuses
-/// the delete, and cargo reports `Access is denied. (os error 5)` from
-/// a build script — which names neither the file nor the window.
-///
-/// Asked **before** cargo is started, because the answer is a sentence
-/// and not a failure: there is nothing to try.
-pub fn held(project: &Path, release: bool) -> Option<PathBuf> {
-    held_told(project, release, target_from_environment().as_deref())
-}
-
-/// [`held`], with the environment said out loud — see
-/// [`target_from_environment`] for why that is a parameter.
-pub fn held_told(project: &Path, release: bool, environment: Option<&str>) -> Option<PathBuf> {
-    let profile = if release { "release" } else { "debug" };
-    let out = target_directory_told(project, environment).join(profile);
-    // The library is the one that matters: it is the big one, it is
-    // always loaded, and the others go the same way when it does.
-    for name in ["libcef.dll", "chrome_elf.dll", "libEGL.dll"] {
-        let candidate = out.join(name);
-        if !candidate.is_file() {
-            continue;
-        }
-        if std::fs::OpenOptions::new()
-            .write(true)
-            .open(&candidate)
-            .is_err()
-        {
-            return Some(candidate);
-        }
-    }
-    None
-}
-
-/// What to say about a file a running program holds.
-pub fn says_it_is_held(file: &Path) -> String {
-    format!(
-        "{} is held by a program that is still running — a window from an \
-         earlier run of this application, or a `rustx dev` that was never \
-         closed. CEF's build replaces that file on every build, and Windows \
-         refuses while it is loaded, so the next build would fail on \
-         `Access is denied. (os error 5)` in a build script. Close the \
-         window. If there is none on screen, the process is still there: \
-         `taskkill /im <the application>.exe /f`.",
-        file.display()
-    )
-}
-
-/// Is this file part of what a built application has to ship, or is it
-/// something the build left behind for the build's own use?
-///
-/// Cargo's bookkeeping, and the files a linker needs and a program does
-/// not: `.pdb` is debug information, `.lib` and `.exp` are what the
-/// linker reads to resolve an import at link time, `.d` is a dependency
-/// list cargo wrote for itself. Shipping them is how a release carries
-/// three hundred megabytes of symbols and an import library nobody on
-/// the other machine can use.
-///
-/// Everything else beside the binary is Chromium's, and Chromium reads
-/// it from beside the binary at start-up.
-pub fn ships_with(name: &str) -> bool {
-    // Cargo's own, and the directories it owns.
-    if name.starts_with('.') {
-        return false;
-    }
-    if matches!(
-        name,
-        "build" | "deps" | "examples" | "incremental" | "CACHEDIR.TAG"
-    ) {
-        return false;
-    }
-    let dev_only = [".d", ".pdb", ".lib", ".exp", ".rlib", ".rmeta", ".ilk"];
-    !dev_only
-        .iter()
-        .any(|end| name.to_ascii_lowercase().ends_with(end))
-}
-
-/// What a release build leaves behind that has to travel with the
-/// binary.
-///
-/// A rustx application is a Chromium host. The `.exe` the linker made
-/// loads `libcef.dll` when it starts and Chromium reads its own
-/// resources — the `.pak` files, `icudtl.dat`,
-/// `v8_context_snapshot.bin`, `locales/` — from beside that binary. A
-/// developer who copies the one path `rustx build` prints onto another
-/// machine gets a program that does not start, and the dialog Windows
-/// shows for that names a library, not a cause.
-///
-/// So the command line names the artefact instead of implying that the
-/// artefact is one file. It does not pretend to be a packager: there is
-/// no `rustx package` yet, and saying which of Chromium's files a
-/// particular application could do without is a claim this cannot
-/// verify. What it can say, exactly, is what is there.
-/// Is this, beside the binary, part of the application rather than
-/// part of the build?
-///
-/// `ships_with` answers the looser question — "is this cargo's own
-/// bookkeeping" — and was written for a sentence that lists what a
-/// developer should copy. A package cannot be built on that answer: a
-/// workspace builds every one of its binaries into the same directory,
-/// so the first package made that way carried another application's
-/// `.exe`, CEF's `CMakeLists.txt` and its `bootstrap.exe`, none of
-/// which this program loads.
-///
-/// So this one is a list of what Chromium actually reads, and
-/// everything else is left behind:
-///
-/// - the libraries (`.dll`, `.so`, `.dylib`) and the frameworks;
-/// - the resources: `.pak`, `icudtl.dat`, `v8_context_snapshot.bin`,
-///   and SwiftShader's own `.json`;
-/// - `locales/`, which is one `.pak` per language;
-/// - `CREDITS.html`, which is Chromium's licence attribution and is
-///   kept on purpose: the engine is BSD-licensed software with a
-///   hundred third-party notices in it, and shipping the file is how
-///   that obligation is met;
-/// - the application's own binary, which the caller names.
-///
-/// What is deliberately not here: any other `.exe`. The helper
-/// processes of a rustx application are the application itself, started
-/// again with different arguments — there is no second executable to
-/// ship.
+/// Is this, beside the binary, part of the application rather than the
+/// build? On the system webview that is the binary and nothing else: the
+/// engine is the system's, so there is no library or resource to carry.
 pub fn runtime_file(name: &str, binary: &str) -> bool {
-    if name.eq_ignore_ascii_case(binary) {
-        return true;
-    }
-    if name.eq_ignore_ascii_case("CREDITS.html") {
-        return true;
-    }
-    let lowered = name.to_ascii_lowercase();
-    if lowered == "vk_swiftshader_icd.json" {
-        return true;
-    }
-    [
-        ".dll",
-        ".pak",
-        ".dat",
-        ".bin",
-        ".so",
-        ".dylib",
-        ".framework",
-    ]
-    .iter()
-    .any(|end| lowered.ends_with(end))
-}
-
-/// The directories beside the binary that travel whole.
-pub fn runtime_directory(name: &str) -> bool {
-    let lowered = name.to_ascii_lowercase();
-    matches!(
-        lowered.as_str(),
-        "locales" | "swiftshader" | "resources" | "frameworks"
-    ) || lowered.ends_with(".framework")
-}
-
-pub fn says_what_ships(exe: &Path) -> String {
-    let Some(directory) = exe.parent() else {
-        return String::new();
-    };
-    let binary = exe.file_name().unwrap_or_default().to_string_lossy();
-
-    let mut beside: Vec<String> = Vec::new();
-    let Ok(entries) = std::fs::read_dir(directory) else {
-        return String::new();
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
-        if name == binary || !ships_with(&name) {
-            continue;
-        }
-        beside.push(name);
-    }
-    if beside.is_empty() {
-        return String::new();
-    }
-    beside.sort();
-
-    let listed = if beside.len() > 12 {
-        format!(
-            "{}, and {} more",
-            beside[..12].join(", "),
-            beside.len() - 12
-        )
-    } else {
-        beside.join(", ")
-    };
-    format!(
-        "\nrustx: that binary is not the whole application. It is a Chromium host, and \
-         Chromium reads its runtime from beside the file: {} more file{} in {}, which \
-         is {listed}.\nrustx: the directory is the artefact — copy it whole, or the \
-         program will not start on a machine that has never built it. There is no \
-         `rustx package` yet; this is the command line saying so rather than letting \
-         you find out later.\n",
-        beside.len(),
-        if beside.len() == 1 { "" } else { "s" },
-        directory.display(),
-    )
+    name.eq_ignore_ascii_case(binary)
 }
 
 /// The binary cargo wrote, where cargo wrote it.
@@ -677,6 +493,13 @@ fn between(text: &str, opening: &str, closing: char) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn permissions_are_read_from_the_source() {
+        let source = "Config::new(\"x\").permissions(&[\"camera\", \"files\"]).run()";
+        assert_eq!(permissions_in(source), ["camera", "files"]);
+        assert!(permissions_in("Config::new(\"x\")").is_empty());
+    }
 
     #[test]
     fn a_manifest_is_read_for_its_four_strings() {

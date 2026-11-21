@@ -10,11 +10,30 @@ use std::fs;
 
 use rustx_lsp::shadow;
 
+/// A file just written, read back. A virus scanner on a CI runner may hold a
+/// file for a moment after it is written, and a missing one then is not a
+/// shadow that was not written: try again a few times.
+fn read_back(path: &std::path::Path) -> std::io::Result<String> {
+    let mut last = fs::read_to_string(path);
+    for _ in 0..10 {
+        if last.is_ok() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        last = fs::read_to_string(path);
+    }
+    last
+}
+
 /// A throwaway application: a manifest, an `app/`, one page.
 fn an_application(page: &str) -> (std::path::PathBuf, String) {
+    // The clock ticks every few milliseconds on Windows: two tests starting in
+    // the same tick shared a folder, and one deleted the other's files.
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let root = std::env::temp_dir().join(format!(
-        "rustx-shadow-{}-{}",
+        "rustx-shadow-{}-{}-{}",
         std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|since| since.as_nanos())
@@ -36,7 +55,7 @@ const BAD: &str = "fn Page() -> Element {\n    return <p>bonjour</dvi>;\n}\n";
 fn a_page_becomes_a_rust_file_where_the_build_puts_one() {
     let (root, uri) = an_application(GOOD);
     let shadow = shadow::of(&uri, GOOD).expect("a shadow");
-    let written = fs::read_to_string(&shadow.path).expect("the shadow is on disk");
+    let written = read_back(&shadow.path).expect("the shadow is on disk");
     assert!(written.contains("\"p\""), "got {written}");
     // Where the build puts it, so `rust-analyzer` is reading the file
     // the application actually compiles.
@@ -50,7 +69,7 @@ fn a_change_rewrites_the_shadow() {
     let (root, uri) = an_application(GOOD);
     shadow::of(&uri, GOOD).expect("a shadow");
     let shadow = shadow::of(&uri, BETTER).expect("a second shadow");
-    let written = fs::read_to_string(&shadow.path).expect("on disk");
+    let written = read_back(&shadow.path).expect("on disk");
     assert!(written.contains("bonsoir"), "got {written}");
     let _ = fs::remove_dir_all(&root);
 }
@@ -64,7 +83,7 @@ fn a_page_that_does_not_compile_leaves_the_last_shadow_alone() {
     let (root, uri) = an_application(GOOD);
     let shadow = shadow::of(&uri, GOOD).expect("a shadow");
     assert!(shadow::of(&uri, BAD).is_none());
-    let written = fs::read_to_string(&shadow.path).expect("on disk");
+    let written = read_back(&shadow.path).expect("on disk");
     assert!(written.contains("bonjour"), "got {written}");
     let _ = fs::remove_dir_all(&root);
 }
@@ -155,4 +174,24 @@ fn an_answer_in_a_generated_file_is_told_in_the_file_the_developer_wrote() {
     assert!(back.contains(&page_uri), "{back}");
     assert!(back.contains("/src/ffmpeg.rs"), "{back}");
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_system_page_is_shadowed_where_the_build_puts_its_staged_copy() {
+    let (root, _) = an_application(GOOD);
+    fs::create_dir_all(root.join("system")).expect("a system directory");
+    let page = root.join("system").join("about.rsx");
+    fs::write(&page, GOOD).expect("a system page");
+    let shadow = shadow::of(&shadow::uri_of(&page), GOOD).expect("a shadow for system/about.rsx");
+    assert!(
+        shadow.path.ends_with(
+            std::path::Path::new("__system")
+                .join("about")
+                .join("page.rs")
+        ),
+        "{}",
+        shadow.path.display()
+    );
+    assert!(read_back(&shadow.path).expect("on disk").contains("\"p\""));
+    let _ = fs::remove_dir_all(root);
 }

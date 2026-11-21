@@ -13,7 +13,7 @@ The repository is a cargo workspace, and each part has a boundary that can be he
 | `rustx-macros`   | `#[rustx::main]` and `#[derive(ToValue)]`. Published as `rustx-macro`                        |
 | `rustx-compiler` | the `.rsx` read, rewritten and emitted as Rust; the route table; esbuild and Tailwind called |
 | `rustx-dom`      | `Element`, `Event`, `Value`, the state, the routes — what depends on no system               |
-| `rustx-engine`   | CEF, the frames, the rendering, the bridge between the two processes, the router, the tasks  |
+| `rustx-webview`  | the system web view (wry, tao), the page interpreter, the frames, the router, the tasks      |
 | `rustx-os`       | what speaks to the system: window, clipboard, dialogs, tray, shortcuts, devices              |
 | `rustx-cli`      | `rustx new`, `rustx dev`, `rustx build`                                                      |
 | `rustx-lsp`      | the language server                                                                          |
@@ -44,30 +44,12 @@ And a law on a real window is worth more than a law on a structure: the seven wh
 cargo test --workspace
 ```
 
-On a machine without a usable 3D driver — virtual machine, remote desktop — half of the scenarios wait for a frame that a non-composed window never produces:
-
-```sh
-RUSTX_SOFTWARE=1 cargo test --workspace
-```
-
-The harnesses say so themselves when they recognize the log
-("Failed to create shared context").
-
-<Callout type="warn" title="An elevated terminal">
-  Chromium de-elevates itself since M156: launched from an administrator
-  terminal, the process relaunches non-elevated and the first one fails with
-  `ContentMainInitialize failed with exit code 38`. The harnesses pass
-  `--do-not-de-elevate`; an application launched by hand from such a terminal
-  must pass it too, or be launched from an ordinary terminal. The engine
-  recognizes the case and says so in the failure.
-</Callout>
-
 ## How the tests open a window
 
 A scenario is a name passed to the application, and a report written to a file that the test reads back:
 
 ```sh
-cargo run -p counter -- --do-not-de-elevate --scenario=page --report=rapport.txt
+cargo run -p counter -- --scenario=page --report=rapport.txt
 ```
 
 In the page, `rustx_scenario()` says which scenario is running, and

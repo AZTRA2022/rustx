@@ -3,6 +3,8 @@
   "pages": [
     "installation",
     "project-structure",
+    "configuration",
+    "fonts-and-theme",
     "where-code-runs",
     "the-rsx-file",
     "attributes-and-events",

@@ -8,7 +8,7 @@
 //!
 //! | | |
 //! |---|---|
-//! | Windows | a setup `.exe` — Inno Setup, or NSIS when that is what the machine has |
+//! | Windows | the stamped application `.exe` itself: it installs itself through its `system/` pages. `RUSTX_INSTALLER=inno` asks for Inno Setup instead |
 //! | Linux | a `.deb`, written by [`crate::deb`] without any tool at all, plus an `.rpm` and an AppImage when the tools are there |
 //! | macOS | a `.pkg` through `pkgbuild`, which every Mac ships, and a `.dmg` beside it |
 //!
@@ -106,9 +106,9 @@ pub fn pages(project: &Path) -> Pages {
 pub fn make(read: &build::Project, project: &Path, folder: &Path, binary: &str) -> Made {
     let pages = pages(project);
     if cfg!(target_os = "windows") {
-        windows(read, folder, binary, &pages)
+        windows(read, project, folder, binary, &pages)
     } else if cfg!(target_os = "macos") {
-        macos(read, folder, &pages)
+        macos(read, project, folder, &pages)
     } else {
         linux(read, folder, binary, &pages)
     }
@@ -277,10 +277,8 @@ pub fn inno_script(read: &build::Project, folder: &Path, binary: &str, pages: &P
          Name: \"english\"; MessagesFile: \"compiler:Default.isl\"\n\
          \n\
          [Files]\n\
-         ; The whole folder: the `.exe` starts itself as Chromium's\n\
-         ; helper processes and reads `libcef.dll`, the `.pak` files and\n\
-         ; `locales\\` from beside itself, so a file left out is a\n\
-         ; program that does not start.\n\
+         ; The whole folder: the `.exe` and its `assets\\`. The window is\n\
+         ; drawn by the WebView2 runtime the system already has.\n\
          Source: \"{source}\\*\"; DestDir: \"{{app}}\"; \
          Flags: recursesubdirs createallsubdirs ignoreversion\n\
          \n\
@@ -352,7 +350,39 @@ fn looks_runnable(program: &str, arguments: &[&str]) -> bool {
         .is_ok()
 }
 
-fn windows(read: &build::Project, folder: &Path, binary: &str, pages: &Pages) -> Made {
+/// The binary in the folder is the installer: `rustx package` stamped it, and
+/// it shows `system/install.rsx` when it is run outside its install location.
+fn self_installing(folder: &Path, binary: &str) -> Made {
+    let mut made = Made::default();
+    let name = if binary.to_ascii_lowercase().ends_with(".exe") {
+        binary.to_string()
+    } else {
+        format!("{binary}.exe")
+    };
+    let exe = folder.join(&name);
+    made.said(format!(
+        "{} installs itself: run it, and it shows its install wizard (system/install.rsx). It is the only file to give a user.",
+        exe.display()
+    ));
+    if exe.is_file() {
+        made.artifacts.push(exe);
+    }
+    made
+}
+
+fn windows(
+    read: &build::Project,
+    _project: &Path,
+    folder: &Path,
+    binary: &str,
+    pages: &Pages,
+) -> Made {
+    if std::env::var("RUSTX_INSTALLER")
+        .map(|it| it != "inno")
+        .unwrap_or(true)
+    {
+        return self_installing(folder, binary);
+    }
     let mut made = Made::default();
     // ISCC reads every relative path in the script as relative to the
     // script itself, while `--out` is relative to where the command was
@@ -439,7 +469,7 @@ fn last_words(out: &[u8], err: &[u8]) -> String {
 /// `pkgbuild` first, which every Mac has and which is what a user
 /// expects to double-click; the `.dmg` beside it, because that is what
 /// a download page links to.
-fn macos(read: &build::Project, folder: &Path, pages: &Pages) -> Made {
+fn macos(read: &build::Project, project: &Path, folder: &Path, pages: &Pages) -> Made {
     let mut made = Made::default();
     let name = &read.about.name;
     let bundle = folder.join(format!("{name}.app"));
@@ -452,8 +482,7 @@ fn macos(read: &build::Project, folder: &Path, pages: &Pages) -> Made {
     }
 
     if let Some(identity) = std::env::var_os("RUSTX_SIGN_IDENTITY") {
-        // Deep, because the bundle holds the framework and the helper
-        // apps, and macOS refuses a bundle whose insides are unsigned.
+        // Deep, because macOS refuses a bundle whose insides are unsigned.
         match Command::new("codesign")
             .arg("--force")
             .arg("--deep")
@@ -488,12 +517,56 @@ fn macos(read: &build::Project, folder: &Path, pages: &Pages) -> Made {
     // every other application is.
     let pkg = beside.join(format!("{base}.pkg"));
     let slug = crate::package::slug(name);
+    // With screens of its own the `.pkg` is made in two steps: the component,
+    // then `productbuild` around it with the project's pages.
+    let screens = mac_screens(project, pages);
+    let component = beside.join(format!("{base}-component.pkg"));
+    let produced = if screens.is_some() {
+        component.clone()
+    } else {
+        pkg.clone()
+    };
+    // A bundle a package installs is "relocatable" by default: the installer then
+    // updates a copy of it it finds elsewhere on the disk (the one in `dist/`)
+    // instead of writing /Applications. So the package is made from a root that
+    // holds only the bundle, with a component plist that says it is not.
+    let staging = beside.join(format!("{base}-pkgroot"));
+    let _ = std::fs::remove_dir_all(&staging);
+    let staged = std::fs::create_dir_all(&staging).is_ok()
+        && Command::new("cp")
+            .arg("-R")
+            .arg(&bundle)
+            .arg(&staging)
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+    let plist = beside.join(format!("{base}-component.plist"));
+    let bundle_name = bundle
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let _ = std::fs::write(
+        &plist,
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
+<plist version=\"1.0\"><array><dict><key>RootRelativeBundlePath</key><string>{}</string><key>BundleIsRelocatable</key><false/><key>BundleIsVersionChecked</key><false/><key>BundleOverwriteAction</key><string>upgrade</string></dict></array></plist>
+",
+            xml(&bundle_name)
+        ),
+    );
     let mut build_pkg = Command::new("pkgbuild");
+    build_pkg.arg("--install-location").arg("/Applications");
+    if staged {
+        build_pkg
+            .arg("--root")
+            .arg(&staging)
+            .arg("--component-plist")
+            .arg(&plist);
+    } else {
+        build_pkg.arg("--component").arg(&bundle);
+    }
     build_pkg
-        .arg("--install-location")
-        .arg("/Applications")
-        .arg("--component")
-        .arg(&bundle)
         .arg("--identifier")
         .arg(format!("dev.rustx.{slug}"))
         .arg("--version")
@@ -504,11 +577,29 @@ fn macos(read: &build::Project, folder: &Path, pages: &Pages) -> Made {
         // Application" for a bundle, and each refuses the other's job.
         build_pkg.arg("--sign").arg(identity);
     }
-    build_pkg.arg(&pkg);
+    build_pkg.arg(&produced);
     match build_pkg.output() {
-        Ok(output) if output.status.success() && pkg.is_file() => {
-            made.said(pkg.display().to_string());
-            made.artifacts.push(pkg);
+        Ok(output) if output.status.success() && produced.is_file() => {
+            if let Some(screens) = &screens {
+                match wrap_with_screens(read, &slug, beside, &component, &pkg, screens) {
+                    Ok(()) => {
+                        made.said(format!(
+                            "{} (with the project's installer screens)",
+                            pkg.display()
+                        ));
+                        made.artifacts.push(pkg);
+                    }
+                    Err(why) => {
+                        made.said(format!(
+                            "productbuild refused: {why}; the plain component is kept."
+                        ));
+                        made.artifacts.push(component);
+                    }
+                }
+            } else {
+                made.said(pkg.display().to_string());
+                made.artifacts.push(pkg);
+            }
         }
         Ok(output) => made.said(format!(
             "pkgbuild refused: {}",
@@ -554,6 +645,183 @@ fn macos(read: &build::Project, folder: &Path, pages: &Pages) -> Made {
         );
     }
     made
+}
+
+/// The pages a macOS installer shows around the files, from the project:
+/// `installer/{welcome,readme,conclusion}.html` (static HTML: the system's
+/// installer runs no script), `installer/background.png`, and the licence.
+struct MacScreens {
+    welcome: Option<PathBuf>,
+    readme: Option<PathBuf>,
+    conclusion: Option<PathBuf>,
+    background: Option<PathBuf>,
+    license: Option<PathBuf>,
+}
+
+fn mac_screens(project: &Path, pages: &Pages) -> Option<MacScreens> {
+    let own = |name: &str| Some(project.join("installer").join(name)).filter(|path| path.is_file());
+    let screens = MacScreens {
+        welcome: own("welcome.html"),
+        readme: own("readme.html"),
+        conclusion: own("conclusion.html"),
+        background: own("background.png"),
+        license: pages.license.clone(),
+    };
+    let any = screens.welcome.is_some()
+        || screens.readme.is_some()
+        || screens.conclusion.is_some()
+        || screens.background.is_some();
+    any.then_some(screens)
+}
+
+fn xml(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// The `distribution.xml` that puts the screens around the component.
+fn distribution(
+    title: &str,
+    id: &str,
+    version: &str,
+    component: &str,
+    screens: &MacScreens,
+) -> String {
+    let file = |path: &Option<PathBuf>, fallback: &str| {
+        path.as_ref().map(|path| {
+            path.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| fallback.to_string())
+        })
+    };
+    let mut out = String::from(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>
+<installer-gui-script minSpecVersion=\"1\">
+",
+    );
+    out.push_str(&format!(
+        "  <title>{}</title>
+",
+        xml(title)
+    ));
+    if let Some(name) = file(&screens.welcome, "welcome.html") {
+        out.push_str(&format!(
+            "  <welcome file=\"{}\"/>
+",
+            xml(&name)
+        ));
+    }
+    if let Some(name) = file(&screens.readme, "readme.html") {
+        out.push_str(&format!(
+            "  <readme file=\"{}\"/>
+",
+            xml(&name)
+        ));
+    }
+    if screens.license.is_some() {
+        out.push_str(
+            "  <license file=\"license.txt\"/>
+",
+        );
+    }
+    if let Some(name) = file(&screens.conclusion, "conclusion.html") {
+        out.push_str(&format!(
+            "  <conclusion file=\"{}\"/>
+",
+            xml(&name)
+        ));
+    }
+    if let Some(name) = file(&screens.background, "background.png") {
+        out.push_str(&format!(
+            "  <background file=\"{}\" alignment=\"left\" scaling=\"proportional\"/>
+",
+            xml(&name)
+        ));
+    }
+    out.push_str(
+        "  <options customize=\"never\" require-scripts=\"false\"/>
+",
+    );
+    out.push_str(&format!(
+        "  <choices-outline><line choice=\"default\"><line choice=\"{id}\"/></line></choices-outline>
+  <choice id=\"default\"/>
+  <choice id=\"{id}\" visible=\"false\"><pkg-ref id=\"{id}\"/></choice>
+  <pkg-ref id=\"{id}\" version=\"{}\" onConclusion=\"none\">{}</pkg-ref>
+</installer-gui-script>
+",
+        xml(version),
+        xml(component)
+    ));
+    out
+}
+
+fn wrap_with_screens(
+    read: &build::Project,
+    slug: &str,
+    beside: &Path,
+    component: &Path,
+    out: &Path,
+    screens: &MacScreens,
+) -> Result<(), String> {
+    let resources = beside.join(format!("{slug}-installer-resources"));
+    let _ = std::fs::remove_dir_all(&resources);
+    std::fs::create_dir_all(&resources).map_err(|e| e.to_string())?;
+    for path in [
+        &screens.welcome,
+        &screens.readme,
+        &screens.conclusion,
+        &screens.background,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if let Some(name) = path.file_name() {
+            std::fs::copy(path, resources.join(name)).map_err(|e| e.to_string())?;
+        }
+    }
+    if let Some(license) = &screens.license {
+        std::fs::copy(license, resources.join("license.txt")).map_err(|e| e.to_string())?;
+    }
+    let id = format!("dev.rustx.{slug}");
+    let component_name = component
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let script = beside.join(format!("{slug}-distribution.xml"));
+    std::fs::write(
+        &script,
+        distribution(
+            &read.about.name,
+            &id,
+            &read.about.version,
+            &component_name,
+            screens,
+        ),
+    )
+    .map_err(|e| e.to_string())?;
+    let mut command = Command::new("productbuild");
+    command
+        .arg("--distribution")
+        .arg(&script)
+        .arg("--resources")
+        .arg(&resources)
+        .arg("--package-path")
+        .arg(beside);
+    if let Some(identity) = std::env::var_os("RUSTX_SIGN_INSTALLER_IDENTITY") {
+        command.arg("--sign").arg(identity);
+    }
+    let output = command
+        .arg(out)
+        .output()
+        .map_err(|e| format!("`productbuild` could not be run ({e})"))?;
+    if output.status.success() && out.is_file() {
+        let _ = std::fs::remove_file(component);
+        Ok(())
+    } else {
+        Err(last_words(&output.stdout, &output.stderr))
+    }
 }
 
 // ------------------------------------------------------------------ Linux
@@ -642,9 +910,8 @@ pub fn install_script(read: &build::Project, binary: &str) -> String {
          \ticons=\"${{XDG_DATA_HOME:-$HOME/.local/share}}/icons/hicolor/256x256/apps\"\n\
          fi\n\
          \n\
-         # The whole folder: the binary starts itself as Chromium's\n\
-         # helper processes and reads libcef.so, the .pak files and\n\
-         # locales/ from beside itself.\n\
+         # The whole folder: the binary and its assets/. The window is\n\
+         # drawn by WebKitGTK, which the system provides.\n\
          mkdir -p \"$prefix\" \"$applications\" \"$icons\"\n\
          cp -R \"$here/.\" \"$prefix/\"\n\
          chmod +x \"$prefix/{binary}\"\n\
@@ -774,7 +1041,7 @@ fn linux(read: &build::Project, folder: &Path, binary: &str, pages: &Pages) -> M
         maintainer: maintainer(&read.about.publisher),
         description: described(read),
         architecture: deb::architecture().to_string(),
-        depends: deb::CHROMIUM_NEEDS.to_string(),
+        depends: deb::WEBVIEW_NEEDS.to_string(),
         section: "utils".to_string(),
         homepage: String::new(),
         files,
@@ -860,6 +1127,7 @@ mod tests {
                 publisher: "Someone".to_string(),
             },
             icon: None,
+            permissions: Vec::new(),
         }
     }
 
@@ -960,6 +1228,31 @@ mod tests {
 
     /// `dpkg` refuses a maintainer without an address, and a build that
     /// fails because `authors` is a bare name is a build nobody can fix
+    #[test]
+    fn the_distribution_names_only_the_screens_the_project_has() {
+        let screens = MacScreens {
+            welcome: Some(PathBuf::from("/p/installer/welcome.html")),
+            readme: None,
+            conclusion: None,
+            background: None,
+            license: Some(PathBuf::from("/p/LICENSE")),
+        };
+        let text = distribution("My <App>", "dev.rustx.my-app", "1.2.3", "c.pkg", &screens);
+        assert!(text.contains("<welcome file=\"welcome.html\"/>"), "{text}");
+        assert!(text.contains("<license file=\"license.txt\"/>"), "{text}");
+        assert!(
+            !text.contains("<readme")
+                && !text.contains("<conclusion")
+                && !text.contains("<background"),
+            "{text}"
+        );
+        assert!(text.contains("<title>My &lt;App&gt;</title>"), "{text}");
+        assert!(
+            text.contains("version=\"1.2.3\"") && text.contains(">c.pkg</pkg-ref>"),
+            "{text}"
+        );
+    }
+
     /// from the message.
     #[test]
     fn a_maintainer_always_has_an_address() {

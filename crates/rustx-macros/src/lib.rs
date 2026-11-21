@@ -84,7 +84,30 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
 
     let (pages, prelude) = if app.is_dir() {
         let out = generated_directory(&manifest);
-        if let Err(complaint) = compile(&app, &out, routed) {
+        // With routing, the OS-facing pages of `system/` (or the framework's
+        // defaults) are compiled as pages under a reserved route.
+        let (tree, staged) = if routed {
+            match stage(&manifest, &app) {
+                Ok(tree) => (tree, true),
+                Err(complaint) => {
+                    let emitted = still_a_main(body.stream());
+                    return quote! { compile_error!(#complaint); #emitted }.into();
+                }
+            }
+        } else {
+            (app.clone(), false)
+        };
+        let compiled = compile(&tree, &out, routed);
+        if staged {
+            let _ = std::fs::remove_dir_all(&tree);
+        }
+        if let Err(complaint) = compiled.map_err(|c| {
+            if staged {
+                unstage(&c, &tree, &manifest)
+            } else {
+                c
+            }
+        }) {
             // The function is still emitted, untouched. A mistake in a
             // page is one error; without this, the developer also gets
             // "`main` function not found", which is about nothing they
@@ -100,7 +123,9 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
         // Every source named, so that changing one rebuilds the
         // application. `include_bytes!` is the only way to say "this
         // file is part of me" that both cargo and `rustc` follow.
-        let watched: Vec<TokenStream2> = sources(&app)
+        let mut named = sources(&app);
+        named.extend(sources(&manifest.join("system")));
+        let watched: Vec<TokenStream2> = named
             .iter()
             .map(|source| {
                 let path = slashed(source);
@@ -133,6 +158,7 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
         let prelude = if routed {
             quote! {
                 rustx::install_manifest_dir(env!("CARGO_MANIFEST_DIR"));
+                rustx::install_package(env!("CARGO_PKG_VERSION"), env!("CARGO_PKG_AUTHORS"), env!("CARGO_PKG_DESCRIPTION"));
                 rustx::install_routes(__rustx_pages::route_table());
                 rustx::install_components(__rustx_pages::component_table());
                 rustx::install_shared_values(__rustx_pages::shared_values());
@@ -140,6 +166,7 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
         } else {
             quote! {
                 rustx::install_manifest_dir(env!("CARGO_MANIFEST_DIR"));
+                rustx::install_package(env!("CARGO_PKG_VERSION"), env!("CARGO_PKG_AUTHORS"), env!("CARGO_PKG_DESCRIPTION"));
             }
         };
 
@@ -299,6 +326,117 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Compile the pages, turning a mistake in a `.rsx` into a sentence in
 /// the coordinates of the `.rsx`.
+/// The pages the OS asks an application for, by their locked file names in
+/// `system/`. Each is optional; the framework brings a default for the ones it
+/// writes.
+const SYSTEM_PAGES: &[(&str, Option<&str>)] = &[
+    ("install", Some(include_str!("../system/install.rsx"))),
+    ("uninstall", Some(include_str!("../system/uninstall.rsx"))),
+    ("update", Some(include_str!("../system/update.rsx"))),
+    ("license", Some(include_str!("../system/license.rsx"))),
+    (
+        "permissions",
+        Some(include_str!("../system/permissions.rsx")),
+    ),
+    ("about", Some(include_str!("../system/about.rsx"))),
+    ("settings", Some(include_str!("../system/settings.rsx"))),
+];
+
+/// A copy of `app/` with the system pages added as `__system/<name>/page.rsx`,
+/// which is what the compiler and the router are given.
+fn stage(manifest: &Path, app: &Path) -> Result<PathBuf, String> {
+    // One per process: cargo compiles the binary and its test harness at the same time,
+    // and two stages of one folder deleted each other's files.
+    let tree = manifest
+        .join("target")
+        .join(format!("rustx-tree-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tree);
+    copy_pages(app, app, &tree)?;
+    let system = manifest.join("system");
+    if let Ok(entries) = std::fs::read_dir(&system) {
+        let names: Vec<&str> = SYSTEM_PAGES.iter().map(|(name, _)| *name).collect();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default();
+            if path.extension().is_none_or(|e| e != "rsx") || !names.contains(&stem) {
+                return Err(format!(
+                    "{} is not a system page. `system/` holds the screens the OS asks an application for, under these names only: {}.",
+                    path.display(),
+                    names
+                        .iter()
+                        .map(|n| format!("{n}.rsx"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+        }
+    }
+    for (name, default) in SYSTEM_PAGES {
+        let written = system.join(format!("{name}.rsx"));
+        let text = match std::fs::read_to_string(&written) {
+            Ok(text) => text,
+            Err(_) => match default {
+                Some(text) => text.to_string(),
+                None => continue,
+            },
+        };
+        let folder = tree.join("__system").join(name);
+        std::fs::create_dir_all(&folder)
+            .map_err(|e| format!("rustx could not stage {}: {e}", folder.display()))?;
+        std::fs::write(folder.join("page.rsx"), text)
+            .map_err(|e| format!("rustx could not stage {name}: {e}"))?;
+    }
+    Ok(tree)
+}
+
+fn copy_pages(root: &Path, from: &Path, to: &Path) -> Result<(), String> {
+    let Ok(entries) = std::fs::read_dir(from) else {
+        return Ok(());
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let relative = path.strip_prefix(root).unwrap_or(&path);
+        if path.is_dir() {
+            copy_pages(root, &path, to)?;
+        } else if path.extension().is_some_and(|e| e == "rsx") {
+            let target = to.join(relative);
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("rustx could not stage pages: {e}"))?;
+            }
+            std::fs::copy(&path, &target)
+                .map_err(|e| format!("rustx could not stage {}: {e}", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// What the compiler said about the staged copy, said about the files the
+/// developer wrote.
+fn unstage(complaint: &str, tree: &Path, manifest: &Path) -> String {
+    let (staged, app) = (
+        tree.display().to_string(),
+        manifest.join("app").display().to_string(),
+    );
+    let mut text = complaint.replace(&staged, &app);
+    for (name, _) in SYSTEM_PAGES {
+        for slash in ["/", "\\"] {
+            text = text.replace(
+                &format!("{app}{slash}__system{slash}{name}{slash}page.rsx"),
+                &manifest
+                    .join("system")
+                    .join(format!("{name}.rsx"))
+                    .display()
+                    .to_string(),
+            );
+        }
+    }
+    text
+}
+
 fn compile(app: &Path, out: &Path, routed: bool) -> Result<(), String> {
     if let Err(error) = std::fs::create_dir_all(out) {
         return Err(format!(

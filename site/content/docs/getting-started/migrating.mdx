@@ -14,7 +14,7 @@ to guess: look in [what's left](/docs/whats-left).
 | the language of the app | JavaScript, in two processes | Rust backend, JavaScript frontend | Rust, with markup in `.rsx` files |
 | the UI | any web framework | any web framework | `.rsx` pages. React libraries on the side |
 | the editor | VS Code, with JS tooling | VS Code, with JS tooling | a VS Code extension: highlighting, snippets, and `rust-analyzer` answering inside the braces. See [the editor](/docs/tooling/the-editor) |
-| the engine | Chromium, bundled | the system's web view | Chromium (CEF), bundled |
+| the engine | Chromium, bundled | the system's web view | the system's web view (WebView2, WKWebView, WebKitGTK) |
 | platforms | Windows, macOS, Linux | Windows, macOS, Linux | Windows is written and run. Linux and macOS are written, compiled by their own target in CI, and have never been *run* — see [platforms](/docs/the-system/platforms) |
 | the backend process | the main process (Node) | the Rust core | none. Your Rust runs in the page's process |
 
@@ -68,7 +68,7 @@ returns plain values (null, boolean, number, string, list, object).
 | application menu, context menu | `Menu` | the menu API | [`menu::popup`](/docs/the-system/menus) for a context menu (not on Linux: nothing native exists there). The bar is drawn in the page, and `menu::application()` installs the one macOS needs |
 | auto-update | `autoUpdater` | the updater plugin | [`rustx::update::from_github`](/docs/tooling/packaging) — a release page, no update server |
 | installer, signing | electron-builder and others | `tauri build` | [`rustx package`](/docs/tooling/packaging): the folder, a `.zip`, a setup `.exe` / `.dmg` / `install.sh`, and `signtool`/`codesign` when asked. No notarisation |
-| printing the window's own contents | `webContents.print` | the web view's | [`window::print`](/docs/the-system/printing), and `print_to_pdf` for a file. Chromium's own preview |
+| printing the window's own contents | `webContents.print` | the web view's | [`window::print`](/docs/the-system/printing): the system's print dialog. There is no print-to-PDF |
 
 "Not written" means that nothing in the framework's crates does it. You can
 still call the platform from your own Rust with a crate of your choice. Where a
@@ -79,7 +79,7 @@ rather than failing silently — see [platforms](/docs/the-system/platforms).
 
 | | Electron | Tauri | rustx |
 |---|---|---|---|
-| where it is set | the main process code | `tauri.conf.json` | `Config` in `main.rs`, and `Cargo.toml`. See [configuration](/docs/tooling/configuration) |
+| where it is set | the main process code | `tauri.conf.json` | `Config` in `main.rs`, and `Cargo.toml`. See [configuration](/docs/getting-started/configuration) |
 | `nodeIntegration`, `contextIsolation` | settings | not applicable | not applicable. The page runs your Rust directly |
 | permissions and capabilities | none | capability files | none. Pages may call every registered native |
 | remote content | allowed | allowed, with a policy | **refused**. Only local files load. See [security](/docs/the-system/security) |

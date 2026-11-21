@@ -119,3 +119,13 @@ fn a_component_that_awaits_its_value_draws_nothing_until_it_has_one() {
         report().raw()
     );
 }
+
+#[test]
+fn a_task_started_by_a_click_writes_and_the_screen_shows_it() {
+    assert_eq!(
+        report().get("handler_task_wrote"),
+        "42",
+        "full output:\n{}",
+        report().raw()
+    );
+}

@@ -18,8 +18,8 @@ let folder = rustx::data::directory()?;                // for a crate that wants
 
 This is `app.getPath("userData")` in Electron and the path API in Tauri.
 It is **not** `localStorage`, and it is not the engine's profile folder:
-that one belongs to Chromium, and an application that writes in it is one
-Chromium may clear.
+that one belongs to the web view, and an application that writes in it is one
+the web view may clear.
 
 Three folders, because the systems distinguish three things:
 
@@ -59,7 +59,7 @@ At the first start the engine makes this folder:
 `Config::new("My app")` gives `my-app`. If `LOCALAPPDATA` is not set, the engine
 uses the system's temporary folder.
 
-It holds Chromium's profile, its cookies and caches, and `engine.log`. It
+It holds the web view's profile, its cookies and caches. It
 exists so that two applications never share a profile. Leave it to the engine:
 do not write your own files there, and do not read the profile.
 

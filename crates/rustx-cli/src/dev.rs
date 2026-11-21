@@ -60,13 +60,33 @@ pub fn watch(project: &Path) -> Result<(), String> {
         &[
             project.join("app"),
             project.join("src"),
-            project.join("assets"),
+            project.join("system"),
         ],
         &["rsx", "rs", "css", "js", "jsx", "ts", "tsx", "json", "html"],
-        // The bundle is written into `assets/` by every build. Watching
-        // it would mean one saved page becomes a rebuild for ever.
         &[rustx_compiler::bundle::SERVED],
     );
+    // The assets are served from the folder the window runs in, so a saved
+    // asset needs no build: the running page is told to reload. The bundle is
+    // written into `assets/` by every build; watching it would mean one saved
+    // page becomes a reload for ever.
+    let mut assets = Watched::new(
+        &[project.join("assets")],
+        &[
+            "css", "js", "html", "json", "svg", "png", "jpg", "ico", "woff2", "ttf",
+        ],
+        &[rustx_compiler::bundle::SERVED, "tailwind.css"],
+    );
+    let reload = project.join("target").join("rustx-dev-reload.txt");
+    // `assets/tailwind.css` is the one asset that is a build input: Tailwind
+    // reads it and the result is compiled into the binary. A change to it is
+    // a rebuild, not a reload.
+    let sheet = project.join("assets").join("tailwind.css");
+    let stamp = |path: &Path| {
+        std::fs::metadata(path)
+            .and_then(|about| about.modified())
+            .ok()
+    };
+    let mut sheet_seen = stamp(&sheet);
     let mut coalescing = Coalescing::new(QUIET);
 
     // Where the application writes what is to cross the restart: the
@@ -77,12 +97,23 @@ pub fn watch(project: &Path) -> Result<(), String> {
     let _ = std::fs::remove_file(&carried);
 
     let mut running: Option<Child> = None;
-    restart(project, &carried, &mut running);
+    restart(project, &carried, &reload, &mut running);
+    let _ = assets.changed();
 
     loop {
-        if coalescing.tick(watched.changed(), Instant::now()) {
+        let sheet_now = stamp(&sheet);
+        let sheet_changed = std::mem::replace(&mut sheet_seen, sheet_now) != sheet_now;
+        if coalescing.tick(watched.changed() | sheet_changed, Instant::now()) {
             println!("rustx: something changed — rebuilding.");
-            restart(project, &carried, &mut running);
+            restart(project, &carried, &reload, &mut running);
+            let _ = assets.changed();
+        } else if !coalescing.waiting() && assets.changed() {
+            println!("rustx: an asset changed — reloading the page.");
+            let turn = std::fs::read_to_string(&reload)
+                .ok()
+                .and_then(|n| n.trim().parse::<u64>().ok())
+                .unwrap_or(0);
+            let _ = std::fs::write(&reload, (turn + 1).to_string());
         }
 
         // The developer closed the window: that is how `rustx dev` ends,
@@ -167,48 +198,12 @@ pub fn launchable(project: &Path, exe: &Path) -> Result<PathBuf, String> {
 /// Which turn of the loop this is, so two copies never share a name.
 static TURN: AtomicU64 = AtomicU64::new(0);
 
-/// Wait for a killed process to let go of the runtime files.
-///
-/// `kill` and `wait` return before Windows has unmapped the libraries
-/// the process had loaded — a moment, no more, and a build started
-/// inside it fails on an access error that has no cause left to find.
-/// Bounded, because waiting for ever for something that is not coming
-/// would be worse than the error.
-fn wait_until_free(project: &Path) {
-    for _ in 0..40 {
-        if build::held(project, false).is_none() {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-}
-
 /// Build, and put the new window where the old one was.
 ///
 /// The order matters: the previous process is killed only once the new
 /// binary exists. A failed build leaves what is on screen on screen,
 /// showing the last page that compiled.
-fn restart(project: &Path, carried: &Path, running: &mut Option<Child>) {
-    // The one case where the window on screen has to go first: CEF's
-    // build replaces `libcef.dll` beside the binary, and the window
-    // that is open has it loaded. The build would fail on an access
-    // error for as long as that window lives, so a loop that keeps it
-    // is a loop that never builds again. Said out loud, because the
-    // rule it bends — a failed build leaves the last page that
-    // compiled on screen — is one a developer counts on.
-    if let Some(file) = build::held(project, false)
-        && let Some(child) = running.as_mut()
-    {
-        println!(
-            "rustx: the window has to close first — it holds {}.",
-            file.display()
-        );
-        let _ = child.kill();
-        let _ = child.wait();
-        *running = None;
-        wait_until_free(project);
-    }
-
+fn restart(project: &Path, carried: &Path, reload: &Path, running: &mut Option<Child>) {
     match build::run(false, project) {
         Ok(exe) => {
             // The copy is made before anything is killed, so that a
@@ -235,6 +230,7 @@ fn restart(project: &Path, carried: &Path, running: &mut Option<Child>) {
                 // application a developer built and ran keeps nothing
                 // and reads nothing.
                 .env("RUSTX_CARRIED", carried)
+                .env("RUSTX_RELOAD", reload)
                 .spawn()
             {
                 Ok(child) => *running = Some(child),
