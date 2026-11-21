@@ -72,3 +72,22 @@ the same value once. What costs is what the page draws, not the number of messag
 `task(async { … })` is the explicit form of the `async` block on the previous
 page, and means exactly the same thing. Both forms exist because both read well: one is
 short, the other has a name.
+
+## From a handler
+
+A `task(async move { … })` written inside an event handler starts when the
+handler runs, not when the component renders. The component holds it: it stops
+when the component goes, like one written in the body. Writes inside it go
+through the same handles.
+
+```rust
+<button onClick={move |_| {
+    task(async move {
+        let saved = rustx::secret::store("app", "token", &token);
+        said = if saved.is_ok() { "stored".into() } else { "refused".into() };
+    });
+}}>Remember</button>
+```
+
+(Up to 64 handler tasks are held per component before old finished ones are
+let go.)
