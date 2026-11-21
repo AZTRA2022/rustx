@@ -26,12 +26,25 @@ pub fn folder(name: &str, index: &str) -> PathBuf {
     dir
 }
 
+/// A profile of its own for each probe, unless the test chose one: parallel probes sharing the
+/// default WebView2 profile met 0x800700AA and spent their time budget waiting.
+fn own_profile(root: &Path, extra: &[&str]) -> Vec<String> {
+    if extra.contains(&"--data-dir") {
+        return Vec::new();
+    }
+    vec![
+        "--data-dir".to_string(),
+        root.join("profile-auto").display().to_string(),
+    ]
+}
+
 pub fn probe(root: &Path, extra: &[&str], envs: &[(&str, &Path)]) -> Run {
     let mut command = Command::new(env!("CARGO_BIN_EXE_probe"));
     command
         .arg("--root")
         .arg(root)
         .args(["--seconds", "5"])
+        .args(own_profile(root, extra))
         .args(extra)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

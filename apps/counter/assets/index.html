@@ -81,6 +81,29 @@
         };
         look();
       }
+      // The frameless window's own controls: Maximize changes the size, Close ends the process.
+      if (rustx_scenario() === "chrome") {
+        let left = 300;
+        const by = (label) => document.querySelector('[aria-label="' + label + '"]');
+        const wait = () => {
+          if (by("Maximize")) {
+            rustx_report("width_before", String(window.innerWidth));
+            by("Maximize").click();
+            setTimeout(() => {
+              rustx_report("width_after", String(window.innerWidth));
+              rustx_report("done", "yes");
+              by("Close").click();
+            }, 2500);
+            return;
+          }
+          if (left-- <= 0) {
+            rustx_report("done", "no");
+            return;
+          }
+          rustx_soon(wait);
+        };
+        wait();
+      }
       if (rustx_scenario() === "install") {
         const button = (text) => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === text);
         let left = 600;

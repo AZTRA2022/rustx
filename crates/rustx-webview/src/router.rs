@@ -811,7 +811,7 @@ pub fn error_screen(reason: impl Into<String>) -> Element {
 /// The `style` Next.js writes into its error pages, kept as it is: the body
 /// colours follow `prefers-color-scheme`, and the divider after the status
 /// code is a hairline in either.
-const NEXT_ERROR_STYLE: &str = "body{color:#000;background:#fff;margin:0}    .next-error-h1{border-right:1px solid rgba(0,0,0,.3)}    @media (prefers-color-scheme:dark){body{color:#fff;background:#000}    .next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}";
+const NEXT_ERROR_STYLE: &str = "@layer rustx-base{body{color:var(--rx-fg);background:var(--rx-bg);margin:0}.next-error-h1{border-right:1px solid var(--rx-border)}}";
 
 /// Next.js's default error screen. Inline styles for the layout (the
 /// application most likely to reach this ships no stylesheet at all).
@@ -863,6 +863,44 @@ fn next_error(id: &str, code: Option<&str>, message: &str, reason: Option<String
             at("font-family:Inter,system-ui,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif,                \"Apple Color Emoji\",\"Segoe UI Emoji\";height:100vh;text-align:center;                display:flex;flex-direction:column;align-items:center;justify-content:center"),
         )
         .child(row.build())
+        .child(frameless_marks())
+        .build()
+}
+
+/// A window without the system's frame still has to be movable and closable
+/// on the screens the engine draws: a bar to drag, and the three marks.
+fn frameless_marks() -> Element {
+    if !crate::window::is_frameless() {
+        return Element::Empty;
+    }
+    let mark = |label: &str, glyph: &str, act: fn()| {
+        Element::tag("button")
+            .attribute("aria-label", at(label))
+            .attribute(
+                "style",
+                at("width:40px;height:28px;border:0;background:transparent;color:var(--rx-muted);cursor:pointer;font-size:13px"),
+            )
+            .handler("onClick", rustx_dom::Handler::new(move |_| act()))
+            .child(Element::Text(glyph.to_string()))
+            .build()
+    };
+    Element::tag("div")
+        .attribute(
+            "style",
+            at("position:fixed;top:0;left:0;right:0;height:32px;display:flex;align-items:center"),
+        )
+        .child(
+            Element::tag("div")
+                .attribute("style", at("flex:1;height:32px"))
+                .handler(
+                    "onMouseDown",
+                    rustx_dom::Handler::new(|_| crate::window::drag()),
+                )
+                .build(),
+        )
+        .child(mark("Minimize", "\u{2013}", crate::window::minimize))
+        .child(mark("Maximize", "\u{25A1}", crate::window::toggle_maximize))
+        .child(mark("Close", "\u{2715}", crate::window::shut))
         .build()
 }
 

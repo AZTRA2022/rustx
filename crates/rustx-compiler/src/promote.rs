@@ -1805,10 +1805,14 @@ fn mutations_in(
     let bytes = source.as_bytes();
     let mut found = Vec::new();
 
+    // Clipped to the handler, not filtered by it: a handler written inside `{if … { <b onClick={…}> }}`
+    // sits inside a code span that is larger than the handler, and dropping that span lost its writes.
     let inside: Vec<Span> = in_code
         .iter()
-        .filter(|span| contains(handler, **span))
-        .copied()
+        .filter_map(|span| {
+            let (start, end) = (span.start.max(handler.start), span.end.min(handler.end));
+            (start < end).then_some(Span { start, end })
+        })
         .collect();
     for span in occurrences(source, name, &inside) {
         let after = skip_spaces(bytes, span.end);

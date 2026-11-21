@@ -592,6 +592,20 @@ fn main() {
                     eprintln!("CHILD resized {width}x{height}");
                 }
             });
+            // Its own size before the orders (opened at 400x300) and after them.
+            let born = std::time::Instant::now();
+            let said = std::cell::Cell::new(0_u8);
+            rustx_webview::on_frame(move || {
+                let at = born.elapsed();
+                let (n, size) = (said.get(), rustx_webview::window::state());
+                if n == 0 && at > Duration::from_millis(1500) {
+                    said.set(1);
+                    eprintln!("CHILD size before {}x{}", size.width, size.height);
+                } else if n == 1 && at > Duration::from_millis(6000) {
+                    said.set(2);
+                    eprintln!("CHILD size after {}x{}", size.width, size.height);
+                }
+            });
         } else {
             let started = std::time::Instant::now();
             let opened = std::cell::RefCell::new(None);
@@ -651,6 +665,8 @@ fn main() {
         });
     }
 
+    // What every window of an application starts with (App::run adds it there).
+    config.scripts.push(rustx_webview::base::script());
     let is_second_window = rustx_webview::window::page_asked_for().is_some();
     let hooks = Hooks {
         // The loop ends when a timer says so, through a proxy that may

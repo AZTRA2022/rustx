@@ -238,14 +238,54 @@ fn a_second_window_is_ordered_over_the_pipe_from_the_first() {
         "{}",
         run.stderr
     );
-    // The child was opened at 400x300 and asked for 520x410: it resized (physical pixels, so
-    // only the fact is asserted).
-    let sizes = run.stderr.matches("CHILD resized").count();
-    // Without a window manager (Xvfb) no resize event comes back.
-    assert!(
-        cfg!(target_os = "linux") || sizes >= 1,
-        "the second window never resized: {}",
+    // The second window opened at 400x300 and the order asked for 520x410: its own size, read
+    // in its own process, changed.
+    let size = |when: &str| {
         run.stderr
+            .lines()
+            .find_map(|line| line.strip_prefix(&format!("CHILD size {when} ")))
+            .map(str::to_string)
+    };
+    let (before, after) = (size("before"), size("after"));
+    assert!(
+        before.is_some() && after.is_some() && before != after,
+        "the second window kept its size {before:?} -> {after:?}: {}",
+        run.stderr
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn the_default_font_never_overrides_the_applications_own() {
+    // The application's own rule comes first in the page and the framework's is put in
+    // after: the application still wins, whatever the order. Inter is the default elsewhere.
+    let root = folder(
+        "ownfont",
+        "<!doctype html><html><head><style>html.own{font-family:Georgia}</style></head>
+         <body><p id=a>x</p><script>
+           document.documentElement.className = 'own';
+           setTimeout(() => {
+             const own = getComputedStyle(document.documentElement).fontFamily;
+             document.documentElement.className = '';
+             const dflt = getComputedStyle(document.documentElement).fontFamily;
+             window.ipc.postMessage('own=' + own);
+             window.ipc.postMessage('default=' + dflt);
+           }, 800);
+         </script></body></html>",
+    );
+    let run = probe(&root, &["--seconds", "5"], &[]);
+    assert!(
+        run.messages.iter().any(|m| m == "own=Georgia"),
+        "{:?} {}",
+        run.messages,
+        run.stderr
+    );
+    assert!(
+        run.messages
+            .iter()
+            .any(|m| m.starts_with("default=") && m.contains("Inter")),
+        "{:?}",
+        run.messages
     );
     let _ = std::fs::remove_dir_all(root);
 }

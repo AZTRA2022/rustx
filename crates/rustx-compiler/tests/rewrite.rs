@@ -1263,3 +1263,47 @@ fn a_task_in_a_handler_that_reads_a_local_first_is_still_a_task() {
     assert!(!rust.contains("task ("), "the call survived: {rust}");
     assert!(rust.contains("__bag"), "{rust}");
 }
+
+#[test]
+fn a_write_before_a_task_in_an_else_if_branch_is_a_write() {
+    // The settings screen hit this: `busy = true;` right before `task(async move …)` in an
+    // `else if` of a click handler came out as `busy.get() = true`.
+    let source = r#"let mut news: String = String::new();
+let mut found: bool = false;
+let mut busy: bool = false;
+let mut percent: u32 = 0;
+let mut updated: bool = false;
+
+fn Page() -> Element {
+    return <main>{if updated {
+    <button disabled={busy} onClick={move |_| {
+        if updated {
+            let _ = rustx::setup::restart();
+        } else if found {
+            busy = true;
+            task(async move {
+                match rustx::setup::install_update(|done| { percent = done as u32; news = format!("{}%", percent); }) {
+                    Ok(()) => { updated = true; news = "ok".to_string(); }
+                    Err(why) => news = why,
+                }
+                busy = false;
+            });
+        } else {
+            busy = true;
+            news = "Checking".to_string();
+            task(async move {
+                busy = false;
+            });
+        }
+    }}>x</button>
+    } else {
+        <div></div>
+    }}</main>;
+}
+"#;
+    let rust = rewrite_one(source).replace(" . ", ".").replace(" (", "(");
+    assert!(
+        !rust.contains("busy.get() = true"),
+        "a write became a read:\n{rust}"
+    );
+}

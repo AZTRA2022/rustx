@@ -301,11 +301,13 @@ jobs:
       # Install, and the installed copy starts, then removes itself.
       - name: The app installs itself
         shell: bash
-        timeout-minutes: 30
+        timeout-minutes: 12
         run: |
           set -eu
           # Git Bash turns a value that looks like /path into a Windows path.
           export MSYS_NO_PATHCONV=1
+          # Git Bash's kill ends only the proxy: the WebView2 children keep the profile for a minute.
+          stop_app() { if [ "${{ runner.os }}" = "Windows" ]; then taskkill /F /T /PID "$(cat /proc/$1/winpid 2>/dev/null || echo $1)" >/dev/null 2>&1 || true; else kill $1 2>/dev/null || true; fi; }
           home="$RUNNER_TEMP/selfinstall"
           mkdir -p "$home/local" "$home/roam" "$home/home"
           report="$home/report.txt"
@@ -332,7 +334,7 @@ jobs:
           $runner "$exe" --scenario=install --report="$report" &
           pid=$!
           for i in $(seq 1 90); do grep -q "done=" "$report" 2>/dev/null && break; sleep 1; done
-          kill $pid || true
+          stop_app $pid
           cat "$report"
           grep -q "done=yes" "$report"
           # The licence step showed the LICENSE carried in the single exe.
@@ -344,16 +346,32 @@ jobs:
           pid=$!
           sleep 8
           kill -0 $pid
-          kill $pid || true
+          stop_app $pid
           sleep 2
+          # The frameless window's own controls: Maximize is clicked, Close is clicked, and the
+          # process has to end by itself. (Dragging is a hand test.) Xvfb has no window manager,
+          # so the width is only asserted where there is one.
+          rm -f "$home/chrome.txt"
+          $runner "$installed" --scenario=chrome --report="$home/chrome.txt" &
+          pid=$!
+          for i in $(seq 1 60); do grep -q "done=" "$home/chrome.txt" 2>/dev/null && break; sleep 1; done
+          cat "$home/chrome.txt"
+          grep -q "done=yes" "$home/chrome.txt"
+          for i in $(seq 1 30); do kill -0 $pid 2>/dev/null || break; sleep 1; done
+          if kill -0 $pid 2>/dev/null; then echo "Close did not end the process"; kill $pid; exit 1; fi
+          if [ "${{ runner.os }}" != "Linux" ]; then
+            before=$(sed -n 's/.*width_before=//p' "$home/chrome.txt")
+            after=$(sed -n 's/.*width_after=//p' "$home/chrome.txt")
+            test "$after" -gt "$before"
+          fi
           # The OS-facing screens of system/ open from the installed copy.
           for screen in about license permissions settings; do
             rm -f "$home/screen.txt"
             RUSTX_START="/__system/$screen" $runner "$installed" --scenario=screen --report="$home/screen.txt" &
             pid=$!
             for i in $(seq 1 60); do grep -q "done=" "$home/screen.txt" 2>/dev/null && break; sleep 1; done
-            kill $pid || true
-            sleep 6
+            stop_app $pid
+            sleep 1
             cat "$home/screen.txt"
             grep -q "done=yes" "$home/screen.txt"
           done
@@ -380,8 +398,8 @@ jobs:
               for i in $(seq 1 60); do grep -q "done=" "$home/screen.txt" 2>/dev/null && break; sleep 1; done
               sleep 2
               shoot "$shots/$screen.png" || echo "no picture for $screen"
-              kill $pid || true
-              sleep 6
+              stop_app $pid
+              sleep 1
             fi
             grep -q "done=yes" "$home/screen.txt"
           done
@@ -396,7 +414,7 @@ jobs:
           RUSTX_UPDATE_API="http://127.0.0.1:8765" RUSTX_START="/__system/settings" $runner "$installed" --scenario=update --report="$home/screen.txt" &
           pid=$!
           for i in $(seq 1 60); do grep -q "done=" "$home/screen.txt" 2>/dev/null && break; sleep 1; done
-          kill $pid || true
+          stop_app $pid
           sleep 4
           cat "$home/screen.txt"
           grep -q "update=found" "$home/screen.txt"
@@ -404,6 +422,33 @@ jobs:
           "$installed" --uninstall --silent
           for i in $(seq 1 30); do [ -e "$installed" ] || break; sleep 1; done
           test ! -e "$installed"
+
+      # A Windows machine without the WebView2 runtime: the program offers it (here accepted
+      # automatically), downloads Microsoft's bootstrapper for real, starts again once, and ends
+      # with the runtime error instead of looping. The runner already has the runtime, so the
+      # empty folder below stands for its absence.
+      - name: A missing web view runtime is offered once
+        if: runner.os == 'Windows'
+        shell: bash
+        timeout-minutes: 8
+        run: |
+          set -u
+          export MSYS_NO_PATHCONV=1
+          exe=$(ls dist/counter-*-windows/counter.exe)
+          mkdir -p "$RUNNER_TEMP/no-runtime"
+          export WEBVIEW2_BROWSER_EXECUTABLE_FOLDER="$(cygpath -w "$RUNNER_TEMP/no-runtime")"
+          export RUSTX_BOOTSTRAP=auto
+          set +e
+          timeout 240 "$exe" 2> "$RUNNER_TEMP/bootstrap.err"
+          code=$?
+          set -e
+          sleep 20
+          cat "$RUNNER_TEMP/bootstrap.err"
+          test $code -ne 124
+          test "$(grep -c 'running the web view runtime installer' "$RUNNER_TEMP/bootstrap.err")" -ge 1
+          grep -q "WebView2 Runtime" "$RUNNER_TEMP/bootstrap.err"
+          # The child that started again does not run the installer a second time.
+          test "$(grep -c 'running the web view runtime installer' "$RUNNER_TEMP/bootstrap.err")" -le 1
 
       - uses: actions/upload-artifact@v4
         if: always()

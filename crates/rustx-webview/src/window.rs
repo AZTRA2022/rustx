@@ -156,6 +156,19 @@ fn children() -> &'static std::thread::LocalKey<
     &CHILDREN
 }
 
+static FRAMELESS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Said at start-up by the facade: the first window has no system frame.
+pub fn set_frameless(frameless: bool) {
+    FRAMELESS.store(frameless, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Does the window have no system frame, so that a page must give back what the
+/// frame did (a bar to drag, minimize, maximize, close)?
+pub fn is_frameless() -> bool {
+    FRAMELESS.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 /// A route as the router writes it, whatever was typed.
 fn route(asked: &str) -> String {
     let trimmed = asked.trim();

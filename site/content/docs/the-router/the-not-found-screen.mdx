@@ -6,7 +6,7 @@ description: "not_found, start, and what Config says about the router."
 The defaults are Next.js's own pages, with the same markup, colours (black on white, white on black
 by the system's preference) and system font stack: `404 | This page could not be found.`, and for a page
 that fell over `Application error: an exception has occurred…` with what the panic said under it.
-Every window starts with Inter (the variable latin subset, SIL OFL, carried in the binary) as the
+Every window starts with Inter (variable; latin, latin-ext, cyrillic, greek and vietnamese subsets, SIL OFL, carried in the binary) as the
 font of `html`, and with the colours as CSS variables: `--rx-bg`, `--rx-fg`, `--rx-muted`, `--rx-border`,
 `--rx-accent`, `--rx-danger`, black on white or white on black by the system's preference. The seven
 `system/` screens use them, so a page of your own that does too looks the same. A page that names its own
@@ -90,3 +90,8 @@ A second window, however, opens on the route it is given —
 This is the default screen of `not_found`. When it appears without having been wanted: check the path passed to `navigate`, the name of the folder in
 `app/`, and the `.start(…)` of `Config`.
 </Callout>
+
+The base rules are in `@layer rustx-base`, so any rule your application writes, in any order, wins over
+them. `RUSTX_THEME=light` or `dark` forces a theme to look at it. A frameless window gets a bar to drag
+and the three marks on every screen the framework draws (`rustx::window::is_frameless()` tells a page of
+your own whether to draw them).

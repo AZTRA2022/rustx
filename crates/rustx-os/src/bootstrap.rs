@@ -45,6 +45,7 @@ pub fn run_installer(url: &str, app: &str) -> Result<i32, OsError> {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000);
     }
+    eprintln!("rustx: running the web view runtime installer");
     let status = command
         .status()
         .map_err(|e| OsError::Platform(format!("the runtime installer did not start ({e})")))?;

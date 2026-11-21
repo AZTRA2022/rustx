@@ -930,6 +930,9 @@ impl App {
         // Declared before the sub-processes leave, because the render
         // process answers `rustx_about()` and it never comes back here.
         crate::rustx_engine::window::plan(config.plan.clone());
+        crate::rustx_engine::window::set_frameless(
+            config.dressing == rustx_os::window::Dressing::None,
+        );
         let mut about = config.about;
         // What Config did not say, Cargo.toml did.
         PACKAGE.with(|held| {
@@ -976,8 +979,10 @@ impl App {
         let outcome = self.inner.run();
         // A machine without the web view runtime: say so natively, install it
         // when allowed, and start again.
+        // Once only: a child started after an install that did not help must not offer again.
         if let Err(failure) = &outcome
             && rustx_os::bootstrap::is_missing_runtime(&failure.to_string())
+            && std::env::var_os("RUSTX_BOOTSTRAPPED").is_none()
         {
             let name = crate::rustx_engine::window::about().name;
             match rustx_os::bootstrap::offer_runtime(&name) {
@@ -985,6 +990,7 @@ impl App {
                     if let Ok(exe) = std::env::current_exe() {
                         let _ = std::process::Command::new(exe)
                             .args(std::env::args().skip(1))
+                            .env("RUSTX_BOOTSTRAPPED", "1")
                             .spawn();
                     }
                     return Ok(());
