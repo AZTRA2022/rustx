@@ -108,6 +108,35 @@ impl Window {
         &self.name
     }
 
+    /// Send an order to the window over the pipe that links the two processes:
+    /// `{"order":"title","value":"…"}`, `size` (`[w,h]`), `position` (`[x,y]`),
+    /// `center`, `focus`, `show`, `hide`, `maximize`. False when it is gone.
+    pub fn order(&self, order: serde_json::Value) -> bool {
+        use std::io::Write;
+        children().with(|held| {
+            let mut held = held.borrow_mut();
+            let Some(child) = held.get_mut(&self.name) else {
+                return false;
+            };
+            let Some(pipe) = child.stdin.as_mut() else {
+                return false;
+            };
+            writeln!(pipe, "{order}").and_then(|_| pipe.flush()).is_ok()
+        })
+    }
+
+    pub fn set_title(&self, title: &str) -> bool {
+        self.order(serde_json::json!({"order": "title", "value": title}))
+    }
+
+    pub fn set_size(&self, width: u32, height: u32) -> bool {
+        self.order(serde_json::json!({"order": "size", "value": [width, height]}))
+    }
+
+    pub fn set_position(&self, x: i32, y: i32) -> bool {
+        self.order(serde_json::json!({"order": "position", "value": [x, y]}))
+    }
+
     /// Close the window. The process behind it ends when its pipe does.
     pub fn close(&self) {
         children().with(|held| held.borrow_mut().remove(&self.name));
@@ -172,6 +201,33 @@ pub fn open(what: What) -> Result<Window, crate::error::EngineError> {
         })?;
     children().with(|held| held.borrow_mut().insert(name.clone(), child));
     Ok(Window { name })
+}
+
+/// What a second window does with one line from its parent.
+pub fn obey(line: &str) {
+    let Ok(order) = serde_json::from_str::<serde_json::Value>(line) else {
+        return;
+    };
+    let pair = |v: &serde_json::Value| Some((v[0].as_i64()?, v[1].as_i64()?));
+    match order["order"].as_str() {
+        Some("title") => set_title(order["value"].as_str().unwrap_or_default()),
+        Some("size") => {
+            if let Some((w, h)) = pair(&order["value"]) {
+                set_size(w.max(1) as u32, h.max(1) as u32);
+            }
+        }
+        Some("position") => {
+            if let Some((x, y)) = pair(&order["value"]) {
+                set_position(x as i32, y as i32);
+            }
+        }
+        Some("center") => center(),
+        Some("focus") => focus(),
+        Some("show") => show(),
+        Some("hide") => hide(),
+        Some("maximize") => with(|w| w.set_maximized(true)),
+        _ => {}
+    }
 }
 
 /// What this process was told to be, when it is a second window.

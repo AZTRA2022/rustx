@@ -221,3 +221,19 @@ fn a_title_the_page_changes_becomes_the_window_title() {
     );
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn a_second_window_is_ordered_over_the_pipe_from_the_first() {
+    let root = folder("twowindows", "<!doctype html><p>x</p>");
+    let run = probe(&root, &["--scenario", "twowindows", "--seconds", "9"], &[]);
+    assert!(run.stderr.contains("PARENT sent=true"), "{}", run.stderr);
+    // The child was opened at 400x300 and asked for 520x410: it resized (physical pixels, so
+    // only the fact is asserted).
+    let sizes = run.stderr.matches("CHILD resized").count();
+    assert!(
+        sizes >= 1,
+        "the second window never resized: {}",
+        run.stderr
+    );
+    let _ = std::fs::remove_dir_all(root);
+}

@@ -463,6 +463,8 @@ fn main() {
             "--data-dir" => data_dir = Some(PathBuf::from(value())),
             "--scenario" => scenario = Some(value()),
             "--files" => rustx_webview::files::allow(value()),
+            // A second window is this program again, told what to be.
+            other if other.starts_with("--rustx-window=") => {}
             other => {
                 eprintln!("probe: unknown argument `{other}`");
                 std::process::exit(2);
@@ -582,6 +584,33 @@ fn main() {
             Ok(Value::Null)
         });
         config.scripts = vec![rustx_webview::natives_script()];
+    } else if scenario.as_deref() == Some("twowindows") {
+        if rustx_webview::window::page_asked_for().is_some() {
+            // The second window: it says what the first one ordered.
+            rustx_webview::window::on_event(|event| {
+                if let rustx_webview::window::Event::Resized { width, height } = event {
+                    eprintln!("CHILD resized {width}x{height}");
+                }
+            });
+        } else {
+            let started = std::time::Instant::now();
+            let opened = std::cell::RefCell::new(None);
+            let ordered = std::cell::Cell::new(false);
+            rustx_webview::on_frame(move || {
+                if opened.borrow().is_none() && started.elapsed() > Duration::from_millis(500) {
+                    let what = rustx_webview::window::What::new("child").size(400, 300);
+                    *opened.borrow_mut() = rustx_webview::window::open(what).ok();
+                }
+                if !ordered.get()
+                    && started.elapsed() > Duration::from_secs(3)
+                    && let Some(child) = opened.borrow().as_ref()
+                {
+                    ordered.set(true);
+                    let sent = child.set_size(520, 410) && child.set_title("Retitled");
+                    eprintln!("PARENT sent={sent}");
+                }
+            });
+        }
     } else if scenario.as_deref() == Some("engine") {
         engine();
     } else if let Some(name) = scenario {
@@ -622,11 +651,21 @@ fn main() {
         });
     }
 
+    let is_second_window = rustx_webview::window::page_asked_for().is_some();
     let hooks = Hooks {
         // The loop ends when a timer says so, through a proxy that may
         // cross threads.
         on_start: Box::new(move |control| {
             let control = control.clone();
+            if is_second_window {
+                // The first window's orders arrive on this pipe, one line each.
+                std::thread::spawn(|| {
+                    use std::io::BufRead;
+                    for line in std::io::stdin().lock().lines().map_while(Result::ok) {
+                        rustx_webview::window::obey(&line);
+                    }
+                });
+            }
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_secs(seconds));
                 report("done", "1");

@@ -89,7 +89,11 @@ impl App {
             hooks.on_start = Box::new(|control| {
                 let control = control.clone();
                 std::thread::spawn(move || {
-                    let _ = std::io::copy(&mut std::io::stdin(), &mut std::io::sink());
+                    // Orders from the first window, one JSON line each; the pipe closing ends this one.
+                    use std::io::BufRead;
+                    for line in std::io::stdin().lock().lines().map_while(Result::ok) {
+                        crate::window::obey(&line);
+                    }
                     control.exit();
                 });
             });
