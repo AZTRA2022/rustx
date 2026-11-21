@@ -579,6 +579,44 @@ pub fn screen() -> Element {
     draw(table, screens, &path)
 }
 
+thread_local! {
+    static REDIRECTS: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// A path that always shows another screen (`/old` shows `/new`), like the
+/// `redirects` of a Next.js config. Declared once, at start-up.
+pub fn redirect(from: &str, to: &str) {
+    REDIRECTS.with(|list| list.borrow_mut().push((from.to_string(), to.to_string())));
+}
+
+/// The path after the redirects, followed up to eight times so that a loop ends.
+fn redirected(path: &str) -> String {
+    let mut path = path.to_string();
+    for _ in 0..8 {
+        let (bare, query) = match path.split_once('?') {
+            Some((bare, query)) => (bare.to_string(), Some(query.to_string())),
+            None => (path.clone(), None),
+        };
+        let bare = if bare.len() > 1 {
+            bare.trim_end_matches('/').to_string()
+        } else {
+            bare
+        };
+        let next = REDIRECTS.with(|list| {
+            list.borrow()
+                .iter()
+                .find(|(from, _)| *from == bare)
+                .map(|(_, to)| to.clone())
+        });
+        let Some(next) = next else { break };
+        path = match query {
+            Some(query) => format!("{next}?{query}"),
+            None => next,
+        };
+    }
+    path
+}
+
 /// Which screen a path names, drawn.
 ///
 /// Split out of [`screen`] so that it can be exercised without a
@@ -586,7 +624,8 @@ pub fn screen() -> Element {
 /// router was mounted into, and everything below it is the part that
 /// has to be right.
 pub(crate) fn draw(table: &[Route], screens: Screens, path: &str) -> Element {
-    match match_route(table, path) {
+    let path = redirected(path);
+    match match_route(table, &path) {
         Some((route, params)) => wrap(route, &params, screens),
         // A path nobody declared is a screen, not a blank window.
         None => rustx_dom::state::with_key("not-found", || {
@@ -824,6 +863,19 @@ fn caught(drawing: impl FnOnce() -> Element) -> Result<Element, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_redirect_shows_another_screen_keeps_the_query_and_ends_on_a_loop() {
+        redirect("/old", "/new");
+        redirect("/a", "/b");
+        redirect("/b", "/a");
+        assert_eq!(redirected("/old"), "/new");
+        assert_eq!(redirected("/old/?x=1"), "/new?x=1");
+        assert_eq!(redirected("/other"), "/other");
+        // A loop stops after eight hops instead of hanging.
+        let end = redirected("/a");
+        assert!(end == "/a" || end == "/b");
+    }
 
     use rustx_dom::state::{InstanceId, Scope};
 

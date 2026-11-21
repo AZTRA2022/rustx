@@ -498,6 +498,7 @@ pub struct Config {
     portable: bool,
     permissions: Vec<String>,
     updates: Option<String>,
+    redirects: Vec<(String, String)>,
 }
 
 impl Config {
@@ -526,6 +527,7 @@ impl Config {
             portable: false,
             permissions: Vec::new(),
             updates: None,
+            redirects: Vec::new(),
         }
     }
 
@@ -540,6 +542,12 @@ impl Config {
     /// pages of `system/` when it is run outside its install location.
     pub fn portable(mut self) -> Self {
         self.portable = true;
+        self
+    }
+
+    /// `from` always shows the screen at `to` (the `redirects` of a Next.js config).
+    pub fn redirect(mut self, from: &str, to: &str) -> Self {
+        self.redirects.push((from.to_string(), to.to_string()));
         self
     }
 
@@ -772,6 +780,9 @@ impl App {
         // pages first; `--install --silent` and `--uninstall --silent` need no window.
         crate::setup::declare_permissions(config.permissions.clone());
         crate::setup::declare_updates(config.updates.clone());
+        for (from, to) in &config.redirects {
+            router::redirect(from, to);
+        }
         // No route table (`#[rustx::main(pages)]`) means no system pages to show.
         let mode = crate::setup::detect(config.portable || routes.is_none());
         if let Some(code) = crate::setup::silent() {
