@@ -15,3 +15,8 @@ repository = "https://github.com/AZTRA2022/rustx"
 homepage = "https://github.com/AZTRA2022/rustx"
 readme = "README.md"
 authors = ["aztra"]
+
+# Debug info is most of what a debug build writes and links. Line tables keep
+# backtraces and breakpoints by line, and make `target` and linking much smaller.
+[profile.dev]
+debug = "line-tables-only"
