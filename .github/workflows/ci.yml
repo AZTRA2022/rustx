@@ -9,10 +9,11 @@
 # written and measured on, and the only one on which an application has
 # ever been run. The gates run there in full.
 #
-# **The macOS and Linux jobs compile what they can, and no more.** The
-# framework draws with CEF, which the `cef` crate fetches and links on
-# first build; the crates that do not touch it are compiled on all three
-# platforms, and that is deliberately the whole claim. `rustx-os`
+# **The macOS and Linux jobs compile, and run what a runner can.** The
+# framework draws with the system's webview (WebView2, WKWebView,
+# WebKitGTK through wry); a Linux runner has no desktop, so its page
+# tests run under Xvfb. Whether that is enough is what the first runs
+# will say -- these jobs were written on Windows and not yet run. `rustx-os`
 # matters most here: `lib.rs` compile-checks the other platforms'
 # modules through a `mod *_also_compiles` trick so a Windows build
 # catches their syntax errors, but a trick is not a target. These jobs
@@ -68,7 +69,6 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          # CEF is large and its build is the slowest thing here.
           key: windows-gates
 
       - uses: actions/setup-node@v4
@@ -133,8 +133,22 @@ jobs:
       # by proxy, built by the compiler that actually targets it. If
       # `rustx-os` is going to claim macOS and Linux support one day,
       # this is the job that has to be green first.
+      # wry's Linux backend: WebKitGTK 4.1 and what tao draws with.
+      - name: What the system webview needs (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends             libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libxdo-dev xvfb
+
       - name: rustx-os, for this platform
         run: cargo check -p rustx-os --all-targets
+
+      - name: The webview host, for this platform
+        run: cargo check -p rustx-webview --all-targets
+
+      - name: The webview host, its tests (Linux, under Xvfb)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a cargo test -p rustx-webview
 
       - name: rustx-os, its own tests
         run: cargo test -p rustx-os
@@ -162,8 +176,8 @@ jobs:
   # installer that platform's users double-click.
   #
   # It is a job of its own rather than a step of the gates because it
-  # is the only one that needs CEF to build away from Windows, which
-  # has never been done -- and a red job here says exactly that,
+  # builds away from Windows with the system webview, which has not
+  # been run on a runner yet -- and a red job here says exactly that,
   # instead of hiding inside a longer one.
   installers:
     name: it ships (${{ matrix.os }})
@@ -182,34 +196,13 @@ jobs:
         with:
           key: installers-${{ matrix.os }}
 
-      # Chromium links against these on a desktop Linux, and a runner
-      # is not a desktop. The same list the `.deb` declares as its
-      # `Depends`, which is the point: if this step is wrong, the
-      # package's dependencies are wrong too.
-      - name: What Chromium links against (Linux)
+      # The webview the `.deb` depends on (libwebkit2gtk-4.1-0 comes with
+      # the dev package), and `desktop-file-validate` for what it installs.
+      - name: What the system webview needs (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libgtk-3-0 libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
-            libcups2 libdrm2 libgbm1 libasound2t64 libxkbcommon0 \
-            libxcomposite1 libxdamage1 libxrandr2 libxfixes3 libxext6 \
-            libpango-1.0-0 libcairo2
-          # `desktop-file-validate`, which this job runs on what the
-          # `.deb` installed.
-          sudo apt-get install -y --no-install-recommends desktop-file-utils
-
-      # The tool that turns the generated script into a setup `.exe`.
-      # Without it `rustx package` writes the script and says so, which
-      # is correct behaviour and not what this job is here to prove.
-      - name: Inno Setup (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          choco install innosetup --no-progress -y
-          # `rustx package` looks in Program Files and in the per-user
-          # Programs folder; chocolatey installs machine-wide.
-          Get-ChildItem "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          sudo apt-get install -y --no-install-recommends             libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libxdo-dev             desktop-file-utils
 
       - name: Package the example application
         shell: bash
@@ -227,6 +220,11 @@ jobs:
           case "${{ runner.os }}" in
           Windows)
             ls dist/*-setup.exe
+            # The setup extracts itself: install it silently, check the
+            # application and the uninstaller are there, remove it.
+            ./dist/*-setup.exe /S
+            test -f "$LOCALAPPDATA/Programs/Counter/counter.exe"
+            test -f "$LOCALAPPDATA/Programs/Counter/uninstall.exe"
             ;;
           Linux)
             ls dist/*.deb
@@ -258,7 +256,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: installer-${{ matrix.os }}
-          # The folder is 400 MB and the archive is already in it; only
+          # The folder is in the archive already; only
           # what a user would download goes up.
           path: |
             dist/*-setup.exe
