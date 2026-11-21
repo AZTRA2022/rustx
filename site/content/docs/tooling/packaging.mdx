@@ -99,7 +99,7 @@ what the updater downloads.
 
 | | |
 |---|---|
-| **Windows** | a setup `.exe`. An Inno Setup script is written beside the folder, and `ISCC.exe` is run when [Inno Setup](https://jrsoftware.org/isdl.php) is installed — looked for in `Program Files` and in `%LOCALAPPDATA%\Programs`, which is where a per-user `winget install JRSoftware.InnoSetup` puts it. The result installs per user and needs no administrator rights, with a Start-menu group, an optional desktop icon and an uninstaller |
+| **Windows** | a setup `.exe` that extracts itself: `rustx-setup.exe` (installed beside `rustx`) with the folder appended, about 1.3 MB for a small app. No tool to install. It installs per user under `%LOCALAPPDATA%\Programs`, with a Start-menu shortcut and an entry in Apps & features that uninstalls it; `/S` installs without asking. It shows a confirmation and a finish box, not licence or wizard pages: set `RUSTX_INSTALLER=inno` to write an Inno Setup script and run `ISCC.exe` instead when you need those pages |
 | **Linux** | a `.deb`, written without any tool at all — see below. It installs under `/opt/<name>`, links `/usr/bin/<name>`, puts the icon in the hicolor theme and the licence in `/usr/share/doc`. An `install.sh` and a matching `uninstall.sh` go in the folder for everywhere else |
 | **macOS** | the package *is* a `.app` bundle — `Info.plist` and the binary with its assets under `Contents/MacOS`. `pkgbuild` turns it into a `.pkg` that installs into `/Applications`, and `hdiutil` into a `.dmg` beside it |
 
@@ -149,7 +149,7 @@ that page.
 has. A bare name gets an obviously fake address rather than a build
 that fails.
 
-None of this can fail the package. With no Inno Setup you still get the
+None of this can fail the package. With the Inno route and no Inno Setup you still get the
 folder, the archive, and a sentence naming the script and what reads it
 — which is also how a build machine does it: keep the script, run
 `ISCC` there. The `installers` job of `.github/workflows/ci.yml` does
@@ -254,7 +254,7 @@ developer.microsoft.com/microsoft-edge/webview2. On Linux the
 - **Notarisation and stapling on macOS**, as above.
 - **An `.rpm` or an AppImage.** The `.deb` is written directly because
   its format allows it; these two do not.
-- **An MSI.** Inno Setup's `.exe` is what this writes; an MSI is a
+- **An MSI.** A self-extracting `.exe` is what this writes; an MSI is a
   different tool and a different format.
 - **Converting an icon between formats.** Give it `icon.ico`,
   `icon.png` and `icon.icns`; rustx will not turn one into another, and
