@@ -47,7 +47,10 @@ fn counter() -> Element {
         .child(
             Element::tag("button")
                 .attribute("id", attr("id", "inc").1)
-                .handler("onClick", Handler::new(move |_| clicked.update(|n| *n += 1)))
+                .handler(
+                    "onClick",
+                    Handler::new(move |_| clicked.update(|n| *n += 1)),
+                )
                 .child(Element::Text(clicks.get().to_string()))
                 .build(),
         )
@@ -101,20 +104,43 @@ fn events() -> Element {
                 &format!("event_{kind}"),
                 &format!(
                     "x={} y={} local={},{} size={}x{} button={} wheel={},{} current={} target={} key={} value={}",
-                    event.x, event.y, event.local_x, event.local_y, event.width, event.height, event.button,
-                    event.delta_x, event.delta_y, event.current_id, event.id, event.key, event.value
+                    event.x,
+                    event.y,
+                    event.local_x,
+                    event.local_y,
+                    event.width,
+                    event.height,
+                    event.button,
+                    event.delta_x,
+                    event.delta_y,
+                    event.current_id,
+                    event.id,
+                    event.key,
+                    event.value
                 ),
             )
         })
     };
     Element::tag("div")
         .attribute("id", attr("id", "box").1)
-        .attribute("style", attr("style", "position:absolute;left:100px;top:50px;width:200px;height:80px").1)
+        .attribute(
+            "style",
+            attr(
+                "style",
+                "position:absolute;left:100px;top:50px;width:200px;height:80px",
+            )
+            .1,
+        )
         .handler("onMouseDown", said("mousedown"))
         .handler("onWheel", said("wheel"))
         .handler("onContextMenu", said("contextmenu"))
         .handler("onKeyDown", said("keydown"))
-        .child(Element::tag("span").attribute("id", attr("id", "inner").1).child(Element::Text("inner".to_string())).build())
+        .child(
+            Element::tag("span")
+                .attribute("id", attr("id", "inner").1)
+                .child(Element::Text("inner".to_string()))
+                .build(),
+        )
         .build()
 }
 
@@ -127,7 +153,12 @@ fn fields() -> Element {
     let typed = number.clone();
     let range: State<String> = cell(slot!(), || "150".to_string());
     let dragged = range.clone();
-    let option = |name: &str| Element::tag("option").attribute("value", attr("value", name).1).child(Element::Text(name.to_string())).build();
+    let option = |name: &str| {
+        Element::tag("option")
+            .attribute("value", attr("value", name).1)
+            .child(Element::Text(name.to_string()))
+            .build()
+    };
     let on = |state: State<String>, kind: &'static str| {
         Handler::new(move |event| {
             report(&format!("changed_{kind}"), &event.value);
@@ -163,9 +194,26 @@ fn fields() -> Element {
                 .handler("onInput", on(typed, "num"))
                 .build(),
         )
-        .child(Element::tag("input").attribute("id", attr("id", "chk").1).attribute("type", attr("type", "checkbox").1).attribute("checked", AttributeValue::Flag(true)).build())
-        .child(Element::tag("textarea").attribute("id", attr("id", "ta").1).attribute("value", attr("value", "one\r\ntwo").1).build())
-        .child(Element::tag("input").attribute("id", attr("id", "col").1).attribute("type", attr("type", "color").1).attribute("value", attr("value", "#ff8800").1).build())
+        .child(
+            Element::tag("input")
+                .attribute("id", attr("id", "chk").1)
+                .attribute("type", attr("type", "checkbox").1)
+                .attribute("checked", AttributeValue::Flag(true))
+                .build(),
+        )
+        .child(
+            Element::tag("textarea")
+                .attribute("id", attr("id", "ta").1)
+                .attribute("value", attr("value", "one\r\ntwo").1)
+                .build(),
+        )
+        .child(
+            Element::tag("input")
+                .attribute("id", attr("id", "col").1)
+                .attribute("type", attr("type", "color").1)
+                .attribute("value", attr("value", "#ff8800").1)
+                .build(),
+        )
         .build()
 }
 
@@ -173,11 +221,19 @@ fn fields() -> Element {
 /// path in it must not become readable by the page.
 fn texts() -> Element {
     let path = std::env::var("PROBE_SECRET").unwrap_or_default();
-    let address = format!("file:///{}", path.replace('\\', "/").trim_start_matches('/'));
+    let address = format!(
+        "file:///{}",
+        path.replace('\\', "/").trim_start_matches('/')
+    );
     Element::tag("div")
         .attribute("title", attr("title", &address).1)
         .attribute("data-note", attr("data-note", &address).1)
-        .child(Element::tag("input").attribute("id", attr("id", "typed").1).attribute("value", attr("value", &address).1).build())
+        .child(
+            Element::tag("input")
+                .attribute("id", attr("id", "typed").1)
+                .attribute("value", attr("value", &address).1)
+                .build(),
+        )
         .child(Element::Text(address))
         .build()
 }
@@ -196,7 +252,9 @@ impl Drop for Owned {
 
 fn owner() -> Element {
     let _held: State<Option<std::rc::Rc<Owned>>> = cell(slot!(), || Some(std::rc::Rc::new(Owned)));
-    Element::tag("div").attribute("id", attr("id", "owner").1).build()
+    Element::tag("div")
+        .attribute("id", attr("id", "owner").1)
+        .build()
 }
 
 /// The old engine's parity checks that need no page: a thousand rows with one
@@ -237,7 +295,10 @@ fn engine() {
     let counter = || {
         let count: State<u64> = cell(slot!(), || 0);
         COUNT.with(|held| *held.borrow_mut() = Some(count.clone()));
-        Element::tag("span").attribute("id", attr("id", "n").1).child(Element::Text(count.get().to_string())).build()
+        Element::tag("span")
+            .attribute("id", attr("id", "n").1)
+            .child(Element::Text(count.get().to_string()))
+            .build()
     };
     let owned = || {
         let _guard: State<Option<Rc<Guard>>> = cell(slot!(), || Some(Rc::new(Guard)));
@@ -253,12 +314,20 @@ fn engine() {
             0 => {
                 let started = std::time::Instant::now();
                 mount_app(heavy, "app").expect("mounts");
-                report("engine_first_render_ms", &started.elapsed().as_millis().to_string());
+                report(
+                    "engine_first_render_ms",
+                    &started.elapsed().as_millis().to_string(),
+                );
                 step.set(1);
             }
             1 => {
                 // One row of a thousand changes.
-                ROWS.with(|held| held.borrow().as_ref().expect("mounted").update(|rows| rows[500] = 9999));
+                ROWS.with(|held| {
+                    held.borrow()
+                        .as_ref()
+                        .expect("mounted")
+                        .update(|rows| rows[500] = 9999)
+                });
                 step.set(2);
             }
             2 => {
@@ -280,7 +349,9 @@ fn engine() {
                     std::thread::spawn(move || {
                         for _ in 0..2500 {
                             let _ = poster.post(|| {
-                                COUNT.with(|held| held.borrow().as_ref().expect("mounted").update(|n| *n += 1))
+                                COUNT.with(|held| {
+                                    held.borrow().as_ref().expect("mounted").update(|n| *n += 1)
+                                })
                             });
                         }
                         done.fetch_add(1, Ordering::SeqCst);
@@ -290,7 +361,11 @@ fn engine() {
                 step.set(4);
             }
             4 => {
-                let finished = DONE.with(|held| held.borrow().as_ref().is_some_and(|d| d.load(Ordering::SeqCst) == 4));
+                let finished = DONE.with(|held| {
+                    held.borrow()
+                        .as_ref()
+                        .is_some_and(|d| d.load(Ordering::SeqCst) == 4)
+                });
                 let count = COUNT.with(|held| held.borrow().as_ref().map(|c| c.get()).unwrap_or(0));
                 if finished && count == 10_000 {
                     report("engine_posted_total", &count.to_string());
@@ -305,7 +380,10 @@ fn engine() {
             }
             6 => {
                 let _ = unmount("app");
-                report("engine_drops_after_unmount", &DROPS.load(Ordering::SeqCst).to_string());
+                report(
+                    "engine_drops_after_unmount",
+                    &DROPS.load(Ordering::SeqCst).to_string(),
+                );
                 report("engine_done", "1");
                 step.set(7);
             }

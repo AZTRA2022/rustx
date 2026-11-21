@@ -17,7 +17,8 @@ pub type NativeFn = dyn Fn(&[Value]) -> Result<Value, NativeError>;
 
 /// The future an asynchronous native returns. It runs on the async runtime,
 /// never on the window's thread, so it must be `Send`.
-pub type NativeFuture = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, NativeError>> + Send>>;
+pub type NativeFuture =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, NativeError>> + Send>>;
 
 type AsyncNativeFn = dyn Fn(&[Value]) -> NativeFuture;
 
@@ -82,25 +83,32 @@ where
     Fut: std::future::Future<Output = Result<Value, NativeError>> + Send + 'static,
 {
     if name.starts_with(RESERVED) {
-        eprintln!("rustx: `{name}` was not registered. Names beginning with `{RESERVED}` belong to the engine.");
+        eprintln!(
+            "rustx: `{name}` was not registered. Names beginning with `{RESERVED}` belong to the engine."
+        );
         return;
     }
     ASYNC_NATIVES.with(|natives| {
-        natives
-            .borrow_mut()
-            .insert(name.to_string(), Rc::new(move |args| Box::pin(function(args))))
+        natives.borrow_mut().insert(
+            name.to_string(),
+            Rc::new(move |args| Box::pin(function(args))),
+        )
     });
 }
 
 /// Start the asynchronous native `name` for call `id`: the answer is sent to
 /// the page as a script once the future is done.
 pub(crate) fn call_async(id: u64, name: &str, args: &[Value]) {
-    let started = ASYNC_NATIVES.with(|natives| natives.borrow().get(name).cloned()).ok_or_else(|| {
-        format!("`{name}` is not an asynchronous function the application registered")
-    });
+    let started = ASYNC_NATIVES
+        .with(|natives| natives.borrow().get(name).cloned())
+        .ok_or_else(|| {
+            format!("`{name}` is not an asynchronous function the application registered")
+        });
     let mut future = None;
     let started = started.and_then(|native| {
-        crate::panics::contain(&format!("the native `{name}`"), || future = Some(native(args)));
+        crate::panics::contain(&format!("the native `{name}`"), || {
+            future = Some(native(args))
+        });
         future.take().ok_or_else(|| format!("`{name}` panicked"))
     });
     let work = match started {
@@ -121,7 +129,9 @@ pub(crate) fn call_async(id: u64, name: &str, args: &[Value]) {
 
 /// Tell the page how call `id` ended.
 fn settle(id: u64, outcome: Result<Value, String>) {
-    let (ok, value) = match outcome.and_then(|value| crate::protocol::value_to_json(&value, 0).map_err(|e| e.to_string())) {
+    let (ok, value) = match outcome
+        .and_then(|value| crate::protocol::value_to_json(&value, 0).map_err(|e| e.to_string()))
+    {
         Ok(value) => (true, value),
         Err(message) => (false, serde_json::json!(message)),
     };
@@ -143,7 +153,7 @@ pub(crate) fn run_hooks() {
     );
     let hooks = HOOKS.with(|hooks| std::mem::take(&mut *hooks.borrow_mut()));
     for hook in &hooks {
-        crate::panics::contain("a hook the application registered", || hook());
+        crate::panics::contain("a hook the application registered", hook);
     }
 }
 
@@ -152,16 +162,22 @@ pub(crate) fn run_hooks() {
 /// boundary.
 fn install_engine_natives() {
     let scenario = argument("--scenario=").unwrap_or_default();
-    register_native("rustx_scenario", move |_args| Ok(Value::String(scenario.clone())));
+    register_native("rustx_scenario", move |_args| {
+        Ok(Value::String(scenario.clone()))
+    });
 
     // Written only where `--report=<path>` says.
     let report = argument("--report=");
     register_native("rustx_report", move |args| {
         let [Value::String(key), Value::String(value)] = args else {
-            return Err(NativeError::new("rustx_report takes a name and a value, both strings"));
+            return Err(NativeError::new(
+                "rustx_report takes a name and a value, both strings",
+            ));
         };
         let Some(path) = report.as_deref() else {
-            return Err(NativeError::new("this application was not started with --report=<path>"));
+            return Err(NativeError::new(
+                "this application was not started with --report=<path>",
+            ));
         };
         let line = format!("REPORT {key}={value}\n");
         std::fs::OpenOptions::new()
@@ -186,7 +202,9 @@ fn install_engine_natives() {
     });
     register_native("rustx_release", |args| {
         let [Value::String(id)] = args else {
-            return Err(NativeError::new("rustx_release takes the id of the element to release"));
+            return Err(NativeError::new(
+                "rustx_release takes the id of the element to release",
+            ));
         };
         Ok(Value::Bool(crate::render::unmount(id)?))
     });
@@ -208,14 +226,21 @@ fn argument(prefix: &str) -> Option<String> {
 
 /// The scripts to put in the page, in the order they were injected.
 pub(crate) fn scripts() -> Vec<String> {
-    SCRIPTS.with(|scripts| scripts.borrow().iter().map(|(_, text)| text.clone()).collect())
+    SCRIPTS.with(|scripts| {
+        scripts
+            .borrow()
+            .iter()
+            .map(|(_, text)| text.clone())
+            .collect()
+    })
 }
 
 /// The script that gives the page a function for each registered native.
 pub fn natives_script() -> String {
     let mut names: Vec<String> = NATIVES.with(|natives| natives.borrow().keys().cloned().collect());
     names.sort();
-    let mut asynchronous: Vec<String> = ASYNC_NATIVES.with(|natives| natives.borrow().keys().cloned().collect());
+    let mut asynchronous: Vec<String> =
+        ASYNC_NATIVES.with(|natives| natives.borrow().keys().cloned().collect());
     asynchronous.sort();
     format!(
         "window.__rustx && window.__rustx.natives({}, {});",
@@ -228,7 +253,9 @@ pub fn natives_script() -> String {
 /// dead window.
 pub(crate) fn call(name: &str, args: &[Value]) -> Result<Value, String> {
     let Some(native) = NATIVES.with(|natives| natives.borrow().get(name).cloned()) else {
-        return Err(format!("`{name}` is not a function the application registered"));
+        return Err(format!(
+            "`{name}` is not a function the application registered"
+        ));
     };
     let mut outcome = Err(format!("`{name}` panicked"));
     crate::panics::contain(&format!("the native `{name}`"), || {

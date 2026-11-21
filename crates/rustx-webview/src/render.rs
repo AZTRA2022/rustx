@@ -116,7 +116,10 @@ pub(crate) fn remount() {
 }
 
 /// Mount a root that is not the application's to remount: React's own.
-pub(crate) fn mount_forgotten(component: impl Fn() -> Element + 'static, id: &str) -> Result<(), DomError> {
+pub(crate) fn mount_forgotten(
+    component: impl Fn() -> Element + 'static,
+    id: &str,
+) -> Result<(), DomError> {
     mount_shared(Rc::new(component), id)
 }
 

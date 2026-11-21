@@ -22,7 +22,9 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use rustx_dom::{AttributeValue, Callback, Element, Event, ForeignChild, ForeignNode, Handler, Value};
+use rustx_dom::{
+    AttributeValue, Callback, Element, Event, ForeignChild, ForeignNode, Handler, Value,
+};
 use serde_json::{Value as Json, json};
 
 use crate::dom::Node;
@@ -87,7 +89,13 @@ pub(crate) fn hand_over(node: &ForeignNode, container: &Node) {
         return;
     }
     SENT.with(|held| held.borrow_mut().insert(container.id(), sent));
-    crate::dom::command(json!(["fm", container.id(), node.component, props, children]));
+    crate::dom::command(json!([
+        "fm",
+        container.id(),
+        node.component,
+        props,
+        children
+    ]));
     HANDED_OVER.with(|count| count.set(count.get() + 1));
 }
 
@@ -141,7 +149,11 @@ fn describe_for(container: u64, node: &ForeignNode) -> Option<(Json, Json)> {
             // only the ones this attempt made up are let go.
             CALLBACKS.with(|held| {
                 let mut held = held.borrow_mut();
-                for id in ids.now.values().filter(|id| !ids.before.values().any(|kept| kept == *id)) {
+                for id in ids
+                    .now
+                    .values()
+                    .filter(|id| !ids.before.values().any(|kept| kept == *id))
+                {
                     held.remove(id);
                 }
             });
@@ -270,7 +282,10 @@ fn describe_element(element: &Element, ids: &mut Ids) -> Option<Json> {
                 props.insert(name.to_string(), value);
             }
             for (name, handler) in &tag.handlers {
-                props.insert(name.clone(), function(handler_callback(name, handler), name, ids));
+                props.insert(
+                    name.clone(),
+                    function(handler_callback(name, handler), name, ids),
+                );
             }
             // Where React wants a key, it is given one: it reorders the
             // state with the row, not with the position.
@@ -301,7 +316,10 @@ fn handler_callback(name: &str, handler: &Handler) -> Callback {
             Some(record @ Value::Record(_)) => Event::from_value(record),
             _ => Event::default(),
         };
-        handler.call(Event { kind: kind.clone(), ..event });
+        handler.call(Event {
+            kind: kind.clone(),
+            ..event
+        });
     })
 }
 
@@ -315,13 +333,18 @@ fn handler_callback(name: &str, handler: &Handler) -> Callback {
 /// own, drawn by the same frame as everything else, with its own cells,
 /// effects and tasks. Releasing the node releases all of it.
 pub fn register_component(name: &str, component: impl Fn() -> Element + 'static) {
-    COMPONENTS.with(|components| components.borrow_mut().insert(name.to_string(), Rc::new(component)));
+    COMPONENTS.with(|components| {
+        components
+            .borrow_mut()
+            .insert(name.to_string(), Rc::new(component))
+    });
 }
 
 /// Mount the registered component `name` under the element `id`, which the
 /// page created after it said it was ready.
 pub(crate) fn mount_registered(name: &str, id: &str) -> Result<(), crate::NativeError> {
-    let Some(component) = COMPONENTS.with(|components| components.borrow().get(name).cloned()) else {
+    let Some(component) = COMPONENTS.with(|components| components.borrow().get(name).cloned())
+    else {
         return Err(crate::NativeError::new(format!(
             "rustx: no component named '{name}' has been registered — an application says what \
              React may mount by calling `register_component`"
@@ -348,7 +371,9 @@ mod tests {
     }
 
     fn number_in(props: &Json) -> u64 {
-        props["onClick"]["__rustx_cb"].as_u64().expect("onClick crosses as a function")
+        props["onClick"]["__rustx_cb"]
+            .as_u64()
+            .expect("onClick crosses as a function")
     }
 
     #[test]
@@ -359,7 +384,11 @@ mod tests {
         let held = callbacks_held();
         for _ in 0..100 {
             let (props, _) = describe_for(900, &boundary(clicks.clone())).expect("described");
-            assert_eq!(number_in(&props), number, "a click posted with the old number is lost");
+            assert_eq!(
+                number_in(&props),
+                number,
+                "a click posted with the old number is lost"
+            );
         }
         assert_eq!(callbacks_held(), held, "the table grows with every render");
         called(number, &[]);
@@ -374,8 +403,13 @@ mod tests {
         let number = number_in(&props);
         assert_eq!(callbacks_held(), before + 1);
         // What `give_back` does to the table, without a page to tell.
-        let held = OWNED.with(|held| held.borrow_mut().remove(&901)).unwrap_or_default();
-        CALLBACKS.with(|callbacks| held.values().for_each(|id| drop(callbacks.borrow_mut().remove(id))));
+        let held = OWNED
+            .with(|held| held.borrow_mut().remove(&901))
+            .unwrap_or_default();
+        CALLBACKS.with(|callbacks| {
+            held.values()
+                .for_each(|id| drop(callbacks.borrow_mut().remove(id)))
+        });
         assert_eq!(callbacks_held(), before);
         called(number, &[]);
         assert_eq!(clicks.get(), 0, "a freed number still ran a closure");

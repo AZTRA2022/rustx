@@ -27,7 +27,6 @@
 //! the machine. Thirty-five cells a letter, laid out by the page.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-
 use rustx::{App, Config};
 
 /// One sealed secret.

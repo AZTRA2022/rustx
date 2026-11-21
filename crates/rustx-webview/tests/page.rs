@@ -25,7 +25,9 @@ const HELPERS: &str = "
 ";
 
 fn page(script: &str) -> String {
-    format!("<!doctype html><div id=\"app\"></div><script>{HELPERS}(async () => {{ {script} }})();</script>")
+    format!(
+        "<!doctype html><div id=\"app\"></div><script>{HELPERS}(async () => {{ {script} }})();</script>"
+    )
 }
 
 #[test]
@@ -232,13 +234,23 @@ fn a_page_that_writes_file_urls_gets_the_files() {
     let place = std::env::temp_dir().join(format!("rustx-fileurl-{}", std::process::id()));
     std::fs::create_dir_all(&place).expect("a folder");
     let png: &[u8] = &[
-        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21,
-        196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 255, 255, 63, 0, 5, 254, 2, 254, 167, 53, 129, 132,
-        0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6,
+        0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 255, 255, 63, 0,
+        5, 254, 2, 254, 167, 53, 129, 132, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
     ];
     std::fs::write(place.join("a b.png"), png).expect("a png");
     std::fs::write(place.join("note.txt"), "hello from disk").expect("a note");
-    let url = |name: &str| format!("file:///{}/{}", place.display().to_string().replace(std::path::MAIN_SEPARATOR, "/").trim_start_matches('/'), name);
+    let url = |name: &str| {
+        format!(
+            "file:///{}/{}",
+            place
+                .display()
+                .to_string()
+                .replace(std::path::MAIN_SEPARATOR, "/")
+                .trim_start_matches('/'),
+            name
+        )
+    };
     let (image, note) = (url("a%20b.png"), url("note.txt"));
     let root = folder(
         "fileurl",
@@ -256,8 +268,24 @@ fn a_page_that_writes_file_urls_gets_the_files() {
         )),
     );
     std::fs::write(place.join("..secret-name.txt"), "x").ok();
-    let run = probe(&root, &["--scenario", "counter", "--seconds", "8", "--files", &place.display().to_string()], &[]);
-    assert_eq!(run.messages, vec!["image=1", "fetched=hello from disk", "later=1"], "{}", run.stderr);
+    let run = probe(
+        &root,
+        &[
+            "--scenario",
+            "counter",
+            "--seconds",
+            "8",
+            "--files",
+            &place.display().to_string(),
+        ],
+        &[],
+    );
+    assert_eq!(
+        run.messages,
+        vec!["image=1", "fetched=hello from disk", "later=1"],
+        "{}",
+        run.stderr
+    );
     let _ = std::fs::remove_dir_all(root);
     let _ = std::fs::remove_dir_all(place);
 }
@@ -266,14 +294,28 @@ fn a_page_that_writes_file_urls_gets_the_files() {
 fn clip(place: &std::path::Path, name: &str, codecs: &[&str]) -> Option<String> {
     let file = place.join(name);
     let made = std::process::Command::new("ffmpeg")
-        .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=3"])
+        .args([
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=320x240:rate=25:duration=3",
+        ])
         .args(["-f", "lavfi", "-i", "sine=frequency=440:duration=3"])
         .args(codecs)
         .arg(&file)
         .status()
         .ok()?;
     made.success().then(|| {
-        format!("file:///{}", file.display().to_string().replace(std::path::MAIN_SEPARATOR, "/").trim_start_matches('/'))
+        format!(
+            "file:///{}",
+            file.display()
+                .to_string()
+                .replace(std::path::MAIN_SEPARATOR, "/")
+                .trim_start_matches('/')
+        )
     })
 }
 
@@ -282,10 +324,19 @@ fn a_video_from_a_file_url_decodes_plays_without_a_gesture_and_seeks() {
     let place = std::env::temp_dir().join(format!("rustx-video-{}", std::process::id()));
     std::fs::create_dir_all(&place).expect("a folder");
     let formats = [
-        ("h264.mp4", vec!["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac"]),
+        (
+            "h264.mp4",
+            vec!["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac"],
+        ),
         ("vp9.webm", vec!["-c:v", "libvpx-vp9", "-c:a", "libopus"]),
-        ("h264.mkv", vec!["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac"]),
-        ("h264.mov", vec!["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac"]),
+        (
+            "h264.mkv",
+            vec!["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac"],
+        ),
+        (
+            "h264.mov",
+            vec!["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac"],
+        ),
     ];
     let mut script = String::new();
     let mut expected = Vec::new();
@@ -309,7 +360,18 @@ fn a_video_from_a_file_url_decodes_plays_without_a_gesture_and_seeks() {
         expected.push(format!("{name}=true/yes/true"));
     }
     let root = folder("video", &page(&script));
-    let run = probe(&root, &["--scenario", "counter", "--seconds", "30", "--files", &place.display().to_string()], &[]);
+    let run = probe(
+        &root,
+        &[
+            "--scenario",
+            "counter",
+            "--seconds",
+            "30",
+            "--files",
+            &place.display().to_string(),
+        ],
+        &[],
+    );
     // What this engine cannot decode is a finding, printed whole.
     eprintln!("VIDEO RESULTS: {:?}", run.messages);
     assert_eq!(run.messages, expected, "{}", run.stderr);
@@ -324,7 +386,11 @@ fn a_file_nobody_granted_cannot_be_read_by_injected_markup() {
     std::fs::write(place.join("secret.txt"), "the secret").expect("a file");
     let address = format!(
         "file:///{}/secret.txt",
-        place.display().to_string().replace(std::path::MAIN_SEPARATOR, "/").trim_start_matches('/')
+        place
+            .display()
+            .to_string()
+            .replace(std::path::MAIN_SEPARATOR, "/")
+            .trim_start_matches('/')
     );
     let root = folder(
         "injection",
@@ -339,7 +405,12 @@ fn a_file_nobody_granted_cannot_be_read_by_injected_markup() {
         )),
     );
     let run = probe(&root, &["--scenario", "counter", "--seconds", "6"], &[]);
-    assert_eq!(run.messages, vec!["status=403", "body=forbidden", "image=0"], "{}", run.stderr);
+    assert_eq!(
+        run.messages,
+        vec!["status=403", "body=forbidden", "image=0"],
+        "{}",
+        run.stderr
+    );
     let _ = std::fs::remove_dir_all(root);
     let _ = std::fs::remove_dir_all(place);
 }
@@ -369,7 +440,10 @@ fn a_pointer_event_says_where_it_is_in_the_element_and_how_big_the_element_is() 
             .unwrap_or_else(|| panic!("no {kind} event: {} {:?}", run.stderr, run.reports))
     };
     let down = said("mousedown");
-    assert!(down.contains("x=160 y=70 local=60,20 size=200x80 button=2"), "{down}");
+    assert!(
+        down.contains("x=160 y=70 local=60,20 size=200x80 button=2"),
+        "{down}"
+    );
     assert!(down.contains("current=box target=inner"), "{down}");
     assert!(said("wheel").contains("wheel=5,-120"), "{}", said("wheel"));
     assert!(said("keydown").contains("key=k"), "{}", said("keydown"));
@@ -396,7 +470,12 @@ fn a_form_submit_does_not_throw_the_page_away() {
         ),
     );
     let run = probe(&root, &["--scenario", "counter", "--seconds", "5"], &[]);
-    assert_eq!(run.messages, vec!["marker_after_submit=alive submits=1 url="], "{}", run.stderr);
+    assert_eq!(
+        run.messages,
+        vec!["marker_after_submit=alive submits=1 url="],
+        "{}",
+        run.stderr
+    );
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -430,7 +509,14 @@ fn a_field_written_before_what_it_depends_on_still_shows_its_value() {
     eprintln!("FIELDS: {:?}", run.messages);
     assert_eq!(
         run.messages[..6],
-        ["select=b", "range=150", "number=1.5", "checked=true", "textarea=\"one\\ntwo\"", "color=#ff8800"],
+        [
+            "select=b",
+            "range=150",
+            "number=1.5",
+            "checked=true",
+            "textarea=\"one\\ntwo\"",
+            "color=#ff8800"
+        ],
         "{} {:?}",
         run.stderr,
         run.messages
@@ -447,7 +533,11 @@ fn a_path_in_text_rust_wrote_does_not_become_readable() {
     std::fs::write(&secret, "the secret").expect("a file");
     let address = format!(
         "file:///{}",
-        secret.display().to_string().replace(std::path::MAIN_SEPARATOR, "/").trim_start_matches('/')
+        secret
+            .display()
+            .to_string()
+            .replace(std::path::MAIN_SEPARATOR, "/")
+            .trim_start_matches('/')
     );
     let root = folder(
         "texts",
@@ -499,7 +589,12 @@ fn after_a_reload_the_counter_is_drawn_again_and_still_answers_clicks() {
         ),
     );
     let run = probe(&root, &["--scenario", "counter", "--seconds", "8"], &[]);
-    assert_eq!(run.messages, vec!["before=2", "after_reload_first=0", "after_click=1"], "{}", run.stderr);
+    assert_eq!(
+        run.messages,
+        vec!["before=2", "after_reload_first=0", "after_click=1"],
+        "{}",
+        run.stderr
+    );
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -517,13 +612,29 @@ fn a_burst_of_wheel_and_move_events_is_one_message_per_frame_with_the_turns_adde
         ),
     );
     let run = probe(&root, &["--scenario", "events", "--seconds", "5"], &[]);
-    let wheels: Vec<_> = run.reports.iter().filter(|(key, _)| key == "event_wheel").collect();
-    let downs = run.reports.iter().filter(|(key, _)| key == "event_mousedown").count();
+    let wheels: Vec<_> = run
+        .reports
+        .iter()
+        .filter(|(key, _)| key == "event_wheel")
+        .collect();
+    let downs = run
+        .reports
+        .iter()
+        .filter(|(key, _)| key == "event_mousedown")
+        .count();
     // Every mousedown is kept and in order, so what waited before it is sent
     // first: the wheel turns are split between them but none is lost.
     let total: i64 = wheels
         .iter()
-        .filter_map(|(_, value)| value.split("wheel=0,").nth(1)?.split(' ').next()?.parse::<i64>().ok())
+        .filter_map(|(_, value)| {
+            value
+                .split("wheel=0,")
+                .nth(1)?
+                .split(' ')
+                .next()?
+                .parse::<i64>()
+                .ok()
+        })
         .sum();
     assert_eq!((downs, total), (20, 200), "{:?}", run.reports);
     let _ = std::fs::remove_dir_all(root);
@@ -544,8 +655,16 @@ fn closing_the_window_drops_what_the_components_own() {
         .env("PROBE_DROP_FILE", &place)
         .output()
         .expect("the probe runs");
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(std::fs::read_to_string(&place).ok().as_deref(), Some("dropped"), "nothing ran on close");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&place).ok().as_deref(),
+        Some("dropped"),
+        "nothing ran on close"
+    );
     let _ = std::fs::remove_file(place);
     let _ = std::fs::remove_dir_all(root);
 }
@@ -566,14 +685,22 @@ fn the_engine_keeps_the_promises_the_old_one_was_tested_for() {
         text.lines()
             .find_map(|line| line.strip_prefix(&format!("REPORT {key}=")))
             .and_then(|value| value.trim().parse().ok())
-            .unwrap_or_else(|| panic!("no {key}:\n{text}\n{}", String::from_utf8_lossy(&output.stderr)))
+            .unwrap_or_else(|| {
+                panic!(
+                    "no {key}:\n{text}\n{}",
+                    String::from_utf8_lossy(&output.stderr)
+                )
+            })
     };
     assert_eq!(read("engine_one_row_patches"), 1, "{text}");
     assert!(read("engine_first_render_ms") < 2000, "{text}");
     assert!(read("engine_one_row_micros") < 50_000, "{text}");
     assert_eq!(read("engine_posted_total"), 10_000, "{text}");
     let renders = read("engine_renders_for_posts") - read("engine_renders_before_posts");
-    assert!(renders < 500, "ten thousand updates caused {renders} renders:\n{text}");
+    assert!(
+        renders < 500,
+        "ten thousand updates caused {renders} renders:\n{text}"
+    );
     assert_eq!(read("engine_drops_after_unmount"), 1, "{text}");
     let _ = std::fs::remove_dir_all(root);
 }

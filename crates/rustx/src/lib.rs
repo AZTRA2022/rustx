@@ -81,8 +81,9 @@ pub use rustx_os::{
 pub use rustx_os as os;
 
 pub use crate::rustx_engine::{
-    Document, DomError, NativeError, Node, PostError, Poster, dropped, foreign, mount, mount_at_id,
-    files, on_context_created, on_frame, poster, register_async_native, register_native, render, router, task, window,
+    Document, DomError, NativeError, Node, PostError, Poster, dropped, files, foreign, mount,
+    mount_at_id, on_context_created, on_frame, poster, register_async_native, register_native,
+    render, router, task, window,
 };
 
 /// Where this application keeps its own files, and what it writes
@@ -701,7 +702,9 @@ impl App {
         crate::rustx_engine::on_context_created(carry_state);
 
         if let Some(routes) = routes {
-            crate::rustx_engine::on_context_created(move || start_router(routes, &host, &start, screens));
+            crate::rustx_engine::on_context_created(move || {
+                start_router(routes, &host, &start, screens)
+            });
         }
         crate::rustx_engine::on_context_created(move || {
             for (name, component) in &components {
@@ -765,7 +768,9 @@ impl App {
             }
         });
         for (id, component) in config.mounts {
-            crate::rustx_engine::on_context_created(move || mount_when_ready(id.clone(), component));
+            crate::rustx_engine::on_context_created(move || {
+                mount_when_ready(id.clone(), component)
+            });
         }
         for hook in config.hooks {
             crate::rustx_engine::on_context_created(move || hook());
@@ -782,7 +787,9 @@ impl App {
             config.about,
         );
 
-        if let crate::rustx_engine::Bootstrap::Child { exit_code } = crate::rustx_engine::bootstrap() {
+        if let crate::rustx_engine::Bootstrap::Child { exit_code } =
+            crate::rustx_engine::bootstrap()
+        {
             std::process::exit(exit_code);
         }
 

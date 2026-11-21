@@ -4,6 +4,7 @@
 //! owns the window. The page is a small interpreter: what the code writes
 //! to the DOM is a list of commands, sent once per frame; what comes back
 //! is an event, addressed to the node the host built. See [`dom`] and
+#![allow(clippy::type_complexity)]
 //! [`protocol`].
 
 mod app;
@@ -11,8 +12,8 @@ pub mod assets;
 pub mod dom;
 pub mod dropped;
 mod error;
-pub mod foreign;
 pub mod files;
+pub mod foreign;
 pub mod frame;
 pub mod host;
 pub mod mount;
@@ -35,6 +36,7 @@ pub use error::EngineError;
 pub use frame::{PostError, Poster, on_frame, poster};
 pub use mount::{mount, mount_at_id};
 pub use renderer::{
-    NativeFuture, inject, natives_script, on_context_created, register_async_native, register_native,
+    NativeFuture, inject, natives_script, on_context_created, register_async_native,
+    register_native,
 };
 pub use value::{NativeError, Value};

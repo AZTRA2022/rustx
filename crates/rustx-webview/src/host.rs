@@ -85,10 +85,12 @@ pub fn default_data_dir(app: &str) -> Option<PathBuf> {
     let base = std::env::var_os("LOCALAPPDATA")?;
     let safe: String = app
         .chars()
-        .map(|c| match c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-            true => c,
-            false => '_',
-        })
+        .map(
+            |c| match c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                true => c,
+                false => '_',
+            },
+        )
         .collect();
     Some(PathBuf::from(base).join(safe).join("webview"))
 }
@@ -127,7 +129,9 @@ pub(crate) enum Command {
 
 /// Open the system's print dialog for the window's page.
 pub(crate) fn print() {
-    let held = proxy().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let held = proxy()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Some(proxy) = held.as_ref() {
         let _ = proxy.send_event(Command::Print);
     }
@@ -135,7 +139,9 @@ pub(crate) fn print() {
 
 /// Run `code` in the page, on the loop's thread.
 pub(crate) fn script(code: String) {
-    let held = proxy().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let held = proxy()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Some(proxy) = held.as_ref() {
         let _ = proxy.send_event(Command::Script(code));
     }
@@ -156,7 +162,9 @@ fn shut_down() {
 
 /// Give the window an order, from any thread.
 pub(crate) fn order(order: rustx_os::window::Order) {
-    let held = proxy().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let held = proxy()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Some(proxy) = held.as_ref() {
         let _ = proxy.send_event(Command::Window(order));
     }
@@ -183,9 +191,11 @@ fn carry_out(window: &tao::window::Window, order: rustx_os::window::Order) -> bo
     match order {
         Order::Dress(dressing) => window.set_decorations(dressing == Dressing::System),
         Order::Spread(how) => spread(how),
-        Order::Switch(Switchable::Maximized) => {
-            spread(if window.is_maximized() { Spread::Normal } else { Spread::Maximized })
-        }
+        Order::Switch(Switchable::Maximized) => spread(if window.is_maximized() {
+            Spread::Normal
+        } else {
+            Spread::Maximized
+        }),
         Order::Switch(Switchable::Fullscreen) => fullscreen(window.fullscreen().is_none()),
         Order::OnTop(above) => window.set_always_on_top(above),
         Order::Drag => {
@@ -213,7 +223,9 @@ pub fn wake() {
     if PENDING.swap(true, Ordering::AcqRel) {
         return;
     }
-    let held = proxy().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let held = proxy()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Some(proxy) = held.as_ref() {
         let _ = proxy.send_event(Command::Tick);
     }
@@ -277,7 +289,11 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
     // else in the world sets it, so a shipped application never looks.
     if let Some(file) = std::env::var_os("RUSTX_RELOAD") {
         std::thread::spawn(move || {
-            let stamp = || std::fs::metadata(&file).and_then(|about| about.modified()).ok();
+            let stamp = || {
+                std::fs::metadata(&file)
+                    .and_then(|about| about.modified())
+                    .ok()
+            };
             let mut seen = stamp();
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(150));
@@ -310,127 +326,137 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
         ($context:expr) => {{
             let (root, document, entry) = (root.clone(), document.clone(), entry.clone());
             let mut builder = WebViewBuilder::new_with_web_context($context)
-        .with_devtools(config.devtools)
-        .with_initialization_script(format!(
-            "window.__rustx_origin = {};{INTERPRETER}",
-            serde_json::json!(origin(&config.scheme))
-        ))
-        .with_custom_protocol(config.scheme.clone(), {
-            // Its own copy: wry wants this closure to be `Send + Sync`,
-            // though it only ever runs on the thread of the window.
-            let policy = std::sync::Arc::new(Policy::new(
-                &origin(&config.scheme),
-                &config.allow.iter().map(String::as_str).collect::<Vec<_>>(),
-            ));
-            move |_id, request| {
-            let path = request.uri().path();
-            if let Some(name) = path.strip_prefix(NATIVE_PATH) {
-                return native(&policy, name, &request);
-            }
-            if let Some(rest) = path.strip_prefix(crate::files::PATH) {
-                let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok());
-                let answer = crate::files::serve(
-                    rest,
-                    header("range"),
-                    header("sec-fetch-site") == Some("cross-site"),
-                );
-                let mut response = Response::builder()
-                    .status(answer.status)
-                    .header(CONTENT_TYPE, answer.mime)
-                    .header("Accept-Ranges", "bytes")
-                    .header("X-Content-Type-Options", "nosniff");
-                if let Some(range) = answer.content_range {
-                    response = response.header("Content-Range", range);
-                }
-                return response
-                    .body(Cow::Owned(answer.body))
-                    .unwrap_or_else(|_| Response::new(Cow::Borrowed(&b""[..])));
-            }
-            let served = match &document {
-                Some(page) if path == "/" || path == entry => crate::assets::Served {
-                    status: 200,
-                    mime: "text/html; charset=utf-8",
-                    body: page.clone().into_bytes(),
-                },
-                _ => serve(&root, path),
-            };
-            Response::builder()
-                .status(served.status)
-                .header(CONTENT_TYPE, served.mime)
-                .header("X-Content-Type-Options", "nosniff")
-                .body(Cow::Owned(served.body))
-                .unwrap_or_else(|_| Response::new(Cow::Borrowed(&b""[..])))
-            }
-        })
-        .with_ipc_handler({
-            let (policy, hooks, control) = (Rc::clone(&policy), Rc::clone(&hooks), control.clone());
-            move |request| {
-                let from = request.uri().to_string();
-                match policy.ipc_allowed(&from) {
-                    true => handle(request.body(), &hooks, &control),
-                    false => eprintln!(
-                        "rustx: ignored a message from {}: only the application's own \
+                .with_devtools(config.devtools)
+                .with_initialization_script(format!(
+                    "window.__rustx_origin = {};{INTERPRETER}",
+                    serde_json::json!(origin(&config.scheme))
+                ))
+                .with_custom_protocol(config.scheme.clone(), {
+                    // Its own copy: wry wants this closure to be `Send + Sync`,
+                    // though it only ever runs on the thread of the window.
+                    let policy = std::sync::Arc::new(Policy::new(
+                        &origin(&config.scheme),
+                        &config.allow.iter().map(String::as_str).collect::<Vec<_>>(),
+                    ));
+                    move |_id, request| {
+                        let path = request.uri().path();
+                        if let Some(name) = path.strip_prefix(NATIVE_PATH) {
+                            return native(&policy, name, &request);
+                        }
+                        if let Some(rest) = path.strip_prefix(crate::files::PATH) {
+                            let header = |name: &str| {
+                                request.headers().get(name).and_then(|v| v.to_str().ok())
+                            };
+                            let answer = crate::files::serve(
+                                rest,
+                                header("range"),
+                                header("sec-fetch-site") == Some("cross-site"),
+                            );
+                            let mut response = Response::builder()
+                                .status(answer.status)
+                                .header(CONTENT_TYPE, answer.mime)
+                                .header("Accept-Ranges", "bytes")
+                                .header("X-Content-Type-Options", "nosniff");
+                            if let Some(range) = answer.content_range {
+                                response = response.header("Content-Range", range);
+                            }
+                            return response
+                                .body(Cow::Owned(answer.body))
+                                .unwrap_or_else(|_| Response::new(Cow::Borrowed(&b""[..])));
+                        }
+                        let served = match &document {
+                            Some(page) if path == "/" || path == entry => crate::assets::Served {
+                                status: 200,
+                                mime: "text/html; charset=utf-8",
+                                body: page.clone().into_bytes(),
+                            },
+                            _ => serve(&root, path),
+                        };
+                        Response::builder()
+                            .status(served.status)
+                            .header(CONTENT_TYPE, served.mime)
+                            .header("X-Content-Type-Options", "nosniff")
+                            .body(Cow::Owned(served.body))
+                            .unwrap_or_else(|_| Response::new(Cow::Borrowed(&b""[..])))
+                    }
+                })
+                .with_ipc_handler({
+                    let (policy, hooks, control) =
+                        (Rc::clone(&policy), Rc::clone(&hooks), control.clone());
+                    move |request| {
+                        let from = request.uri().to_string();
+                        match policy.ipc_allowed(&from) {
+                            true => handle(request.body(), &hooks, &control),
+                            false => eprintln!(
+                                "rustx: ignored a message from {}: only the application's own \
                          pages may call the host",
-                        from.chars().take(40).collect::<String>()
-                    ),
-                }
+                                from.chars().take(40).collect::<String>()
+                            ),
+                        }
+                    }
+                })
+                .with_drag_drop_handler(|event| {
+                    if let wry::DragDropEvent::Drop { paths, .. } = event {
+                        crate::dropped::landed(paths);
+                        wake();
+                    }
+                    // The page's own `ondrop` runs as well.
+                    false
+                })
+                .with_navigation_handler({
+                    let (policy, hooks) = (Rc::clone(&policy), Rc::clone(&hooks));
+                    move |url| {
+                        let stays = decide(&policy, &hooks, &url);
+                        // A page of the application is about to replace this one:
+                        // every handle made for the old one is stale, and what was
+                        // mounted on it is released, so a component's `Drop` runs.
+                        if stays && policy.ipc_allowed(&url) {
+                            crate::dom::page_gone();
+                            crate::render::unmount_all();
+                        }
+                        stays
+                    }
+                })
+                .with_new_window_req_handler({
+                    let (policy, hooks) = (Rc::clone(&policy), Rc::clone(&hooks));
+                    move |url, _features| {
+                        // A window of its own is never opened: a page asking for
+                        // one gets the system browser, or nothing.
+                        decide(&policy, &hooks, &url);
+                        NewWindowResponse::Deny
+                    }
+                })
+                .with_url(format!(
+                    "{}{}{}",
+                    origin(&config.scheme),
+                    config.entry,
+                    config
+                        .fragment
+                        .as_deref()
+                        .map(|route| format!("#{route}"))
+                        .unwrap_or_default()
+                ));
+            if config.devtools {
+                builder = builder
+                    .with_initialization_script("window.__rustx_devtools = true;".to_string());
             }
-        })
-        .with_drag_drop_handler(|event| {
-            if let wry::DragDropEvent::Drop { paths, .. } = event {
-                crate::dropped::landed(paths);
-                wake();
+            for script in &config.scripts {
+                builder = builder.with_initialization_script(script.clone());
             }
-            // The page's own `ondrop` runs as well.
-            false
-        })
-        .with_navigation_handler({
-            let (policy, hooks) = (Rc::clone(&policy), Rc::clone(&hooks));
-            move |url| {
-                let stays = decide(&policy, &hooks, &url);
-                // A page of the application is about to replace this one:
-                // every handle made for the old one is stale, and what was
-                // mounted on it is released, so a component's `Drop` runs.
-                if stays && policy.ipc_allowed(&url) {
-                    crate::dom::page_gone();
-                    crate::render::unmount_all();
-                }
-                stays
+            // The browser's own chrome is for development: reload, print, zoom, view
+            // source would each break an application that is not a web page. Left on
+            // only where the devtools are. The context menu stays (cut, copy, paste
+            // belong to the system) and the page cancels it off text, see interpreter.
+            builder = builder
+                .with_hotkeys_zoom(config.devtools)
+                .with_back_forward_navigation_gestures(false);
+            #[cfg(windows)]
+            {
+                use wry::WebViewBuilderExtWindows;
+                builder = builder
+                    .with_browser_accelerator_keys(config.devtools)
+                    .with_default_context_menus(true);
             }
-        })
-        .with_new_window_req_handler({
-            let (policy, hooks) = (Rc::clone(&policy), Rc::clone(&hooks));
-            move |url, _features| {
-                // A window of its own is never opened: a page asking for
-                // one gets the system browser, or nothing.
-                decide(&policy, &hooks, &url);
-                NewWindowResponse::Deny
-            }
-        })
-        .with_url(format!(
-            "{}{}{}",
-            origin(&config.scheme),
-            config.entry,
-            config.fragment.as_deref().map(|route| format!("#{route}")).unwrap_or_default()
-        ));
-    if config.devtools {
-        builder = builder.with_initialization_script("window.__rustx_devtools = true;".to_string());
-    }
-    for script in &config.scripts {
-        builder = builder.with_initialization_script(script.clone());
-    }
-    // The browser's own chrome is for development: reload, print, zoom, view
-    // source would each break an application that is not a web page. Left on
-    // only where the devtools are. The context menu stays (cut, copy, paste
-    // belong to the system) and the page cancels it off text, see interpreter.
-    builder = builder.with_hotkeys_zoom(config.devtools).with_back_forward_navigation_gestures(false);
-    #[cfg(windows)]
-    {
-        use wry::WebViewBuilderExtWindows;
-        builder = builder
-            .with_browser_accelerator_keys(config.devtools)
-            .with_default_context_menus(true);
-    }
             builder
         }};
     }
@@ -460,7 +486,9 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
                         }
                         false => "",
                     };
-                    return Err(HostError(format!("could not start the webview: {error}.{hint}")));
+                    return Err(HostError(format!(
+                        "could not start the webview: {error}.{hint}"
+                    )));
                 }
             }
         }
@@ -493,7 +521,8 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
             // One message for the whole frame, commands in the order they
             // were written.
             if let Some(commands) = crate::dom::take_ops()
-                && let Err(error) = webview.evaluate_script(&format!("window.__rustx.apply({commands})"))
+                && let Err(error) =
+                    webview.evaluate_script(&format!("window.__rustx.apply({commands})"))
             {
                 eprintln!("rustx: could not send a frame to the page: {error}");
             }
@@ -541,7 +570,11 @@ const NATIVE_PATH: &str = "/__rustx/native/";
 
 /// Run a native for the page and answer `{ok}` or `{err}`. Only a page of
 /// the application may: the request says where it comes from.
-fn native(policy: &Policy, name: &str, request: &wry::http::Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
+fn native(
+    policy: &Policy,
+    name: &str,
+    request: &wry::http::Request<Vec<u8>>,
+) -> Response<Cow<'static, [u8]>> {
     let from = request
         .headers()
         .get("origin")
@@ -553,8 +586,12 @@ fn native(policy: &Policy, name: &str, request: &wry::http::Request<Vec<u8>>) ->
         let name = name.to_string();
         std::str::from_utf8(request.body())
             .map_err(|error| error.to_string())
-            .and_then(|text| serde_json::from_str::<serde_json::Value>(text).map_err(|error| error.to_string()))
-            .and_then(|json| crate::protocol::json_to_value(&json, 0).map_err(|error| error.to_string()))
+            .and_then(|text| {
+                serde_json::from_str::<serde_json::Value>(text).map_err(|error| error.to_string())
+            })
+            .and_then(|json| {
+                crate::protocol::json_to_value(&json, 0).map_err(|error| error.to_string())
+            })
             .and_then(|args| match args {
                 crate::value::Value::List(args) => crate::renderer::call(&name, &args),
                 _ => Err("the arguments are not a list".to_string()),
@@ -562,7 +599,9 @@ fn native(policy: &Policy, name: &str, request: &wry::http::Request<Vec<u8>>) ->
     };
     // What the native wrote to the DOM goes out with the next frame.
     wake();
-    let body = match outcome.and_then(|value| crate::protocol::value_to_json(&value, 0).map_err(|e| e.to_string())) {
+    let body = match outcome
+        .and_then(|value| crate::protocol::value_to_json(&value, 0).map_err(|e| e.to_string()))
+    {
         Ok(value) => serde_json::json!({ "ok": value }),
         Err(message) => serde_json::json!({ "err": message }),
     };
@@ -596,7 +635,9 @@ fn handle(body: &str, hooks: &Hooks, control: &Control) {
             crate::mount::dispatch(node, &name, &event, seq);
             wake();
         }
-        Ok(FromPage::Error { message }) => eprintln!("rustx: the page could not run a command: {message}"),
+        Ok(FromPage::Error { message }) => {
+            eprintln!("rustx: the page could not run a command: {message}")
+        }
         // An asynchronous native: the answer comes back as a script.
         Ok(FromPage::Call { id, name, args }) => crate::renderer::call_async(id, &name, &args),
         Ok(FromPage::Callback { id, args }) => {

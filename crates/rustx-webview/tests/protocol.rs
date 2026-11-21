@@ -35,7 +35,10 @@ fn a_value_nested_too_deep_is_refused() {
     for _ in 0..200 {
         value = Value::List(vec![value]);
     }
-    assert_eq!(value_to_json(&value, 0).expect_err("too deep"), WireError::TooDeep);
+    assert_eq!(
+        value_to_json(&value, 0).expect_err("too deep"),
+        WireError::TooDeep
+    );
 }
 
 #[test]
@@ -89,8 +92,16 @@ fn a_call_decodes_and_its_reply_names_the_same_id() {
 #[test]
 fn a_ready_message_carries_the_ids_the_document_had() {
     let ready = decode(r#"{"t":"ready","ids":["app","nav"]}"#).expect("decodes");
-    assert_eq!(ready, FromPage::Ready { ids: vec!["app".to_string(), "nav".to_string()] });
-    assert!(matches!(decode(r#"{"t":"ready","ids":[1]}"#), Err(WireError::Malformed(_))));
+    assert_eq!(
+        ready,
+        FromPage::Ready {
+            ids: vec!["app".to_string(), "nav".to_string()]
+        }
+    );
+    assert!(matches!(
+        decode(r#"{"t":"ready","ids":[1]}"#),
+        Err(WireError::Malformed(_))
+    ));
 }
 
 #[test]
@@ -99,7 +110,13 @@ fn an_event_names_its_node_its_kind_and_the_numbered_input() {
         r#"{"t":"event","node":4,"name":"input","seq":7,"event":{"kind":"input","value":"ab"}}"#,
     )
     .expect("decodes");
-    let FromPage::Event { node, name, seq, event } = event else {
+    let FromPage::Event {
+        node,
+        name,
+        seq,
+        event,
+    } = event
+    else {
         panic!("an event was sent");
     };
     assert_eq!((node, name.as_str(), seq), (4, "input", 7));
@@ -113,5 +130,10 @@ fn an_event_names_its_node_its_kind_and_the_numbered_input() {
 #[test]
 fn a_command_the_page_could_not_run_is_reported() {
     let error = decode(r#"{"t":"error","message":"boom","op":"ap"}"#).expect("decodes");
-    assert_eq!(error, FromPage::Error { message: "boom".to_string() });
+    assert_eq!(
+        error,
+        FromPage::Error {
+            message: "boom".to_string()
+        }
+    );
 }

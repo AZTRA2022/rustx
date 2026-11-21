@@ -16,7 +16,6 @@
 //! change.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-
 mod devices;
 
 use rustx::{App, Config};

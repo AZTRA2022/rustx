@@ -42,7 +42,10 @@ pub fn probe(root: &Path, extra: &[&str], envs: &[(&str, &Path)]) -> Run {
     let stdout = child.stdout.take().expect("piped");
     let mut stderr = child.stderr.take().expect("piped");
     let lines = std::thread::spawn(move || {
-        BufReader::new(stdout).lines().map_while(Result::ok).collect::<Vec<_>>()
+        BufReader::new(stdout)
+            .lines()
+            .map_while(Result::ok)
+            .collect::<Vec<_>>()
     });
     let errors = std::thread::spawn(move || {
         let mut text = String::new();
@@ -72,7 +75,10 @@ pub fn probe(root: &Path, extra: &[&str], envs: &[(&str, &Path)]) -> Run {
         success: status.is_some_and(|status| status.success()),
     };
     for line in lines.join().unwrap_or_default() {
-        match line.strip_prefix("REPORT ").and_then(|rest| rest.split_once('=')) {
+        match line
+            .strip_prefix("REPORT ")
+            .and_then(|rest| rest.split_once('='))
+        {
             Some(("message", value)) => run.messages.push(value.to_string()),
             Some(("opened", value)) => run.opened.push(value.to_string()),
             Some(("done", _)) => run.done = true,
@@ -82,4 +88,3 @@ pub fn probe(root: &Path, extra: &[&str], envs: &[(&str, &Path)]) -> Run {
     }
     run
 }
-

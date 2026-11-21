@@ -38,16 +38,23 @@ fn grants() -> &'static Mutex<Vec<PathBuf>> {
 /// Let the page read `path`: a file, or a folder and what is under it.
 pub fn allow(path: impl AsRef<Path>) {
     let path = path.as_ref().to_path_buf();
-    let mut held = grants().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut held = grants()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if !held.contains(&path) {
         held.push(path);
     }
 }
 
 fn granted(path: &Path) -> bool {
-    let Ok(real) = path.canonicalize() else { return false };
-    let held = grants().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    held.iter().any(|each| each.canonicalize().is_ok_and(|each| real.starts_with(each)))
+    let Ok(real) = path.canonicalize() else {
+        return false;
+    };
+    let held = grants()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    held.iter()
+        .any(|each| each.canonicalize().is_ok_and(|each| real.starts_with(each)))
 }
 
 /// The address a page loads `path` from, granted on the way: the one to
@@ -62,10 +69,12 @@ pub fn url(path: impl AsRef<Path>) -> String {
         .split('/')
         .map(|part| {
             part.bytes()
-                .map(|b| match b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {
-                    true => (b as char).to_string(),
-                    false => format!("%{b:02X}"),
-                })
+                .map(
+                    |b| match b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {
+                        true => (b as char).to_string(),
+                        false => format!("%{b:02X}"),
+                    },
+                )
                 .collect()
         })
         .collect();
@@ -80,7 +89,11 @@ pub fn url(path: impl AsRef<Path>) -> String {
 pub(crate) fn grant_attribute(name: &str, value: &str) {
     match name {
         "src" | "href" | "poster" | "data" => {
-            if value.trim_start().to_ascii_lowercase().starts_with("file://") {
+            if value
+                .trim_start()
+                .to_ascii_lowercase()
+                .starts_with("file://")
+            {
                 grant_urls_in(value.trim_start());
             }
         }
@@ -102,7 +115,9 @@ fn grant_urls_in(text: &str) {
     let mut rest = text;
     while let Some(at) = rest.to_ascii_lowercase().find("file://") {
         let after = &rest[at + 7..];
-        let end = after.find(|c: char| c.is_whitespace() || "\"')<>".contains(c)).unwrap_or(after.len());
+        let end = after
+            .find(|c: char| c.is_whitespace() || "\"')<>".contains(c))
+            .unwrap_or(after.len());
         let address = after[..end].split(['?', '#']).next().unwrap_or("");
         if let Some(path) = crate::assets::percent_decoded(address.trim_start_matches('/')) {
             allow(rooted(path));
@@ -149,7 +164,11 @@ pub fn serve(rest: &str, range: Option<&str>, cross_site: bool) -> Answer {
     // before a drive letter, so a Unix path arrives without its root.
     let text = rooted(decoded);
     let path = Path::new(&text);
-    if !path.is_absolute() || path.components().any(|part| matches!(part, Component::ParentDir)) {
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|part| matches!(part, Component::ParentDir))
+    {
         return refused(403, "forbidden");
     }
     if !granted(path) {
@@ -166,7 +185,12 @@ pub fn serve(rest: &str, range: Option<&str>, cross_site: bool) -> Answer {
     };
     let mime = crate::assets::mime_of(path);
     if length == 0 {
-        return Answer { status: 200, mime, body: Vec::new(), content_range: None };
+        return Answer {
+            status: 200,
+            mime,
+            body: Vec::new(),
+            content_range: None,
+        };
     }
     let (first, last) = match range.map(|text| byte_range(text, length)) {
         Some(Some(found)) => found,
@@ -181,9 +205,17 @@ pub fn serve(rest: &str, range: Option<&str>, cross_site: bool) -> Answer {
         None if length <= WHOLE => (0, length - 1),
         None => (0, CHUNK - 1),
     };
-    let last = if range.is_none() && length <= WHOLE { last } else { last.min(first + CHUNK - 1) };
+    let last = if range.is_none() && length <= WHOLE {
+        last
+    } else {
+        last.min(first + CHUNK - 1)
+    };
     let mut body = vec![0; (last - first + 1) as usize];
-    if file.seek(SeekFrom::Start(first)).and_then(|_| file.read_exact(&mut body)).is_err() {
+    if file
+        .seek(SeekFrom::Start(first))
+        .and_then(|_| file.read_exact(&mut body))
+        .is_err()
+    {
         return refused(500, "could not read");
     }
     let whole = range.is_none() && last == length - 1;
@@ -263,9 +295,17 @@ mod tests {
     fn a_file_nobody_granted_is_refused_and_a_granted_folder_covers_its_files() {
         let secret = file_of(b"secret", "secret.txt");
         assert_eq!(serve(&encoded(&secret), None, false).status, 403);
-        allow(secret.parent().expect("a folder").join("nothing-granted-here"));
+        allow(
+            secret
+                .parent()
+                .expect("a folder")
+                .join("nothing-granted-here"),
+        );
         assert_eq!(serve(&encoded(&secret), None, false).status, 403);
-        grant_urls_in(&format!("background: url(\"file:///{}\")", encoded(&secret)));
+        grant_urls_in(&format!(
+            "background: url(\"file:///{}\")",
+            encoded(&secret)
+        ));
         grant_urls_in(&format!("file:///{}", encoded(&secret)));
         assert_eq!(serve(&encoded(&secret), None, false).status, 200);
         let _ = std::fs::remove_file(secret);
@@ -288,7 +328,10 @@ mod tests {
     fn url_encodes_awkward_names_and_grants_them() {
         let path = file_of(b"x", "a #1 %é&[b].txt");
         let address = url(&path);
-        assert!(address.starts_with(PATH) && !address.contains('#') && !address.contains(' '), "{address}");
+        assert!(
+            address.starts_with(PATH) && !address.contains('#') && !address.contains(' '),
+            "{address}"
+        );
         let rest = address.strip_prefix(PATH).expect("the route");
         assert_eq!(serve(rest, None, false).status, 200, "{address}");
         let _ = std::fs::remove_file(path);

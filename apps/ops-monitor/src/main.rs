@@ -20,7 +20,6 @@
 //! module would be a different type in the next one.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-
 use rustx::{App, Config, ToValue};
 
 /// One second of the machine, as the charts read it.

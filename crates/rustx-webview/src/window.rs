@@ -3,9 +3,9 @@
 //! The controls act on the window's own tao handle, so they are the same on
 //! every platform tao supports. A second window is not here yet.
 
+use rustx_os::window::Dressing;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
-use rustx_os::window::Dressing;
 
 /// What an application says it is.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -142,7 +142,11 @@ fn route(asked: &str) -> String {
 /// process, and with [`Window::close`].
 pub fn open(what: What) -> Result<Window, crate::error::EngineError> {
     let name = what.name.clone();
-    if children().with(|held| held.borrow_mut().get_mut(&name).is_some_and(|child| child.try_wait().ok().flatten().is_none())) {
+    if children().with(|held| {
+        held.borrow_mut()
+            .get_mut(&name)
+            .is_some_and(|child| child.try_wait().ok().flatten().is_none())
+    }) {
         return Ok(Window { name });
     }
     let spec = serde_json::json!({
@@ -154,12 +158,18 @@ pub fn open(what: What) -> Result<Window, crate::error::EngineError> {
             std::process::Command::new(exe)
                 // What the first window was started with, so a scenario or a
                 // report path reaches the second.
-                .args(std::env::args().skip(1).filter(|arg| !arg.starts_with(ARGUMENT)))
+                .args(
+                    std::env::args()
+                        .skip(1)
+                        .filter(|arg| !arg.starts_with(ARGUMENT)),
+                )
                 .arg(format!("{ARGUMENT}{spec}"))
                 .stdin(std::process::Stdio::piped())
                 .spawn()
         })
-        .map_err(|error| crate::error::EngineError::EngineInit(format!("could not open a window: {error}")))?;
+        .map_err(|error| {
+            crate::error::EngineError::EngineInit(format!("could not open a window: {error}"))
+        })?;
     children().with(|held| held.borrow_mut().insert(name.clone(), child));
     Ok(Window { name })
 }

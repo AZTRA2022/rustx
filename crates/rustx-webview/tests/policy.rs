@@ -12,20 +12,41 @@ fn policy() -> Policy {
 #[test]
 fn the_applications_own_pages_and_the_allow_list_stay_in_the_window() {
     let policy = policy();
-    assert_eq!(policy.navigation("http://rustx.localhost/page/2?x=1#top"), Navigation::Stay);
-    assert_eq!(policy.navigation("HTTP://RUSTX.LOCALHOST/"), Navigation::Stay);
-    assert_eq!(policy.navigation("https://docs.example.test/guide"), Navigation::Stay);
+    assert_eq!(
+        policy.navigation("http://rustx.localhost/page/2?x=1#top"),
+        Navigation::Stay
+    );
+    assert_eq!(
+        policy.navigation("HTTP://RUSTX.LOCALHOST/"),
+        Navigation::Stay
+    );
+    assert_eq!(
+        policy.navigation("https://docs.example.test/guide"),
+        Navigation::Stay
+    );
     assert_eq!(policy.navigation("about:blank"), Navigation::Stay);
 }
 
 #[test]
 fn any_other_web_address_opens_in_the_system_browser() {
     let policy = policy();
-    assert_eq!(policy.navigation("https://example.org/"), Navigation::OpenExternally);
-    assert_eq!(policy.navigation("http://example.org:8080/a"), Navigation::OpenExternally);
+    assert_eq!(
+        policy.navigation("https://example.org/"),
+        Navigation::OpenExternally
+    );
+    assert_eq!(
+        policy.navigation("http://example.org:8080/a"),
+        Navigation::OpenExternally
+    );
     // The same host on another scheme or port is another origin.
-    assert_eq!(policy.navigation("http://docs.example.test/"), Navigation::OpenExternally);
-    assert_eq!(policy.navigation("https://docs.example.test:8443/"), Navigation::OpenExternally);
+    assert_eq!(
+        policy.navigation("http://docs.example.test/"),
+        Navigation::OpenExternally
+    );
+    assert_eq!(
+        policy.navigation("https://docs.example.test:8443/"),
+        Navigation::OpenExternally
+    );
 }
 
 #[test]
@@ -47,7 +68,10 @@ fn what_is_not_a_web_address_is_refused_and_named() {
     let Navigation::Refuse(why) = policy.navigation("file:///C:/x") else {
         panic!("a file is refused");
     };
-    assert!(why.contains("file://"), "the refusal names the origin: {why}");
+    assert!(
+        why.contains("file://"),
+        "the refusal names the origin: {why}"
+    );
 }
 
 #[test]
@@ -94,15 +118,25 @@ fn only_the_applications_own_page_may_call_the_host() {
 
 #[test]
 fn an_origin_is_scheme_host_and_port_in_lower_case() {
-    assert_eq!(origin_of("HTTPS://Example.TEST:8443/a?b#c").as_deref(), Some("https://example.test:8443"));
-    assert_eq!(origin_of("rustx://localhost/x").as_deref(), Some("rustx://localhost"));
+    assert_eq!(
+        origin_of("HTTPS://Example.TEST:8443/a?b#c").as_deref(),
+        Some("https://example.test:8443")
+    );
+    assert_eq!(
+        origin_of("rustx://localhost/x").as_deref(),
+        Some("rustx://localhost")
+    );
     assert_eq!(origin_of("javascript:alert(1)"), None);
     assert_eq!(origin_of("://nothing"), None);
     assert_eq!(origin_of("http:///no-host"), None);
 }
 
 fn folder() -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("rustx-assets-{}-{:?}", std::process::id(), std::thread::current().id()));
+    let dir = std::env::temp_dir().join(format!(
+        "rustx-assets-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("app/deep")).expect("a folder");
     std::fs::write(dir.join("app/index.html"), "<p>home</p>").expect("a page");

@@ -92,14 +92,18 @@ pub fn origin_of(url: &str) -> Option<String> {
         return None;
     }
     let end = rest
-        .find(|c| matches!(c, '/' | '\\' | '?' | '#'))
+        .find(['/', '\\', '?', '#'])
         .unwrap_or(rest.len());
     let authority = &rest[..end];
     let host = authority.rsplit('@').next().unwrap_or(authority);
     if host.is_empty() {
         return None;
     }
-    Some(format!("{}://{}", scheme.to_ascii_lowercase(), host.to_ascii_lowercase()))
+    Some(format!(
+        "{}://{}",
+        scheme.to_ascii_lowercase(),
+        host.to_ascii_lowercase()
+    ))
 }
 
 /// The front of an address, for a message: all of it may be long and may

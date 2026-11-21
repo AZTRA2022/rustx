@@ -420,15 +420,19 @@ pub fn entry_for_in(dependencies: &[String], app: &Path) -> String {
 
 /// Every `.rsx` and `.rs` under `folder`, appended to `into`.
 fn read_sources(folder: &Path, into: &mut String) {
-    let Ok(entries) = std::fs::read_dir(folder) else { return };
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
             read_sources(&path, into);
-        } else if matches!(path.extension().and_then(|e| e.to_str()), Some("rsx" | "rs")) {
-            if let Ok(source) = std::fs::read_to_string(&path) {
-                into.push_str(&source);
-            }
+        } else if matches!(
+            path.extension().and_then(|e| e.to_str()),
+            Some("rsx" | "rs")
+        ) && let Ok(source) = std::fs::read_to_string(&path)
+        {
+            into.push_str(&source);
         }
     }
 }
@@ -724,7 +728,9 @@ impl BuildLock {
             // minutes it is nobody's.
             let stale = std::fs::metadata(&held)
                 .and_then(|about| about.modified())
-                .map(|when| when.elapsed().unwrap_or_default() > std::time::Duration::from_secs(120))
+                .map(|when| {
+                    when.elapsed().unwrap_or_default() > std::time::Duration::from_secs(120)
+                })
                 .unwrap_or(false);
             if stale || since.elapsed() > std::time::Duration::from_secs(180) {
                 let _ = std::fs::remove_dir(&held);

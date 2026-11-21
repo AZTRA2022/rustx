@@ -65,7 +65,11 @@ fn run(scenario: &str, until: &str) -> Report {
     // the tests read a stale report and passed in under two seconds.
     let report_file = std::env::temp_dir().join(format!(
         "rustx-report-{}-{}-{}.txt",
-        scenario.chars().filter(|c| c.is_ascii_alphanumeric()).take(12).collect::<String>(),
+        scenario
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .take(12)
+            .collect::<String>(),
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

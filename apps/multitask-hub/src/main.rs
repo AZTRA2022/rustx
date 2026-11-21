@@ -8,7 +8,6 @@
 //! shows where the whole set is stuck — with no backend behind it.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-
 use rustx::{App, Config};
 
 #[rustx::main]

@@ -15,9 +15,9 @@
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 
+use flate2::Compression;
 use flate2::read::DeflateDecoder;
 use flate2::write::DeflateEncoder;
-use flate2::Compression;
 
 const MAGIC: &[u8; 8] = b"RXSETUP1";
 
@@ -75,7 +75,11 @@ fn walk(root: &Path, here: &Path, into: &mut Vec<(String, PathBuf)>) -> std::io:
         if path.is_dir() {
             walk(root, &path, into)?;
         } else if path.is_file() {
-            let name = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+            let name = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
             into.push((name, path));
         }
     }
@@ -86,16 +90,20 @@ fn walk(root: &Path, here: &Path, into: &mut Vec<(String, PathBuf)>) -> std::io:
 pub fn pack(stub: &Path, folder: &Path, meta: &Meta, out: &Path) -> Result<(), String> {
     let failed = |what: &str, error: std::io::Error| format!("{what} ({error}).");
     let mut files = Vec::new();
-    walk(folder, folder, &mut files).map_err(|error| failed("the folder could not be read", error))?;
+    walk(folder, folder, &mut files)
+        .map_err(|error| failed("the folder could not be read", error))?;
     files.sort();
 
-    let mut file = std::fs::File::create(out).map_err(|error| failed(&format!("{} could not be made", out.display()), error))?;
-    let mut stub_bytes = std::fs::read(stub).map_err(|error| failed(&format!("{} could not be read", stub.display()), error))?;
+    let mut file = std::fs::File::create(out)
+        .map_err(|error| failed(&format!("{} could not be made", out.display()), error))?;
+    let mut stub_bytes = std::fs::read(stub)
+        .map_err(|error| failed(&format!("{} could not be read", stub.display()), error))?;
     // A stub that is itself an installer must not carry its first payload along.
     if let Some(found) = locate_bytes(&stub_bytes) {
         stub_bytes.truncate(found.stub as usize);
     }
-    file.write_all(&stub_bytes).map_err(|error| failed("the stub could not be written", error))?;
+    file.write_all(&stub_bytes)
+        .map_err(|error| failed("the stub could not be written", error))?;
 
     struct Counting<'a>(&'a mut std::fs::File, u64);
     impl Write for Counting<'_> {
@@ -112,7 +120,9 @@ pub fn pack(stub: &Path, folder: &Path, meta: &Meta, out: &Path) -> Result<(), S
     {
         let mut encoder = DeflateEncoder::new(&mut counted, Compression::default());
         for (name, path) in &files {
-            let size = std::fs::metadata(path).map_err(|error| failed("a file could not be measured", error))?.len();
+            let size = std::fs::metadata(path)
+                .map_err(|error| failed("a file could not be measured", error))?
+                .len();
             let name_bytes = name.as_bytes();
             let write = |encoder: &mut DeflateEncoder<&mut Counting>| -> std::io::Result<()> {
                 encoder.write_all(&(name_bytes.len() as u16).to_le_bytes())?;
@@ -122,10 +132,15 @@ pub fn pack(stub: &Path, folder: &Path, meta: &Meta, out: &Path) -> Result<(), S
                 std::io::copy(&mut source, encoder)?;
                 Ok(())
             };
-            write(&mut encoder).map_err(|error| failed(&format!("{name} could not be added"), error))?;
+            write(&mut encoder)
+                .map_err(|error| failed(&format!("{name} could not be added"), error))?;
         }
-        encoder.write_all(&0_u16.to_le_bytes()).map_err(|error| failed("the end could not be written", error))?;
-        encoder.finish().map_err(|error| failed("the payload could not be finished", error))?;
+        encoder
+            .write_all(&0_u16.to_le_bytes())
+            .map_err(|error| failed("the end could not be written", error))?;
+        encoder
+            .finish()
+            .map_err(|error| failed("the payload could not be finished", error))?;
     }
     let payload = counted.1;
 
@@ -168,14 +183,19 @@ pub fn locate(exe: &Path) -> Option<(Meta, Located)> {
     let mut text = vec![0_u8; meta_len as usize];
     file.seek(SeekFrom::Start(end - 20 - meta_len)).ok()?;
     file.read_exact(&mut text).ok()?;
-    Some((Meta::from_text(&String::from_utf8_lossy(&text)), Located { stub, payload }))
+    Some((
+        Meta::from_text(&String::from_utf8_lossy(&text)),
+        Located { stub, payload },
+    ))
 }
 
 /// A name from a payload is a path under the destination or nothing: no
 /// `..`, no root, no drive.
 fn safe(name: &str) -> Option<PathBuf> {
     let path = Path::new(name);
-    let clean = path.components().all(|part| matches!(part, Component::Normal(_)));
+    let clean = path
+        .components()
+        .all(|part| matches!(part, Component::Normal(_)));
     (clean && !name.contains(':') && !name.contains('\\')).then(|| path.to_path_buf())
 }
 
@@ -183,29 +203,49 @@ fn safe(name: &str) -> Option<PathBuf> {
 pub fn unpack(exe: &Path, located: Located, into: &Path) -> Result<usize, String> {
     use std::io::{Seek, SeekFrom};
     let failed = |what: String, error: std::io::Error| format!("{what} ({error}).");
-    let mut file = std::fs::File::open(exe).map_err(|error| failed(format!("{} could not be opened", exe.display()), error))?;
-    file.seek(SeekFrom::Start(located.stub)).map_err(|error| failed("the payload could not be reached".into(), error))?;
+    let mut file = std::fs::File::open(exe)
+        .map_err(|error| failed(format!("{} could not be opened", exe.display()), error))?;
+    file.seek(SeekFrom::Start(located.stub))
+        .map_err(|error| failed("the payload could not be reached".into(), error))?;
     let mut stream = DeflateDecoder::new(file.take(located.payload));
     let mut count = 0;
     loop {
         let mut length = [0_u8; 2];
-        stream.read_exact(&mut length).map_err(|error| failed("the payload is cut short".into(), error))?;
+        stream
+            .read_exact(&mut length)
+            .map_err(|error| failed("the payload is cut short".into(), error))?;
         let length = u16::from_le_bytes(length) as usize;
         if length == 0 {
             return Ok(count);
         }
         let mut name = vec![0_u8; length];
-        stream.read_exact(&mut name).map_err(|error| failed("the payload is cut short".into(), error))?;
-        let name = String::from_utf8(name).map_err(|_| "a name in the payload is not text.".to_string())?;
-        let relative = safe(&name).ok_or_else(|| format!("{name} would leave the install folder; the installer is refused."))?;
+        stream
+            .read_exact(&mut name)
+            .map_err(|error| failed("the payload is cut short".into(), error))?;
+        let name = String::from_utf8(name)
+            .map_err(|_| "a name in the payload is not text.".to_string())?;
+        let relative = safe(&name).ok_or_else(|| {
+            format!("{name} would leave the install folder; the installer is refused.")
+        })?;
         let mut size = [0_u8; 8];
-        stream.read_exact(&mut size).map_err(|error| failed("the payload is cut short".into(), error))?;
+        stream
+            .read_exact(&mut size)
+            .map_err(|error| failed("the payload is cut short".into(), error))?;
         let destination = into.join(relative);
         if let Some(parent) = destination.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| failed(format!("{} could not be made", parent.display()), error))?;
+            std::fs::create_dir_all(parent).map_err(|error| {
+                failed(format!("{} could not be made", parent.display()), error)
+            })?;
         }
-        let mut out = std::fs::File::create(&destination)
-            .map_err(|error| failed(format!("{} could not be written (is the application running?)", destination.display()), error))?;
+        let mut out = std::fs::File::create(&destination).map_err(|error| {
+            failed(
+                format!(
+                    "{} could not be written (is the application running?)",
+                    destination.display()
+                ),
+                error,
+            )
+        })?;
         let wanted = u64::from_le_bytes(size);
         let copied = std::io::copy(&mut (&mut stream).take(wanted), &mut out)
             .map_err(|error| failed(format!("{name} could not be extracted"), error))?;
@@ -221,7 +261,8 @@ mod tests {
     use super::*;
 
     fn temp(name: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!("rustx-selfextract-{name}-{}", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("rustx-selfextract-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).unwrap();
         path
@@ -235,7 +276,12 @@ mod tests {
         std::fs::write(folder.join("app.exe"), vec![7_u8; 100_000]).unwrap();
         std::fs::write(folder.join("assets/index.html"), "été").unwrap();
         std::fs::write(root.join("stub.exe"), b"STUB").unwrap();
-        let meta = Meta { name: "My App".into(), version: "1.2.3".into(), publisher: "me".into(), binary: "app.exe".into() };
+        let meta = Meta {
+            name: "My App".into(),
+            version: "1.2.3".into(),
+            publisher: "me".into(),
+            binary: "app.exe".into(),
+        };
 
         let setup = root.join("setup.exe");
         pack(&root.join("stub.exe"), &folder, &meta, &setup).unwrap();
@@ -246,7 +292,10 @@ mod tests {
         let out = root.join("out");
         assert_eq!(unpack(&setup, located, &out).unwrap(), 2);
         assert_eq!(std::fs::read(out.join("app.exe")).unwrap().len(), 100_000);
-        assert_eq!(std::fs::read_to_string(out.join("assets/index.html")).unwrap(), "été");
+        assert_eq!(
+            std::fs::read_to_string(out.join("assets/index.html")).unwrap(),
+            "été"
+        );
 
         // The installer used as a stub: its payload is not carried along.
         let again = root.join("again.exe");

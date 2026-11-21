@@ -157,7 +157,11 @@ pub fn run(project: &Path, options: &Options) -> Result<Packaged, String> {
 /// The binary: the system's webview is the engine, so nothing else of the
 /// build directory travels.
 fn gather_beside(exe: &Path, into: &mut Vec<(String, PathBuf)>) -> Result<(), String> {
-    let name = exe.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let name = exe
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
     if !exe.is_file() {
         return Err(format!(
             "{} was built and is not there, so there is nothing to package.",
@@ -500,8 +504,17 @@ mod tests {
     fn a_package_holds_this_applications_binary_and_nothing_else() {
         let ours = "mon-app.exe";
         assert!(build::runtime_file("mon-app.exe", ours));
-        for named in ["rustx.exe", "another-app.exe", "libcef.dll", "resources.pak", "mon-app.d"] {
-            assert!(!build::runtime_file(named, ours), "{named} was shipped and nothing reads it");
+        for named in [
+            "rustx.exe",
+            "another-app.exe",
+            "libcef.dll",
+            "resources.pak",
+            "mon-app.d",
+        ] {
+            assert!(
+                !build::runtime_file(named, ours),
+                "{named} was shipped and nothing reads it"
+            );
         }
     }
 

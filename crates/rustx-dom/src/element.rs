@@ -56,7 +56,9 @@ impl ForeignNode {
     pub fn carries_callbacks(&self) -> bool {
         fn element_has(element: &Element) -> bool {
             match element {
-                Element::Tag(tag) => !tag.handlers.is_empty() || tag.children.iter().any(element_has),
+                Element::Tag(tag) => {
+                    !tag.handlers.is_empty() || tag.children.iter().any(element_has)
+                }
                 Element::Fragment(children) => children.iter().any(element_has),
                 Element::Foreign { node, .. } => node.carries_callbacks(),
                 _ => false,
@@ -421,10 +423,18 @@ impl Event {
             ("button".to_string(), Value::Number(f64::from(self.button))),
             ("delta_x".to_string(), Value::Number(self.delta_x)),
             ("delta_y".to_string(), Value::Number(self.delta_y)),
-            ("current_id".to_string(), Value::String(self.current_id.clone())),
+            (
+                "current_id".to_string(),
+                Value::String(self.current_id.clone()),
+            ),
             (
                 "numbers".to_string(),
-                Value::List(self.numbers.iter().map(|each| Value::Number(*each)).collect()),
+                Value::List(
+                    self.numbers
+                        .iter()
+                        .map(|each| Value::Number(*each))
+                        .collect(),
+                ),
             ),
         ])
     }
@@ -492,7 +502,14 @@ impl Event {
             Value::List(list) => {
                 let numbers: Vec<f64> = list.iter().filter_map(Value::as_f64).collect();
                 Self {
-                    value: list.first().map(|first| first.as_str().map(str::to_string).unwrap_or_else(|| numbers.first().map(|n| format!("{n}")).unwrap_or_default())).unwrap_or_default(),
+                    value: list
+                        .first()
+                        .map(|first| {
+                            first.as_str().map(str::to_string).unwrap_or_else(|| {
+                                numbers.first().map(|n| format!("{n}")).unwrap_or_default()
+                            })
+                        })
+                        .unwrap_or_default(),
                     numbers,
                     ..Default::default()
                 }

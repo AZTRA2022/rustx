@@ -9,7 +9,6 @@
 //! paid API — honestly, rather than pretending it reached one.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-
 use rustx::{App, Config};
 
 #[rustx::main]

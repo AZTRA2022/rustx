@@ -24,7 +24,7 @@ fn main() {
 
 #[cfg(windows)]
 mod windows {
-    use rustx_cli::selfextract::{locate, unpack, Meta};
+    use rustx_cli::selfextract::{Meta, locate, unpack};
     use std::os::windows::process::CommandExt;
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -48,7 +48,14 @@ mod windows {
              if($r -eq 'No'){{exit 1}}"
         );
         hidden("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                &script,
+            ])
             .env("RX_TEXT", text)
             .env("RX_TITLE", title)
             .status()
@@ -57,13 +64,22 @@ mod windows {
     }
 
     fn folder_name(name: &str) -> String {
-        let cleaned: String = name.chars().map(|c| if r#"<>:"/\|?*"#.contains(c) { '-' } else { c }).collect();
+        let cleaned: String = name
+            .chars()
+            .map(|c| if r#"<>:"/\|?*"#.contains(c) { '-' } else { c })
+            .collect();
         let cleaned = cleaned.trim().trim_end_matches('.').to_string();
-        if cleaned.is_empty() { "App".to_string() } else { cleaned }
+        if cleaned.is_empty() {
+            "App".to_string()
+        } else {
+            cleaned
+        }
     }
 
     fn base(variable: &str) -> Result<PathBuf, String> {
-        std::env::var_os(variable).map(PathBuf::from).ok_or_else(|| format!("%{variable}% is not set"))
+        std::env::var_os(variable)
+            .map(PathBuf::from)
+            .ok_or_else(|| format!("%{variable}% is not set"))
     }
 
     fn shortcut(name: &str) -> Result<PathBuf, String> {
@@ -74,23 +90,42 @@ mod windows {
 
     fn registry(name: &str, args: &[&str]) -> bool {
         let key = format!(r"HKCU\{UNINSTALL}\{}", folder_name(name));
-        hidden("reg").arg("add").arg(&key).args(args).arg("/f").status().map(|s| s.success()).unwrap_or(false)
+        hidden("reg")
+            .arg("add")
+            .arg(&key)
+            .args(args)
+            .arg("/f")
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
     }
 
     pub fn run() -> Result<(), String> {
         let arguments: Vec<String> = std::env::args().skip(1).collect();
         if arguments.first().map(String::as_str) == Some("--uninstall") {
-            let folder = arguments.get(1).ok_or("--uninstall needs the install folder")?;
+            let folder = arguments
+                .get(1)
+                .ok_or("--uninstall needs the install folder")?;
             return uninstall(Path::new(folder), arguments.iter().any(|a| a == "/S"));
         }
-        let silent = arguments.iter().any(|a| a.eq_ignore_ascii_case("/s") || a == "--silent");
-        let exe = std::env::current_exe().map_err(|e| format!("this program could not find itself ({e})"))?;
+        let silent = arguments
+            .iter()
+            .any(|a| a.eq_ignore_ascii_case("/s") || a == "--silent");
+        let exe = std::env::current_exe()
+            .map_err(|e| format!("this program could not find itself ({e})"))?;
         let (meta, located) = locate(&exe).ok_or("there is no application inside this file")?;
-        let destination = base("LOCALAPPDATA")?.join("Programs").join(folder_name(&meta.name));
+        let destination = base("LOCALAPPDATA")?
+            .join("Programs")
+            .join(folder_name(&meta.name));
 
         if !silent
             && !say(
-                &format!("Install {} {} for you, in\n{}?", meta.name, meta.version, destination.display()),
+                &format!(
+                    "Install {} {} for you, in\n{}?",
+                    meta.name,
+                    meta.version,
+                    destination.display()
+                ),
                 &format!("{} setup", meta.name),
                 true,
             )
@@ -109,7 +144,9 @@ mod windows {
                 true,
             )
         {
-            let _ = Command::new(destination.join(&meta.binary)).current_dir(&destination).spawn();
+            let _ = Command::new(destination.join(&meta.binary))
+                .current_dir(&destination)
+                .spawn();
         }
         Ok(())
     }
@@ -133,7 +170,14 @@ mod windows {
             let _ = std::fs::create_dir_all(parent);
         }
         let made = hidden("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                script,
+            ])
             .env("RX_LINK", &link)
             .env("RX_TARGET", &target)
             .env("RX_DIR", destination)
@@ -143,7 +187,11 @@ mod windows {
         if !made {
             return Err("the Start menu shortcut could not be made".to_string());
         }
-        let uninstall = format!("\"{}\" --uninstall \"{}\"", destination.join("uninstall.exe").display(), destination.display());
+        let uninstall = format!(
+            "\"{}\" --uninstall \"{}\"",
+            destination.join("uninstall.exe").display(),
+            destination.display()
+        );
         let location = destination.display().to_string();
         let icon = target.display().to_string();
         let entries: [(&str, &str); 5] = [
@@ -156,13 +204,25 @@ mod windows {
         for (key, value) in entries {
             registry(&meta.name, &["/v", key, "/t", "REG_SZ", "/d", value]);
         }
-        registry(&meta.name, &["/v", "UninstallString", "/t", "REG_SZ", "/d", &uninstall]);
+        registry(
+            &meta.name,
+            &["/v", "UninstallString", "/t", "REG_SZ", "/d", &uninstall],
+        );
         Ok(())
     }
 
     fn uninstall(folder: &Path, silent: bool) -> Result<(), String> {
-        let meta_name = folder.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-        if !silent && !say(&format!("Remove {meta_name} from this computer?"), &format!("{meta_name} setup"), true) {
+        let meta_name = folder
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if !silent
+            && !say(
+                &format!("Remove {meta_name} from this computer?"),
+                &format!("{meta_name} setup"),
+                true,
+            )
+        {
             return Ok(());
         }
         if let Ok(link) = shortcut(&meta_name) {

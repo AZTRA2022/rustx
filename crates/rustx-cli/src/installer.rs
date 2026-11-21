@@ -363,7 +363,10 @@ fn self_extracting(read: &build::Project, folder: &Path, binary: &str) -> Made {
         return made;
     };
     let beside = folder.parent().unwrap_or(folder);
-    let base = folder.file_name().map(|it| it.to_string_lossy().into_owned()).unwrap_or_default();
+    let base = folder
+        .file_name()
+        .map(|it| it.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let setup = beside.join(format!("{base}-setup.exe"));
     let meta = crate::selfextract::Meta {
         name: read.about.name.clone(),
@@ -388,11 +391,18 @@ fn self_extracting(read: &build::Project, folder: &Path, binary: &str) -> Made {
 
 /// The file name of the binary as it sits in the folder.
 fn binary_file(binary: &str) -> String {
-    if binary.to_ascii_lowercase().ends_with(".exe") { binary.to_string() } else { format!("{binary}.exe") }
+    if binary.to_ascii_lowercase().ends_with(".exe") {
+        binary.to_string()
+    } else {
+        format!("{binary}.exe")
+    }
 }
 
 fn windows(read: &build::Project, folder: &Path, binary: &str, pages: &Pages) -> Made {
-    if std::env::var("RUSTX_INSTALLER").map(|it| it != "inno").unwrap_or(true) {
+    if std::env::var("RUSTX_INSTALLER")
+        .map(|it| it != "inno")
+        .unwrap_or(true)
+    {
         return self_extracting(read, folder, binary);
     }
     let mut made = Made::default();

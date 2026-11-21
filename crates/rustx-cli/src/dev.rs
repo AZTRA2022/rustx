@@ -67,7 +67,9 @@ pub fn watch(project: &Path) -> Result<(), String> {
     // page becomes a reload for ever.
     let mut assets = Watched::new(
         &[project.join("assets")],
-        &["css", "js", "html", "json", "svg", "png", "jpg", "ico", "woff2", "ttf"],
+        &[
+            "css", "js", "html", "json", "svg", "png", "jpg", "ico", "woff2", "ttf",
+        ],
         &[rustx_compiler::bundle::SERVED, "tailwind.css"],
     );
     let reload = project.join("target").join("rustx-dev-reload.txt");
@@ -75,7 +77,11 @@ pub fn watch(project: &Path) -> Result<(), String> {
     // reads it and the result is compiled into the binary. A change to it is
     // a rebuild, not a reload.
     let sheet = project.join("assets").join("tailwind.css");
-    let stamp = |path: &Path| std::fs::metadata(path).and_then(|about| about.modified()).ok();
+    let stamp = |path: &Path| {
+        std::fs::metadata(path)
+            .and_then(|about| about.modified())
+            .ok()
+    };
     let mut sheet_seen = stamp(&sheet);
     let mut coalescing = Coalescing::new(QUIET);
 
@@ -99,7 +105,10 @@ pub fn watch(project: &Path) -> Result<(), String> {
             let _ = assets.changed();
         } else if !coalescing.waiting() && assets.changed() {
             println!("rustx: an asset changed — reloading the page.");
-            let turn = std::fs::read_to_string(&reload).ok().and_then(|n| n.trim().parse::<u64>().ok()).unwrap_or(0);
+            let turn = std::fs::read_to_string(&reload)
+                .ok()
+                .and_then(|n| n.trim().parse::<u64>().ok())
+                .unwrap_or(0);
             let _ = std::fs::write(&reload, (turn + 1).to_string());
         }
 

@@ -56,12 +56,24 @@ fn two_foreign_nodes_of_the_same_component_with_the_same_props_are_one_patch_fre
 fn a_node_with_callbacks_is_handed_over_again_so_the_page_calls_the_latest_closure() {
     let with_callback = |series: &str| {
         let mut node = node("ui::Switch", series);
-        node.callbacks.push(("onCheckedChange".to_string(), rustx_dom::Callback::new(|_| {})));
-        Element::Foreign { node, id: "rustx-js-3-12".to_string() }
+        node.callbacks.push((
+            "onCheckedChange".to_string(),
+            rustx_dom::Callback::new(|_| {}),
+        ));
+        Element::Foreign {
+            node,
+            id: "rustx-js-3-12".to_string(),
+        }
     };
     assert_eq!(
         diff(&with_callback("a"), &with_callback("a")),
-        vec![Patch::ForeignProps { path: Path::root(), node: match with_callback("a") { Element::Foreign { node, .. } => node, _ => unreachable!() } }]
+        vec![Patch::ForeignProps {
+            path: Path::root(),
+            node: match with_callback("a") {
+                Element::Foreign { node, .. } => node,
+                _ => unreachable!(),
+            }
+        }]
     );
 }
 
@@ -71,10 +83,16 @@ fn a_callback_anywhere_inside_a_boundary_hands_it_over_again() {
     // shape of a panel whose controls capture the index of a clip.
     let card = || {
         let mut child = node("ui::Switch", "a");
-        child.callbacks.push(("onCheckedChange".to_string(), rustx_dom::Callback::new(|_| {})));
+        child.callbacks.push((
+            "onCheckedChange".to_string(),
+            rustx_dom::Callback::new(|_| {}),
+        ));
         let mut card = node("ui::Card", "a");
         card.children.push(ForeignChild::Node(child));
-        Element::Foreign { node: card, id: "rustx-js-3-12".to_string() }
+        Element::Foreign {
+            node: card,
+            id: "rustx-js-3-12".to_string(),
+        }
     };
     let patches = diff(&card(), &card());
     assert_eq!(patches.len(), 1, "{patches:?}");

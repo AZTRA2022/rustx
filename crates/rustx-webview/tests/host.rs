@@ -23,14 +23,22 @@ fn the_applications_page_loads_from_its_own_origin_and_can_call_the_host() {
     let profile = root.join("profile");
     let run = probe(&root, &["--data-dir", profile.to_str().expect("utf8")], &[]);
     let origin = rustx_webview::host::origin("rustx");
-    assert_eq!(run.messages, vec![format!("origin={origin}")], "{}", run.stderr);
+    assert_eq!(
+        run.messages,
+        vec![format!("origin={origin}")],
+        "{}",
+        run.stderr
+    );
     assert!(run.done && run.success, "{}", run.stderr);
 
     // The profile is where it was told to be, and none was made next to
     // the executable, which fails under Program Files.
     assert!(profile.exists(), "no profile at {}", profile.display());
     let beside = format!("{}.WebView2", env!("CARGO_BIN_EXE_probe"));
-    assert!(!Path::new(&beside).exists(), "a profile was made at {beside}");
+    assert!(
+        !Path::new(&beside).exists(),
+        "a profile was made at {beside}"
+    );
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -46,15 +54,21 @@ fn a_link_to_another_site_opens_in_the_system_browser_and_the_window_stays() {
          </script>",
     );
     let run = probe(&root, &[], &[]);
-    assert!(run.messages.contains(&"still-here".to_string()), "left the page: {}", run.stderr);
     assert!(
-        run.opened.contains(&"https://example.invalid/x?token=1".to_string()),
+        run.messages.contains(&"still-here".to_string()),
+        "left the page: {}",
+        run.stderr
+    );
+    assert!(
+        run.opened
+            .contains(&"https://example.invalid/x?token=1".to_string()),
         "navigation: {:?} {}",
         run.opened,
         run.stderr
     );
     assert!(
-        run.opened.contains(&"https://example.invalid/new".to_string()),
+        run.opened
+            .contains(&"https://example.invalid/new".to_string()),
         "window.open: {:?} {}",
         run.opened,
         run.stderr
@@ -72,7 +86,11 @@ fn an_address_that_is_not_a_web_address_is_refused_and_nothing_opens() {
          </script>",
     );
     let run = probe(&root, &[], &[]);
-    assert!(run.messages.contains(&"still-here".to_string()), "{}", run.stderr);
+    assert!(
+        run.messages.contains(&"still-here".to_string()),
+        "{}",
+        run.stderr
+    );
     assert!(run.opened.is_empty(), "opened {:?}", run.opened);
     assert!(run.stderr.contains("refused to navigate"), "{}", run.stderr);
     let _ = std::fs::remove_dir_all(root);
@@ -101,10 +119,12 @@ fn an_allowed_remote_page_loads_in_the_window_and_cannot_call_the_host() {
             let path = head.split_whitespace().nth(1).unwrap_or("").to_string();
             log.lock().expect("lock").push(path.clone());
             let body = match path.as_str() {
-                "/" => "<!doctype html><script>
+                "/" => {
+                    "<!doctype html><script>
                           try { window.ipc.postMessage('from-remote'); } catch (e) {}
                           fetch('/ran');
-                        </script>",
+                        </script>"
+                }
                 _ => "",
             };
             let _ = write!(
@@ -127,12 +147,20 @@ fn an_allowed_remote_page_loads_in_the_window_and_cannot_call_the_host() {
     );
     let run = probe(&root, &["--allow", &remote], &[]);
     let paths = seen.lock().expect("lock").clone();
-    assert!(paths.contains(&"/".to_string()), "the allowed page never loaded: {paths:?} {}", run.stderr);
+    assert!(
+        paths.contains(&"/".to_string()),
+        "the allowed page never loaded: {paths:?} {}",
+        run.stderr
+    );
     assert!(
         paths.contains(&"/ran".to_string()),
         "the remote script did not run, so the test proves nothing: {paths:?}"
     );
-    assert_eq!(run.messages, vec!["ready".to_string()], "the remote page reached the host");
+    assert_eq!(
+        run.messages,
+        vec!["ready".to_string()],
+        "the remote page reached the host"
+    );
     assert!(run.stderr.contains("ignored a message"), "{}", run.stderr);
     drop(server);
     let _ = std::fs::remove_dir_all(root);
@@ -143,9 +171,17 @@ fn a_missing_webview_runtime_is_an_error_and_not_a_crash() {
     let root = folder("noruntime", "<!doctype html><p>x</p>");
     let empty = root.join("no-runtime");
     std::fs::create_dir_all(&empty).expect("a folder");
-    let run = probe(&root, &[], &[("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER", &empty)]);
+    let run = probe(
+        &root,
+        &[],
+        &[("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER", &empty)],
+    );
     assert!(!run.success, "started without a runtime");
     assert!(!run.done, "ran as if there were a window");
-    assert!(run.stderr.contains("WebView2 Runtime"), "the message does not name the runtime: {:?}", run.stderr);
+    assert!(
+        run.stderr.contains("WebView2 Runtime"),
+        "the message does not name the runtime: {:?}",
+        run.stderr
+    );
     let _ = std::fs::remove_dir_all(root);
 }

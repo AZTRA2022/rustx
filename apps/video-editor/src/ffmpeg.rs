@@ -351,10 +351,13 @@ pub fn frame_arguments(clip: &Clip, at: f64, out: &Path) -> Vec<String> {
         "-frames:v".to_string(),
         "1".to_string(),
     ];
-    let chain: Vec<String> = [Some(look_filter(&clip.look).to_string()).filter(|look| !look.is_empty()), clip.grade_filter()]
-        .into_iter()
-        .flatten()
-        .collect();
+    let chain: Vec<String> = [
+        Some(look_filter(&clip.look).to_string()).filter(|look| !look.is_empty()),
+        clip.grade_filter(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     if !chain.is_empty() {
         arguments.push("-vf".to_string());
         arguments.push(chain.join(","));
@@ -1027,9 +1030,18 @@ mod tests {
         let mut off = clip("off.mp4", 1280, true);
         off.enabled = false;
         let on = clip("on.mp4", 1280, true);
-        let plan = plan(&[off.clone(), on], Path::new("out.mp4"), Path::new("subs"), None).expect("renderable");
+        let plan = plan(
+            &[off.clone(), on],
+            Path::new("out.mp4"),
+            Path::new("subs"),
+            None,
+        )
+        .expect("renderable");
         let line = plan.arguments.join(" ");
-        assert!(line.contains("on.mp4") && !line.contains("off.mp4"), "{line}");
+        assert!(
+            line.contains("on.mp4") && !line.contains("off.mp4"),
+            "{line}"
+        );
         assert!(super::plan(&[off], Path::new("out.mp4"), Path::new("subs"), None).is_err());
     }
 
@@ -1037,15 +1049,42 @@ mod tests {
     fn a_grade_is_in_the_graph_and_in_the_frame_and_absent_when_untouched() {
         let mut one = clip("a.mp4", 1280, true);
         assert_eq!(one.grade_filter(), None);
-        let plain = plan(&[one.clone()], Path::new("out.mp4"), Path::new("subs"), None).expect("renderable");
+        let plain = plan(
+            &[one.clone()],
+            Path::new("out.mp4"),
+            Path::new("subs"),
+            None,
+        )
+        .expect("renderable");
         assert!(!plain.arguments.join(" ").contains("eq="));
         one.brightness = 0.25;
         one.saturation = 1.5;
-        assert_eq!(one.grade_filter().as_deref(), Some("eq=brightness=0.25:contrast=1.00:saturation=1.50"));
-        let graded = plan(&[one.clone()], Path::new("out.mp4"), Path::new("subs"), None).expect("renderable");
-        assert!(graded.arguments.join(" ").contains("eq=brightness=0.25:contrast=1.00:saturation=1.50,format=yuv420p"));
-        assert!(frame_arguments(&one, 1.0, Path::new("f.jpg")).join(" ").contains("-vf eq=brightness=0.25"));
-        assert_eq!(one.grade_css(), "brightness(1.25) contrast(1.00) saturate(1.50)");
+        assert_eq!(
+            one.grade_filter().as_deref(),
+            Some("eq=brightness=0.25:contrast=1.00:saturation=1.50")
+        );
+        let graded = plan(
+            &[one.clone()],
+            Path::new("out.mp4"),
+            Path::new("subs"),
+            None,
+        )
+        .expect("renderable");
+        assert!(
+            graded
+                .arguments
+                .join(" ")
+                .contains("eq=brightness=0.25:contrast=1.00:saturation=1.50,format=yuv420p")
+        );
+        assert!(
+            frame_arguments(&one, 1.0, Path::new("f.jpg"))
+                .join(" ")
+                .contains("-vf eq=brightness=0.25")
+        );
+        assert_eq!(
+            one.grade_css(),
+            "brightness(1.25) contrast(1.00) saturate(1.50)"
+        );
     }
 
     #[test]

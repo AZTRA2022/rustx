@@ -298,7 +298,6 @@ pub(crate) fn wake() {
     crate::host::wake();
 }
 
-
 /// Is the frame queue still taking work?
 ///
 /// `false` from [`shutdown`] until the next [`open`], which is the
@@ -326,7 +325,6 @@ pub fn open() {
     // order today, and keeping them apart is how it stays true.
     rustx_dom::state::open_remote();
 }
-
 
 #[cfg(test)]
 mod tests {

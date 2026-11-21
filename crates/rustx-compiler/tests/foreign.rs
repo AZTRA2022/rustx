@@ -294,7 +294,11 @@ fn a_component_prop_annotated_with_event_is_handed_an_event() {
 
 #[test]
 fn an_unannotated_component_prop_stays_a_value() {
-    for closure in ["move |value| drop(value)", "move |a, b| drop((a, b))", "move || ()"] {
+    for closure in [
+        "move |value| drop(value)",
+        "move |a, b| drop((a, b))",
+        "move || ()",
+    ] {
         let rust = rewrite_one(&format!(
             "fn P() -> Element {{\n    return <Textarea onClick={{{closure}}} />;\n}}"
         ));
