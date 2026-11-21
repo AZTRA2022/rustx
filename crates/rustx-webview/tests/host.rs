@@ -55,7 +55,7 @@ fn a_link_to_another_site_opens_in_the_system_browser_and_the_window_stays() {
            setTimeout(() => window.ipc.postMessage('still-here'), 2500);
          </script>",
     );
-    let run = probe(&root, &[], &[]);
+    let run = probe(&root, &["--seconds", "10"], &[]);
     assert!(
         run.messages.contains(&"still-here".to_string()),
         "left the page: {}",
@@ -90,7 +90,7 @@ fn an_address_that_is_not_a_web_address_is_refused_and_nothing_opens() {
            setTimeout(() => window.ipc.postMessage('still-here'), 2500);
          </script>",
     );
-    let run = probe(&root, &[], &[]);
+    let run = probe(&root, &["--seconds", "10"], &[]);
     assert!(
         run.messages.contains(&"still-here".to_string()),
         "{}",
