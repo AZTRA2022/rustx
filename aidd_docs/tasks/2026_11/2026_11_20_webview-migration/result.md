@@ -53,7 +53,7 @@ Click-to-paint number; edit-to-screen number for a `.rsx` edit; macOS and Linux 
 
 ## GitHub CI (2026-11-21, draft PR 7)
 
-Run 44874892110: all eight jobs green. What that means:
+Run 44879046615 (latest; the first fully green one was 44874892110): all eight jobs green. What that means:
 
 - **Windows**: fmt, clippy, the whole workspace's tests (1,180+), docs, packaging; the counter app is packaged, the setup is installed silently and checked, then the CI step ends.
 - **Linux**: `rustx-os` tests; the whole `rustx-webview` suite (page, natives, files, window API) under Xvfb with WebKitGTK; a `.deb` that `dpkg` installs and `desktop-file-validate` accepts.
@@ -66,3 +66,11 @@ Not covered by CI: a real desktop on either system (tray, dialogs answered by a 
 Limit to know: a synchronous native with arguments over 200 KB sends them in the body, which WebKitGTK drops; use an asynchronous native for big payloads.
 
 macOS webview (CI, hosted Mac): 18 of the 20 page tests pass, and the `.pkg` installs and the installed app stays up for eight seconds. Two tests do not: a size set from Rust (`window::set_size`, and so `remember_window`) did not take on the runner (the window stayed 900x640). Those two are skipped on macOS in the code, with the reason; the cause is not known (a hosted Mac's display, or tao's NSWindow path) and needs a real Mac.
+
+Since then CI also proves that the installed application **starts and stays up for eight seconds** on all three systems (Windows `counter.exe`, Linux under Xvfb, macOS `Counter.app` after `installer -pkg`), that the Windows silent uninstaller removes the folder, and the macOS job runs the webview suite (18 of 20 tests; two window-size tests skipped there, see above).
+
+## Measures (Windows, debug build, this machine)
+
+- Page ready after 0.8 to 1.1 s from the process start (`RUSTX_TRACE=1` prints it); a window hidden until then is no slower than a visible one (`RUSTX_SHOW_NOW=1`), and the page, not the 1.2 s fallback, is what shows it.
+- `.rsx` edit to a new window with the page ready under `rustx dev`: 5.4 s for a comment-only change on counter (incremental cargo build included). An asset edit reloads the page in place without a build (not timed).
+- Installed size: setup 1.9 MB (stub 1.1 MB), folder 2.1 MB for counter.
