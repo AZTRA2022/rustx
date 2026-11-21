@@ -363,6 +363,15 @@
   function ready() {
     const ids = Array.from(document.querySelectorAll("[id]"), (element) => element.id);
     post({ t: "ready", ids });
+    // A page names its window the way it names a tab: a <title> anywhere in its
+    // tree (one per route, like Next.js metadata) becomes the window's title.
+    let lastTitle = document.title;
+    new MutationObserver(() => {
+      if (document.title !== lastTitle) {
+        lastTitle = document.title;
+        post({ t: "title", title: lastTitle });
+      }
+    }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", ready);

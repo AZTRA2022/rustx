@@ -893,6 +893,12 @@ fn handle(body: &str, hooks: &Hooks, control: &Control) {
             crate::mount::dispatch(node, &name, &event, seq);
             wake();
         }
+        Ok(FromPage::Title { title }) => {
+            if std::env::var_os("RUSTX_TRACE").is_some() {
+                eprintln!("rustx: window title is now {title}");
+            }
+            crate::window::set_title(&title)
+        }
         Ok(FromPage::Error { message }) => {
             eprintln!("rustx: the page could not run a command: {message}")
         }

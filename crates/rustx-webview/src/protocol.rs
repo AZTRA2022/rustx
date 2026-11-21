@@ -68,6 +68,10 @@ pub enum FromPage {
     Error {
         message: String,
     },
+    /// `document.title` changed after the page was ready: the window's title follows.
+    Title {
+        title: String,
+    },
 }
 
 pub fn decode(text: &str) -> Result<FromPage, WireError> {
@@ -112,6 +116,9 @@ pub fn decode(text: &str) -> Result<FromPage, WireError> {
         }),
         "error" => Ok(FromPage::Error {
             message: text_of(object, "message")?.to_string(),
+        }),
+        "title" => Ok(FromPage::Title {
+            title: text_of(object, "title")?.to_string(),
         }),
         other => Err(WireError::UnknownTag(other.to_string())),
     }
@@ -200,4 +207,20 @@ pub fn encode_reply(id: u64, outcome: Result<Value, String>) -> Result<String, W
         Err(message) => json!({ "t": "reply", "id": id, "err": message }),
     }
     .to_string())
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::*;
+
+    #[test]
+    fn a_title_message_is_decoded() {
+        assert_eq!(
+            decode(r#"{"t":"title","title":"Settings"}"#),
+            Ok(FromPage::Title {
+                title: "Settings".into()
+            })
+        );
+        assert!(decode(r#"{"t":"title"}"#).is_err());
+    }
 }

@@ -192,3 +192,32 @@ fn a_missing_webview_runtime_is_an_error_and_not_a_crash() {
     );
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn a_title_the_page_changes_becomes_the_window_title() {
+    let root = folder(
+        "pagetitle",
+        "<!doctype html><title>First</title><script>
+           window.ipc.postMessage('ready');
+           setTimeout(() => { document.title = 'Second route'; }, 600);
+           setTimeout(() => window.ipc.postMessage('late'), 2000);
+         </script>",
+    );
+    let run = probe(
+        &root,
+        &["--seconds", "8"],
+        &[("RUSTX_TRACE", Path::new("1"))],
+    );
+    assert!(
+        run.stderr.contains("window title is now Second route"),
+        "{}",
+        run.stderr
+    );
+    // The title the page started with is not a change.
+    assert!(
+        !run.stderr.contains("window title is now First"),
+        "{}",
+        run.stderr
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
