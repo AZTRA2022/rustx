@@ -27,9 +27,13 @@ fn read_back(path: &std::path::Path) -> std::io::Result<String> {
 
 /// A throwaway application: a manifest, an `app/`, one page.
 fn an_application(page: &str) -> (std::path::PathBuf, String) {
+    // The clock ticks every few milliseconds on Windows: two tests starting in
+    // the same tick shared a folder, and one deleted the other's files.
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let root = std::env::temp_dir().join(format!(
-        "rustx-shadow-{}-{}",
+        "rustx-shadow-{}-{}-{}",
         std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|since| since.as_nanos())

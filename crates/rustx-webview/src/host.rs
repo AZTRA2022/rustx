@@ -163,24 +163,38 @@ fn show_once(because: &str) {
     }
 }
 
-/// What the window is, for [`crate::window::state`].
-/// The page area as the page last said it (CSS pixels): the truth about the
-/// window's content, which tao's `inner_size` is not on every system (a hosted
-/// Mac kept the old one after a resize).
-static VIEWPORT: Mutex<Option<(f64, f64)>> = Mutex::new(None);
+/// What the last snapshot saw (outer, inner as tao said it, inner as published),
+/// for the correction below.
+type Seen = ((u32, u32), (u32, u32), (u32, u32));
+static LAST_SIZES: Mutex<Option<Seen>> = Mutex::new(None);
 
+/// What the window is, for [`crate::window::state`].
 fn snapshot(window: &tao::window::Window) {
-    let (position, mut size) = (
-        window.outer_position().unwrap_or_default(),
-        window.inner_size(),
-    );
-    if let Some((width, height)) = *VIEWPORT.lock().unwrap_or_else(|p| p.into_inner()) {
-        let scale = window.scale_factor();
-        size = tao::dpi::PhysicalSize::new(
-            (width * scale).round() as u32,
-            (height * scale).round() as u32,
-        );
-    }
+    let position = window.outer_position().unwrap_or_default();
+    let (outer, raw) = (window.outer_size(), window.inner_size());
+    // tao's `inner_size` stayed at the old value after a resize on a hosted Mac
+    // while the outer size moved: when only the outer size changed since the
+    // last look, the inner one moved by the same amount.
+    let size = {
+        let mut last = LAST_SIZES.lock().unwrap_or_else(|p| p.into_inner());
+        let (outer_now, raw_now) = ((outer.width, outer.height), (raw.width, raw.height));
+        let published = match *last {
+            Some((was_outer, was_raw, was_published))
+                if was_raw == raw_now && was_outer != outer_now =>
+            {
+                let moved = |new: u32, old: u32, was: u32| {
+                    (was as i64 + new as i64 - old as i64).max(0) as u32
+                };
+                (
+                    moved(outer_now.0, was_outer.0, was_published.0),
+                    moved(outer_now.1, was_outer.1, was_published.1),
+                )
+            }
+            _ => raw_now,
+        };
+        *last = Some((outer_now, raw_now, published));
+        tao::dpi::PhysicalSize::new(published.0, published.1)
+    };
     crate::window::publish(crate::window::State {
         x: position.x,
         y: position.y,
@@ -876,9 +890,6 @@ fn handle(body: &str, hooks: &Hooks, control: &Control) {
         }) => {
             crate::mount::dispatch(node, &name, &event, seq);
             wake();
-        }
-        Ok(FromPage::Viewport { width, height }) => {
-            *VIEWPORT.lock().unwrap_or_else(|p| p.into_inner()) = Some((width, height));
         }
         Ok(FromPage::Error { message }) => {
             eprintln!("rustx: the page could not run a command: {message}")

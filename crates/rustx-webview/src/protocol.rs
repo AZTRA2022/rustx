@@ -68,11 +68,6 @@ pub enum FromPage {
     Error {
         message: String,
     },
-    /// The page area, in CSS pixels, as the page itself sees it.
-    Viewport {
-        width: f64,
-        height: f64,
-    },
 }
 
 pub fn decode(text: &str) -> Result<FromPage, WireError> {
@@ -114,10 +109,6 @@ pub fn decode(text: &str) -> Result<FromPage, WireError> {
         "callback" => Ok(FromPage::Callback {
             id: number_of(object, "id")?,
             args: arguments_of(object)?,
-        }),
-        "viewport" => Ok(FromPage::Viewport {
-            width: object.get("w").and_then(Json::as_f64).unwrap_or(0.0),
-            height: object.get("h").and_then(Json::as_f64).unwrap_or(0.0),
         }),
         "error" => Ok(FromPage::Error {
             message: text_of(object, "message")?.to_string(),
