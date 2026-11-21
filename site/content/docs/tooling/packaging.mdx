@@ -99,7 +99,7 @@ what the updater downloads.
 
 | | |
 |---|---|
-| **Windows** | a setup `.exe` that extracts itself: `rustx-setup.exe` (installed beside `rustx`) with the folder appended, about 1.3 MB for a small app. No tool to install. It installs per user under `%LOCALAPPDATA%\Programs`, with a Start-menu shortcut and an entry in Apps & features that uninstalls it; `/S` installs without asking. It shows a confirmation and a finish box, not licence or wizard pages: set `RUSTX_INSTALLER=inno` to write an Inno Setup script and run `ISCC.exe` instead when you need those pages |
+| **Windows** | a setup `.exe` that extracts itself: `rustx-setup.exe` (installed beside `rustx`) with the folder appended, about 1.3 MB for a small app. No tool to install. It installs per user under `%LOCALAPPDATA%\Programs`, with a Start-menu shortcut and an entry in Apps & features that uninstalls it; `/S` installs without asking. Its screens are web pages you can replace (see below): set `RUSTX_INSTALLER=inno` to write an Inno Setup script and run `ISCC.exe` instead when you need those pages |
 | **Linux** | a `.deb`, written without any tool at all — see below. It installs under `/opt/<name>`, links `/usr/bin/<name>`, puts the icon in the hicolor theme and the licence in `/usr/share/doc`. An `install.sh` and a matching `uninstall.sh` go in the folder for everywhere else |
 | **macOS** | the package *is* a `.app` bundle — `Info.plist` and the binary with its assets under `Contents/MacOS`. `pkgbuild` turns it into a `.pkg` that installs into `/Applications`, and `hdiutil` into a `.dmg` beside it |
 
@@ -156,6 +156,38 @@ folder, the archive, and a sentence naming the script and what reads it
 exactly that, on all three systems, and on Linux it reads the
 hand-written `.deb` back with `dpkg-deb`, installs it, validates the
 desktop entry and removes it again.
+
+## Your own install and uninstall pages
+
+The Windows setup is a window like the application's: its screens are web
+pages. Put them in `installer/` beside `Cargo.toml`:
+
+```text
+installer/install.html
+installer/uninstall.html
+installer/*.css, *.png, *.svg …   (anything the pages use, relative paths)
+LICENSE                           (offered to the page as setup.info.license)
+```
+
+A page you did not write is the default one, so you can customise one and
+keep the other. The page talks to the setup through `window.setup`:
+
+```js
+setup.info        // { mode, name, version, publisher, destination, license }
+setup.install()   // extract and register; events follow
+setup.uninstall() // unregister and remove; events follow
+setup.launch()    // start the installed application, then close
+setup.cancel()    // close, doing nothing
+setup.close()
+setup.on((e) => {
+  // { event: "progress", done, total, file } | { event: "done" } | { event: "error", message }
+});
+```
+
+The uninstall page is copied into the install folder, so `uninstall.exe` (and
+"Apps & features") show it later. `/S` skips every page, for scripts and CI.
+A `.deb` has no screens by design; on macOS the same pages are meant for
+`productbuild --resources` (not written yet).
 
 ## Signing
 
