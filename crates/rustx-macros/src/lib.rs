@@ -327,6 +327,13 @@ const SYSTEM_PAGES: &[(&str, Option<&str>)] = &[
     ("install", Some(include_str!("../system/install.rsx"))),
     ("uninstall", Some(include_str!("../system/uninstall.rsx"))),
     ("update", Some(include_str!("../system/update.rsx"))),
+    ("license", Some(include_str!("../system/license.rsx"))),
+    (
+        "permissions",
+        Some(include_str!("../system/permissions.rsx")),
+    ),
+    ("about", Some(include_str!("../system/about.rsx"))),
+    ("settings", Some(include_str!("../system/settings.rsx"))),
 ];
 
 /// A copy of `app/` with the system pages added as `__system/<name>/page.rsx`,

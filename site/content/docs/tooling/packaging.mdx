@@ -99,7 +99,7 @@ what the updater downloads.
 
 | | |
 |---|---|
-| **Windows** | a setup `.exe` that extracts itself: `rustx-setup.exe` (installed beside `rustx`) with the folder appended, about 1.9 MB for a small app (the stub is 1.1 MB: it carries a web view host). No tool to install. It installs per user under `%LOCALAPPDATA%\Programs`, with a Start-menu shortcut and an entry in Apps & features that uninstalls it; `/S` installs without asking. Its screens are web pages you can replace (see below): set `RUSTX_INSTALLER=inno` to write an Inno Setup script and run `ISCC.exe` instead when you need those pages |
+| **Windows** | the stamped application `.exe` itself, which installs itself (see below). `RUSTX_INSTALLER=inno` writes an Inno Setup script and runs `ISCC.exe` instead |
 | **Linux** | a `.deb`, written without any tool at all — see below. It installs under `/opt/<name>`, links `/usr/bin/<name>`, puts the icon in the hicolor theme and the licence in `/usr/share/doc`. An `install.sh` and a matching `uninstall.sh` go in the folder for everywhere else |
 | **macOS** | the package *is* a `.app` bundle — `Info.plist` and the binary with its assets under `Contents/MacOS`. `pkgbuild` turns it into a `.pkg` that installs into `/Applications`, and `hdiutil` into a `.dmg` beside it |
 
@@ -157,37 +157,58 @@ exactly that, on all three systems, and on Linux it reads the
 hand-written `.deb` back with `dpkg-deb`, installs it, validates the
 desktop entry and removes it again.
 
-## Your own install and uninstall pages
+## The app is its own installer
 
-The Windows setup is a window like the application's: its screens are web
-pages. Put them in `installer/` beside `Cargo.toml`:
+There is no separate setup program. `rustx package` stamps the application
+binary installable, and run outside its install location it shows an install
+wizard, copies itself into place, registers itself, and starts the installed
+copy. The same binary removes itself with `--uninstall`.
+
+| | installs to | registered as |
+|---|---|---|
+| Windows | `%LOCALAPPDATA%\Programs\<name>` | a Start menu shortcut and an entry in Apps & features |
+| macOS | `~/Applications/<name>.app` | the bundle |
+| Linux | `~/.local/share/<name>/` | a `.desktop` entry and a link in `~/.local/bin` |
+
+No administrator anywhere. A newer binary run over an older install shows the
+update wizard. `--install --silent` and `--uninstall --silent` skip every
+screen, for scripts and CI. It never happens in a debug build, under
+`cargo run` or `rustx dev`; `Config::portable()` opts an application out.
+
+The screens are RSX pages in a `system/` folder beside `app/`, under locked
+names, each optional:
 
 ```text
-installer/install.html
-installer/uninstall.html
-installer/*.css, *.png, *.svg …   (anything the pages use, relative paths)
-LICENSE                           (offered to the page as setup.info.license)
+system/install.rsx     the install wizard
+system/update.rsx      the update wizard
+system/uninstall.rsx   the uninstall page
+system/license.rsx     the licence
+system/permissions.rsx what the app uses, said before the system asks
+system/about.rsx       name, version, publisher, licence
+system/settings.rsx    start with the session
 ```
 
-A page you did not write is the default one, so you can customise one and
-keep the other. The page talks to the setup through `window.setup`:
+The last four are opened by the application whenever it wants:
+`rustx::setup::open("about")`, and `rustx::setup::close()` goes back. The
+permissions it uses are declared with `Config::permissions(&["camera"])`.
+`RUSTX_START=/__system/about` opens one first, to look at it.
 
-```js
-setup.info        // { mode, name, version, publisher, destination, license }
-setup.install()   // extract and register; events follow
-setup.uninstall() // unregister and remove; events follow
-setup.launch()    // start the installed application, then close
-setup.cancel()    // close, doing nothing
-setup.close()
-setup.on((e) => {
-  // { event: "progress", done, total, file } | { event: "done" } | { event: "error", message }
+A page you did not write is the framework's default. They are never routed by
+your application and never wrapped by `app/layout.rsx`. They call
+`rustx::setup`:
+
+```rust
+let info = rustx::setup::info();    // mode, name, version, publisher, destination,
+                                    // installed_version, license
+task(async move {
+    let result = rustx::setup::install(|percent| progress = percent as u32);
+    // …
 });
+rustx::setup::launch()?;            // start the installed copy
+rustx::setup::quit();
 ```
 
-The uninstall page is copied into the install folder, so `uninstall.exe` (and
-"Apps & features") show it later. `/S` skips every page, for scripts and CI.
-A `.deb` has no screens by design; on macOS the same pages are meant for
-`productbuild --resources` (not written yet).
+Any other name in `system/` is refused with the list of the locked ones.
 
 ## Signing
 
@@ -286,7 +307,7 @@ developer.microsoft.com/microsoft-edge/webview2. On Linux the
 - **Notarisation and stapling on macOS**, as above.
 - **An `.rpm` or an AppImage.** The `.deb` is written directly because
   its format allows it; these two do not.
-- **An MSI.** A self-extracting `.exe` is what this writes; an MSI is a
+- **An MSI.** The application `.exe` that installs itself is what this writes; an MSI is a
   different tool and a different format.
 - **Converting an icon between formats.** Give it `icon.ico`,
   `icon.png` and `icon.icns`; rustx will not turn one into another, and

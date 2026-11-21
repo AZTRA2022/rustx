@@ -43,6 +43,24 @@
       const rustx_soon = (then) => setTimeout(then, 16);
       // The install wizard (system/install.rsx, here the framework's default),
       // driven the way a person would: click Install, wait for Ready.
+      // Any single screen: the first heading it draws.
+      if (rustx_scenario() === "screen") {
+        let left = 300;
+        const look = () => {
+          const h1 = document.querySelector("h1");
+          if (h1 && h1.textContent.trim()) {
+            rustx_report("heading", h1.textContent.trim());
+            rustx_report("done", "yes");
+            return;
+          }
+          if (left-- <= 0) {
+            rustx_report("done", "no");
+            return;
+          }
+          rustx_soon(look);
+        };
+        look();
+      }
       if (rustx_scenario() === "install") {
         const button = (text) => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === text);
         let left = 600;

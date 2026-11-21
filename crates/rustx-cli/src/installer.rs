@@ -8,7 +8,7 @@
 //!
 //! | | |
 //! |---|---|
-//! | Windows | a setup `.exe` that extracts itself ([`crate::selfextract`]): no tool to install. `RUSTX_INSTALLER=inno` asks for Inno Setup instead, for its licence and wizard pages |
+//! | Windows | the stamped application `.exe` itself: it installs itself through its `system/` pages. `RUSTX_INSTALLER=inno` asks for Inno Setup instead |
 //! | Linux | a `.deb`, written by [`crate::deb`] without any tool at all, plus an `.rpm` and an AppImage when the tools are there |
 //! | macOS | a `.pkg` through `pkgbuild`, which every Mac ships, and a `.dmg` beside it |
 //!
@@ -350,91 +350,29 @@ fn looks_runnable(program: &str, arguments: &[&str]) -> bool {
         .is_ok()
 }
 
-/// The setup that extracts itself: `rustx-setup.exe` (built beside `rustx`)
-/// with the folder appended. Needs nothing installed on the machine.
-fn self_extracting(
-    read: &build::Project,
-    project: &Path,
-    folder: &Path,
-    binary: &str,
-    pages: &Pages,
-) -> Made {
+/// The binary in the folder is the installer: `rustx package` stamped it, and
+/// it shows `system/install.rsx` when it is run outside its install location.
+fn self_installing(folder: &Path, binary: &str) -> Made {
     let mut made = Made::default();
-    let stub = std::env::current_exe()
-        .ok()
-        .and_then(|me| me.parent().map(|dir| dir.join("rustx-setup.exe")))
-        .filter(|path| path.is_file());
-    let Some(stub) = stub else {
-        made.said("no setup.exe: rustx-setup.exe is not beside the rustx command (`cargo install rustx-cli` installs both).");
-        return made;
-    };
-    let beside = folder.parent().unwrap_or(folder);
-    let base = folder
-        .file_name()
-        .map(|it| it.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let setup = beside.join(format!("{base}-setup.exe"));
-    let meta = crate::selfextract::Meta {
-        name: read.about.name.clone(),
-        version: read.about.version.clone(),
-        publisher: read.about.publisher.clone(),
-        binary: binary_file(binary),
-        files: 0,
-    };
-    match crate::selfextract::pack(&stub, folder, &setup_pages(project, pages), &meta, &setup) {
-        Ok(()) => {
-            match crate::package::sign(&setup) {
-                Some(Ok(how)) => made.said(format!("{} ({how})", setup.display())),
-                Some(Err(why)) => made.said(format!("{} ({why})", setup.display())),
-                None => made.said(setup.display().to_string()),
-            }
-            made.artifacts.push(setup);
-        }
-        Err(why) => made.said(format!("the setup could not be made: {why}")),
-    }
-    made.said("The setup shows installer/install.html and installer/uninstall.html when the project has them, and its default pages otherwise.");
-    made
-}
-
-/// What the project wrote for its own install and uninstall screens: every file
-/// of `installer/` (pages, styles, images), and the licence as `LICENSE.txt`.
-/// The setup shows its own pages for whatever is missing.
-fn setup_pages(project: &Path, pages: &Pages) -> Vec<(String, PathBuf)> {
-    fn walk(root: &Path, here: &Path, into: &mut Vec<(String, PathBuf)>) {
-        let Ok(entries) = std::fs::read_dir(here) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                walk(root, &path, into);
-            } else if let Ok(relative) = path.strip_prefix(root) {
-                into.push((relative.to_string_lossy().replace('\\', "/"), path.clone()));
-            }
-        }
-    }
-    let mut found = Vec::new();
-    let root = project.join("installer");
-    walk(&root, &root, &mut found);
-    if let Some(license) = &pages.license {
-        found.push(("LICENSE.txt".to_string(), license.clone()));
-    }
-    found.sort();
-    found
-}
-
-/// The file name of the binary as it sits in the folder.
-fn binary_file(binary: &str) -> String {
-    if binary.to_ascii_lowercase().ends_with(".exe") {
+    let name = if binary.to_ascii_lowercase().ends_with(".exe") {
         binary.to_string()
     } else {
         format!("{binary}.exe")
+    };
+    let exe = folder.join(&name);
+    made.said(format!(
+        "{} installs itself: run it, and it shows its install wizard (system/install.rsx). It is the only file to give a user.",
+        exe.display()
+    ));
+    if exe.is_file() {
+        made.artifacts.push(exe);
     }
+    made
 }
 
 fn windows(
     read: &build::Project,
-    project: &Path,
+    _project: &Path,
     folder: &Path,
     binary: &str,
     pages: &Pages,
@@ -443,7 +381,7 @@ fn windows(
         .map(|it| it != "inno")
         .unwrap_or(true)
     {
-        return self_extracting(read, project, folder, binary, pages);
+        return self_installing(folder, binary);
     }
     let mut made = Made::default();
     // ISCC reads every relative path in the script as relative to the

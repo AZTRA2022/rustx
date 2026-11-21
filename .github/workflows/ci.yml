@@ -216,10 +216,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends             libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libxdo-dev             desktop-file-utils xvfb
 
-      # `rustx package` looks for `rustx-setup` beside `rustx`: build both.
-      - name: The rustx commands
-        run: cargo build -p rustx-cli --bins
-
       - name: Package the example application
         shell: bash
         working-directory: apps/counter
@@ -236,24 +232,7 @@ jobs:
           ls -la dist/
           case "${{ runner.os }}" in
           Windows)
-            ls dist/*-setup.exe
-            # The setup extracts itself: install it silently, check the
-            # application and the uninstaller are there, remove it.
-            # `--silent`, not `/S`: Git Bash turns `/S` into a path of its own.
-            ./dist/*-setup.exe --silent
-            test -f "$LOCALAPPDATA/Programs/Counter/counter.exe"
-            test -f "$LOCALAPPDATA/Programs/Counter/uninstall.exe"
-            # It starts, and stays up.
-            "$LOCALAPPDATA/Programs/Counter/counter.exe" &
-            pid=$!
-            sleep 8
-            kill -0 $pid
-            kill $pid || true
-            sleep 2
-            # And the uninstaller removes it, with no window.
-            "$LOCALAPPDATA/Programs/Counter/uninstall.exe" --uninstall "$(cygpath -w "$LOCALAPPDATA/Programs/Counter")" --silent
-            for i in $(seq 1 30); do [ -d "$LOCALAPPDATA/Programs/Counter" ] || break; sleep 1; done
-            test ! -d "$LOCALAPPDATA/Programs/Counter"
+            ls dist/counter-*-windows/counter.exe
             ;;
           Linux)
             ls dist/*.deb
@@ -350,6 +329,16 @@ jobs:
           kill -0 $pid
           kill $pid || true
           sleep 2
+          # The OS-facing screens of system/ open from the installed copy.
+          for screen in about license permissions settings; do
+            rm -f "$home/screen.txt"
+            RUSTX_START="/__system/$screen" $runner "$installed" --scenario=screen --report="$home/screen.txt" &
+            pid=$!
+            for i in $(seq 1 60); do grep -q "done=" "$home/screen.txt" 2>/dev/null && break; sleep 1; done
+            kill $pid || true
+            cat "$home/screen.txt"
+            grep -q "done=yes" "$home/screen.txt"
+          done
           # And removes itself.
           "$installed" --uninstall --silent
           for i in $(seq 1 30); do [ -e "$installed" ] || break; sleep 1; done
@@ -361,7 +350,6 @@ jobs:
           # The folder is in the archive already; only
           # what a user would download goes up.
           path: |
-            dist/*-setup.exe
             dist/*.deb
             dist/*.pkg
             dist/*.dmg

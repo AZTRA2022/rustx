@@ -18,6 +18,5 @@ pub mod installer;
 pub mod new;
 pub mod package;
 pub mod resources;
-pub mod selfextract;
 pub mod watch;
 pub mod zip;

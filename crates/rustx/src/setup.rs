@@ -227,3 +227,74 @@ pub fn silent() -> Option<i32> {
         }
     })
 }
+
+// ------------------------------------------------- the other OS-facing screens
+
+/// The permissions the application declared (`Config::permissions`), as the
+/// permissions page lists them.
+pub fn permissions() -> Vec<String> {
+    PERMISSIONS.with(|held| held.borrow().clone())
+}
+
+thread_local! {
+    static PERMISSIONS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+pub(crate) fn declare_permissions(names: Vec<String>) {
+    PERMISSIONS.with(|held| *held.borrow_mut() = names);
+}
+
+/// Show one of the OS-facing screens of `system/`: `license`, `permissions`,
+/// `about` or `settings`. [`close`] goes back to where the application was.
+pub fn open(screen: &str) {
+    crate::router::navigate(format!("/__system/{screen}"));
+}
+
+/// Leave an OS-facing screen.
+pub fn close() {
+    if !crate::router::back() {
+        crate::router::navigate("/");
+    }
+}
+
+/// Open the operating system's own page for a permission (`camera`,
+/// `microphone`, `location`, `notifications`, `files`).
+pub fn open_permission_settings(name: &str) -> Result<(), String> {
+    let target = if cfg!(windows) {
+        match name {
+            "camera" => "ms-settings:privacy-webcam",
+            "microphone" => "ms-settings:privacy-microphone",
+            "location" => "ms-settings:privacy-location",
+            "notifications" => "ms-settings:notifications",
+            _ => "ms-settings:privacy",
+        }
+    } else if cfg!(target_os = "macos") {
+        match name {
+            "camera" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+            "microphone" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+            }
+            "location" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"
+            }
+            "notifications" => "x-apple.systempreferences:com.apple.preference.notifications",
+            _ => "x-apple.systempreferences:com.apple.preference.security",
+        }
+    } else {
+        "privacy"
+    };
+    let started = if cfg!(windows) {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", target])
+            .spawn()
+    } else if cfg!(target_os = "macos") {
+        std::process::Command::new("open").arg(target).spawn()
+    } else {
+        std::process::Command::new("gnome-control-center")
+            .arg(target)
+            .spawn()
+    };
+    started
+        .map(|_| ())
+        .map_err(|e| format!("could not open the system settings: {e}"))
+}

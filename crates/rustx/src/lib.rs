@@ -496,6 +496,7 @@ pub struct Config {
     scrollbars: bool,
     plan: crate::rustx_engine::window::Plan,
     portable: bool,
+    permissions: Vec<String>,
 }
 
 impl Config {
@@ -522,6 +523,7 @@ impl Config {
             scrollbars: true,
             plan: Default::default(),
             portable: false,
+            permissions: Vec::new(),
         }
     }
 
@@ -536,6 +538,14 @@ impl Config {
     /// pages of `system/` when it is run outside its install location.
     pub fn portable(mut self) -> Self {
         self.portable = true;
+        self
+    }
+
+    /// The permissions this application uses (`"camera"`, `"microphone"`,
+    /// `"location"`, `"notifications"`, `"files"`): what the permissions
+    /// screen of `system/` lists, in words, before the system asks.
+    pub fn permissions(mut self, names: &[&str]) -> Self {
+        self.permissions = names.iter().map(|n| n.to_string()).collect();
         self
     }
 
@@ -751,6 +761,7 @@ impl App {
         let components = COMPONENTS.with(|held| held.borrow().clone());
         // A binary made installable that is not installed shows its system
         // pages first; `--install --silent` and `--uninstall --silent` need no window.
+        crate::setup::declare_permissions(config.permissions.clone());
         let mode = crate::setup::detect(config.portable);
         if let Some(code) = crate::setup::silent() {
             std::process::exit(code);
@@ -759,6 +770,9 @@ impl App {
         let start = mode
             .page()
             .map(str::to_string)
+            // `RUSTX_START=/__system/about` opens that route first: for looking at a
+            // screen without navigating to it, and for tests.
+            .or_else(|| std::env::var("RUSTX_START").ok())
             .unwrap_or_else(|| config.start.clone());
         // The engine brings both fallback screens; an application that
         // named one replaces that one and keeps the other.
