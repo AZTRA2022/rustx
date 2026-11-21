@@ -1,17 +1,16 @@
-{
-  "title": "Tooling",
-  "pages": [
-    "index",
-    "the-commands",
-    "configuration",
-    "environment",
-    "the-editor",
-    "the-packages",
-    "testing",
-    "debugging",
-    "packaging",
-    "upgrading",
-    "troubleshooting",
-    "contributing"
-  ]
-}
+{
+  "title": "Tooling",
+  "pages": [
+    "index",
+    "the-commands",
+    "environment",
+    "the-editor",
+    "the-packages",
+    "testing",
+    "debugging",
+    "packaging",
+    "upgrading",
+    "troubleshooting",
+    "contributing"
+  ]
+}

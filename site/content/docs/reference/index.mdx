@@ -15,7 +15,7 @@ An application imports one crate, `rustx`, and these modules are on it.
 |---|---|
 | `App::new(config: Config) -> Result<App, rustx::Error>` | checks the configuration. In a helper process it exits instead of returning |
 | `App::run(self) -> Result<(), rustx::Error>` | opens the window and runs until it closes |
-| `Config::new(title: impl Into<String>) -> Config` | 1024 by 768. The other methods are in [configuration](/docs/tooling/configuration) |
+| `Config::new(title: impl Into<String>) -> Config` | 1024 by 768. The other methods are in [configuration](/docs/getting-started/configuration) |
 | `#[rustx::main]`, `#[rustx::main(pages)]` | the attribute on `main` |
 
 `rustx::Error` has four variants and is `#[non_exhaustive]`:

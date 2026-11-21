@@ -31,31 +31,38 @@ fn main() -> Result<(), rustx::Error> {
 |---|---|---|
 | `Config::new(title)` | the title, and the application's name | required |
 | `.size(width, height)` | the window, in pixels | 1024 by 768 |
-| `.frameless()` | no system frame. The page draws everything | system frame |
+| `.min_size(w, h)`, `.max_size(w, h)` | limits on dragging and on `window::set_size` | none |
+| `.resizable(bool)` | whether the edges can be dragged | true |
+| `.centered()`, `.position(x, y)` | where it opens | the system's choice |
+| `.always_on_top()` | in front of the other windows | off |
+| `.remember_window()` | size and position come back as the user left them | off |
+| `.background(r, g, b)` | the colour behind the page, so a dark application does not flash white | the system's |
+| `.frameless()` | no system frame. The page draws everything. See [commanding the window](/docs/the-window/commanding-the-window) | system frame |
 | `.without_scrollbars()` | the window still scrolls; no scrollbar is painted, and it takes no width. See [the window](/docs/the-window) | scrollbars |
 | `.index(path)` | a document other than `assets/index.html` | `assets/index.html`, or a generated one |
 | `.icon(path)` | the window's `.ico`, relative to the project | `assets/icon.ico` if it exists |
-| `.version(text)` | what `rustx_about()` returns | empty |
-| `.description(text)` | likewise | empty |
-| `.publisher(text)` | likewise | empty |
+| `.version(text)`, `.description(text)`, `.publisher(text)` | what `rustx_about()` and the About screen return | `Cargo.toml`'s `version`, `description` and first author |
 | `.host(id)` | the element the screens are mounted in | `app` |
 | `.start(path)` | the route the window opens on | `/` |
-| `.not_found(component)` | the screen for a path nobody declared | "This page could not be found." |
+| `.not_found(component)` | the screen for a path nobody declared | "404 \| This page could not be found." |
+| `.on_error(component)` | the screen for a page that fell over, given what it said | "Application error: …" |
+| `.redirect(from, to)` | `from` always shows the screen at `to` | none |
+| `.capabilities(&[names])` | the only natives a page may call; any other is refused | all of them |
+| `.permissions(&[names])` | what the permissions screen lists, and what macOS gets usage descriptions for | none |
+| `.updates("owner/name")` | where releases are published: the settings screen then checks and installs updates | no update row |
+| `.portable()` | the application never installs itself | installs itself when packaged |
 | `.mount(id, component)` | a component placed by hand in an element | none |
 | `.on_context_created(hook)` | work to do when the page's JavaScript context appears | none |
 
 The defaults are read from `Config::new`. The page for each one has the detail:
-[the window](/docs/the-window), [routes](/docs/getting-started/routes) and
+[the window](/docs/the-window), [fonts and theme](/docs/getting-started/fonts-and-theme),
+[routes](/docs/getting-started/routes) and
 [the Rust bridge](/docs/javascript-libraries/rust-bridge).
 
-`.version()` is **not** taken from `Cargo.toml` at run time. A page that shows a
-version reads `rustx_about()`, which returns what `Config` was given. The
-version stamped on the `.exe` by `rustx build` comes from `Cargo.toml`. If both
-matter, write the number in one place and use `env!("CARGO_PKG_VERSION")`:
-
-```rust
-Config::new("My app").version(env!("CARGO_PKG_VERSION"))
-```
+`.version()`, `.description()` and `.publisher()` are optional: `#[rustx::main]` hands the
+framework what `Cargo.toml` says (`version`, `description`, the first of `authors`), and
+`Config` only needs to say them to say something else. A page that shows them reads
+`rustx_about()`.
 
 ## `#[rustx::main]`
 
