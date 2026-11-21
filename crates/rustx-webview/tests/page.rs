@@ -840,3 +840,43 @@ fn a_window_that_remembers_comes_back_where_and_as_big_as_it_was_left() {
     let _ = std::fs::remove_dir_all(first);
     let _ = std::fs::remove_dir_all(second);
 }
+
+// Numbers, not a verdict: on the hosted Mac a size set from Rust did not take,
+// and this prints what each side sees, built hidden and shown at once.
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_size_diagnostic() {
+    for (label, envs) in [
+        ("hidden-until-ready", vec![]),
+        (
+            "shown-at-once",
+            vec![("RUSTX_SHOW_NOW", std::path::Path::new("1"))],
+        ),
+    ] {
+        let root = folder(
+            "controls",
+            &page(
+                "const look = (what) => say(what + ' state=' + window.win_state() + ' inner=' + window.innerWidth + 'x' + window.innerHeight + ' outer=' + window.outerWidth + 'x' + window.outerHeight + ' screen=' + screen.width + 'x' + screen.height + ' dpr=' + window.devicePixelRatio);
+                 await sleep(1500);
+                 look('start');
+                 window.win('size', 777, 555);
+                 await sleep(1000);
+                 look('after set_size');
+                 window.win('size', 777, 555);
+                 await sleep(1500);
+                 look('after set_size again');
+                 window.win('position', 90, 70);
+                 await sleep(1000);
+                 look('after set_position');
+                 order('close');
+                 await sleep(5000);",
+            ),
+        );
+        let run = probe(&root, &["--scenario", "controls", "--seconds", "25"], &envs);
+        for line in &run.messages {
+            println!("MACDIAG {label}: {line}");
+        }
+        println!("MACDIAG {label}: stderr: {}", run.stderr);
+        let _ = std::fs::remove_dir_all(root);
+    }
+}

@@ -151,6 +151,11 @@ jobs:
         if: runner.os == 'macOS'
         run: cargo test -p rustx-webview -- --test-threads=1
 
+      # Numbers for the one thing that differs on the hosted Mac: see the test.
+      - name: What the Mac says about the window's size
+        if: runner.os == 'macOS'
+        run: cargo test -p rustx-webview --test page -- --test-threads=1 --nocapture macos_size_diagnostic
+
       - name: The webview host, its tests (Linux, under Xvfb)
         if: runner.os == 'Linux'
         run: xvfb-run -a cargo test -p rustx-webview
