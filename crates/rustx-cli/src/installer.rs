@@ -1127,6 +1127,7 @@ mod tests {
                 publisher: "Someone".to_string(),
             },
             icon: None,
+            permissions: Vec::new(),
         }
     }
 

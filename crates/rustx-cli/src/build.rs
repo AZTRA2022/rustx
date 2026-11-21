@@ -23,6 +23,8 @@ pub struct Project {
     pub about: About,
     /// Absolute, so that a stamp does not depend on where it was run.
     pub icon: Option<PathBuf>,
+    /// What `.permissions(&[..])` names in the source: they become the macOS usage descriptions.
+    pub permissions: Vec<String>,
 }
 
 /// Read what the project says about itself.
@@ -81,7 +83,22 @@ pub fn read(project: &Path) -> Result<Project, String> {
             publisher,
         },
         icon,
+        permissions: permissions_in(&source),
     })
+}
+
+/// The names inside `.permissions(&["camera", ...])`, wherever the source says it.
+fn permissions_in(source: &str) -> Vec<String> {
+    let Some(at) = source.find(".permissions(&[") else {
+        return Vec::new();
+    };
+    let rest = &source[at + ".permissions(&[".len()..];
+    let list = rest.split(']').next().unwrap_or_default();
+    list.split('"')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_string)
+        .collect()
 }
 
 /// The cargo to run.
@@ -476,6 +493,13 @@ fn between(text: &str, opening: &str, closing: char) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn permissions_are_read_from_the_source() {
+        let source = "Config::new(\"x\").permissions(&[\"camera\", \"files\"]).run()";
+        assert_eq!(permissions_in(source), ["camera", "files"]);
+        assert!(permissions_in("Config::new(\"x\")").is_empty());
+    }
 
     #[test]
     fn a_manifest_is_read_for_its_four_strings() {

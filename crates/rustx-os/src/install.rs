@@ -23,6 +23,8 @@ pub struct App {
     pub publisher: String,
     /// The running binary. On macOS the enclosing `.app` is what is copied.
     pub binary: PathBuf,
+    /// A PNG for the Linux desktop entry; other systems take the icon from the binary.
+    pub icon: Option<PathBuf>,
 }
 
 fn file(error: impl std::fmt::Display, what: &str) -> OsError {
@@ -174,7 +176,23 @@ pub fn install(app: &App, progress: &mut dyn FnMut(u8)) -> Result<PathBuf, OsErr
         let _ = std::fs::remove_dir_all(&place);
         copy_tree(bundle, &place)?;
     } else {
-        copy_verified(&app.binary, &target)?;
+        // An update over a running copy: a running binary cannot be written to
+        // (Windows locks it, Linux says "text file busy") but it can be renamed.
+        let old = target.with_extension("old");
+        if target.exists() {
+            let _ = std::fs::remove_file(&old);
+            if std::fs::rename(&target, &old).is_err() {
+                return Err(OsError::File(format!(
+                    "{} is running and cannot be replaced: close it, then try again",
+                    target.display()
+                )));
+            }
+        }
+        if let Err(why) = copy_verified(&app.binary, &target) {
+            let _ = std::fs::rename(&old, &target);
+            return Err(why);
+        }
+        let _ = std::fs::remove_file(&old);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -256,11 +274,22 @@ fn register(app: &App, place: &Path, target: &Path) -> Result<(), OsError> {
     let slug = slug(&app.name);
     let applications = home.join(".local/share/applications");
     std::fs::create_dir_all(&applications).map_err(|e| file(e, "the applications folder"))?;
+    // The icon is copied beside the binary so the entry never names a temp folder.
+    let icon = app
+        .icon
+        .as_ref()
+        .filter(|from| from.is_file())
+        .and_then(|from| {
+            let to = place.join("icon.png");
+            std::fs::copy(from, &to).ok().map(|_| to)
+        });
     let entry = format!(
-        "[Desktop Entry]\nType=Application\nName={}\nComment={}\nExec=\"{}\"\nTerminal=false\nCategories=Utility;\n",
+        "[Desktop Entry]\nType=Application\nName={}\nComment={}\nExec=\"{}\"\n{}Terminal=false\nCategories=Utility;\n",
         app.name.replace('\n', " "),
         app.publisher.replace('\n', " "),
-        target.display()
+        target.display(),
+        icon.map(|path| format!("Icon={}\n", path.display()))
+            .unwrap_or_default()
     );
     std::fs::write(applications.join(format!("{slug}.desktop")), entry)
         .map_err(|e| file(e, "the desktop entry"))?;
@@ -270,7 +299,6 @@ fn register(app: &App, place: &Path, target: &Path) -> Result<(), OsError> {
     let _ = std::fs::remove_file(&link);
     #[cfg(unix)]
     std::os::unix::fs::symlink(target, &link).map_err(|e| file(e, "the command link"))?;
-    let _ = place;
     Ok(())
 }
 

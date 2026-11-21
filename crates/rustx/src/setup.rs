@@ -111,6 +111,7 @@ fn app_of(stamp: &Stamp) -> App {
         version: stamp.version.clone(),
         publisher: stamp.publisher.clone(),
         binary: std::env::current_exe().unwrap_or_default(),
+        icon: Some(crate::assets_dir().join("icon.png")),
     }
 }
 

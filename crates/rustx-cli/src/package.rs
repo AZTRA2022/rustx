@@ -340,9 +340,29 @@ fn finish_the_bundle(into: &Path, read: &build::Project) -> Result<(), String> {
     if icon.is_some() {
         keys.push(("CFBundleIconFile", &icon_name));
     }
+    // macOS ends an app that touches the camera or microphone without saying why.
+    let reasons: Vec<(&str, String)> = read
+        .permissions
+        .iter()
+        .filter_map(|permission| usage_key(permission))
+        .map(|key| (key, format!("{name} uses this to do what you asked of it.")))
+        .collect();
+    for (key, why) in &reasons {
+        keys.push((key, why));
+    }
     write_text(&contents.join("Info.plist"), &info_plist(&keys))?;
 
     Ok(())
+}
+
+/// The Info.plist key macOS wants for a permission an application names.
+fn usage_key(permission: &str) -> Option<&'static str> {
+    match permission {
+        "camera" => Some("NSCameraUsageDescription"),
+        "microphone" => Some("NSMicrophoneUsageDescription"),
+        "location" => Some("NSLocationUsageDescription"),
+        _ => None,
+    }
 }
 
 fn write_text(path: &Path, text: &str) -> Result<(), String> {
@@ -610,6 +630,7 @@ mod tests {
                 publisher: String::new(),
             },
             icon: None,
+            permissions: Vec::new(),
         };
         let gathered = vec![
             ("mon-app.exe".to_string(), directory.join("mon-app.exe")),

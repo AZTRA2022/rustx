@@ -26,11 +26,13 @@ fn an_app_installs_itself_registers_and_is_removed() {
     };
     std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
     std::fs::write(&binary, vec![42_u8; 10_000]).unwrap();
+    std::fs::write(root.join("Download/icon.png"), b"png").unwrap();
     let app = App {
         name: "Rustx Install Test".into(),
         version: "1.2.3".into(),
         publisher: "rustx".into(),
         binary: binary.clone(),
+        icon: Some(root.join("Download/icon.png")),
     };
     assert!(!install::is_installed_here(&app));
     assert_eq!(install::installed_version(&app.name), None);
@@ -43,6 +45,41 @@ fn an_app_installs_itself_registers_and_is_removed() {
         install::installed_version(&app.name).as_deref(),
         Some("1.2.3")
     );
+    // Linux: the desktop entry names an icon that was copied into the install folder.
+    if cfg!(all(unix, not(target_os = "macos"))) {
+        let entry = std::fs::read_to_string(
+            home.join(".local/share/applications/rustx-install-test.desktop"),
+        )
+        .expect("the desktop entry");
+        assert!(entry.contains("Icon="), "{entry}");
+        assert!(
+            install::destination(&app.name)
+                .unwrap()
+                .join("icon.png")
+                .is_file()
+        );
+    }
+    // An update while the installed copy runs: the file is renamed aside, not overwritten.
+    if !cfg!(target_os = "macos") {
+        let (program, arguments): (&str, &[&str]) = if cfg!(windows) {
+            (r"C:\Windows\System32\PING.EXE", &["-n", "8", "127.0.0.1"])
+        } else {
+            ("/bin/sleep", &["8"])
+        };
+        if std::path::Path::new(program).exists() {
+            std::fs::copy(program, &installed).unwrap();
+            let mut running = std::process::Command::new(&installed)
+                .args(arguments)
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .expect("the installed copy runs");
+            let again = install::install(&app, &mut |_| {});
+            let _ = running.kill();
+            let _ = running.wait();
+            again.expect("updates over a running copy");
+            assert_eq!(std::fs::read(&installed).unwrap().len(), 10_000);
+        }
+    }
     let there = App {
         binary: installed.clone(),
         ..app.clone()
