@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.5.0
+## 0.5.0 (2026-11-21)
 
-Not yet released: this is the list the release is cut from. The workspace, the editor extension and the language server are all at 0.5.0.
+The workspace, the editor extension and the language server are all at 0.5.0.
 
 ### Breaking
 

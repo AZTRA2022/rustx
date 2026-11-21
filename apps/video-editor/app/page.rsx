@@ -1487,27 +1487,6 @@ fn out_of(index: usize) -> f64 {
     clip_at(index).map(|clip| clip.end).unwrap_or(0.0)
 }
 
-fn sequence_label() -> String {
-    match clips.len() {
-        0 => "no media".to_string(),
-        1 => format!("1 clip · {}", clock(sequence_seconds())),
-        many => format!("{many} clips · {}", clock(sequence_seconds())),
-    }
-}
-
-// The sequence timecode, which is what a monitor shows above the
-// picture.
-fn monitor_clock() -> String {
-    match clips.is_empty() {
-        true => String::new(),
-        false => format!(
-            "{} / {}",
-            clock(sequence_position()),
-            clock(sequence_seconds())
-        ),
-    }
-}
-
 fn said() -> String {
     match status.is_empty() {
         false => status.clone(),
