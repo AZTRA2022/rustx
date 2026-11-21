@@ -319,6 +319,23 @@ thread_local! {
 }
 use std::sync::Arc;
 
+fn drawing() -> Element {
+    Element::tag("svg")
+        .attribute("id", attr("id", "drawing").1)
+        .attribute("width", attr("width", "100").1)
+        .attribute("height", attr("height", "50").1)
+        .child(
+            Element::tag("rect")
+                .attribute("id", attr("id", "box").1)
+                .attribute("x", attr("x", "10").1)
+                .attribute("y", attr("y", "10").1)
+                .attribute("width", attr("width", "30").1)
+                .attribute("height", attr("height", "20").1)
+                .build(),
+        )
+        .build()
+}
+
 fn keyed() -> Element {
     let order: State<Vec<u32>> = cell(slot!(), || vec![1, 2, 3, 4]);
     let rotated = order.clone();
@@ -438,6 +455,7 @@ fn main() {
             "fields" => fields,
             "texts" => texts,
             "owner" => owner,
+            "drawing" => drawing,
             other => {
                 eprintln!("probe: no scenario `{other}`");
                 std::process::exit(2);

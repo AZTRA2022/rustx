@@ -577,3 +577,28 @@ fn the_engine_keeps_the_promises_the_old_one_was_tested_for() {
     assert_eq!(read("engine_drops_after_unmount"), 1, "{text}");
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn an_svg_drawn_by_rust_is_in_the_svg_namespace_and_has_a_size() {
+    let root = folder(
+        "drawing",
+        &page(
+            "const box = await wait('box');
+             say('namespace=' + box.namespaceURI);
+             say('width=' + box.getBBox().width);
+             say('svg_namespace=' + document.getElementById('drawing').namespaceURI);",
+        ),
+    );
+    let run = probe(&root, &["--scenario", "drawing", "--seconds", "5"], &[]);
+    assert_eq!(
+        run.messages,
+        vec![
+            "namespace=http://www.w3.org/2000/svg",
+            "width=30",
+            "svg_namespace=http://www.w3.org/2000/svg"
+        ],
+        "{}",
+        run.stderr
+    );
+    let _ = std::fs::remove_dir_all(root);
+}

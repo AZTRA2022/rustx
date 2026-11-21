@@ -121,6 +121,16 @@ pub(crate) enum Command {
     Window(rustx_os::window::Order),
     /// A script for the page, from any thread.
     Script(String),
+    /// The system's print dialog for the page.
+    Print,
+}
+
+/// Open the system's print dialog for the window's page.
+pub(crate) fn print() {
+    let held = proxy().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(proxy) = held.as_ref() {
+        let _ = proxy.send_event(Command::Print);
+    }
 }
 
 /// Run `code` in the page, on the loop's thread.
@@ -475,6 +485,11 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
                 *flow = ControlFlow::Exit;
             }
             Event::LoopDestroyed => shut_down(),
+            Event::UserEvent(Command::Print) => {
+                if let Err(error) = webview.print() {
+                    eprintln!("rustx: could not print: {error}");
+                }
+            }
             Event::UserEvent(Command::Script(code)) => {
                 if let Err(error) = webview.evaluate_script(&code) {
                     eprintln!("rustx: could not answer the page: {error}");

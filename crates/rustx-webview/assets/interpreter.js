@@ -164,11 +164,23 @@
     pending.clear();
   }
 
+  // An element of an SVG drawing is made in the SVG namespace, or the browser
+  // takes `<path>` for an unknown HTML element and draws nothing. Names both
+  // languages have (`a`, `title`, `style`, `script`) stay HTML.
+  const SVG = "http://www.w3.org/2000/svg";
+  const SVG_TAGS = new Set(
+    ("svg g defs symbol use path rect circle ellipse line polyline polygon text tspan textPath image " +
+      "linearGradient radialGradient stop pattern clipPath mask marker filter foreignObject " +
+      "feBlend feColorMatrix feComponentTransfer feComposite feConvolveMatrix feDiffuseLighting " +
+      "feDisplacementMap feDropShadow feFlood feGaussianBlur feImage feMerge feMergeNode feMorphology " +
+      "feOffset feSpecularLighting feTile feTurbulence animate animateMotion animateTransform set mpath").split(" ")
+  );
+
   const isField = (node) => /^(INPUT|TEXTAREA|SELECT)$/.test(node.tagName || "");
 
   const commands = {
     // create an element / a text node / bind an element the page already has
-    el: (id, tag) => bind(id, document.createElement(tag)),
+    el: (id, tag) => bind(id, SVG_TAGS.has(tag) ? document.createElementNS(SVG, tag) : document.createElement(tag)),
     tx: (id, text) => bind(id, document.createTextNode(text)),
     by: (id, elementId) => bind(id, document.getElementById(elementId)),
 
@@ -177,7 +189,12 @@
       for (const child of Array.from(node.childNodes)) forget(child);
       node.textContent = text;
     },
-    sa: (id, name, value) => nodes.get(id).setAttribute(name, rewritten(name, value)),
+    sa: (id, name, value) => {
+      const node = nodes.get(id);
+      // `xlink:href` lives in its own namespace in an SVG drawing.
+      if (name.startsWith("xlink:")) node.setAttributeNS("http://www.w3.org/1999/xlink", name, value);
+      else node.setAttribute(name, rewritten(name, value));
+    },
     ra: (id, name) => nodes.get(id).removeAttribute(name),
 
     // A live property. `ack` is the last input the host has handled for

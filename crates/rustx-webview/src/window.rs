@@ -180,6 +180,12 @@ pub fn page_asked_for() -> Option<String> {
     asked()?.get("at")?.as_str().map(str::to_string)
 }
 
+/// Print the page this window shows, with the system's own dialog. Writing
+/// straight to a PDF is not here: the system webviews give no way to do it.
+pub fn print() {
+    crate::host::print();
+}
+
 /// Give the window an order.
 pub fn command(order: rustx_os::window::Order) {
     crate::host::order(order);
