@@ -27,8 +27,8 @@ looks anonymous in the explorer — `rustx build` adds nothing beyond the icon a
 
 ## Getting the disk back
 
-One build of this framework is 13 GB. CEF is around 300 MB per build
-profile, every application in `apps/` has a `target/` of its own, and
+One build of this framework is several GB (a debug build of the whole workspace
+was 22 GB before `debug = "line-tables-only"`). Every application in `apps/` has a `target/` of its own, and
 each one with JavaScript libraries has a `node_modules` too. A machine
 fills up in a week — and a full disk is a bad thing to debug, because
 cargo reports a lint, `tsc` reports a type error and `cargo doc`

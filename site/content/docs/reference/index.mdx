@@ -24,7 +24,7 @@ An application imports one crate, `rustx`, and these modules are on it.
 |---|---|
 | `IndexNotFound(PathBuf)` | the document does not exist on disk |
 | `RemoteContentForbidden` | the document is a remote URL |
-| `EngineInit(String)` | CEF failed to start |
+| `EngineInit(String)` | the system's web view could not start (on Windows, is the WebView2 runtime installed?) |
 | `NoPage` | a window was asked for from somewhere with no page |
 
 ## `router`

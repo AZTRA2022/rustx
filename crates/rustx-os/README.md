@@ -9,7 +9,7 @@ is genuinely useful on its own.
 > the package `rustx-app` — which re-exports all of this under
 > `rustx::clipboard`, `rustx::dialog`, `rustx::notify` and so on.
 >
-> But this crate knows nothing about rustx: no DOM, no CEF, no
+> But this crate knows nothing about rustx: no DOM, no web view, no
 > components. It is hardware and the words for it. **Any Rust program
 > can depend on it**, and nothing above it will be dragged in.
 

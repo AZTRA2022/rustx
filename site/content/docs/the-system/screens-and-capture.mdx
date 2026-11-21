@@ -120,7 +120,7 @@ already holding `rustx::os::window` itself.
 
 ### Why not `getDisplayMedia`
 
-The page can ask Chromium for the screen, and that is the right answer
+The page can ask the web view for the screen, and that is the right answer
 for a video call. It is the wrong answer for a screenshot: it opens a
 permission dialog every time, it hands back a video stream rather than
 an image, and it cannot aim at a rectangle. An application that

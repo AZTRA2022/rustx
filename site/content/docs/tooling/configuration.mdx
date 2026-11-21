@@ -96,7 +96,7 @@ target-dir = "../shared-target"
 ```
 
 This is cargo's own setting. `rustx build` reads it for one thing: the check
-that no running window holds `libcef.dll` in that folder. Finding the binary
+that no running window holds the executable in that folder. Finding the binary
 to stamp, it looks in `target/` only, beside the project or in a workspace
 above. Until that changes, leave `target-dir` alone in a project you build with
 `rustx build`.
@@ -143,6 +143,6 @@ The environment variables the framework reads are on one page:
 
 - the sandbox, which is off by design. See [security](/docs/the-system/security);
 - the profile folder, which is derived from the title;
-- the Chromium switches, apart from the software-rendering environment variable;
+- the web view's own switches;
 - a bundle identifier, an installer, a signing identity. There is no packaging
   configuration. See [packaging](/docs/tooling/packaging).

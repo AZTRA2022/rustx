@@ -11,18 +11,13 @@ environment is the process's own.
 
 | | |
 |---|---|
-| `RUSTX_SOFTWARE` | `1` composes the window on the processor. For machines with no 3D driver. Unset or `0` is off |
-| `RUSTX_TRACE` | set to anything, it traces the messages between the window and the page, and each page context |
-| `LOCALAPPDATA` | where the engine puts its profile folder. The temporary folder is used if it is unset |
+| `LOCALAPPDATA` | where the web view puts its profile folder. The temporary folder is used if it is unset |
 | `RUSTX_CARRIED` | set by `rustx dev` on the process it launches, to hand over state. Do not set it yourself |
+| `RUSTX_RELOAD` | set by `rustx dev`: the file it touches when an asset changed, so the page reloads in place. Do not set it yourself |
+| `RUSTX_INSTALLER` | `inno` makes `rustx package` write an Inno Setup script and run `ISCC` on Windows instead of the self-extracting setup |
 
-`RUSTX_SOFTWARE` has to be true in every process of the application. The
-environment is what all of them share, which is why it is a variable and not a
-flag.
-
-The engine also reads two command-line arguments that are not environment but
-belong in the same list: `--do-not-de-elevate`, which Chromium reads, and
-`--scenario=<name>` with `--report=<path>`, which the test harness uses. See
+The engine also reads command-line arguments that are not environment but
+belong in the same list: `--scenario=<name>` with `--report=<path>`, which the test harness uses. See
 [testing](/docs/tooling/testing).
 
 The build reads `CARGO_MANIFEST_DIR`, which cargo sets. `rustx` as a command

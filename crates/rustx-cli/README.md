@@ -153,7 +153,7 @@ by hand from three Win32 calls, with no `build.rs` and no dependency.
 
 This crate depends on `rustx-compiler` alone, for the names of the files
 the build generates. It does not link the browser engine: a command line
-that loaded CEF to read an application's name would be absurd.
+that loaded the web view to read an application's name would be absurd.
 
 Rust 1.88 or newer, edition 2024. Licensed under MIT or Apache-2.0, at
 your option.

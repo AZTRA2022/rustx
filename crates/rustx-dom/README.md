@@ -30,7 +30,7 @@ pub enum Element {
 
 It sits in a crate of its own for one reason: the compiler emits the
 calls that build this tree, and the engine walks the tree to touch the
-real DOM. **The compiler must not depend on CEF, and the engine must not
+real DOM. **The compiler must not depend on the web view, and the engine must not
 depend on a parser.** This is what both of them can depend on instead.
 
 ## What is in it

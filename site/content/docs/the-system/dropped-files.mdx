@@ -44,9 +44,9 @@ The hook is set in an `effect((), …)`, so **once** per instance of the compone
 
 ## When it enters, not when it drops
 
-What CEF reports is the **entry** of the cursor into the window with something in hand, and not the release: its drag-and-drop handler has no event for the release. The paths are therefore known a moment **before**, and that is when they arrive.
+The paths arrive with the **drop**: the window's drag-and-drop handler gives them at the release, and they are granted for `file://` use (see [assets](/docs/getting-started/assets)) at that moment.
 
-A page that wants exact coincidence listens to its own `ondrop` and reads `files()` at that moment: the path is already there.
+A page listens to its own `ondrop` and reads `files()`: the path is there.
 
 ```rust
 return <div
@@ -59,9 +59,7 @@ return <div
 >Drop files here</div>;
 ```
 
-An accepted consequence: a drag that is **abandoned** — entered the window, then left without dropping — leaves paths pending. `files()` takes them, and the next drop replaces them.
-
-## What the engine takes over from Chromium
+## What the engine takes over from the web view
 
 Without this, dropping a file on a window makes the browser **navigate** to that file: the application disappears, replaced by the contents of the PDF just dropped. The engine intercepts the drop so this does not happen, and this is the kind of thing a framework must handle once and for all.
 

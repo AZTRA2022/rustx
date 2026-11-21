@@ -73,9 +73,7 @@ The engine writes `engine.log` in the profile folder:
 %LOCALAPPDATA%\rustx\<title in lowercase, joined by dashes>\engine.log
 ```
 
-Chromium's own messages are there, such as a GPU process that cannot start. A
-window that stays white with `Failed to create shared context` in it needs
-`RUSTX_SOFTWARE=1`.
+The page's own errors are written to the application's standard error: `rustx: the page could not run a command: …`.
 
 ## Which process to attach to
 
@@ -101,8 +99,7 @@ application beside the missing value. See [testing](/docs/tooling/testing).
 
 ## What is not there
 
-- **No DevTools window.** The engine neither opens Chromium's inspector nor has a
-  setting for it. Nothing in the crates enables it.
+- **DevTools are on in a debug build only.** Right-click, Inspect; a release build has none.
 - **No `.rsx` breakpoints.** Rust debuggers see the generated file, in which a
   block of markup of several lines is one line of Rust.
 - **No source maps for the bundle.** It is built with esbuild's `--minify` and
