@@ -32,6 +32,21 @@ counter 4/4, hybrid 9/9, monitor 6/6, capture 7/7, zoo 6/6, catalogue 3/3, the r
 - `rustx-engine` no longer exists. The facade still exports the webview crate as `rustx_engine`, because the compiler's generated code writes that path.
 - The 30 integration test files of the old engine went with it. What they covered is carried by the unit tests of `rustx-webview` and the application suites above; no one-to-one port was done.
 
-## Documentation still naming Chromium
+## Documentation
 
-README, the crate READMEs, installation, packaging, where-code-runs and the JavaScript-library pages were rewritten. These pages of `site/content/docs` still name CEF or Chromium and need a page-by-page pass: getting-started/{assets, migrating, project-structure}, reference/index, the-system/{app-data, devices, dropped-files, file-dialogs, index, menus, platforms, printing, screens-and-capture, security}, the-window/closing, tooling/{configuration, contributing, debugging, environment, testing, the-commands, the-packages, troubleshooting, upgrading}, whats-left, and the READMEs of rustx-dom, rustx-macros, rustx-os. `rustx_os::print` and the window-printing API of the old engine were not carried over.
+Every page of `site/content/docs`, the READMEs and the video-editor comments that named CEF or Chromium were rewritten (2026-11-21); what still says Chromium is the Electron column of the migration table and two paragraphs of `whats-left.mdx` marked as written in the CEF era. `printing.mdx` is honest: print through the system dialog, no print-to-PDF.
+
+## Closed after the first result (2026-11-21)
+
+- **Seven apps smoke-run** (agent-manager, data-intel, ops-monitor, utility-hub, vault-storage, multitask-hub, nemo-design): all start. Found and fixed: an app with no `assets/` failed to start; two apps read the network state and the secret store on the drawing thread. Open: a click handler cannot start a `task` (ledger row 22).
+- **Setup without Inno Setup**: `rustx-setup.exe` stub plus appended payload, 1.3 MB for counter; silent install, launch and uninstall run on Windows with the profile redirected to a temp folder. `RUSTX_INSTALLER=inno` keeps the old route.
+- **Debug build**: `debug = "line-tables-only"`; counter from clean, 195 s and 0.84 GB for `target/debug` (before, the whole workspace's debug folder was 22 GB).
+- **Bundle**: libraries no page names are not imported whole; video-editor 7.2 MB to 1.6 MB.
+- **Fast refresh, partial**: a saved asset reloads the page in place (Rust state kept); a `.rsx` edit still rebuilds and relaunches with named state carried.
+- **Context menu**: the system menu is kept for text; the page cancels it elsewhere. Hand check owed: right-click on text and Ctrl+C/V/X/A in a release build.
+- **CI**: `.github/workflows/ci.yml` rewritten for the webview (WebKitGTK packages, Xvfb tests on Linux, silent install check on Windows). Written, not pushed, not run on a runner.
+- **Feature inventory**: `feature-inventory.md`.
+
+## Still open
+
+Click-to-paint number; edit-to-screen number for a `.rsx` edit; macOS and Linux never run; native hot patch (true fast refresh); window state persistence; multi-window as threads; the context-menu hand check; a task started from a handler; the parked probes P2 to P11 in `bug-hunt.md`.
