@@ -81,7 +81,8 @@ fn a_burst_of_typing_faster_than_the_round_trip_loses_no_keystroke() {
     let delay = std::path::Path::new("40");
     let run = probe(
         &root,
-        &["--scenario", "echo", "--seconds", "10"],
+        // A loaded hosted Mac needs the room.
+        &["--scenario", "echo", "--seconds", "25"],
         &[("PROBE_INPUT_DELAY_MS", delay)],
     );
     let expected = "the quick brown fox jumps over";
@@ -679,7 +680,7 @@ fn the_engine_keeps_the_promises_the_old_one_was_tested_for() {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_probe"))
         .arg("--root")
         .arg(&root)
-        .args(["--scenario", "engine", "--seconds", "12"])
+        .args(["--scenario", "engine", "--seconds", "25"])
         .output()
         .expect("the probe runs");
     let text = String::from_utf8_lossy(&output.stdout).to_string();

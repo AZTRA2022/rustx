@@ -288,8 +288,8 @@ jobs:
             # Install it, and start what was installed.
             if [ -f dist/*.pkg ]; then
               sudo installer -pkg dist/*.pkg -target /
-              ls /Applications
-              binary=$(ls /Applications/*.app/Contents/MacOS/* | head -1)
+              test -d /Applications/Counter.app
+              binary=$(ls /Applications/Counter.app/Contents/MacOS/* | head -1)
               "$binary" 2> "$RUNNER_TEMP/app.err" &
               pid=$!
               sleep 8
