@@ -158,6 +158,8 @@ fn a_native_called_from_the_page_resolves_or_rejects_and_the_window_carries_on()
     let _ = std::fs::remove_dir_all(root);
 }
 
+// Fullscreen needs a window manager, and the Linux runner's Xvfb has none.
+#[cfg(not(target_os = "linux"))]
 #[test]
 fn the_window_follows_the_orders_the_page_gives_it() {
     let root = folder(

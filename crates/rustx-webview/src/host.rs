@@ -656,6 +656,9 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
         *flow = ControlFlow::WaitUntil(Instant::now() + FLOOR);
         let _ = (&window, &context);
         let frame = || {
+            // What the window is, as the system settles it: a hide or a
+            // maximise may not have taken effect when the order was carried out.
+            snapshot(&window);
             (hooks.on_tick)();
             // One message for the whole frame, commands in the order they
             // were written.
