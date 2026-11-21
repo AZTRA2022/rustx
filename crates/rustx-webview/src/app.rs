@@ -46,7 +46,10 @@ pub struct App {
 
 impl App {
     pub fn new(config: AppConfig) -> Result<Self, EngineError> {
-        if !config.root.is_dir() {
+        // An application with no assets folder (no JavaScript, no files of its
+        // own) is written a document of its own; the folder is only needed
+        // when the document is meant to be read from it.
+        if config.document.is_none() && !config.root.is_dir() {
             return Err(EngineError::IndexNotFound(config.root.clone()));
         }
         let relative = config.entry.trim_start_matches('/');

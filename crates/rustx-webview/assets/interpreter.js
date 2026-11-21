@@ -5,6 +5,16 @@
   if (window.top !== window || window.__rustx) return;
 
   const nodes = new Map(); // id -> DOM node
+
+  // The system's context menu is for text: cut, copy, paste. Anywhere else it
+  // is a browser's menu (Reload, Inspect) in an application. The page may
+  // still cancel it first, or ask for its own.
+  document.addEventListener("contextmenu", (event) => {
+    if (window.__rustx_devtools || event.defaultPrevented) return;
+    const target = event.target;
+    const editable = target instanceof Element && target.closest("input, textarea, [contenteditable]");
+    if (!editable && String(window.getSelection()).length === 0) event.preventDefault();
+  });
   const waiting = new Map(); // call id -> {resolve, reject}
   let calls = 0;
   const post = (message) => window.ipc.postMessage(JSON.stringify(message));
