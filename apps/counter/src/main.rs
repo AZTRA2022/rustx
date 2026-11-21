@@ -12,7 +12,8 @@ use rustx::{App, Config};
 fn main() -> Result<(), rustx::Error> {
     let app = App::new(
         Config::new("Counter")
-            .size(640, 480)
+            .size(900, 640)
+            .frameless()
             .updates("owner/counter"),
     )?;
 
