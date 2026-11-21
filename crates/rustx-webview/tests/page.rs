@@ -856,7 +856,7 @@ fn macos_size_diagnostic() {
         let root = folder(
             "controls",
             &page(
-                "const look = (what) => say(what + ' state=' + window.win_state() + ' inner=' + window.innerWidth + 'x' + window.innerHeight + ' outer=' + window.outerWidth + 'x' + window.outerHeight + ' screen=' + screen.width + 'x' + screen.height + ' dpr=' + window.devicePixelRatio);
+                "const look = (what) => say(what + ' state=' + window.win_state() + ' inner=' + window.innerWidth + 'x' + window.innerHeight + ' outer=' + window.outerWidth + 'x' + window.outerHeight + ' screen=' + screen.width + 'x' + screen.height + ' dpr=' + window.devicePixelRatio + ' resizes=' + window.win_resizes());
                  await sleep(1500);
                  look('start');
                  window.win('size', 777, 555);

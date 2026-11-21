@@ -531,8 +531,16 @@ fn main() {
         register_native("win_state", |_| {
             let s = rustx_webview::window::state();
             Ok(Value::String(format!(
-                "{}x{} at {},{} scale={} visible={} focused={}",
-                s.width, s.height, s.x, s.y, s.scale, s.visible, s.focused
+                "{}x{} at {},{} scale={} visible={} focused={} outer={}x{}",
+                s.width,
+                s.height,
+                s.x,
+                s.y,
+                s.scale,
+                s.visible,
+                s.focused,
+                s.outer_width,
+                s.outer_height
             )))
         });
         let moved = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));

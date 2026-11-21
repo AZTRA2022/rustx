@@ -253,6 +253,9 @@ pub struct State {
     /// The page area, in physical pixels.
     pub width: u32,
     pub height: u32,
+    /// The whole window, frame included, in physical pixels.
+    pub outer_width: u32,
+    pub outer_height: u32,
     /// Physical pixels per logical one.
     pub scale: f64,
     pub maximized: bool,

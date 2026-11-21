@@ -174,6 +174,8 @@ fn snapshot(window: &tao::window::Window) {
         y: position.y,
         width: size.width,
         height: size.height,
+        outer_width: window.outer_size().width,
+        outer_height: window.outer_size().height,
         scale: window.scale_factor(),
         maximized: window.is_maximized(),
         minimized: window.is_minimized(),

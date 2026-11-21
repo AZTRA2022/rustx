@@ -10,6 +10,21 @@ use std::fs;
 
 use rustx_lsp::shadow;
 
+/// A file just written, read back. A virus scanner on a CI runner may hold a
+/// file for a moment after it is written, and a missing one then is not a
+/// shadow that was not written: try again a few times.
+fn read_back(path: &std::path::Path) -> std::io::Result<String> {
+    let mut last = fs::read_to_string(path);
+    for _ in 0..10 {
+        if last.is_ok() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        last = fs::read_to_string(path);
+    }
+    last
+}
+
 /// A throwaway application: a manifest, an `app/`, one page.
 fn an_application(page: &str) -> (std::path::PathBuf, String) {
     let root = std::env::temp_dir().join(format!(
@@ -36,7 +51,7 @@ const BAD: &str = "fn Page() -> Element {\n    return <p>bonjour</dvi>;\n}\n";
 fn a_page_becomes_a_rust_file_where_the_build_puts_one() {
     let (root, uri) = an_application(GOOD);
     let shadow = shadow::of(&uri, GOOD).expect("a shadow");
-    let written = fs::read_to_string(&shadow.path).expect("the shadow is on disk");
+    let written = read_back(&shadow.path).expect("the shadow is on disk");
     assert!(written.contains("\"p\""), "got {written}");
     // Where the build puts it, so `rust-analyzer` is reading the file
     // the application actually compiles.
@@ -50,7 +65,7 @@ fn a_change_rewrites_the_shadow() {
     let (root, uri) = an_application(GOOD);
     shadow::of(&uri, GOOD).expect("a shadow");
     let shadow = shadow::of(&uri, BETTER).expect("a second shadow");
-    let written = fs::read_to_string(&shadow.path).expect("on disk");
+    let written = read_back(&shadow.path).expect("on disk");
     assert!(written.contains("bonsoir"), "got {written}");
     let _ = fs::remove_dir_all(&root);
 }
@@ -64,7 +79,7 @@ fn a_page_that_does_not_compile_leaves_the_last_shadow_alone() {
     let (root, uri) = an_application(GOOD);
     let shadow = shadow::of(&uri, GOOD).expect("a shadow");
     assert!(shadow::of(&uri, BAD).is_none());
-    let written = fs::read_to_string(&shadow.path).expect("on disk");
+    let written = read_back(&shadow.path).expect("on disk");
     assert!(written.contains("bonjour"), "got {written}");
     let _ = fs::remove_dir_all(&root);
 }
