@@ -76,3 +76,7 @@ Since then CI also proves that the installed application **starts and stays up f
 - Installed size: setup 1.9 MB (stub 1.1 MB), folder 2.1 MB for counter.
 - **Release build, Windows**: page ready 0.81 to 0.96 s after the first statement of `main` (counter, three runs) and 0.86 to 0.89 s (video-editor); executables 2.09 MB and 4.99 MB. Most of it is WebView2 creating its environment; the framework's own part (assets, window, first frame) is small beside it.
 - **Click to paint**: from `click()` to the frame that shows the host's answer, median 9 ms and worst 19 ms over 15 clicks (Windows, probe window). The probe test `click_to_paint_is_measured_and_not_slow` runs everywhere and bounds the median at 500 ms.
+
+## Superseded: the app is its own installer (2026-11-21)
+
+The `rustx-setup.exe` stub, its payload format and its HTML pages are deleted. A binary stamped by `rustx package` shows `system/install.rsx` outside its install location (update, uninstall and the licence, permissions, about and settings screens likewise), on Windows, macOS and Linux; the screens are RSX with framework defaults. CI run 44907756511 (all eight jobs): the packaged counter is driven through its install wizard by a scenario, the installed copy starts, the OS-facing screens open, and `--uninstall --silent` removes it, on all three systems. Plan: `aidd_docs/tasks/2026_11/2026_11_21_self-installing-app/`.

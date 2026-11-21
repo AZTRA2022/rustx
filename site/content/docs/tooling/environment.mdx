@@ -16,7 +16,7 @@ environment is the process's own.
 | `RUSTX_SHOW_NOW` | set to anything, the window is shown at once instead of when the page is ready (to compare the two starts) |
 | `RUSTX_CARRIED` | set by `rustx dev` on the process it launches, to hand over state. Do not set it yourself |
 | `RUSTX_RELOAD` | set by `rustx dev`: the file it touches when an asset changed, so the page reloads in place. Do not set it yourself |
-| `RUSTX_INSTALLER` | `inno` makes `rustx package` write an Inno Setup script and run `ISCC` on Windows instead of the self-extracting setup |
+| `RUSTX_INSTALLER` | `inno` makes `rustx package` write an Inno Setup script and run `ISCC` on Windows instead of the stamped application binary installing itself |
 
 The engine also reads command-line arguments that are not environment but
 belong in the same list: `--scenario=<name>` with `--report=<path>`, which the test harness uses. See

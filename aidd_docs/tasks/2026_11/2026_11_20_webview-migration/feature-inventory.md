@@ -17,7 +17,7 @@ exercised: Windows by hand and by tests; macOS and Linux on GitHub runners (rust
 | 7 | Single instance, autostart, deep-link scheme | Present | `os::instance`, `os::autostart`, scheme in desktop entry |
 | 8 | Shell / terminal / sidecar processes | Partial | `os::terminal`, `os::shell`; no sidecar-binary bundling |
 | 9 | Updater | Present | `rustx::update`, release manifest + digest |
-| 10 | Bundler: installer per platform | Partial | Windows: self-extracting setup (no tool), Inno optional; Linux `.deb`; macOS `.pkg`. Only Windows run. No `.msi`, `.rpm`, AppImage, notarisation |
+| 10 | Bundler: installer per platform | Partial | The stamped binary installs itself on all three systems (system/*.rsx screens, no separate setup), Inno optional; Linux `.deb`; macOS `.pkg`. Only Windows run. No `.msi`, `.rpm`, AppImage, notarisation |
 | 11 | Code signing | Partial | `RUSTX_SIGN_PFX/SUBJECT` through `signtool`; nothing else |
 | 12 | Security model (allow-list, CSP-like) | Partial | `Policy` allow-list of origins, file grants by write, cross-site refusal; no per-command capability scopes |
 | 13 | Secret storage | Present | `os::secret` (credential store) |

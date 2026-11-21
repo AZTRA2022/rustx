@@ -1,5 +1,5 @@
 ---
-status: pending
+status: implemented
 ---
 
 # Instruction: Package and prove it on Windows, macOS and Linux in CI

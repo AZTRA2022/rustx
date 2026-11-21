@@ -1,6 +1,6 @@
 ---
 objective: "A packaged app is its own installer on Windows, macOS and Linux: one stamped binary shows the OS-facing screens (install, uninstall, update, licence, permissions, about, settings) written in RSX under system/, with no separate setup program."
-status: pending
+status: implemented
 ---
 
 # Plan: The app is its own installer, on every OS
