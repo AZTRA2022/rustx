@@ -1,22 +1,22 @@
-{
-  "title": "Getting started",
-  "pages": [
-    "installation",
-    "project-structure",
-    "configuration",
-    "fonts-and-theme",
-    "where-code-runs",
-    "the-rsx-file",
-    "attributes-and-events",
-    "components",
-    "lists-and-conditions",
-    "state",
-    "keep-effect-task",
-    "routes",
-    "forms",
-    "assets",
-    "error-handling",
-    "tutorial",
-    "migrating"
-  ]
-}
+{
+  "title": "Getting started",
+  "pages": [
+    "installation",
+    "project-structure",
+    "configuration",
+    "fonts-and-theme",
+    "where-code-runs",
+    "the-rsx-file",
+    "attributes-and-events",
+    "components",
+    "lists-and-conditions",
+    "state",
+    "keep-effect-task",
+    "routes",
+    "forms",
+    "assets",
+    "error-handling",
+    "tutorial",
+    "migrating"
+  ]
+}

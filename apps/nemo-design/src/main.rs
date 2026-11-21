@@ -35,21 +35,29 @@ fn main() -> Result<(), rustx::Error> {
 
 fn natives() {
     register_native("nemo_pick_image", |_| {
-        let ask = Ask::new("Choose an image").filter("Images", ["png", "jpg", "jpeg", "webp", "gif"]);
+        let ask =
+            Ask::new("Choose an image").filter("Images", ["png", "jpg", "jpeg", "webp", "gif"]);
         let path = match dialog::open(ask) {
             Ok(mut paths) if !paths.is_empty() => paths.remove(0),
             Ok(_) | Err(DialogError::Cancelled) => return Ok(Value::Null),
             Err(why) => return Err(NativeError::new(why.to_string())),
         };
-        let bytes = std::fs::read(&path).map_err(|e| NativeError::new(format!("{}: {e}", path.display())))?;
+        let bytes = std::fs::read(&path)
+            .map_err(|e| NativeError::new(format!("{}: {e}", path.display())))?;
         if bytes.len() > 12 * 1024 * 1024 {
             return Err(NativeError::new("That image is larger than 12 MB."));
         }
         let mime = mime_of(&path.to_string_lossy());
-        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
         Ok(rustx::record([
             ("name", Value::String(name)),
-            ("url", Value::String(format!("data:{mime};base64,{}", base64(&bytes)))),
+            (
+                "url",
+                Value::String(format!("data:{mime};base64,{}", base64(&bytes))),
+            ),
         ]))
     });
 
@@ -57,16 +65,21 @@ fn natives() {
         let (Some(Value::String(name)), Some(Value::String(data)), Some(Value::String(extension))) =
             (args.first(), args.get(1), args.get(2))
         else {
-            return Err(NativeError::new("nemo_save takes a name, the bytes in base64 and an extension"));
+            return Err(NativeError::new(
+                "nemo_save takes a name, the bytes in base64 and an extension",
+            ));
         };
-        let ask = Ask::new("Save").named(format!("{name}.{extension}")).filter("File", [extension.clone()]);
+        let ask = Ask::new("Save")
+            .named(format!("{name}.{extension}"))
+            .filter("File", [extension.clone()]);
         let path = match dialog::save(ask) {
             Ok(path) => path,
             Err(DialogError::Cancelled) => return Ok(Value::Null),
             Err(why) => return Err(NativeError::new(why.to_string())),
         };
         let bytes = unbase64(data).ok_or_else(|| NativeError::new("the data is not base64"))?;
-        std::fs::write(&path, bytes).map_err(|e| NativeError::new(format!("{}: {e}", path.display())))?;
+        std::fs::write(&path, bytes)
+            .map_err(|e| NativeError::new(format!("{}: {e}", path.display())))?;
         Ok(Value::String(path.display().to_string()))
     });
 
@@ -80,7 +93,8 @@ fn natives() {
             Ok(_) | Err(DialogError::Cancelled) => return Ok(Value::Null),
             Err(why) => return Err(NativeError::new(why.to_string())),
         };
-        let text = std::fs::read_to_string(&path).map_err(|e| NativeError::new(format!("{}: {e}", path.display())))?;
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| NativeError::new(format!("{}: {e}", path.display())))?;
         Ok(Value::String(text))
     });
 
@@ -93,7 +107,12 @@ fn natives() {
 }
 
 fn mime_of(path: &str) -> &'static str {
-    match path.rsplit('.').next().map(str::to_ascii_lowercase).as_deref() {
+    match path
+        .rsplit('.')
+        .next()
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
         Some("png") => "image/png",
         Some("jpg") | Some("jpeg") => "image/jpeg",
         Some("webp") => "image/webp",

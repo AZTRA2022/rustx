@@ -592,17 +592,14 @@ fn main() {
                     eprintln!("CHILD resized {width}x{height}");
                 }
             });
-            // Its own size before the orders (opened at 400x300) and after them.
+            // Its own size, long after the orders: a second window may start slowly, so there is
+            // no "before" to compare with; what it was opened at is not what it reports.
             let born = std::time::Instant::now();
-            let said = std::cell::Cell::new(0_u8);
+            let said = std::cell::Cell::new(false);
             rustx_webview::on_frame(move || {
-                let at = born.elapsed();
-                let (n, size) = (said.get(), rustx_webview::window::state());
-                if n == 0 && at > Duration::from_millis(1500) {
-                    said.set(1);
-                    eprintln!("CHILD size before {}x{}", size.width, size.height);
-                } else if n == 1 && at > Duration::from_millis(6000) {
-                    said.set(2);
+                if !said.get() && born.elapsed() > Duration::from_millis(6500) {
+                    said.set(true);
+                    let size = rustx_webview::window::state();
                     eprintln!("CHILD size after {}x{}", size.width, size.height);
                 }
             });

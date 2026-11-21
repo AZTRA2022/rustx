@@ -1,127 +1,127 @@
----
-title: "Coming from Electron, Tauri or the web"
-description: "What each concept you know is called in rustx, and what has no equivalent yet."
----
-
-The tables below map a name you know to the thing that does the same job here.
-Where nothing does the job, the cell says so. A missing row is not an invitation
-to guess: look in [what's left](/docs/whats-left).
-
-## The shape of the application
-
-| | Electron | Tauri | rustx |
-|---|---|---|---|
-| the language of the app | JavaScript, in two processes | Rust backend, JavaScript frontend | Rust, with markup in `.rsx` files |
-| the UI | any web framework | any web framework | `.rsx` pages. React libraries on the side |
-| the editor | VS Code, with JS tooling | VS Code, with JS tooling | a VS Code extension: highlighting, snippets, and `rust-analyzer` answering inside the braces. See [the editor](/docs/tooling/the-editor) |
-| the engine | Chromium, bundled | the system's web view | the system's web view (WebView2, WKWebView, WebKitGTK) |
-| platforms | Windows, macOS, Linux | Windows, macOS, Linux | Windows is written and run. Linux and macOS are written, compiled by their own target in CI, and have never been *run* — see [platforms](/docs/the-system/platforms) |
-| the backend process | the main process (Node) | the Rust core | none. Your Rust runs in the page's process |
-
-The last row is the one that changes how you design. There is no backend to
-call. See [where your code runs](/docs/getting-started/where-code-runs).
-
-## Talking to the backend
-
-| you wrote | the rustx equivalent |
-|---|---|
-| `ipcRenderer.invoke("x")` and `ipcMain.handle` | a Rust function called from the page. No message is sent |
-| `invoke("cmd")` and `#[tauri::command]` | the same, or a native registered for JavaScript. See [the Rust bridge](/docs/javascript-libraries/rust-bridge) |
-| `emit` and `listen` | none. State written in Rust redraws the page |
-| `preload.js`, `contextBridge` | `Config::on_context_created` |
-| async commands | `task(async { … })`. See [async](/docs/async) |
-
-A native is synchronous. It returns before the next line runs, and it takes and
-returns plain values (null, boolean, number, string, list, object).
-
-## The window and the system
-
-| | Electron | Tauri | rustx |
-|---|---|---|---|
-| a window | `new BrowserWindow` | `WebviewWindow` | `Config`, and `window::open` for more. See [several windows](/docs/the-window/several-windows) |
-| no frame | `frame: false` | `decorations: false` | `Config::frameless()`, then `window::drag()` and the commands. See [frameless](/docs/the-window/frameless) |
-| window commands | `win.minimize()` | `window.minimize()` | `window::minimize()`, `maximize()`, `shut()` and others. See [commanding the window](/docs/the-window/commanding-the-window) |
-| file dialogs | `dialog.showOpenDialog` | the dialog plugin | [`dialog::open`, `save`, `folder`](/docs/the-system/file-dialogs) |
-| clipboard | `clipboard` | the clipboard plugin | [`clipboard`](/docs/the-system/the-clipboard) |
-| tray | `Tray` | the tray icon | [`tray::Icon`](/docs/the-system/notifications-and-the-tray) |
-| notifications | `Notification` | the notification plugin | [`notify`](/docs/the-system/notifications-and-the-tray) |
-| global shortcuts | `globalShortcut` | the shortcut plugin | [`shortcut`](/docs/the-system/global-shortcuts) |
-| single instance | `requestSingleInstanceLock` | the single-instance plugin | [`instance`](/docs/the-system/a-single-instance) |
-| launch at login | `setLoginItemSettings` | the autostart plugin | [`autostart`](/docs/the-system/start-with-the-session) |
-| dropped file paths | `webUtils.getPathForFile` | the drag-drop event | [`dropped`](/docs/the-system/dropped-files) |
-| camera, microphone, screens | `getUserMedia`, `desktopCapturer` | the web view's | [`devices`](/docs/the-system/devices), then `getUserMedia` as on the web |
-| audio devices, system volume | `systemPreferences` and native modules | a plugin | [`os::audio`](/docs/the-system/sound) |
-| a screenshot | `desktopCapturer.getSources` | a plugin | [`os::capture`](/docs/the-system/screens-and-capture) |
-| the list of displays | `screen.getAllDisplays` | `available_monitors` | [`os::screen`](/docs/the-system/screens-and-capture) |
-| the OS theme, battery, idle, locale | `nativeTheme`, `powerMonitor`, `app.getLocale` | the os plugin | [`os::system`](/docs/the-system/the-machine) |
-| online, and the kind of link | `net.isOnline` | — | [`os::net`](/docs/the-system/the-machine) |
-| running a shell command | `child_process` | the shell plugin | [`terminal`](/docs/the-system/the-terminal) |
-| printing a file | `webContents.print` | — | [`os::print`](/docs/the-system/printing) — a **file**, not the page |
-| show in folder, recent documents | `shell.showItemInFolder`, `app.addRecentDocument` | the opener plugin | [`os::shell`](/docs/the-system/the-file-manager) |
-| taskbar progress, flash, badge | `setProgressBar`, `flashFrame`, `setBadgeCount` | a plugin | [`os::attention`](/docs/the-system/the-taskbar) |
-| paired Bluetooth devices | the Web Bluetooth API | a plugin | [`os::bluetooth`](/docs/the-system/devices) |
-| a colour picker | `<input type="color">` | — | [`os::color`](/docs/the-system/file-dialogs) — the system's, with its eyedropper |
-| secure storage | `safeStorage` | the stronghold plugin or a keyring | [`os::secret`](/docs/the-system/secrets) |
-| file associations, URL scheme | `app.setAsDefaultProtocolClient` | the deep-link plugin | [`shell::associate`](/docs/the-system/the-file-manager) for an extension, [`shell::register_scheme`](/docs/the-system/the-file-manager) for `myapp://…` |
-| the app's data folder | `app.getPath("userData")` | the path API | [`rustx::data`](/docs/the-system/app-data) — `read`, `write`, `list`, and a `cache` and `logs` folder beside it |
-| opening the system browser | `shell.openExternal` | the opener plugin | [`shell::open_url`](/docs/the-system/the-file-manager). `https`, `http` and `mailto`; the rest is refused by name |
-| application menu, context menu | `Menu` | the menu API | [`menu::popup`](/docs/the-system/menus) for a context menu (not on Linux: nothing native exists there). The bar is drawn in the page, and `menu::application()` installs the one macOS needs |
-| auto-update | `autoUpdater` | the updater plugin | [`rustx::update::from_github`](/docs/tooling/packaging) — a release page, no update server |
-| installer, signing | electron-builder and others | `tauri build` | [`rustx package`](/docs/tooling/packaging): the folder, a `.zip`, a setup `.exe` / `.dmg` / `install.sh`, and `signtool`/`codesign` when asked. No notarisation |
-| printing the window's own contents | `webContents.print` | the web view's | [`window::print`](/docs/the-system/printing): the system's print dialog. There is no print-to-PDF |
-
-"Not written" means that nothing in the framework's crates does it. You can
-still call the platform from your own Rust with a crate of your choice. Where a
-cell says a platform refuses, the refusal names the platform and the capability
-rather than failing silently — see [platforms](/docs/the-system/platforms).
-
-## Configuration and security
-
-| | Electron | Tauri | rustx |
-|---|---|---|---|
-| where it is set | the main process code | `tauri.conf.json` | `Config` in `main.rs`, and `Cargo.toml`. See [configuration](/docs/getting-started/configuration) |
-| `nodeIntegration`, `contextIsolation` | settings | not applicable | not applicable. The page runs your Rust directly |
-| permissions and capabilities | none | capability files | none. Pages may call every registered native |
-| remote content | allowed | allowed, with a policy | **refused**. Only local files load. See [security](/docs/the-system/security) |
-
-## Coming from a React app
-
-| React or Next.js | rustx |
-|---|---|
-| `useState` | a `let mut`. At the top of a file it is shared, inside a component it is private to that instance. See [state](/docs/getting-started/state) |
-| `useEffect(fn, [dep])` | `effect(dep, work)` |
-| `useRef`, `useMemo` | `keep(expr)`, a value built once for the life of the component |
-| a prop | an argument of the function |
-| `children` | an `Element` argument. Layouts take `children: Element` first |
-| context | a top-of-file `let mut` that two components read |
-| `className`, `onClick`, `style={{ … }}` | the same, in `.rsx` |
-| `<Link>`, `useRouter` | `router::navigate`, `back`, `replace`, `current`. See [navigating](/docs/the-router/navigating) |
-| the `app/` router, `[id]`, `(group)`, `loading`, `error` | the same names. See [special files](/docs/the-router/special-files) |
-| `fetch` in an effect | a Rust HTTP client in an `async` block. See [network calls](/docs/async/network-calls) |
-| `localStorage` | [`rustx::data`](/docs/the-system/app-data), which is a file in the folder the system keeps for this application |
-| Tailwind, shadcn/ui, Recharts | the same libraries, as capitalized tags. See [JavaScript libraries](/docs/javascript-libraries) |
-| Server Components, `use client`, Server Actions | none. There is no server |
-| `next/image`, `next/font`, `next/link` | none. See [assets](/docs/getting-started/assets) |
-
-## Porting a React app
-
-1. Run `rustx new` and move your React components into `components/`, as they
-   are. A component of your own is found under the name of its file when it
-   has an `export default`, or under its export name.
-2. Copy your `package.json` dependencies, run `npm install`, and copy your style
-   sheet to `assets/tailwind.css`. Add the `@theme inline` block if you use
-   shadcn. See [Tailwind](/docs/javascript-libraries/tailwind).
-3. Replace `next/*` imports. Nothing provides them.
-4. Turn each route into a folder under `app/`. The first screen can stay a thin
-   `.rsx` page that draws your React page's component.
-5. Move data fetching and anything that touches the machine into Rust, and give
-   the components what they need as props, or as natives.
-6. Move state out of React as you go. There is no need to do it all at once: the
-   two trees share one frame loop.
-
-A rustx component is not a React component. React draws inside rustx, and
-rustx can draw inside a node React owns. See
-[a rustx component in React](/docs/javascript-libraries/a-rustx-component-in-react).
-
-Nothing here has been done to a large existing application. Expect to hit things
-that are not documented, and report them.
+---
+title: "Coming from Electron, Tauri or the web"
+description: "What each concept you know is called in rustx, and what has no equivalent yet."
+---
+
+The tables below map a name you know to the thing that does the same job here.
+Where nothing does the job, the cell says so. A missing row is not an invitation
+to guess: look in [what's left](/docs/whats-left).
+
+## The shape of the application
+
+| | Electron | Tauri | rustx |
+|---|---|---|---|
+| the language of the app | JavaScript, in two processes | Rust backend, JavaScript frontend | Rust, with markup in `.rsx` files |
+| the UI | any web framework | any web framework | `.rsx` pages. React libraries on the side |
+| the editor | VS Code, with JS tooling | VS Code, with JS tooling | a VS Code extension: highlighting, snippets, and `rust-analyzer` answering inside the braces. See [the editor](/docs/tooling/the-editor) |
+| the engine | Chromium, bundled | the system's web view | the system's web view (WebView2, WKWebView, WebKitGTK) |
+| platforms | Windows, macOS, Linux | Windows, macOS, Linux | Windows is written and run. Linux and macOS are written, compiled by their own target in CI, and have never been *run* — see [platforms](/docs/the-system/platforms) |
+| the backend process | the main process (Node) | the Rust core | none. Your Rust runs in the page's process |
+
+The last row is the one that changes how you design. There is no backend to
+call. See [where your code runs](/docs/getting-started/where-code-runs).
+
+## Talking to the backend
+
+| you wrote | the rustx equivalent |
+|---|---|
+| `ipcRenderer.invoke("x")` and `ipcMain.handle` | a Rust function called from the page. No message is sent |
+| `invoke("cmd")` and `#[tauri::command]` | the same, or a native registered for JavaScript. See [the Rust bridge](/docs/javascript-libraries/rust-bridge) |
+| `emit` and `listen` | none. State written in Rust redraws the page |
+| `preload.js`, `contextBridge` | `Config::on_context_created` |
+| async commands | `task(async { … })`. See [async](/docs/async) |
+
+A native is synchronous. It returns before the next line runs, and it takes and
+returns plain values (null, boolean, number, string, list, object).
+
+## The window and the system
+
+| | Electron | Tauri | rustx |
+|---|---|---|---|
+| a window | `new BrowserWindow` | `WebviewWindow` | `Config`, and `window::open` for more. See [several windows](/docs/the-window/several-windows) |
+| no frame | `frame: false` | `decorations: false` | `Config::frameless()`, then `window::drag()` and the commands. See [frameless](/docs/the-window/frameless) |
+| window commands | `win.minimize()` | `window.minimize()` | `window::minimize()`, `maximize()`, `shut()` and others. See [commanding the window](/docs/the-window/commanding-the-window) |
+| file dialogs | `dialog.showOpenDialog` | the dialog plugin | [`dialog::open`, `save`, `folder`](/docs/the-system/file-dialogs) |
+| clipboard | `clipboard` | the clipboard plugin | [`clipboard`](/docs/the-system/the-clipboard) |
+| tray | `Tray` | the tray icon | [`tray::Icon`](/docs/the-system/notifications-and-the-tray) |
+| notifications | `Notification` | the notification plugin | [`notify`](/docs/the-system/notifications-and-the-tray) |
+| global shortcuts | `globalShortcut` | the shortcut plugin | [`shortcut`](/docs/the-system/global-shortcuts) |
+| single instance | `requestSingleInstanceLock` | the single-instance plugin | [`instance`](/docs/the-system/a-single-instance) |
+| launch at login | `setLoginItemSettings` | the autostart plugin | [`autostart`](/docs/the-system/start-with-the-session) |
+| dropped file paths | `webUtils.getPathForFile` | the drag-drop event | [`dropped`](/docs/the-system/dropped-files) |
+| camera, microphone, screens | `getUserMedia`, `desktopCapturer` | the web view's | [`devices`](/docs/the-system/devices), then `getUserMedia` as on the web |
+| audio devices, system volume | `systemPreferences` and native modules | a plugin | [`os::audio`](/docs/the-system/sound) |
+| a screenshot | `desktopCapturer.getSources` | a plugin | [`os::capture`](/docs/the-system/screens-and-capture) |
+| the list of displays | `screen.getAllDisplays` | `available_monitors` | [`os::screen`](/docs/the-system/screens-and-capture) |
+| the OS theme, battery, idle, locale | `nativeTheme`, `powerMonitor`, `app.getLocale` | the os plugin | [`os::system`](/docs/the-system/the-machine) |
+| online, and the kind of link | `net.isOnline` | — | [`os::net`](/docs/the-system/the-machine) |
+| running a shell command | `child_process` | the shell plugin | [`terminal`](/docs/the-system/the-terminal) |
+| printing a file | `webContents.print` | — | [`os::print`](/docs/the-system/printing) — a **file**, not the page |
+| show in folder, recent documents | `shell.showItemInFolder`, `app.addRecentDocument` | the opener plugin | [`os::shell`](/docs/the-system/the-file-manager) |
+| taskbar progress, flash, badge | `setProgressBar`, `flashFrame`, `setBadgeCount` | a plugin | [`os::attention`](/docs/the-system/the-taskbar) |
+| paired Bluetooth devices | the Web Bluetooth API | a plugin | [`os::bluetooth`](/docs/the-system/devices) |
+| a colour picker | `<input type="color">` | — | [`os::color`](/docs/the-system/file-dialogs) — the system's, with its eyedropper |
+| secure storage | `safeStorage` | the stronghold plugin or a keyring | [`os::secret`](/docs/the-system/secrets) |
+| file associations, URL scheme | `app.setAsDefaultProtocolClient` | the deep-link plugin | [`shell::associate`](/docs/the-system/the-file-manager) for an extension, [`shell::register_scheme`](/docs/the-system/the-file-manager) for `myapp://…` |
+| the app's data folder | `app.getPath("userData")` | the path API | [`rustx::data`](/docs/the-system/app-data) — `read`, `write`, `list`, and a `cache` and `logs` folder beside it |
+| opening the system browser | `shell.openExternal` | the opener plugin | [`shell::open_url`](/docs/the-system/the-file-manager). `https`, `http` and `mailto`; the rest is refused by name |
+| application menu, context menu | `Menu` | the menu API | [`menu::popup`](/docs/the-system/menus) for a context menu (not on Linux: nothing native exists there). The bar is drawn in the page, and `menu::application()` installs the one macOS needs |
+| auto-update | `autoUpdater` | the updater plugin | [`rustx::update::from_github`](/docs/tooling/packaging) — a release page, no update server |
+| installer, signing | electron-builder and others | `tauri build` | [`rustx package`](/docs/tooling/packaging): the folder, a `.zip`, a setup `.exe` / `.dmg` / `install.sh`, and `signtool`/`codesign` when asked. No notarisation |
+| printing the window's own contents | `webContents.print` | the web view's | [`window::print`](/docs/the-system/printing): the system's print dialog. There is no print-to-PDF |
+
+"Not written" means that nothing in the framework's crates does it. You can
+still call the platform from your own Rust with a crate of your choice. Where a
+cell says a platform refuses, the refusal names the platform and the capability
+rather than failing silently — see [platforms](/docs/the-system/platforms).
+
+## Configuration and security
+
+| | Electron | Tauri | rustx |
+|---|---|---|---|
+| where it is set | the main process code | `tauri.conf.json` | `Config` in `main.rs`, and `Cargo.toml`. See [configuration](/docs/getting-started/configuration) |
+| `nodeIntegration`, `contextIsolation` | settings | not applicable | not applicable. The page runs your Rust directly |
+| permissions and capabilities | none | capability files | none. Pages may call every registered native |
+| remote content | allowed | allowed, with a policy | **refused**. Only local files load. See [security](/docs/the-system/security) |
+
+## Coming from a React app
+
+| React or Next.js | rustx |
+|---|---|
+| `useState` | a `let mut`. At the top of a file it is shared, inside a component it is private to that instance. See [state](/docs/getting-started/state) |
+| `useEffect(fn, [dep])` | `effect(dep, work)` |
+| `useRef`, `useMemo` | `keep(expr)`, a value built once for the life of the component |
+| a prop | an argument of the function |
+| `children` | an `Element` argument. Layouts take `children: Element` first |
+| context | a top-of-file `let mut` that two components read |
+| `className`, `onClick`, `style={{ … }}` | the same, in `.rsx` |
+| `<Link>`, `useRouter` | `router::navigate`, `back`, `replace`, `current`. See [navigating](/docs/the-router/navigating) |
+| the `app/` router, `[id]`, `(group)`, `loading`, `error` | the same names. See [special files](/docs/the-router/special-files) |
+| `fetch` in an effect | a Rust HTTP client in an `async` block. See [network calls](/docs/async/network-calls) |
+| `localStorage` | [`rustx::data`](/docs/the-system/app-data), which is a file in the folder the system keeps for this application |
+| Tailwind, shadcn/ui, Recharts | the same libraries, as capitalized tags. See [JavaScript libraries](/docs/javascript-libraries) |
+| Server Components, `use client`, Server Actions | none. There is no server |
+| `next/image`, `next/font`, `next/link` | none. See [assets](/docs/getting-started/assets) |
+
+## Porting a React app
+
+1. Run `rustx new` and move your React components into `components/`, as they
+   are. A component of your own is found under the name of its file when it
+   has an `export default`, or under its export name.
+2. Copy your `package.json` dependencies, run `npm install`, and copy your style
+   sheet to `assets/tailwind.css`. Add the `@theme inline` block if you use
+   shadcn. See [Tailwind](/docs/javascript-libraries/tailwind).
+3. Replace `next/*` imports. Nothing provides them.
+4. Turn each route into a folder under `app/`. The first screen can stay a thin
+   `.rsx` page that draws your React page's component.
+5. Move data fetching and anything that touches the machine into Rust, and give
+   the components what they need as props, or as natives.
+6. Move state out of React as you go. There is no need to do it all at once: the
+   two trees share one frame loop.
+
+A rustx component is not a React component. React draws inside rustx, and
+rustx can draw inside a node React owns. See
+[a rustx component in React](/docs/javascript-libraries/a-rustx-component-in-react).
+
+Nothing here has been done to a large existing application. Expect to hit things
+that are not documented, and report them.
