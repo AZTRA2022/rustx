@@ -173,15 +173,13 @@ fn snapshot(window: &tao::window::Window) {
     let position = window.outer_position().unwrap_or_default();
     let (outer, raw) = (window.outer_size(), window.inner_size());
     // tao's `inner_size` stayed at the old value after a resize on a hosted Mac
-    // while the outer size moved: when only the outer size changed since the
-    // last look, the inner one moved by the same amount.
+    // while the outer size moved: while tao's inner size is unchanged, the
+    // published one follows the outer size's changes.
     let size = {
         let mut last = LAST_SIZES.lock().unwrap_or_else(|p| p.into_inner());
         let (outer_now, raw_now) = ((outer.width, outer.height), (raw.width, raw.height));
         let published = match *last {
-            Some((was_outer, was_raw, was_published))
-                if was_raw == raw_now && was_outer != outer_now =>
-            {
+            Some((was_outer, was_raw, was_published)) if was_raw == raw_now => {
                 let moved = |new: u32, old: u32, was: u32| {
                     (was as i64 + new as i64 - old as i64).max(0) as u32
                 };

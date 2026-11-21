@@ -739,7 +739,7 @@ fn the_window_can_be_set_and_read_back_from_rust() {
     // Logical sizes in, physical sizes out: compare through the scale the
     // state reports. Hidden and shown again, and a close that is refused.
     let root = folder(
-        "controls",
+        "setters",
         &page(
             "const state = async () => {
                await sleep(700);
@@ -792,7 +792,7 @@ fn a_window_that_remembers_comes_back_where_and_as_big_as_it_was_left() {
     ];
     // First run: size it, move it, and close it.
     let first = folder(
-        "controls",
+        "remember-first",
         &page(
             "await sleep(800);
              window.win('size', 777, 555);
@@ -812,7 +812,7 @@ fn a_window_that_remembers_comes_back_where_and_as_big_as_it_was_left() {
     assert!(run.stderr.is_empty(), "{}", run.stderr);
     // Second run: nothing set; it reports the size it was given.
     let second = folder(
-        "controls",
+        "remember-second",
         &page(
             "await sleep(1500);
              say('size=' + Math.round(window.innerWidth) + 'x' + Math.round(window.innerHeight));
@@ -846,7 +846,7 @@ fn macos_size_diagnostic() {
         ),
     ] {
         let root = folder(
-            "controls",
+            "macdiag",
             &page(
                 "const look = (what) => say(what + ' state=' + window.win_state() + ' inner=' + window.innerWidth + 'x' + window.innerHeight + ' outer=' + window.outerWidth + 'x' + window.outerHeight + ' screen=' + screen.width + 'x' + screen.height + ' dpr=' + window.devicePixelRatio + ' resizes=' + window.win_resizes());
                  await sleep(1500);
