@@ -244,9 +244,13 @@ fn remember_now(title: &str, window: &tao::window::Window) {
         return;
     }
     let scale = window.scale_factor();
-    let (Ok(position), size) = (window.outer_position(), window.inner_size()) else {
+    let Ok(position) = window.outer_position() else {
         return;
     };
+    // The published size, not `inner_size()`: see `snapshot`.
+    snapshot(window);
+    let now = crate::window::state();
+    let size = tao::dpi::PhysicalSize::new(now.width, now.height);
     let saved = serde_json::json!({
         "x": (position.x as f64 / scale).round() as i64, "y": (position.y as f64 / scale).round() as i64,
         "w": (size.width as f64 / scale).round() as u64, "h": (size.height as f64 / scale).round() as u64,
