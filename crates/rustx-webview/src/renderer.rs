@@ -168,6 +168,8 @@ pub(crate) fn run_hooks() {
         return;
     }
     install_engine_natives();
+    // Inter and the default theme, in every window.
+    inject("rustx-base", &crate::base::script());
     // A page left to itself navigates to the file dropped on it. The paths
     // come from the host (see `dropped`); the page keeps its own `ondrop`.
     inject(

@@ -97,7 +97,11 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
         } else {
             (app.clone(), false)
         };
-        if let Err(complaint) = compile(&tree, &out, routed).map_err(|c| {
+        let compiled = compile(&tree, &out, routed);
+        if staged {
+            let _ = std::fs::remove_dir_all(&tree);
+        }
+        if let Err(complaint) = compiled.map_err(|c| {
             if staged {
                 unstage(&c, &tree, &manifest)
             } else {
@@ -154,6 +158,7 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
         let prelude = if routed {
             quote! {
                 rustx::install_manifest_dir(env!("CARGO_MANIFEST_DIR"));
+                rustx::install_package(env!("CARGO_PKG_VERSION"), env!("CARGO_PKG_AUTHORS"), env!("CARGO_PKG_DESCRIPTION"));
                 rustx::install_routes(__rustx_pages::route_table());
                 rustx::install_components(__rustx_pages::component_table());
                 rustx::install_shared_values(__rustx_pages::shared_values());
@@ -161,6 +166,7 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
         } else {
             quote! {
                 rustx::install_manifest_dir(env!("CARGO_MANIFEST_DIR"));
+                rustx::install_package(env!("CARGO_PKG_VERSION"), env!("CARGO_PKG_AUTHORS"), env!("CARGO_PKG_DESCRIPTION"));
             }
         };
 
@@ -339,7 +345,11 @@ const SYSTEM_PAGES: &[(&str, Option<&str>)] = &[
 /// A copy of `app/` with the system pages added as `__system/<name>/page.rsx`,
 /// which is what the compiler and the router are given.
 fn stage(manifest: &Path, app: &Path) -> Result<PathBuf, String> {
-    let tree = manifest.join("target").join("rustx-tree");
+    // One per process: cargo compiles the binary and its test harness at the same time,
+    // and two stages of one folder deleted each other's files.
+    let tree = manifest
+        .join("target")
+        .join(format!("rustx-tree-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tree);
     copy_pages(app, app, &tree)?;
     let system = manifest.join("system");

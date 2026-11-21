@@ -134,10 +134,12 @@ pub fn info() -> Info {
         .get()
         .map(|d| (d.mode, d.stamp.clone()))
         .unwrap_or((Mode::Normal, None));
+    // Not stamped (a debug run, a portable app): what the application says it is.
+    let about = crate::rustx_engine::window::about();
     let stamp = stamp.unwrap_or(Stamp {
-        name: String::new(),
-        version: String::new(),
-        publisher: String::new(),
+        name: about.name,
+        version: about.version,
+        publisher: about.publisher,
         license: String::new(),
     });
     Info {

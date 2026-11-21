@@ -6,7 +6,13 @@ description: "not_found, start, and what Config says about the router."
 The defaults are Next.js's own pages, with the same markup, colours (black on white, white on black
 by the system's preference) and system font stack: `404 | This page could not be found.`, and for a page
 that fell over `Application error: an exception has occurred…` with what the panic said under it.
-Next.js's default pages use the system font stack, not Geist, so none is bundled.
+Every window starts with Inter (the variable latin subset, SIL OFL, carried in the binary) as the
+font of `html`, and with the colours as CSS variables: `--rx-bg`, `--rx-fg`, `--rx-muted`, `--rx-border`,
+`--rx-accent`, `--rx-danger`, black on white or white on black by the system's preference. The seven
+`system/` screens use them, so a page of your own that does too looks the same. A page that names its own
+font on `body` keeps it. `rustx::screens::{not_found, forbidden, unauthorized, error_screen}` give the same
+screens as elements to put in a layout (`403 | You are not allowed to see this page.`, `401 | You must be
+signed in to see this page.`).
 
 `Config` says where it starts, and what is shown for a route that
 nobody declared.

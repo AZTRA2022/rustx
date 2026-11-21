@@ -593,6 +593,21 @@ fn Page() -> Element {
                 <span>© 2026 RustX. Built with Rust.</span>
                 <span>Made for developers who want more control.</span>
             </div>
+            {SystemScreens()}
         </footer>
+    </div>;
+}
+
+fn SystemButton(name: String) -> Element {
+    let target = name.clone();
+    return <button style={{ padding: "4px 10px", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#a1a1aa", cursor: "pointer" }} onClick={move |_| { rustx::setup::open(&target); }}>{name}</button>;
+}
+
+fn SystemScreens() -> Element {
+    let names = ["about", "settings", "permissions", "license", "install", "update", "uninstall"];
+    let buttons: Vec<Element> = names.iter().map(|name| SystemButton(name.to_string())).collect();
+    return <div style={{ maxWidth: "1280px", margin: "16px auto 0", display: "flex", flexWrap: "wrap", gap: "8px", fontSize: "12px" }}>
+        <span style={{ color: "#71717a", alignSelf: "center" }}>System screens:</span>
+        {buttons}
     </div>;
 }

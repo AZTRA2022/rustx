@@ -251,6 +251,16 @@ pub mod update {
     }
 }
 
+/// The default screens, as elements, for an application that wants one inside
+/// its own layout: Next.js's `notFound()`, `forbidden()`, `unauthorized()` and
+/// its error page.
+pub mod screens {
+    pub use crate::rustx_engine::router::{
+        error_screen, forbidden_screen as forbidden, not_found_screen as not_found,
+        unauthorized_screen as unauthorized,
+    };
+}
+
 /// What can go wrong while an application starts.
 pub type Error = crate::rustx_engine::EngineError;
 
@@ -301,6 +311,23 @@ pub fn block_on<T>(work: impl std::future::Future<Output = T>) -> T {
 
 /// Said by `#[rustx::main]`, which is where `env!` reads the
 /// application's own crate rather than this one.
+/// Said by `#[rustx::main]` with what the crate's own `Cargo.toml` says, so the
+/// About screen knows a version without `Config::version`.
+#[doc(hidden)]
+pub fn install_package(version: &str, authors: &str, description: &str) {
+    PACKAGE.with(|held| {
+        *held.borrow_mut() = (
+            version.to_string(),
+            authors.split(':').next().unwrap_or_default().to_string(),
+            description.to_string(),
+        )
+    });
+}
+
+thread_local! {
+    static PACKAGE: RefCell<(String, String, String)> = const { RefCell::new((String::new(), String::new(), String::new())) };
+}
+
 #[doc(hidden)]
 pub fn install_manifest_dir(directory: &str) {
     MANIFEST_DIR.with(|held| *held.borrow_mut() = Some(PathBuf::from(directory)));
@@ -903,12 +930,26 @@ impl App {
         // Declared before the sub-processes leave, because the render
         // process answers `rustx_about()` and it never comes back here.
         crate::rustx_engine::window::plan(config.plan.clone());
+        let mut about = config.about;
+        // What Config did not say, Cargo.toml did.
+        PACKAGE.with(|held| {
+            let (version, publisher, description) = held.borrow().clone();
+            if about.version.is_empty() {
+                about.version = version;
+            }
+            if about.publisher.is_empty() {
+                about.publisher = publisher;
+            }
+            if about.description.is_empty() {
+                about.description = description;
+            }
+        });
         crate::rustx_engine::window::declare(
             config
                 .icon
                 .map(|icon| resolved_asset(&icon))
                 .or_else(default_icon),
-            config.about,
+            about,
         );
 
         if let crate::rustx_engine::Bootstrap::Child { exit_code } =

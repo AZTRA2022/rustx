@@ -9,6 +9,7 @@
 
 mod app;
 pub mod assets;
+pub mod base;
 pub mod dom;
 pub mod dropped;
 mod error;

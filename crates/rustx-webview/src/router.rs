@@ -778,6 +778,36 @@ fn fell_over(pourquoi: String) -> Element {
     )
 }
 
+/// Next.js's `unauthorized()` screen: `401 | You must be signed in to see this page.`
+pub fn unauthorized_screen() -> Element {
+    next_error(
+        "rustx-unauthorized",
+        Some("401"),
+        "You must be signed in to see this page.",
+        None,
+    )
+}
+
+/// Next.js's `forbidden()` screen: `403 | You are not allowed to see this page.`
+pub fn forbidden_screen() -> Element {
+    next_error(
+        "rustx-forbidden",
+        Some("403"),
+        "You are not allowed to see this page.",
+        None,
+    )
+}
+
+/// The default not-found screen, for an application that wraps it.
+pub fn not_found_screen() -> Element {
+    no_such_screen()
+}
+
+/// The default error screen, given what went wrong.
+pub fn error_screen(reason: impl Into<String>) -> Element {
+    fell_over(reason.into())
+}
+
 /// The `style` Next.js writes into its error pages, kept as it is: the body
 /// colours follow `prefers-color-scheme`, and the divider after the status
 /// code is a hairline in either.
@@ -830,7 +860,7 @@ fn next_error(id: &str, code: Option<&str>, message: &str, reason: Option<String
         .attribute("id", at(id))
         .attribute(
             "style",
-            at("font-family:system-ui,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif,                \"Apple Color Emoji\",\"Segoe UI Emoji\";height:100vh;text-align:center;                display:flex;flex-direction:column;align-items:center;justify-content:center"),
+            at("font-family:Inter,system-ui,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif,                \"Apple Color Emoji\",\"Segoe UI Emoji\";height:100vh;text-align:center;                display:flex;flex-direction:column;align-items:center;justify-content:center"),
         )
         .child(row.build())
         .build()
@@ -1210,5 +1240,19 @@ mod tests {
         assert_eq!(history.back(), None);
         assert_eq!(history.forward(), None);
         assert_eq!(history.here(), "/");
+    }
+}
+
+#[cfg(test)]
+mod status_screen_tests {
+    use super::*;
+
+    #[test]
+    fn forbidden_and_unauthorized_say_what_next_says() {
+        let text = |e: &Element| format!("{e:?}");
+        assert!(text(&forbidden_screen()).contains("403"));
+        assert!(text(&forbidden_screen()).contains("You are not allowed to see this page."));
+        assert!(text(&unauthorized_screen()).contains("401"));
+        assert!(text(&unauthorized_screen()).contains("You must be signed in to see this page."));
     }
 }
