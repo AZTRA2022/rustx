@@ -35,6 +35,7 @@ pub enum Bootstrap {
 }
 
 pub fn bootstrap() -> Bootstrap {
+    crate::host::since_start();
     Bootstrap::Browser
 }
 

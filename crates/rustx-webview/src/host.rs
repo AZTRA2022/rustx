@@ -143,8 +143,9 @@ pub(crate) fn with_window(f: Box<dyn FnOnce(&tao::window::Window) + Send>) {
 /// the wait for it has run out.
 static SHOWN: AtomicBool = AtomicBool::new(false);
 
-/// Where the process started, for the trace below.
-fn since_start() -> std::time::Duration {
+/// Where the process started, for the trace below. Started by the facade's
+/// first statement (`bootstrap`), so unpacking the assets is on the clock.
+pub(crate) fn since_start() -> std::time::Duration {
     static START: OnceLock<Instant> = OnceLock::new();
     START.get_or_init(Instant::now).elapsed()
 }

@@ -880,3 +880,40 @@ fn macos_size_diagnostic() {
         let _ = std::fs::remove_dir_all(root);
     }
 }
+
+#[test]
+fn click_to_paint_is_measured_and_not_slow() {
+    // From `click()` to the next animation frame in which the page shows the
+    // host's answer: the round trip through Rust and back, as a person would
+    // feel it. A loose bound; the number is what is worth reading.
+    let root = folder(
+        "click-to-paint",
+        &page(
+            "const button = await wait('inc');
+             const times = [];
+             for (let i = 0; i < 15; i++) {
+               const before = button.textContent;
+               const start = performance.now();
+               button.click();
+               while (button.textContent === before) await new Promise((r) => requestAnimationFrame(r));
+               times.push(performance.now() - start);
+               await sleep(120);
+             }
+             times.sort((a, b) => a - b);
+             say('median_ms=' + times[7].toFixed(1));
+             say('worst_ms=' + times[14].toFixed(1));",
+        ),
+    );
+    let run = probe(&root, &["--scenario", "counter", "--seconds", "20"], &[]);
+    let number = |key: &str| -> f64 {
+        run.messages
+            .iter()
+            .find_map(|line| line.strip_prefix(key))
+            .and_then(|value| value.parse().ok())
+            .unwrap_or_else(|| panic!("no {key}: {:?} {}", run.messages, run.stderr))
+    };
+    let (median, worst) = (number("median_ms="), number("worst_ms="));
+    println!("CLICK_TO_PAINT median {median} ms, worst {worst} ms");
+    assert!(median < 500.0, "a click took {median} ms to paint");
+    let _ = std::fs::remove_dir_all(root);
+}

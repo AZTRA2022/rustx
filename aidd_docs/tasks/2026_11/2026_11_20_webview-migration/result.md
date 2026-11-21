@@ -71,6 +71,8 @@ Since then CI also proves that the installed application **starts and stays up f
 
 ## Measures (Windows, debug build, this machine)
 
-- Page ready after 0.8 to 1.1 s from the process start (`RUSTX_TRACE=1` prints it); a window hidden until then is no slower than a visible one (`RUSTX_SHOW_NOW=1`), and the page, not the 1.2 s fallback, is what shows it.
+- Page ready after 0.8 to 1.1 s from the process start (`RUSTX_TRACE=1` prints it, the clock starting at the first statement of `main`); a window hidden until then is no slower than a visible one (`RUSTX_SHOW_NOW=1`), and the page, not the 1.2 s fallback, is what shows it.
 - `.rsx` edit to a new window with the page ready under `rustx dev`: 5.4 s for a comment-only change on counter (incremental cargo build included). An asset edit reloads the page in place without a build (not timed).
 - Installed size: setup 1.9 MB (stub 1.1 MB), folder 2.1 MB for counter.
+- **Release build, Windows**: page ready 0.81 to 0.96 s after the first statement of `main` (counter, three runs) and 0.86 to 0.89 s (video-editor); executables 2.09 MB and 4.99 MB. Most of it is WebView2 creating its environment; the framework's own part (assets, window, first frame) is small beside it.
+- **Click to paint**: from `click()` to the frame that shows the host's answer, median 9 ms and worst 19 ms over 15 clicks (Windows, probe window). The probe test `click_to_paint_is_measured_and_not_slow` runs everywhere and bounds the median at 500 ms.
