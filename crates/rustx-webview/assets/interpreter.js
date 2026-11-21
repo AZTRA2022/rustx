@@ -300,8 +300,17 @@
       for (const name of names) {
         window[name] = (...args) => {
           const request = new XMLHttpRequest();
-          request.open("POST", window.__rustx_origin + "/__rustx/native/" + encodeURIComponent(name), false);
-          request.send(JSON.stringify(args));
+          // The arguments go in the address when they are small: WebKitGTK
+          // hands a custom protocol no request body. A large one goes in the
+          // body, which the other systems deliver.
+          const json = JSON.stringify(args);
+          const inAddress = json.length < 200000;
+          request.open(
+            "POST",
+            window.__rustx_origin + "/__rustx/native/" + encodeURIComponent(name) + (inAddress ? "?a=" + encodeURIComponent(json) : ""),
+            false
+          );
+          request.send(inAddress ? "" : json);
           const answer = JSON.parse(request.responseText);
           if ("err" in answer) throw new Error(answer.err);
           return answer.ok;

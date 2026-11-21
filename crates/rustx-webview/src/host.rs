@@ -771,10 +771,21 @@ fn native(
         Err("only the application's own pages may call a native".to_string())
     } else {
         let name = name.to_string();
-        std::str::from_utf8(request.body())
-            .map_err(|error| error.to_string())
+        // Small arguments travel in the address (`?a=`), large ones in the body.
+        let in_address = request
+            .uri()
+            .query()
+            .and_then(|query| query.split('&').find_map(|pair| pair.strip_prefix("a=")))
+            .and_then(crate::assets::percent_decoded);
+        in_address
+            .map(Ok)
+            .unwrap_or_else(|| {
+                std::str::from_utf8(request.body())
+                    .map(str::to_string)
+                    .map_err(|error| error.to_string())
+            })
             .and_then(|text| {
-                serde_json::from_str::<serde_json::Value>(text).map_err(|error| error.to_string())
+                serde_json::from_str::<serde_json::Value>(&text).map_err(|error| error.to_string())
             })
             .and_then(|json| {
                 crate::protocol::json_to_value(&json, 0).map_err(|error| error.to_string())

@@ -71,7 +71,16 @@ pub fn probe(root: &Path, extra: &[&str], envs: &[(&str, &Path)]) -> Run {
         opened: Vec::new(),
         done: false,
         reports: Vec::new(),
-        stderr: errors.join().unwrap_or_default(),
+        // The system's own chatter on a runner with no desktop (GTK's
+        // accessibility bus, Mesa's DRI3) is not the application's.
+        stderr: errors
+            .join()
+            .unwrap_or_default()
+            .lines()
+            .filter(|line| !line.contains("dbind-WARNING") && !line.contains("libEGL warning"))
+            .collect::<Vec<_>>()
+            .join("
+"),
         success: status.is_some_and(|status| status.success()),
     };
     for line in lines.join().unwrap_or_default() {
