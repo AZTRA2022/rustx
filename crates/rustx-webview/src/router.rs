@@ -754,81 +754,85 @@ pub const FAILED_SCREEN_ID: &str = "rustx-screen-failed";
 pub const FAILED_REASON_ID: &str = "rustx-screen-failed-reason";
 
 /// Where a path nobody declared leads, unless the application says
-/// otherwise.
+/// otherwise: the page Next.js shows (its `404`, same markup, same colours,
+/// same system font stack, light or dark by the system's preference).
 fn no_such_screen() -> Element {
-    column(
+    next_error(
         NO_SUCH_SCREEN_ID,
-        vec![
-            heading("This screen does not exist"),
-            paragraph(
-                "No route matches this path. Routes come from the directories \
-                 under `app/`; a page at `app/devices/page.rsx` is `/devices`.",
-            ),
-        ],
+        Some("404"),
+        "This page could not be found.",
+        None,
     )
 }
 
 /// And where a page that fell over leads, unless the application wrote
-/// an `error.rsx` above it.
-///
-/// What it says is what the panic said, verbatim, because a screen that
-/// says "something went wrong" is a screen nobody can act on — which is
-/// the one thing the stability brief asks of this screen by name.
+/// an `error.rsx` above it: Next.js's "Application error" page, with what
+/// the panic said under it, verbatim, because a screen that says "something
+/// went wrong" is a screen nobody can act on.
 fn fell_over(pourquoi: String) -> Element {
-    column(
+    next_error(
         FAILED_SCREEN_ID,
-        vec![
-            heading("This screen could not be drawn"),
+        None,
+        "Application error: an exception has occurred (see the console for more information).",
+        Some(pourquoi),
+    )
+}
+
+/// The `style` Next.js writes into its error pages, kept as it is: the body
+/// colours follow `prefers-color-scheme`, and the divider after the status
+/// code is a hairline in either.
+const NEXT_ERROR_STYLE: &str = "body{color:#000;background:#fff;margin:0}    .next-error-h1{border-right:1px solid rgba(0,0,0,.3)}    @media (prefers-color-scheme:dark){body{color:#fff;background:#000}    .next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}";
+
+/// Next.js's default error screen. Inline styles for the layout (the
+/// application most likely to reach this ships no stylesheet at all).
+fn next_error(id: &str, code: Option<&str>, message: &str, reason: Option<String>) -> Element {
+    let mut line = Element::tag("div").attribute("style", at("display:inline-block"));
+    line = line.child(
+        Element::tag("h2")
+            .attribute(
+                "style",
+                at("font-size:14px;font-weight:400;line-height:49px;margin:0"),
+            )
+            .child(Element::Text(message.to_string()))
+            .build(),
+    );
+    let mut row = Element::tag("div").child(
+        Element::tag("style")
+            .child(Element::Text(NEXT_ERROR_STYLE.to_string()))
+            .build(),
+    );
+    if let Some(code) = code {
+        row = row.child(
+            Element::tag("h1")
+                .attribute("class", at("next-error-h1"))
+                .attribute(
+                    "style",
+                    at("display:inline-block;margin:0 20px 0 0;padding:0 23px 0 0;                        font-size:24px;font-weight:500;vertical-align:top;line-height:49px"),
+                )
+                .child(Element::Text(code.to_string()))
+                .build(),
+        );
+    }
+    row = row.child(line.build());
+    if let Some(reason) = reason {
+        row = row.child(
             Element::tag("pre")
                 .attribute("id", at(FAILED_REASON_ID))
                 .attribute(
                     "style",
-                    at(
-                        "margin:0;padding:12px;border-radius:6px;white-space:pre-wrap;\
-                        background:rgba(127,127,127,0.12);font:13px/1.5 ui-monospace,monospace",
-                    ),
+                    at("margin:12px auto 0;max-width:46rem;padding:0 24px;text-align:left;                        white-space:pre-wrap;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;                        opacity:.72"),
                 )
-                .child(Element::Text(pourquoi))
+                .child(Element::Text(reason))
                 .build(),
-            paragraph(
-                "The panic and its backtrace are on the console. To show something \
-                 of your own here, write an `error.rsx` beside the page: it is \
-                 given this same text.",
-            ),
-        ],
-    )
-}
-
-/// The three builders the two screens above share. Inline styles rather
-/// than classes: these screens have to look like something in an
-/// application that ships no stylesheet at all, which is exactly the
-/// application most likely to reach them.
-fn column(id: &str, children: Vec<Element>) -> Element {
-    let mut built = Element::tag("div").attribute("id", at(id)).attribute(
-        "style",
-        at("margin:0 auto;padding:40px 24px;max-width:46rem;\
-                font:15px/1.6 system-ui,sans-serif"),
-    );
-    for child in children {
-        built = built.child(child);
+        );
     }
-    built.build()
-}
-
-fn heading(text: &str) -> Element {
-    Element::tag("h1")
+    Element::tag("div")
+        .attribute("id", at(id))
         .attribute(
             "style",
-            at("margin:0 0 12px;font-size:1.25rem;font-weight:600"),
+            at("font-family:system-ui,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif,                \"Apple Color Emoji\",\"Segoe UI Emoji\";height:100vh;text-align:center;                display:flex;flex-direction:column;align-items:center;justify-content:center"),
         )
-        .child(Element::Text(text.to_string()))
-        .build()
-}
-
-fn paragraph(text: &str) -> Element {
-    Element::tag("p")
-        .attribute("style", at("margin:12px 0 0;opacity:0.72"))
-        .child(Element::Text(text.to_string()))
+        .child(row.build())
         .build()
 }
 
@@ -1001,7 +1005,7 @@ mod tests {
             ids(&screen)
         );
         assert!(
-            words(&screen).contains("does not exist"),
+            words(&screen).contains("could not be found"),
             "got {:?}",
             words(&screen)
         );
