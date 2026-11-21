@@ -302,6 +302,7 @@ fn finish_the_bundle(into: &Path, read: &build::Project) -> Result<(), String> {
     }
 
     let version = read.about.version.clone();
+    let publisher = read.about.publisher.clone();
     let identifier = format!("dev.rustx.{slug}");
     let mut keys: Vec<(&str, &str)> = vec![
         ("CFBundleDevelopmentRegion", "en"),
@@ -316,6 +317,9 @@ fn finish_the_bundle(into: &Path, read: &build::Project) -> Result<(), String> {
         ("LSMinimumSystemVersion", "11.0"),
         ("NSHighResolutionCapable", "true"),
         ("NSSupportsAutomaticGraphicsSwitching", "true"),
+        // The binary may install itself: see `rustx_os::install::read_stamp`.
+        ("RustxInstallable", "true"),
+        ("RustxPublisher", &publisher),
     ];
     if icon.is_some() {
         keys.push(("CFBundleIconFile", &icon_name));
