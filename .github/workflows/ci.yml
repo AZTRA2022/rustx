@@ -336,6 +336,7 @@ jobs:
             pid=$!
             for i in $(seq 1 60); do grep -q "done=" "$home/screen.txt" 2>/dev/null && break; sleep 1; done
             kill $pid || true
+            sleep 6
             cat "$home/screen.txt"
             grep -q "done=yes" "$home/screen.txt"
           done

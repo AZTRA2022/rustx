@@ -661,7 +661,7 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
                 // letting go of the profile folder. It is a matter of a
                 // moment, and a user who closes the application and opens it
                 // again is the one who meets it.
-                Err(error) if attempt < 40 && error.to_string().contains("800700AA") => {
+                Err(error) if attempt < 200 && error.to_string().contains("800700AA") => {
                     attempt += 1;
                     std::thread::sleep(Duration::from_millis(250));
                 }
