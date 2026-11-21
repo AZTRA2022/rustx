@@ -10,7 +10,11 @@ use rustx::{App, Config};
 
 #[rustx::main]
 fn main() -> Result<(), rustx::Error> {
-    let app = App::new(Config::new("Counter").size(640, 480))?;
+    let app = App::new(
+        Config::new("Counter")
+            .size(640, 480)
+            .updates("owner/counter"),
+    )?;
 
     app.run()
 }

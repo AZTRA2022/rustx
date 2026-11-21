@@ -108,7 +108,13 @@ pub fn latest(repository: &str, app: &str) -> Result<Option<Release>, OsError> {
              the address bar writes it"
         )));
     }
-    let url = format!("https://api.github.com/repos/{repository}/releases/latest");
+    // `RUSTX_UPDATE_API` points the check at another server speaking the same
+    // JSON: a test over loopback, or a GitHub Enterprise host.
+    let api = std::env::var("RUSTX_UPDATE_API").unwrap_or_else(|_| "https://api.github.com".into());
+    let url = format!(
+        "{}/repos/{repository}/releases/latest",
+        api.trim_end_matches('/')
+    );
     let body = crate::platform::http::get(&url, &agent(app))?;
     let text = String::from_utf8_lossy(&body).to_string();
     Ok(release_in(&text))

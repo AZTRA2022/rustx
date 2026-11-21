@@ -16,10 +16,12 @@ fn Row(name: String) -> Element {
     };
     let button = "padding:6px 14px;border-radius:8px;border:1px solid #3a3f4a;background:transparent;color:#f3f4f6;cursor:pointer;font-size:13px;";
     let asked = name.clone();
+    let state = rustx::setup::permission_state(&name);
     return <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0", borderBottom: "1px solid #2a2e36" }}>
         <div>
             <div style={{ fontWeight: "600" }}>{name}</div>
             <div style={{ color: "#9ca3af", fontSize: "13px" }}>{why}</div>
+            <div style={{ color: "#9ca3af", fontSize: "12px", marginTop: "2px" }}>{state}</div>
         </div>
         <button style={button} onClick={move |_| { let _ = rustx::setup::open_permission_settings(&asked); }}>System settings</button>
     </div>;

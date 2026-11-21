@@ -73,6 +73,7 @@ pub mod audio;
 pub mod autostart;
 pub mod blocking;
 pub mod bluetooth;
+pub mod bootstrap;
 pub mod capture;
 pub mod clipboard;
 pub mod color;

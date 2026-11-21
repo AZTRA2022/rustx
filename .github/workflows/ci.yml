@@ -345,6 +345,20 @@ jobs:
             cat "$home/screen.txt"
             grep -q "done=yes" "$home/screen.txt"
           done
+          # Settings checks for updates against a release page served over loopback.
+          site="$home/releases"
+          mkdir -p "$site/repos/owner/counter/releases"
+          printf '%s' '{"tag_name":"v9.0.0","body":"new","assets":[{"name":"counter-windows-linux-macos.zip","browser_download_url":"http://127.0.0.1:8765/x.zip","size":4}]}' > "$site/repos/owner/counter/releases/latest"
+          (cd "$site" && $(command -v python3 || command -v python) -m http.server 8765 --bind 127.0.0.1 >/dev/null 2>&1 &) 
+          sleep 2
+          rm -f "$home/screen.txt"
+          RUSTX_UPDATE_API="http://127.0.0.1:8765" RUSTX_START="/__system/settings" $runner "$installed" --scenario=update --report="$home/screen.txt" &
+          pid=$!
+          for i in $(seq 1 60); do grep -q "done=" "$home/screen.txt" 2>/dev/null && break; sleep 1; done
+          kill $pid || true
+          sleep 4
+          cat "$home/screen.txt"
+          grep -q "update=found" "$home/screen.txt"
           # And removes itself.
           "$installed" --uninstall --silent
           for i in $(seq 1 30); do [ -e "$installed" ] || break; sleep 1; done

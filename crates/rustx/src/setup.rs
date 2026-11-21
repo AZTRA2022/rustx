@@ -250,6 +250,50 @@ pub(crate) fn declare_permissions(names: Vec<String>) {
     PERMISSIONS.with(|held| *held.borrow_mut() = names);
 }
 
+thread_local! {
+    static UPDATES: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+pub(crate) fn declare_updates(repository: Option<String>) {
+    UPDATES.with(|held| *held.borrow_mut() = repository);
+}
+
+/// Whether the application said where its releases are (`Config::updates`).
+pub fn updates_known() -> bool {
+    UPDATES.with(|held| held.borrow().is_some())
+}
+
+fn repository() -> Result<String, String> {
+    UPDATES
+        .with(|held| held.borrow().clone())
+        .ok_or_else(|| "this application did not say where its releases are".to_string())
+}
+
+/// Ask the release page: `Ok(Some(version))` when a newer one exists. Blocks:
+/// call it in a `task`.
+pub fn check_for_update() -> Result<Option<String>, String> {
+    crate::update::newest(&repository()?)
+        .map(|found| found.map(|release| release.version))
+        .map_err(|e| e.to_string())
+}
+
+/// Download the newer release, check it against the published digest, and put
+/// it in place. Blocks: call it in a `task`. `progress` gets 0 to 100.
+pub fn install_update(mut progress: impl FnMut(u8)) -> Result<(), String> {
+    crate::update::from_github_watching(&repository()?, &mut |seen, of| {
+        if let Some(percent) = (seen * 100).checked_div(of) {
+            progress(percent.min(100) as u8);
+        }
+    })
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
+/// Start the updated program and leave.
+pub fn restart() -> Result<(), String> {
+    crate::update::restart().map_err(|e| e.to_string())
+}
+
 /// Show one of the OS-facing screens of `system/`: `license`, `permissions`,
 /// `about` or `settings`. [`close`] goes back to where the application was.
 pub fn open(screen: &str) {
@@ -260,6 +304,47 @@ pub fn open(screen: &str) {
 pub fn close() {
     if !crate::router::back() {
         crate::router::navigate("/");
+    }
+}
+
+/// What the system says about a permission: `Allowed`, `Blocked`, or
+/// `Asked on first use` where the system exposes nothing (macOS and Linux
+/// answer at the moment of use; Windows keeps a consent store).
+pub fn permission_state(name: &str) -> String {
+    let asked = "Asked on first use".to_string();
+    if !cfg!(windows) {
+        return asked;
+    }
+    let capability = match name {
+        "camera" => "webcam",
+        "microphone" => "microphone",
+        "location" => "location",
+        _ => return asked,
+    };
+    let key = format!(
+        r"HKCU\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\{capability}"
+    );
+    let mut command = std::process::Command::new("reg");
+    command.args(["query", &key, "/v", "Value"]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    let text = command
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).to_string())
+        .unwrap_or_default();
+    state_from_registry(&text).unwrap_or(asked)
+}
+
+fn state_from_registry(text: &str) -> Option<String> {
+    if text.contains("Allow") {
+        Some("Allowed".into())
+    } else if text.contains("Deny") {
+        Some("Blocked".into())
+    } else {
+        None
     }
 }
 
@@ -303,4 +388,22 @@ pub fn open_permission_settings(name: &str) -> Result<(), String> {
     started
         .map(|_| ())
         .map_err(|e| format!("could not open the system settings: {e}"))
+}
+
+#[cfg(test)]
+mod permission_tests {
+    use super::*;
+
+    #[test]
+    fn the_consent_store_is_read() {
+        assert_eq!(
+            state_from_registry("    Value    REG_SZ    Allow").as_deref(),
+            Some("Allowed")
+        );
+        assert_eq!(
+            state_from_registry("    Value    REG_SZ    Deny").as_deref(),
+            Some("Blocked")
+        );
+        assert_eq!(state_from_registry("ERROR: not found"), None);
+    }
 }

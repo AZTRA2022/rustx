@@ -497,6 +497,7 @@ pub struct Config {
     plan: crate::rustx_engine::window::Plan,
     portable: bool,
     permissions: Vec<String>,
+    updates: Option<String>,
 }
 
 impl Config {
@@ -524,6 +525,7 @@ impl Config {
             plan: Default::default(),
             portable: false,
             permissions: Vec::new(),
+            updates: None,
         }
     }
 
@@ -538,6 +540,13 @@ impl Config {
     /// pages of `system/` when it is run outside its install location.
     pub fn portable(mut self) -> Self {
         self.portable = true;
+        self
+    }
+
+    /// Where releases are published, `owner/name` on GitHub: the settings screen
+    /// of `system/` then offers to check for an update and install it.
+    pub fn updates(mut self, repository: &str) -> Self {
+        self.updates = Some(repository.to_string());
         self
     }
 
@@ -762,6 +771,7 @@ impl App {
         // A binary made installable that is not installed shows its system
         // pages first; `--install --silent` and `--uninstall --silent` need no window.
         crate::setup::declare_permissions(config.permissions.clone());
+        crate::setup::declare_updates(config.updates.clone());
         // No route table (`#[rustx::main(pages)]`) means no system pages to show.
         let mode = crate::setup::detect(config.portable || routes.is_none());
         if let Some(code) = crate::setup::silent() {
@@ -898,7 +908,27 @@ impl App {
 
     /// Open the window and run until it closes.
     pub fn run(self) -> Result<(), Error> {
-        self.inner.run()
+        let outcome = self.inner.run();
+        // A machine without the web view runtime: say so natively, install it
+        // when allowed, and start again.
+        if let Err(failure) = &outcome
+            && rustx_os::bootstrap::is_missing_runtime(&failure.to_string())
+        {
+            let name = crate::rustx_engine::window::about().name;
+            match rustx_os::bootstrap::offer_runtime(&name) {
+                Ok(true) => {
+                    if let Ok(exe) = std::env::current_exe() {
+                        let _ = std::process::Command::new(exe)
+                            .args(std::env::args().skip(1))
+                            .spawn();
+                    }
+                    return Ok(());
+                }
+                Ok(false) => {}
+                Err(why) => eprintln!("rustx: {why}"),
+            }
+        }
+        outcome
     }
 }
 

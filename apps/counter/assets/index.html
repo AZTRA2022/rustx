@@ -61,6 +61,29 @@
         };
         look();
       }
+      // Settings, "Check for updates": against a release page the CI serves.
+      if (rustx_scenario() === "update") {
+        let left = 400;
+        const look = () => {
+          const go = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Check");
+          if (go && !window.__clicked) {
+            window.__clicked = true;
+            go.click();
+          }
+          if (document.body.textContent.includes("Version 9.0.0 is available")) {
+            rustx_report("update", "found");
+            rustx_report("done", "yes");
+            return;
+          }
+          if (left-- <= 0) {
+            rustx_report("gave_up_on", document.body.textContent.slice(0, 160));
+            rustx_report("done", "no");
+            return;
+          }
+          rustx_soon(look);
+        };
+        look();
+      }
       if (rustx_scenario() === "install") {
         const button = (text) => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === text);
         let left = 600;
