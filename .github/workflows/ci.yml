@@ -292,6 +292,8 @@ jobs:
         timeout-minutes: 10
         run: |
           set -eu
+          # Git Bash turns a value that looks like /path into a Windows path.
+          export MSYS_NO_PATHCONV=1
           home="$RUNNER_TEMP/selfinstall"
           mkdir -p "$home/local" "$home/roam" "$home/home"
           report="$home/report.txt"
@@ -351,6 +353,7 @@ jobs:
           # The folder is in the archive already; only
           # what a user would download goes up.
           path: |
+            dist/*.zip
             dist/*.deb
             dist/*.pkg
             dist/*.dmg
