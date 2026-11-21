@@ -1,0 +1,95 @@
+/* Nemo Design: near-black panels, hairline borders, one blue for the action (Export, +) and one
+   violet for the clip. Tailwind 4 is configured here; every control is shadcn on these tokens. */
+@import "tailwindcss";
+
+:root {
+  --stage: #0c0c0e;
+  --panel: #111113;
+  --card: #141416;
+  --well: #1b1b1e;
+  --line: #26262b;
+  --text: #e4e4e7;
+  --muted: #a1a1aa;
+  --faint: #52525b;
+  --action: #3a4bff;
+  --clip: #c084fc;
+
+  --background: var(--stage);
+  --foreground: var(--text);
+  --popover: #1d1d21;
+  --popover-foreground: var(--text);
+  --primary: var(--action);
+  --primary-foreground: #ffffff;
+  --secondary: var(--well);
+  --secondary-foreground: var(--text);
+  --muted-foreground: var(--muted);
+  --accent: #2b2b31;
+  --accent-foreground: #ffffff;
+  --destructive: #e06c75;
+  --destructive-foreground: #ffffff;
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--action);
+}
+
+@theme inline {
+  --color-stage: var(--stage);
+  --color-panel: var(--panel);
+  --color-card: var(--card);
+  --color-well: var(--well);
+  --color-line: var(--line);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-action: var(--action);
+  --color-clip: var(--clip);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background-color: var(--stage);
+  color: var(--text);
+  overflow: hidden;
+}
+
+/* The light theme is the same palette turned over: one class on the root. */
+.light {
+  --stage: #f4f4f5;
+  --panel: #ffffff;
+  --card: #ffffff;
+  --well: #f1f1f3;
+  --line: #e1e1e6;
+  --text: #18181b;
+  --muted: #5f5f6a;
+  --faint: #a1a1aa;
+  --popover: #ffffff;
+  --accent: #ececf0;
+  --accent-foreground: #18181b;
+}
+
+:focus-visible {
+  outline: 1px solid var(--action);
+  outline-offset: 1px;
+}

@@ -1,0 +1,11 @@
+3D models in this folder, downloaded from public sample sets:
+
+robot.glb  RobotExpressive, by Tomas Laulhe (modifications by Don McCurdy), CC0 1.0.
+           Source: three.js examples, models/gltf/RobotExpressive (r169).
+fox.glb    Fox. Model by PixelMannen (CC0 1.0); rigging and animation by tomkranis
+           (CC BY 4.0, https://creativecommons.org/licenses/by/4.0/); glTF conversion by
+           @AsoboStudio and @scurest (CC BY 4.0).
+           Source: Khronos glTF-Sample-Assets, Models/Fox.
+duck.glb   Rubber Duck. Copyright 2006 Sony Computer Entertainment Inc., under the SCEA Shared
+           Source License, Version 1.0 (redistribution with this notice is permitted).
+           Source: Khronos glTF-Sample-Assets, Models/Duck.
