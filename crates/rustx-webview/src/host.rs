@@ -272,6 +272,25 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
     *proxy()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(event_loop.create_proxy());
+    // `rustx dev` touches this file when only the assets changed: the page is
+    // reloaded in place, and what Rust holds is mounted again on its own. Nothing
+    // else in the world sets it, so a shipped application never looks.
+    if let Some(file) = std::env::var_os("RUSTX_RELOAD") {
+        std::thread::spawn(move || {
+            let stamp = || std::fs::metadata(&file).and_then(|about| about.modified()).ok();
+            let mut seen = stamp();
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(150));
+                let now = stamp();
+                if now != seen {
+                    // A write is often two (truncate, then data): settle first.
+                    std::thread::sleep(std::time::Duration::from_millis(80));
+                    seen = stamp();
+                    script("location.reload()".to_string());
+                }
+            }
+        });
+    }
     let window = WindowBuilder::new()
         .with_title(&config.title)
         .with_decorations(config.decorations)

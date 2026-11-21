@@ -345,6 +345,14 @@ pub fn assets_dir() -> PathBuf {
 }
 
 fn found_assets_dir() -> PathBuf {
+    // `rustx dev` serves the project's own folder, so a saved asset is what the
+    // reloaded page shows. A built application has the files carried instead.
+    if std::env::var_os("RUSTX_RELOAD").is_some() {
+        let live = manifest_dir().join("assets");
+        if live.is_dir() {
+            return live;
+        }
+    }
     let beside = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(|directory| directory.join("assets")));

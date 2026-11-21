@@ -57,16 +57,26 @@ pub fn watch(project: &Path) -> Result<(), String> {
     build::read(project)?;
 
     let mut watched = Watched::new(
-        &[
-            project.join("app"),
-            project.join("src"),
-            project.join("assets"),
-        ],
+        &[project.join("app"), project.join("src")],
         &["rsx", "rs", "css", "js", "jsx", "ts", "tsx", "json", "html"],
-        // The bundle is written into `assets/` by every build. Watching
-        // it would mean one saved page becomes a rebuild for ever.
         &[rustx_compiler::bundle::SERVED],
     );
+    // The assets are served from the folder the window runs in, so a saved
+    // asset needs no build: the running page is told to reload. The bundle is
+    // written into `assets/` by every build; watching it would mean one saved
+    // page becomes a reload for ever.
+    let mut assets = Watched::new(
+        &[project.join("assets")],
+        &["css", "js", "html", "json", "svg", "png", "jpg", "ico", "woff2", "ttf"],
+        &[rustx_compiler::bundle::SERVED, "tailwind.css"],
+    );
+    let reload = project.join("target").join("rustx-dev-reload.txt");
+    // `assets/tailwind.css` is the one asset that is a build input: Tailwind
+    // reads it and the result is compiled into the binary. A change to it is
+    // a rebuild, not a reload.
+    let sheet = project.join("assets").join("tailwind.css");
+    let stamp = |path: &Path| std::fs::metadata(path).and_then(|about| about.modified()).ok();
+    let mut sheet_seen = stamp(&sheet);
     let mut coalescing = Coalescing::new(QUIET);
 
     // Where the application writes what is to cross the restart: the
@@ -77,12 +87,20 @@ pub fn watch(project: &Path) -> Result<(), String> {
     let _ = std::fs::remove_file(&carried);
 
     let mut running: Option<Child> = None;
-    restart(project, &carried, &mut running);
+    restart(project, &carried, &reload, &mut running);
+    let _ = assets.changed();
 
     loop {
-        if coalescing.tick(watched.changed(), Instant::now()) {
+        let sheet_now = stamp(&sheet);
+        let sheet_changed = std::mem::replace(&mut sheet_seen, sheet_now) != sheet_now;
+        if coalescing.tick(watched.changed() | sheet_changed, Instant::now()) {
             println!("rustx: something changed — rebuilding.");
-            restart(project, &carried, &mut running);
+            restart(project, &carried, &reload, &mut running);
+            let _ = assets.changed();
+        } else if !coalescing.waiting() && assets.changed() {
+            println!("rustx: an asset changed — reloading the page.");
+            let turn = std::fs::read_to_string(&reload).ok().and_then(|n| n.trim().parse::<u64>().ok()).unwrap_or(0);
+            let _ = std::fs::write(&reload, (turn + 1).to_string());
         }
 
         // The developer closed the window: that is how `rustx dev` ends,
@@ -172,7 +190,7 @@ static TURN: AtomicU64 = AtomicU64::new(0);
 /// The order matters: the previous process is killed only once the new
 /// binary exists. A failed build leaves what is on screen on screen,
 /// showing the last page that compiled.
-fn restart(project: &Path, carried: &Path, running: &mut Option<Child>) {
+fn restart(project: &Path, carried: &Path, reload: &Path, running: &mut Option<Child>) {
     match build::run(false, project) {
         Ok(exe) => {
             // The copy is made before anything is killed, so that a
@@ -199,6 +217,7 @@ fn restart(project: &Path, carried: &Path, running: &mut Option<Child>) {
                 // application a developer built and ran keeps nothing
                 // and reads nothing.
                 .env("RUSTX_CARRIED", carried)
+                .env("RUSTX_RELOAD", reload)
                 .spawn()
             {
                 Ok(child) => *running = Some(child),
