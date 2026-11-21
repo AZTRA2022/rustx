@@ -9,10 +9,12 @@
 //
 // What is real and what is not, said once, here:
 //
-//   - the CEF build this window runs on has no H.264 and no AAC, so
-//     an mp4 does not play in it and a WebM does. Rather than refuse
-//     most footage, ffmpeg builds a preview proxy of such a file once
-//     and the monitor plays that; the render always uses the original;
+//   - what the monitor can play is what the system's web view decodes:
+//     on Windows, WebView2 plays H.264 and AAC; elsewhere it depends on
+//     the system's codecs. A file it refuses is said so (editor_media),
+//     and `ffmpeg::proxy_plan` is the answer an editor gives -- a preview
+//     proxy -- written and tested, not yet wired into the page. The render
+//     always uses the original;
 //   - the monitor is a `<video>` playing the file off disk. Play,
 //     pause, stop, seek, frame stepping, in and out points, volume and
 //     the keyboard are all that element, driven from Rust;
@@ -20,7 +22,7 @@
 //     going, so the sequence plays as the cut — but the hand-off is a
 //     reload of the element, so there is a gap of a frame or two at
 //     each cut that the rendered file does not have;
-//   - J cannot be reverse play. Chromium refuses a negative
+//   - J cannot be reverse play. The web view refuses a negative
 //     `playbackRate`, so J steps a second back and pauses, and the
 //     shortcut line says so;
 //   - the colour filter is previewed only where the preview is honest.
@@ -32,7 +34,7 @@
 //     are real work and neither is faked here.
 //
 // The still that `ffmpeg` can extract is kept for one job: the monitor
-// when Chromium cannot decode the file. That is a real fallback rather
+// when the web view cannot decode the file. That is a real fallback rather
 // than a second preview.
 
 // The timeline: how far it is zoomed (Ctrl + wheel), and whether the
@@ -923,7 +925,7 @@ fn StatusBar() -> Element {
         <span id="status" className="truncate">{said()}</span>
         <span className="flex-1"></span>
         <span className="shrink-0 text-faint">
-            {"Space play · K pause · L faster · J a second back (Chromium cannot play in reverse) · ←/→ frame · shift+←/→ second · I/O in and out · Home/End · M mute"}
+            {"Space play · K pause · L faster · J a second back (a web view cannot play in reverse) · ←/→ frame · shift+←/→ second · I/O in and out · Home/End · M mute"}
         </span>
     </div>;
 }
@@ -965,7 +967,7 @@ fn act(what: String) {
                 tell(format!("start:{:.3}", played.clamp(clip.start, clip.end)));
             }
         }
-        // Not reverse play: Chromium refuses a negative playbackRate,
+        // Not reverse play: The web view refuses a negative playbackRate,
         // so this is the honest half of J — stop, and a second back.
         "j" => {
             tell("pause".to_string());

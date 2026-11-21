@@ -57,7 +57,6 @@ collects what the script reports. The pieces are all in the framework:
 |---|---|
 | `--scenario=<name>` | a command-line argument. `rustx_scenario()` in the page returns the name |
 | `--report=<path>` | a file. `rustx_report(key, value)` appends the line `REPORT key=value` to it |
-| `--do-not-de-elevate` | lets the suite run from an administrator terminal |
 
 Both natives are installed on every page. An application that is not under test
 gets an empty string from `rustx_scenario()`, so a script that checks for a name

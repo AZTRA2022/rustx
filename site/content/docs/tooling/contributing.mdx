@@ -49,7 +49,7 @@ cargo test --workspace
 A scenario is a name passed to the application, and a report written to a file that the test reads back:
 
 ```sh
-cargo run -p counter -- --do-not-de-elevate --scenario=page --report=rapport.txt
+cargo run -p counter -- --scenario=page --report=rapport.txt
 ```
 
 In the page, `rustx_scenario()` says which scenario is running, and

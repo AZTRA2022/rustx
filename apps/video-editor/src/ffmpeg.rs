@@ -367,11 +367,10 @@ pub fn frame_arguments(clip: &Clip, at: f64, out: &Path) -> Vec<String> {
 
 /// A preview proxy, as a command line.
 ///
-/// The CEF build this window runs on has no H.264 and no AAC — a WebM
-/// of VP8 and Vorbis plays, an mp4 does not, and most footage is an
-/// mp4. Measured here rather than assumed: the monitor refused
-/// `a.mp4` with `DEMUXER_ERROR`, and played the same picture as
-/// `a.webm`.
+/// A web view may not decode what a camera wrote (the old CEF build had no
+/// H.264 and no AAC: it refused `a.mp4` with `DEMUXER_ERROR` and played the
+/// same picture as `a.webm`; WebView2 uses Windows' codecs and plays it).
+/// This plan is kept, tested, and not wired into the page.
 ///
 /// An editor's answer to a file it cannot play is a proxy, and this is
 /// one: the whole file, once, into something the window can decode, at
