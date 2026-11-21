@@ -345,6 +345,35 @@ jobs:
             cat "$home/screen.txt"
             grep -q "done=yes" "$home/screen.txt"
           done
+          # A picture of each OS-facing screen, for a person to look at: no Mac or Windows needed.
+          shots="$PWD/screens"
+          mkdir -p "$shots"
+          shoot() {
+            case "${{ runner.os }}" in
+            Windows)
+              powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; \$b=[System.Windows.Forms.SystemInformation]::VirtualScreen; \$m=New-Object System.Drawing.Bitmap \$b.Width,\$b.Height; \$g=[System.Drawing.Graphics]::FromImage(\$m); \$g.CopyFromScreen(\$b.Location,[System.Drawing.Point]::Empty,\$b.Size); \$m.Save('$(cygpath -w "$1")')" ;;
+            macOS) screencapture -x "$1" ;;
+            Linux) import -window root "$1" ;;
+            esac
+          }
+          for screen in install uninstall update license permissions about settings; do
+            rm -f "$home/screen.txt"
+            if [ "${{ runner.os }}" = "Linux" ]; then
+              # One X server for the app and the picture.
+              export SHOT="$shots/$screen.png" INSTALLED="$installed" SCREEN="$screen" REPORT="$home/screen.txt"
+              xvfb-run -a -s "-screen 0 1280x800x24" bash -c 'RUSTX_START="/__system/$SCREEN" "$INSTALLED" --scenario=screen --report="$REPORT" & p=$!; for i in $(seq 1 60); do grep -q "done=" "$REPORT" 2>/dev/null && break; sleep 1; done; sleep 2; import -window root "$SHOT"; kill $p || true'
+            else
+              RUSTX_START="/__system/$screen" "$installed" --scenario=screen --report="$home/screen.txt" &
+              pid=$!
+              for i in $(seq 1 60); do grep -q "done=" "$home/screen.txt" 2>/dev/null && break; sleep 1; done
+              sleep 2
+              shoot "$shots/$screen.png" || echo "no picture for $screen"
+              kill $pid || true
+              sleep 6
+            fi
+            grep -q "done=yes" "$home/screen.txt"
+          done
+          ls -l "$shots"
           # Settings checks for updates against a release page served over loopback.
           site="$home/releases"
           mkdir -p "$site/repos/owner/counter/releases"
@@ -363,6 +392,14 @@ jobs:
           "$installed" --uninstall --silent
           for i in $(seq 1 30); do [ -e "$installed" ] || break; sleep 1; done
           test ! -e "$installed"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screens-${{ matrix.os }}
+          path: screens/*.png
+          if-no-files-found: warn
+          retention-days: 14
 
       - uses: actions/upload-artifact@v4
         with:

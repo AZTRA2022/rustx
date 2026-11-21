@@ -175,3 +175,23 @@ fn an_answer_in_a_generated_file_is_told_in_the_file_the_developer_wrote() {
     assert!(back.contains("/src/ffmpeg.rs"), "{back}");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn a_system_page_is_shadowed_where_the_build_puts_its_staged_copy() {
+    let (root, _) = an_application(GOOD);
+    fs::create_dir_all(root.join("system")).expect("a system directory");
+    let page = root.join("system").join("about.rsx");
+    fs::write(&page, GOOD).expect("a system page");
+    let shadow = shadow::of(&shadow::uri_of(&page), GOOD).expect("a shadow for system/about.rsx");
+    assert!(
+        shadow.path.ends_with(
+            std::path::Path::new("__system")
+                .join("about")
+                .join("page.rs")
+        ),
+        "{}",
+        shadow.path.display()
+    );
+    assert!(read_back(&shadow.path).expect("on disk").contains("\"p\""));
+    let _ = fs::remove_dir_all(root);
+}

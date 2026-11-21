@@ -78,6 +78,17 @@ fn application_of(page: &Path) -> Option<(PathBuf, PathBuf)> {
     let mut directory = page.parent()?;
     let mut parts: Vec<&std::ffi::OsStr> = Vec::new();
     loop {
+        // `system/<name>.rsx` is compiled as the page `__system/<name>/page.rsx`.
+        if parts.is_empty()
+            && directory.file_name() == Some(std::ffi::OsStr::new("system"))
+            && let Some(manifest) = directory.parent()
+            && manifest.join("Cargo.toml").is_file()
+            && page.extension().is_some_and(|e| e == "rsx")
+        {
+            let stem = page.file_stem()?;
+            let relative = PathBuf::from("__system").join(stem).join("page.rsx");
+            return Some((manifest.to_path_buf(), relative));
+        }
         if directory.file_name() == Some(std::ffi::OsStr::new("app"))
             && let Some(manifest) = directory.parent()
             && manifest.join("Cargo.toml").is_file()
