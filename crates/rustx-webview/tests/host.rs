@@ -33,6 +33,8 @@ fn the_applications_page_loads_from_its_own_origin_and_can_call_the_host() {
 
     // The profile is where it was told to be, and none was made next to
     // the executable, which fails under Program Files.
+    // WKWebView keeps its data where the system says, not in a folder we name.
+    #[cfg(not(target_os = "macos"))]
     assert!(profile.exists(), "no profile at {}", profile.display());
     let beside = format!("{}.WebView2", env!("CARGO_BIN_EXE_probe"));
     assert!(

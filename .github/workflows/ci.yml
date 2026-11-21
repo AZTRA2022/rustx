@@ -290,9 +290,10 @@ jobs:
               sudo installer -pkg dist/*.pkg -target /
               ls /Applications
               binary=$(ls /Applications/*.app/Contents/MacOS/* | head -1)
-              "$binary" &
+              "$binary" 2> "$RUNNER_TEMP/app.err" &
               pid=$!
               sleep 8
+              cat "$RUNNER_TEMP/app.err" || true
               kill -0 $pid
               kill $pid || true
             fi

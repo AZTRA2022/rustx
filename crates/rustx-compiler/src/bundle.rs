@@ -418,25 +418,6 @@ pub fn entry_for_in(dependencies: &[String], app: &Path) -> String {
     entry_for_with(&named, index_for(app).is_some())
 }
 
-/// The libraries package.json says are not tags of the page.
-pub fn no_tags_in(manifest: &str) -> Vec<String> {
-    let Some(at) = manifest.find("\"rustxNoTags\"") else {
-        return Vec::new();
-    };
-    let Some(open) = manifest[at..].find('[') else {
-        return Vec::new();
-    };
-    let open = at + open;
-    let Some(close) = manifest[open..].find(']') else {
-        return Vec::new();
-    };
-    manifest[open + 1..open + close]
-        .split(',')
-        .map(|name| name.trim().trim_matches('"').to_string())
-        .filter(|name| !name.is_empty())
-        .collect()
-}
-
 fn entry_for_with(dependencies: &[String], own: bool) -> String {
     let libraries: Vec<(String, &String)> = dependencies
         .iter()
@@ -939,29 +920,107 @@ pub fn arguments_for(dialect: Dialect, input: &Path, output: &Path) -> Vec<Strin
 /// JSON parser. `devDependencies` are left out on purpose — a tool is
 /// not a library of the page.
 pub fn dependencies_in(manifest: &str) -> Vec<String> {
-    let Some(at) = manifest.find("\"dependencies\"") else {
-        return Vec::new();
-    };
-    let Some(open) = manifest[at..].find('{') else {
-        return Vec::new();
-    };
-    let open = at + open;
-    let Some(close) = manifest[open..].find('}') else {
-        return Vec::new();
-    };
-
     let mut names = Vec::new();
-    let body = &manifest[open + 1..open + close];
-    for pair in body.split(',') {
-        let Some(key) = pair.split(':').next() else {
+    for_each_member(manifest, "dependencies", |key| names.push(key.to_string()));
+    names
+}
+
+/// The strings of a top-level array of the manifest (`"rustxNoTags": ["a", "b"]`).
+fn strings_at(manifest: &str, wanted: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut in_array = false;
+    let (mut depth, mut inside, mut escaped) = (0_i32, false, false);
+    let (mut current, mut last_key, mut array_depth) = (String::new(), String::new(), 0);
+    for letter in manifest.chars() {
+        if inside {
+            match (escaped, letter) {
+                (true, _) => {
+                    current.push(letter);
+                    escaped = false;
+                }
+                (false, '\\') => escaped = true,
+                (false, '"') => {
+                    inside = false;
+                    if in_array && depth == array_depth {
+                        found.push(std::mem::take(&mut current));
+                    } else if depth == 1 {
+                        last_key = std::mem::take(&mut current);
+                    } else {
+                        current.clear();
+                    }
+                }
+                (false, _) => current.push(letter),
+            }
             continue;
-        };
-        let name = key.trim().trim_matches('"').trim();
-        if !name.is_empty() {
-            names.push(name.to_string());
+        }
+        match letter {
+            '"' => inside = true,
+            '{' => depth += 1,
+            '}' => depth -= 1,
+            '[' => {
+                depth += 1;
+                if depth == 2 && last_key == wanted {
+                    in_array = true;
+                    array_depth = depth;
+                }
+            }
+            ']' => {
+                if in_array && depth == array_depth {
+                    in_array = false;
+                }
+                depth -= 1;
+            }
+            _ => {}
         }
     }
-    names
+    found
+}
+
+/// Walk a `package.json` as text, aware of strings (a brace or a comma inside
+/// one is not structure) and call `each(key)` for every key of the object the
+/// top-level member `under` holds.
+fn for_each_member(manifest: &str, under: &str, mut each: impl FnMut(&str)) {
+    let (mut depth, mut inside, mut escaped) = (0_i32, false, false);
+    let (mut current, mut top_key) = (String::new(), String::new());
+    let mut pending_key: Option<(i32, String)> = None;
+    for letter in manifest.chars() {
+        if inside {
+            match (escaped, letter) {
+                (true, _) => {
+                    current.push(letter);
+                    escaped = false;
+                }
+                (false, '\\') => escaped = true,
+                (false, '"') => {
+                    inside = false;
+                    pending_key = Some((depth, std::mem::take(&mut current)));
+                }
+                (false, _) => current.push(letter),
+            }
+            continue;
+        }
+        match letter {
+            '"' => inside = true,
+            ':' => {
+                if let Some((at, key)) = pending_key.take() {
+                    if at == 1 {
+                        top_key = key;
+                    } else if at == 2 && top_key == under {
+                        each(&key);
+                    }
+                }
+            }
+            '{' | '[' => depth += 1,
+            '}' | ']' => depth -= 1,
+            ',' => pending_key = None,
+            _ => {}
+        }
+    }
+}
+
+/// The libraries package.json says are not tags of the page.
+pub fn no_tags_in(manifest: &str) -> Vec<String> {
+    strings_at(manifest, "rustxNoTags")
 }
 
 /// The application's own esbuild, if it installed one.

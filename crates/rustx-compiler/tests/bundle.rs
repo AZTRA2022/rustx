@@ -437,3 +437,29 @@ fn a_library_the_manifest_says_is_not_a_tag_is_not_imported_whole() {
     assert!(entry.contains("phosphor"), "{entry}");
     let _ = std::fs::remove_dir_all(project);
 }
+
+#[test]
+fn a_manifest_with_awkward_values_still_gives_its_dependencies_and_nothing_else() {
+    let manifest = r#"{
+      "name": "x",
+      "description": "mentions \"dependencies\" and a } brace, and a [ bracket",
+      "scripts": { "build": "echo { \"dependencies\": 1 }" },
+      "peerDependencies": { "wrong": "1" },
+      "dependencies": {
+        "react": ">=17, <19",
+        "@scope/pkg": "^1.0.0",
+        "alias": "npm:other@1.0.0",
+        "with-dash": "git+https://example.com/a,b.git"
+      },
+      "devDependencies": { "esbuild": "0.23.1" },
+      "rustxNoTags": ["@scope/pkg", "alias"]
+    }"#;
+    let found = rustx_compiler::bundle::dependencies_in(manifest);
+    assert_eq!(found, vec!["react", "@scope/pkg", "alias", "with-dash"]);
+    assert_eq!(
+        rustx_compiler::bundle::no_tags_in(manifest),
+        vec!["@scope/pkg", "alias"]
+    );
+    assert!(rustx_compiler::bundle::dependencies_in("{}").is_empty());
+    assert!(rustx_compiler::bundle::dependencies_in("not json at all {").is_empty());
+}
