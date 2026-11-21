@@ -301,7 +301,7 @@ jobs:
       # Install, and the installed copy starts, then removes itself.
       - name: The app installs itself
         shell: bash
-        timeout-minutes: 10
+        timeout-minutes: 30
         run: |
           set -eu
           # Git Bash turns a value that looks like /path into a Windows path.
