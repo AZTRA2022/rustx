@@ -219,7 +219,19 @@ jobs:
       - name: Package the example application
         shell: bash
         working-directory: apps/counter
+        env:
+          RUSTX_MAC_IDENTITY: ${{ runner.os == 'macOS' && '-' || '' }}
         run: cargo run -p rustx-cli --bin rustx -- package --out ../../dist
+
+
+      # Ad hoc signing needs no certificate: it proves `rustx package` signs the
+      # bundle and that the signature holds (a real identity is RUSTX_MAC_IDENTITY).
+      - name: The bundle is signed
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -eu
+          codesign --verify --deep --strict --verbose=2 dist/counter-*-macos/Counter.app
 
       # What each platform must have produced. A missing file fails
       # here, with the directory listed, rather than leaving a green

@@ -144,7 +144,11 @@ pub fn run(project: &Path, options: &Options) -> Result<Packaged, String> {
         )
         .map_err(|error| format!("the install stamp could not be written ({error})."))?;
     }
-    let signed = sign(&into.join(exe.file_name().unwrap_or_default()));
+    let signed = if cfg!(target_os = "macos") {
+        sign_bundle(&into)
+    } else {
+        sign(&into.join(exe.file_name().unwrap_or_default()))
+    };
 
     let manifest = manifest_of(&read, &into, &gathered)?;
     std::fs::write(into.join(MANIFEST), manifest)
@@ -425,6 +429,78 @@ pub fn sign(exe: &Path) -> Option<Result<String, String>> {
              with the Windows SDK; the Developer Command Prompt has it on the PATH."
         ))),
     }
+}
+
+/// Sign the `.app` with `RUSTX_MAC_IDENTITY` (`-` signs ad hoc, which needs no
+/// certificate), and notarise it when `RUSTX_NOTARY_PROFILE` names a
+/// `notarytool` keychain profile.
+fn sign_bundle(into: &Path) -> Option<Result<String, String>> {
+    let identity = std::env::var("RUSTX_MAC_IDENTITY").ok()?;
+    let bundle = std::fs::read_dir(into)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| path.extension().is_some_and(|e| e == "app"))?;
+    let run = |program: &str, args: &[&std::ffi::OsStr]| -> Result<(), String> {
+        let out = std::process::Command::new(program)
+            .args(args)
+            .output()
+            .map_err(|e| format!("`{program}` could not be run ({e})"))?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "`{program}` refused: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ))
+        }
+    };
+    let os = |text: &'static str| std::ffi::OsStr::new(text);
+    let mut said = format!("signed with {identity}");
+    let outcome = (|| {
+        run(
+            "codesign",
+            &[
+                os("--force"),
+                os("--deep"),
+                os("--options"),
+                os("runtime"),
+                os("--sign"),
+                std::ffi::OsStr::new(&identity),
+                bundle.as_os_str(),
+            ],
+        )?;
+        if let Ok(profile) = std::env::var("RUSTX_NOTARY_PROFILE") {
+            let zip = bundle.with_extension("notarize.zip");
+            run(
+                "ditto",
+                &[
+                    os("-c"),
+                    os("-k"),
+                    os("--keepParent"),
+                    bundle.as_os_str(),
+                    zip.as_os_str(),
+                ],
+            )?;
+            let sent = run(
+                "xcrun",
+                &[
+                    os("notarytool"),
+                    os("submit"),
+                    zip.as_os_str(),
+                    os("--keychain-profile"),
+                    std::ffi::OsStr::new(&profile),
+                    os("--wait"),
+                ],
+            );
+            let _ = std::fs::remove_file(&zip);
+            sent?;
+            run("xcrun", &[os("stapler"), os("staple"), bundle.as_os_str()])?;
+            said.push_str(" and notarised");
+        }
+        Ok(())
+    })();
+    Some(outcome.map(|()| said))
 }
 
 /// The manifest an updater reads: what this release is, and the digest
