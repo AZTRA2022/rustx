@@ -8,7 +8,7 @@
 //!
 //! | | |
 //! |---|---|
-//! | Windows | a setup `.exe` — Inno Setup, or NSIS when that is what the machine has |
+//! | Windows | a setup `.exe` that extracts itself ([`crate::selfextract`]): no tool to install. `RUSTX_INSTALLER=inno` asks for Inno Setup instead, for its licence and wizard pages |
 //! | Linux | a `.deb`, written by [`crate::deb`] without any tool at all, plus an `.rpm` and an AppImage when the tools are there |
 //! | macOS | a `.pkg` through `pkgbuild`, which every Mac ships, and a `.dmg` beside it |
 //!
@@ -350,7 +350,51 @@ fn looks_runnable(program: &str, arguments: &[&str]) -> bool {
         .is_ok()
 }
 
+/// The setup that extracts itself: `rustx-setup.exe` (built beside `rustx`)
+/// with the folder appended. Needs nothing installed on the machine.
+fn self_extracting(read: &build::Project, folder: &Path, binary: &str) -> Made {
+    let mut made = Made::default();
+    let stub = std::env::current_exe()
+        .ok()
+        .and_then(|me| me.parent().map(|dir| dir.join("rustx-setup.exe")))
+        .filter(|path| path.is_file());
+    let Some(stub) = stub else {
+        made.said("no setup.exe: rustx-setup.exe is not beside the rustx command (`cargo install rustx-cli` installs both).");
+        return made;
+    };
+    let beside = folder.parent().unwrap_or(folder);
+    let base = folder.file_name().map(|it| it.to_string_lossy().into_owned()).unwrap_or_default();
+    let setup = beside.join(format!("{base}-setup.exe"));
+    let meta = crate::selfextract::Meta {
+        name: read.about.name.clone(),
+        version: read.about.version.clone(),
+        publisher: read.about.publisher.clone(),
+        binary: binary_file(binary),
+    };
+    match crate::selfextract::pack(&stub, folder, &meta, &setup) {
+        Ok(()) => {
+            match crate::package::sign(&setup) {
+                Some(Ok(how)) => made.said(format!("{} ({how})", setup.display())),
+                Some(Err(why)) => made.said(format!("{} ({why})", setup.display())),
+                None => made.said(setup.display().to_string()),
+            }
+            made.artifacts.push(setup);
+        }
+        Err(why) => made.said(format!("the setup could not be made: {why}")),
+    }
+    made.said("The setup has no licence or wizard pages; set RUSTX_INSTALLER=inno for those.");
+    made
+}
+
+/// The file name of the binary as it sits in the folder.
+fn binary_file(binary: &str) -> String {
+    if binary.to_ascii_lowercase().ends_with(".exe") { binary.to_string() } else { format!("{binary}.exe") }
+}
+
 fn windows(read: &build::Project, folder: &Path, binary: &str, pages: &Pages) -> Made {
+    if std::env::var("RUSTX_INSTALLER").map(|it| it != "inno").unwrap_or(true) {
+        return self_extracting(read, folder, binary);
+    }
     let mut made = Made::default();
     // ISCC reads every relative path in the script as relative to the
     // script itself, while `--out` is relative to where the command was
