@@ -50,3 +50,17 @@ Every page of `site/content/docs`, the READMEs and the video-editor comments tha
 ## Still open
 
 Click-to-paint number; edit-to-screen number for a `.rsx` edit; macOS and Linux only on CI runners (never a real desktop); native hot patch (true fast refresh); window state persistence; multi-window as threads; the context-menu hand check; the parked probes P2 to P11 in `bug-hunt.md`.
+
+## GitHub CI (2026-11-21, draft PR 7)
+
+Run 44874892110: all eight jobs green. What that means:
+
+- **Windows**: fmt, clippy, the whole workspace's tests (1,180+), docs, packaging; the counter app is packaged, the setup is installed silently and checked, then the CI step ends.
+- **Linux**: `rustx-os` tests; the whole `rustx-webview` suite (page, natives, files, window API) under Xvfb with WebKitGTK; a `.deb` that `dpkg` installs and `desktop-file-validate` accepts.
+- **macOS**: `rustx-os` tests, the webview host compiles, the `.pkg` (with the project's screens through `productbuild`) and `.dmg`.
+
+What CI found that a Windows-only loop never would: WebKitGTK gives a custom protocol no request body (natives now carry small arguments in the address); `img.src = "file://…"` starts a load the origin refuses before the observer runs (the property is now rewritten where it is set); a Linux runner's Xvfb has no window manager (fullscreen untestable there); Git Bash rewrites `/S` into a path (the setup also takes `--silent`).
+
+Not covered by CI: a real desktop on either system (tray, dialogs answered by a person, cameras, fullscreen), `confirm_close` (no way to synthesise a close request), the installer pages on macOS beyond `pkgutil --expand` finding them, the Windows setup's graphical screens by eye.
+
+Limit to know: a synchronous native with arguments over 200 KB sends them in the body, which WebKitGTK drops; use an asynchronous native for big payloads.
