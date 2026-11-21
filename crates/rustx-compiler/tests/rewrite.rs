@@ -1243,3 +1243,23 @@ fn a_page_value_read_in_a_handler_and_on_the_screen_is_read_once_in_each() {
         "got {rust}"
     );
 }
+
+#[test]
+fn a_task_started_by_a_handler_writes_through_remote_handles_and_is_held_by_the_component() {
+    let rust = rewrite_one(
+        "fn Saver() -> Element {\n    let mut said = String::new();\n    return <button onClick={move |_| {\n        task(async move {\n            said = \"saved\".to_string();\n        });\n    }}>{said.clone()}</button>;\n}\n",
+    );
+    assert!(rust.contains("__bag"), "{rust}");
+    assert!(rust.contains("spawn_future_until"), "{rust}");
+    assert!(rust.contains("remote_until"), "{rust}");
+    assert!(!rust.contains("task ("), "the call survived: {rust}");
+}
+
+#[test]
+fn a_task_in_a_handler_that_reads_a_local_first_is_still_a_task() {
+    let rust = rewrite_one(
+        "let mut said: String = String::new();\nlet mut secret: String = String::new();\nfn Saver() -> Element {\n    return <button onClick={move |_| {\n        let kept = secret.clone();\n        task(async move {\n            said = kept;\n        });\n    }}>{said.clone()}</button>;\n}\n",
+    );
+    assert!(!rust.contains("task ("), "the call survived: {rust}");
+    assert!(rust.contains("__bag"), "{rust}");
+}

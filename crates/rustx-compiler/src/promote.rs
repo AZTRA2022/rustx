@@ -38,6 +38,9 @@ pub struct Component {
     pub promoted: Vec<Promoted>,
     /// The `keep`, `effect` and `task` calls written in the body.
     pub calls: Vec<Call>,
+    /// The `task(async …)` calls written inside an event handler: they start
+    /// when the handler runs, and the component holds them (`task::Bag`).
+    pub handler_tasks: Vec<Call>,
     /// The `let mut` declarations nothing writes to, which stay plain
     /// locals. Half-written state: the value is there, the handler that
     /// will change it is not typed yet.
@@ -167,7 +170,11 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
         // use of a value inside one belongs to that rewrite. Editing it
         // twice would leave the call half replaced.
         let calls = calls_of(source, body, &in_code, &handlers)?;
-        let inside_a_call = |span: &Span| calls.iter().any(|call| contains(call.span, *span));
+        let handler_tasks = handler_tasks_of(source, body, &in_code, &handlers);
+        let inside_a_call = |span: &Span| {
+            calls.iter().any(|call| contains(call.span, *span))
+                || handler_tasks.iter().any(|call| contains(call.span, *span))
+        };
 
         // A `let mut` written inside a handler, a block or a `keep` /
         // `effect` / `task` belongs to that closure and not to the
@@ -209,6 +216,7 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
         // the argument, exactly as it decides which spawn is emitted.
         let remote_regions: Vec<Span> = calls
             .iter()
+            .chain(handler_tasks.iter())
             .filter(|call| matches!(call.kind, CallKind::Task | CallKind::Async))
             .filter(|call| is_a_future(&source[call.arguments.start..call.arguments.end]))
             .map(|call| call.arguments)
@@ -225,7 +233,11 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             let in_a_future = remote_regions
                 .iter()
                 .flat_map(|region| mutations_in(source, name, *region, &[*region], true));
-            in_a_handler.chain(in_a_future).collect()
+            // A write inside a task inside a handler is in both regions: once.
+            let mut all: Vec<Mutation> = in_a_handler.chain(in_a_future).collect();
+            all.sort_by_key(|mutation| mutation.span.start);
+            all.dedup_by_key(|mutation| mutation.span.start);
+            all
         };
 
         let awaited = awaited_of(source, body, &in_code, &handlers, &calls)?;
@@ -499,6 +511,7 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             returns_jsx,
             promoted,
             calls,
+            handler_tasks,
             unwritten,
             awaited,
         });
@@ -602,11 +615,56 @@ pub fn analyse(source: &str) -> Result<Vec<Component>, CompileError> {
             remote_regions: Vec::new(),
             promoted,
             calls: Vec::new(),
+            handler_tasks: Vec::new(),
             unwritten: Vec::new(),
             awaited: Vec::new(),
         });
     }
     Ok(components)
+}
+
+/// `task(async …)` written inside an event handler. The handler runs long after
+/// the render, so the work is started then, and the component holds it: it
+/// stops when the component goes, exactly as a `task` written in the body.
+fn handler_tasks_of(source: &str, body: Span, in_code: &[Span], handlers: &[Span]) -> Vec<Call> {
+    let bytes = source.as_bytes();
+    let nested = nested_functions(source, body);
+    let mut found = Vec::new();
+    for span in occurrences(source, "task", in_code) {
+        if !handlers.iter().any(|handler| contains(*handler, span)) {
+            continue;
+        }
+        if nested.iter().any(|inner| contains(*inner, span)) {
+            continue;
+        }
+        if span.start > 0 && matches!(bytes[span.start - 1], b'.' | b':') {
+            continue;
+        }
+        let open = skip_spaces(bytes, span.end);
+        if bytes.get(open) != Some(&b'(') {
+            continue;
+        }
+        let Some(close) = matching(bytes, open, b'(', b')') else {
+            continue;
+        };
+        let arguments = Span {
+            start: open + 1,
+            end: close,
+        };
+        if !is_a_future(source[arguments.start..arguments.end].trim()) {
+            continue;
+        }
+        found.push(Call {
+            kind: CallKind::Task,
+            span: Span {
+                start: span.start,
+                end: close + 1,
+            },
+            arguments,
+        });
+    }
+    found.sort_by_key(|call| call.span.start);
+    found
 }
 
 /// The three calls, wherever they are written in a component's code.

@@ -85,6 +85,36 @@ impl Task {
     }
 }
 
+impl Task {
+    /// Has the work ended, by itself?
+    pub fn is_finished(&self) -> bool {
+        match &self.abandon {
+            Some(handle) => handle.is_finished(),
+            None => !self.shared.running.load(Ordering::Acquire),
+        }
+    }
+}
+
+/// The work a component's event handlers started: held by the component, so
+/// that it stops when the component goes, as a `task` written in its body does.
+#[derive(Default)]
+pub struct Bag(std::cell::RefCell<Vec<Task>>);
+
+impl Bag {
+    /// Hold `task`. A finished task is not let go at once -- dropping it would
+    /// refuse a write it posted and the frame has not drawn yet -- but when the
+    /// bag is long, the finished ones go. shortcut: 64 handler tasks per
+    /// component before old finished ones are dropped; raise if a page starts
+    /// more than that between two frames.
+    pub fn hold(&self, task: Task) {
+        let mut held = self.0.borrow_mut();
+        if held.len() >= 64 {
+            held.retain(|each| !each.is_finished());
+        }
+        held.push(task);
+    }
+}
+
 impl Drop for Task {
     fn drop(&mut self) {
         self.shared.alive.store(false, Ordering::Release);

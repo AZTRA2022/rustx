@@ -69,10 +69,31 @@ fn Page() -> Element {
                 <div>{if remembered { "KEYCHAIN: this machine is holding it" } else { "KEYCHAIN: not stored" }}</div>
             </div>
             <div className="row" style={{ marginTop: "12px" }}>
-                <button className="ghost small" disabled={passphrase.is_empty()} onClick={move |_| remember_it()}>
+                <button className="ghost small" disabled={passphrase.is_empty()} onClick={move |_| {
+                    let kept = passphrase.clone();
+                    task(async move {
+                        match rustx::secret::store("Cryostasis", "passphrase", &kept) {
+                            Ok(()) => {
+                                remembered = true;
+                                said = "the passphrase is in this machine's credential store".to_string();
+                            }
+                            Err(error) => said = format!("the credential store refused: {error}"),
+                        }
+                    });
+                }}>
                     PUT IT IN THE KEYCHAIN
                 </button>
-                <button className="ghost small" disabled={!remembered} onClick={move |_| forget_it()}>
+                <button className="ghost small" disabled={!remembered} onClick={move |_| {
+                    task(async move {
+                        match rustx::secret::forget("Cryostasis", "passphrase") {
+                            Ok(()) => {
+                                remembered = false;
+                                said = "the credential store no longer holds it".to_string();
+                            }
+                            Err(error) => said = format!("the credential store refused: {error}"),
+                        }
+                    });
+                }}>
                     TAKE IT OUT
                 </button>
                 <button className="cta small" onClick={move |_| rustx::router::navigate("/docs/the-cipher".to_string())}>
@@ -115,22 +136,3 @@ fn judge(text: &str) -> String {
     "as good as this cipher can use, which is still not very good".to_string()
 }
 
-fn remember_it() {
-    match rustx::secret::store("Cryostasis", "passphrase", &passphrase) {
-        Ok(()) => {
-            remembered = true;
-            said = "the passphrase is in this machine's credential store".to_string();
-        }
-        Err(error) => said = format!("the credential store refused: {error}"),
-    }
-}
-
-fn forget_it() {
-    match rustx::secret::forget("Cryostasis", "passphrase") {
-        Ok(()) => {
-            remembered = false;
-            said = "the credential store no longer holds it".to_string();
-        }
-        Err(error) => said = format!("the credential store refused: {error}"),
-    }
-}

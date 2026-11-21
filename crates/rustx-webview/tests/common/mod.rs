@@ -79,8 +79,10 @@ pub fn probe(root: &Path, extra: &[&str], envs: &[(&str, &Path)]) -> Run {
             .lines()
             .filter(|line| !line.contains("dbind-WARNING") && !line.contains("libEGL warning"))
             .collect::<Vec<_>>()
-            .join("
-"),
+            .join(
+                "
+",
+            ),
         success: status.is_some_and(|status| status.success()),
     };
     for line in lines.join().unwrap_or_default() {
