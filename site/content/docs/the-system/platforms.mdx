@@ -39,10 +39,11 @@ error, and nothing else.
 Every pull request builds `rustx-os` on a GitHub Windows, macOS and Linux runner
 and runs its tests there (`.github/workflows/ci.yml`): the macOS files compile
 against the real Apple frameworks and the Linux ones against the real
-libraries. The test files that are not Windows-only run on both (autostart,
-clipboard, devices, dialogs' refusals, a single instance, shortcuts, the
-notification); the secret store, the file manager, the screens and the window
-have tests only on Windows. What a runner cannot do is
+libraries. The 182 unit tests and the test files for autostart, devices, dialogs, a
+single instance, shortcuts and the notification run on both (counted in the
+CI log); the clipboard, the secret store, the file manager and the screens
+have tests only on Windows, and the window's own tests run on Linux (2) and
+Windows only. What a runner cannot do is
 drive a desktop: no screen, no tray, no dialog answered by a person, no
 camera. Those parts are written and type-checked, and have been seen to work
 only on Windows. Each file says so at its own head.

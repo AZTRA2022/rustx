@@ -1,6 +1,6 @@
 ---
 objective: "A rustx application renders in the system webview (wry + tao) instead of CEF, ships in a few MB, opens no terminal, and behaves as before for apps/counter and apps/hybrid."
-status: in-progress
+status: implemented
 ---
 
 # Plan: Migrate rustx from CEF to a system webview
