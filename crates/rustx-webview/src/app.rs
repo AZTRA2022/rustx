@@ -102,3 +102,26 @@ impl App {
         Err(EngineError::EngineInit(error.to_string()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(document: Option<&str>) -> AppConfig {
+        AppConfig {
+            title: "t".into(),
+            width: 1,
+            height: 1,
+            root: PathBuf::from("no-such-assets-folder"),
+            entry: "/index.html".into(),
+            document: document.map(str::to_string),
+            dressing: rustx_os::window::Dressing::default(),
+        }
+    }
+
+    #[test]
+    fn an_app_with_no_assets_folder_runs_on_its_own_document() {
+        assert!(App::new(config(Some("<html></html>"))).is_ok());
+        assert!(App::new(config(None)).is_err());
+    }
+}

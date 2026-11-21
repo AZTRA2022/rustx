@@ -42,3 +42,21 @@ Evidence column: **auto** = an automated test fails without the fix and passes w
 | P10 | DnD | HTML5 drag to reorder clips with wry's drop handler on | needs a real drag |
 | P11 | AE | about fifty After Effects-style features | app-only unless they hit SVG, canvas, contenteditable/IME or high-frequency playback |
 | W | Build | row 13: watch for a recurrence of an empty bundle | |
+
+## Smoke run of the seven untested apps (2026-11-21)
+
+Each built and launched for 10 s from its folder. Stderr is the evidence: the
+interpreter forwards `error` and `unhandledrejection` from the page to it.
+
+| # | App | Found | Fix |
+|---|---|---|---|
+| 20 | multitask-hub | `IndexNotFound(assets)`: an app with no JavaScript has no `assets/`, and `App::new` demanded the folder even when the framework serves its own document | `App::new` needs the folder only when it has no document; unit test `an_app_with_no_assets_folder_runs_on_its_own_document`. `rustx package` already treats a missing `assets/` as nothing to copy |
+| 21 | ops-monitor, vault-storage | network state and secret store read on the drawing thread (the guard warned) | both moved into a component-level `task(async move { … })`; stderr empty afterwards |
+| 22 | vault-storage | the same guard fires for the remember/forget buttons | **open, framework**: `task` exists only at component level (it is a render-time cell), so a click handler cannot start a future that writes state. A handler-started task is the missing piece of "advanced async" |
+| 23 | all | right-click showed no cut/copy/paste in release (context menus tied to devtools) | host keeps the system menu; the page cancels `contextmenu` off editable targets and selections, unless the page cancelled it first or devtools are on. Hand check still owed: right-click on text, Ctrl+C/V/X/A in a release build |
+| – | build | disk reached 0.4 GB free (target 25 GB): cargo died with os error 112, the smoke script reported it as a build failure | cleaned incremental/release; Bash's `link` shadows MSVC's, build from PowerShell |
+
+Parity audit with the deleted engine: 30 old test files listed; render, frame,
+lifecycle and posted-update promises ported to the probe (`engine` scenario);
+no app reads the DOM synchronously; SVG was never supported by the old DOM (not
+a regression); `print_to_pdf` dropped (the system webviews cannot), docs updated.
