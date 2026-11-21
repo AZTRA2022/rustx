@@ -227,7 +227,9 @@ fn a_second_window_is_ordered_over_the_pipe_from_the_first() {
     let root = folder("twowindows", "<!doctype html><p>x</p>");
     let run = probe(
         &root,
-        &["--scenario", "twowindows", "--seconds", "9"],
+        // Long enough for a loaded runner: the first frame may come seconds late, and the order
+        // waits for frames.
+        &["--scenario", "twowindows", "--seconds", "18"],
         &[("RUSTX_TRACE", Path::new("1"))],
     );
     assert!(run.stderr.contains("PARENT sent=true"), "{}", run.stderr);

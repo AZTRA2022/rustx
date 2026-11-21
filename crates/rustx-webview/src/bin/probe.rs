@@ -597,7 +597,7 @@ fn main() {
             let born = std::time::Instant::now();
             let said = std::cell::Cell::new(false);
             rustx_webview::on_frame(move || {
-                if !said.get() && born.elapsed() > Duration::from_millis(6500) {
+                if !said.get() && born.elapsed() > Duration::from_millis(9500) {
                     said.set(true);
                     let size = rustx_webview::window::state();
                     eprintln!("CHILD size after {}x{}", size.width, size.height);
