@@ -418,3 +418,15 @@ fn two_libraries_that_come_to_one_name_are_refused() {
         .is_none()
     );
 }
+
+#[test]
+fn a_library_no_page_names_is_not_imported_whole() {
+    let project = somewhere("unused-library");
+    std::fs::create_dir_all(project.join("app")).unwrap();
+    std::fs::write(project.join("app/page.rsx"), "fn Page() -> Element { return <recharts::Line /> }").unwrap();
+    let declared = ["recharts".to_string(), "@phosphor-icons/react".to_string()];
+    let entry = rustx_compiler::bundle::entry_for_in(&declared, &project);
+    assert!(entry.contains("import * as recharts"), "{entry}");
+    assert!(!entry.contains("phosphor"), "{entry}");
+    let _ = std::fs::remove_dir_all(project);
+}

@@ -403,7 +403,34 @@ pub fn entry_for(dependencies: &[String]) -> String {
 /// The same, for an application whose own components are to be imported
 /// when it has any.
 pub fn entry_for_in(dependencies: &[String], app: &Path) -> String {
-    entry_for_with(dependencies, index_for(app).is_some())
+    // A library no page or source file names can never be written as a tag,
+    // and a namespace import keeps all of it (Phosphor is 7 MB): leave it
+    // out. The application's own components import what they use themselves.
+    let mut text = String::new();
+    for folder in ["app", "src"] {
+        read_sources(&app.join(folder), &mut text);
+    }
+    let named: Vec<String> = dependencies
+        .iter()
+        .filter(|package| name_for(package).is_empty() || text.contains(&name_for(package)))
+        .cloned()
+        .collect();
+    entry_for_with(&named, index_for(app).is_some())
+}
+
+/// Every `.rsx` and `.rs` under `folder`, appended to `into`.
+fn read_sources(folder: &Path, into: &mut String) {
+    let Ok(entries) = std::fs::read_dir(folder) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            read_sources(&path, into);
+        } else if matches!(path.extension().and_then(|e| e.to_str()), Some("rsx" | "rs")) {
+            if let Ok(source) = std::fs::read_to_string(&path) {
+                into.push_str(&source);
+            }
+        }
+    }
 }
 
 fn entry_for_with(dependencies: &[String], own: bool) -> String {
