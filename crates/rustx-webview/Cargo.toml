@@ -11,7 +11,6 @@ authors.workspace = true
 description = "The system-webview host of a rustx window: the wire protocol between the Rust tree and the page."
 keywords = ["webview", "wry", "gui", "desktop", "rustx"]
 categories = ["gui"]
-publish = false
 
 [dependencies]
 rustx-dom = { path = "../rustx-dom", version = "0.5.0" }
