@@ -474,7 +474,16 @@ fn main() {
         std::process::exit(2);
     };
 
-    let mut config = Config::new("probe", root);
+    // A title of its own, and the window put back where it was left: for the
+    // remembered-state test, which opens the probe twice.
+    let title = std::env::var("PROBE_TITLE").unwrap_or_else(|_| "probe".to_string());
+    if std::env::var_os("PROBE_REMEMBER").is_some() {
+        rustx_webview::window::plan(rustx_webview::window::Plan {
+            remember: true,
+            ..Default::default()
+        });
+    }
+    let mut config = Config::new(&title, root);
     config.allow = allow;
     if data_dir.is_some() {
         config.data_dir = data_dir;

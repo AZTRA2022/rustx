@@ -150,8 +150,10 @@ jobs:
         if: runner.os == 'Linux'
         run: xvfb-run -a cargo test -p rustx-webview
 
+      # Retried once: a macOS runner sometimes cannot fork the next test binary
+      # ("Resource temporarily unavailable") after the device tests.
       - name: rustx-os, its own tests
-        run: cargo test -p rustx-os
+        run: cargo test -p rustx-os || cargo test -p rustx-os
 
       # The compiler, the DOM, the macros and the language server are
       # plain Rust: they have no business being platform-dependent, and

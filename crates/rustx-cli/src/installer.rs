@@ -392,7 +392,7 @@ fn self_extracting(
         }
         Err(why) => made.said(format!("the setup could not be made: {why}")),
     }
-    made.said("The setup has no licence or wizard pages; set RUSTX_INSTALLER=inno for those.");
+    made.said("The setup shows installer/install.html and installer/uninstall.html when the project has them, and its default pages otherwise.");
     made
 }
 

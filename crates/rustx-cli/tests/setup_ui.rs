@@ -53,7 +53,8 @@ fn a_project_page_drives_the_install_and_the_uninstall() {
     .unwrap();
     std::fs::write(
         root.join("uninstall.html"),
-        "<script>setup.on(e => { if (e.event === 'done') setup.close(); }); setup.uninstall();</script>",
+        // The person reads "Removed" for a while before closing: the folder must still go.
+        "<script>setup.on(e => { if (e.event === 'done') setTimeout(() => setup.close(), 5000); }); setup.uninstall();</script>",
     )
     .unwrap();
     let pages = vec![

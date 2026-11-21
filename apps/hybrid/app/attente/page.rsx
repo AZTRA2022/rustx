@@ -18,6 +18,7 @@
 let mut rows = Vec::<u32>::new();
 let mut burst = 0;
 let mut ticks = 0;
+let mut saved = 0;
 
 fn Page() -> Element {
     // How many times this page has been drawn. A plain counter in a kept
@@ -93,6 +94,22 @@ fn Page() -> Element {
                 <dd id="drawn" className="text-lg">{drawn.with(|count| count.get())}</dd>
             </div>
         </dl>
+
+        <p className="mt-6 text-sm">
+            <button
+                id="start-saved"
+                className="rounded-md bg-zinc-800 px-3 py-1 text-sm"
+                onClick={move |_| {
+                    // Started by the click, not by the render: the component
+                    // holds it, and the write lands on the next frame.
+                    task(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+                        saved = 42;
+                    });
+                }}
+            >Lancer</button>
+            <span id="saved" className="ml-3">{saved}</span>
+        </p>
 
         <button
             id="attente-leave"

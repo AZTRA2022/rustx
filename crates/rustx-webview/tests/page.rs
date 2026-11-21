@@ -780,3 +780,45 @@ fn the_window_can_be_set_and_read_back_from_rust() {
     );
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn a_window_that_remembers_comes_back_where_and_as_big_as_it_was_left() {
+    let title = format!("probe-remember-{}", std::process::id());
+    let envs: [(&str, &std::path::Path); 2] = [
+        ("PROBE_TITLE", std::path::Path::new(&title)),
+        ("PROBE_REMEMBER", std::path::Path::new("1")),
+    ];
+    // First run: size it, move it, and close it.
+    let first = folder(
+        "controls",
+        &page(
+            "await sleep(800);
+             window.win('size', 777, 555);
+             await sleep(500);
+             window.win('position', 90, 70);
+             await sleep(1200);
+             order('close');
+             await sleep(5000);
+             say('still_open=yes');",
+        ),
+    );
+    let run = probe(&first, &["--scenario", "controls", "--seconds", "20"], &envs);
+    assert!(run.stderr.is_empty(), "{}", run.stderr);
+    // Second run: nothing set; it reports the size it was given.
+    let second = folder(
+        "controls",
+        &page(
+            "await sleep(1500);
+             say('size=' + Math.round(window.innerWidth) + 'x' + Math.round(window.innerHeight));
+             order('close');
+             await sleep(5000);
+             say('still_open=yes');",
+        ),
+    );
+    let run = probe(&second, &["--scenario", "controls", "--seconds", "20"], &envs);
+    let _ = rustx_os::data::remove(&title, "window-state.json");
+    // The page's own size is in logical pixels, whatever the scale.
+    assert_eq!(run.messages, vec!["size=777x555"], "{}", run.stderr);
+    let _ = std::fs::remove_dir_all(first);
+    let _ = std::fs::remove_dir_all(second);
+}

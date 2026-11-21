@@ -39,7 +39,7 @@ Every page of `site/content/docs`, the READMEs and the video-editor comments tha
 ## Closed after the first result (2026-11-21)
 
 - **Seven apps smoke-run** (agent-manager, data-intel, ops-monitor, utility-hub, vault-storage, multitask-hub, nemo-design): all start. Found and fixed: an app with no `assets/` failed to start; two apps read the network state and the secret store on the drawing thread. Open: a click handler cannot start a `task` (ledger row 22).
-- **Setup without Inno Setup**: `rustx-setup.exe` stub plus appended payload, 1.3 MB for counter; silent install, launch and uninstall run on Windows with the profile redirected to a temp folder. `RUSTX_INSTALLER=inno` keeps the old route.
+- **Setup without Inno Setup**: `rustx-setup.exe` stub plus appended payload, 1.9 MB for counter (stub 1.1 MB); silent install, launch and uninstall run on Windows with the profile redirected to a temp folder. `RUSTX_INSTALLER=inno` keeps the old route.
 - **Debug build**: `debug = "line-tables-only"`; counter from clean, 195 s and 0.84 GB for `target/debug` (before, the whole workspace's debug folder was 22 GB).
 - **Bundle**: `"rustxNoTags": [...]` in package.json keeps a library out of the page's tags (a first version that guessed from the pages' text broke zoo, whose pages write bare tags like `<Markdown>`; CI found it); video-editor 7.2 MB to 1.6 MB with Phosphor listed.
 - **Fast refresh, partial**: a saved asset reloads the page in place (Rust state kept); a `.rsx` edit still rebuilds and relaunches with named state carried.
@@ -49,4 +49,4 @@ Every page of `site/content/docs`, the READMEs and the video-editor comments tha
 
 ## Still open
 
-Click-to-paint number; edit-to-screen number for a `.rsx` edit; macOS and Linux never run; native hot patch (true fast refresh); window state persistence; multi-window as threads; the context-menu hand check; a task started from a handler; the parked probes P2 to P11 in `bug-hunt.md`.
+Click-to-paint number; edit-to-screen number for a `.rsx` edit; macOS and Linux only on CI runners (never a real desktop); native hot patch (true fast refresh); window state persistence; multi-window as threads; the context-menu hand check; the parked probes P2 to P11 in `bug-hunt.md`.

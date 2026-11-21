@@ -2,16 +2,16 @@
 
 Present = written and used; Partial = exists with a stated limit; Missing = not
 there. Evidence is the module or doc page. "Run on" says where it was actually
-exercised: only Windows has run anything; macOS and Linux are compile-checked.
+exercised: Windows by hand and by tests; macOS and Linux on GitHub runners (rustx-os tests, packaging, and on Linux the whole webview suite under Xvfb); nothing driven on a real Mac or Linux desktop.
 
 ## Tauri, most essential first
 
 | # | Feature | State | Evidence |
 |---|---|---|---|
-| 1 | System webview, small binary | Present | `rustx-webview` (wry/tao); counter folder 1.76 MB, setup 1.3 MB |
+| 1 | System webview, small binary | Present | `rustx-webview` (wry/tao); counter folder 1.76 MB, setup 1.9 MB |
 | 2 | Rust ⇄ page commands | Present | `register_native` (sync), `register_async_native` (future off the loop thread); `rustx-webview/tests/page.rs` |
 | 3 | Events page → Rust with payloads | Present | `Event` (x, y, deltas, numbers…), coalesced bursts |
-| 4 | Window control, frameless, multi-window | Partial | `os::window::Order` (fullscreen, minimize, on top, drag, close); a second window is a child process, so no shared memory with the first |
+| 4 | Window control, frameless, multi-window | Partial | `rustx::window`: size, position, limits, focus, visibility, title, events, close guard, state, `with(|tao window|)`; a second window is a child process, so the first cannot control it |
 | 5 | Filesystem access | Present | `rustx::data`, `files::allow/url` (file:// served by a route with grants and ranges) |
 | 6 | Dialogs, clipboard, notifications, tray, menus, global shortcuts | Present | `rustx-os` modules; Windows run, others compile-checked |
 | 7 | Single instance, autostart, deep-link scheme | Present | `os::instance`, `os::autostart`, scheme in desktop entry |
@@ -24,7 +24,7 @@ exercised: only Windows has run anything; macOS and Linux are compile-checked.
 | 14 | Printing | Partial | `window::print` through the system dialog; no print-to-PDF (webviews cannot) |
 | 15 | Devtools in debug only | Present | `Config.devtools`; context menu kept for text |
 | 16 | Cross-compile | Partial | CI matrix builds on three systems; no `--target` cross build from one host |
-| 17 | Window state persistence (size/position) | Missing | |
+| 17 | Window state persistence (size/position) | Present | `Config::remember_window`, tested by a two-run probe |
 | 18 | Mobile (iOS, Android) | Missing | out of scope for the webview migration |
 | 19 | Plugins ecosystem (store, sql, log, websocket) | Missing | `rustx::data` covers the store; the rest is a crate away |
 | 20 | Window effects (mica, vibrancy), positioner | Missing | |

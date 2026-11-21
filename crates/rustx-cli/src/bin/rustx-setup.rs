@@ -254,19 +254,36 @@ mod windows {
     /// Unregister and remove. This program lives in the folder it removes, so a
     /// second process waits for it to end and then deletes the folder.
     fn remove(folder: &Path) -> Result<(), String> {
+        unregister(folder);
+        delete_folder_when_this_ends(folder)
+    }
+
+    /// The shortcut and the "Apps & features" entry.
+    fn unregister(folder: &Path) {
         let name = name_of(folder);
         if let Ok(link) = shortcut(&name) {
             let _ = std::fs::remove_file(link);
         }
         let key = format!(r"HKCU\{UNINSTALL}\{}", folder_name(&name));
         let _ = hidden("reg").args(["delete", &key, "/f"]).status();
+    }
+
+    /// This program lives in the folder it removes: a second process waits for
+    /// it to end (up to a minute, trying every second) and then deletes the
+    /// folder. Started as the last thing this process does.
+    fn delete_folder_when_this_ends(folder: &Path) -> Result<(), String> {
         hidden("cmd")
-            .raw_arg(r#"/C ping -n 3 127.0.0.1 >nul & rmdir /s /q "%RX_DIR%""#)
+            .raw_arg(
+                r#"/C for /L %i in (1,1,60) do @(ping -n 2 127.0.0.1 >nul & rmdir /s /q "%RX_DIR%" 2>nul & if not exist "%RX_DIR%" exit)"#,
+            )
             .env("RX_DIR", folder)
             .spawn()
             .map(|_| ())
             .map_err(|e| format!("the folder could not be removed ({e})"))
     }
+
+    /// The uninstall page was run to its end: the folder goes when the window does.
+    static UNREGISTERED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
     // ------------------------------------------------------------ the window
 
@@ -317,16 +334,30 @@ mod windows {
             "license": license,
         });
         let title = format!("{} setup", plan.meta.name);
-        show(
+        let shown = show(
             &title,
             &pages,
             "/install.html",
             INSTALL_PAGE,
             info,
-            Job::Install(plan),
+            Job::Install(plan.clone()),
         );
         let _ = std::fs::remove_dir_all(&pages);
-        Ok(())
+        match shown {
+            Ok(()) => Ok(()),
+            // No web view to draw the screens: install anyway, and say so.
+            Err(why) => {
+                install(&plan, &mut |_, _| {})?;
+                say(
+                    &format!(
+                        "{} is installed. (The setup's window could not open: {why})",
+                        plan.meta.name
+                    ),
+                    "Setup",
+                );
+                Ok(())
+            }
+        }
     }
 
     fn uninstall_window(folder: &Path) -> Result<(), String> {
@@ -336,7 +367,7 @@ mod windows {
             "name": name,
             "destination": folder.display().to_string(),
         });
-        show(
+        let shown = show(
             &format!("{name} setup"),
             &folder.join(KEPT),
             "/uninstall.html",
@@ -344,7 +375,20 @@ mod windows {
             info,
             Job::Uninstall(folder.to_path_buf()),
         );
-        Ok(())
+        match shown {
+            Ok(()) => {
+                // The page ran to its end, and the window is closed: now.
+                if UNREGISTERED.load(std::sync::atomic::Ordering::SeqCst) {
+                    delete_folder_when_this_ends(folder)?;
+                }
+                Ok(())
+            }
+            Err(why) => {
+                remove(folder)?;
+                say(&format!("{name} is removed. (The setup's window could not open: {why})"), "Setup");
+                Ok(())
+            }
+        }
     }
 
     /// Open the window on `entry` (the project's page, or the default one) and
@@ -356,7 +400,7 @@ mod windows {
         default: &'static str,
         info: serde_json::Value,
         job: Job,
-    ) {
+    ) -> Result<(), String> {
         let mut event_loop = EventLoopBuilder::<Wake>::with_user_event().build();
         let proxy = event_loop.create_proxy();
         let mut window = WindowBuilder::new()
@@ -372,7 +416,9 @@ mod windows {
                 (size.height as f64 / scale - 440.0) / 2.0,
             ));
         }
-        let window = window.build(&event_loop).expect("a window");
+        let window = window
+            .build(&event_loop)
+            .map_err(|e| format!("no window: {e}"))?;
 
         let served = pages.to_path_buf();
         let startup = format!(
@@ -432,7 +478,11 @@ mod windows {
                                     };
                                     install(plan, &mut tell)
                                 }
-                                Job::Uninstall(folder) => remove(folder),
+                                Job::Uninstall(folder) => {
+                                    unregister(folder);
+                                    UNREGISTERED.store(true, std::sync::atomic::Ordering::SeqCst);
+                                    Ok(())
+                                }
                             };
                             match result {
                                 Ok(()) => emit(&proxy, serde_json::json!({ "event": "done" })),
@@ -459,7 +509,7 @@ mod windows {
             })
             .with_url("http://setup.localhost/")
             .build(&window)
-            .expect("a web view");
+            .map_err(|e| format!("no web view: {e}"))?;
 
         // Shown once there is a loop to show it from: no empty frame first.
         let shown = std::cell::Cell::new(false);
@@ -482,5 +532,6 @@ mod windows {
                 _ => {}
             }
         });
+        Ok(())
     }
 }
