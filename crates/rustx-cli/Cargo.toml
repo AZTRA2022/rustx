@@ -32,3 +32,10 @@ flate2 = "1"
 
 [dev-dependencies]
 rustx-dom = { path = "../rustx-dom", version = "0.4.1" }
+
+# The Windows setup shows its screens in the system web view, as an
+# application does: same versions as `rustx-webview`.
+[target.'cfg(windows)'.dependencies]
+wry = "0.57"
+tao = "0.37"
+serde_json = "1"

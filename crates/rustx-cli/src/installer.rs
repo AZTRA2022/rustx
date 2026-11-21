@@ -106,7 +106,7 @@ pub fn pages(project: &Path) -> Pages {
 pub fn make(read: &build::Project, project: &Path, folder: &Path, binary: &str) -> Made {
     let pages = pages(project);
     if cfg!(target_os = "windows") {
-        windows(read, folder, binary, &pages)
+        windows(read, project, folder, binary, &pages)
     } else if cfg!(target_os = "macos") {
         macos(read, folder, &pages)
     } else {
@@ -352,7 +352,13 @@ fn looks_runnable(program: &str, arguments: &[&str]) -> bool {
 
 /// The setup that extracts itself: `rustx-setup.exe` (built beside `rustx`)
 /// with the folder appended. Needs nothing installed on the machine.
-fn self_extracting(read: &build::Project, folder: &Path, binary: &str) -> Made {
+fn self_extracting(
+    read: &build::Project,
+    project: &Path,
+    folder: &Path,
+    binary: &str,
+    pages: &Pages,
+) -> Made {
     let mut made = Made::default();
     let stub = std::env::current_exe()
         .ok()
@@ -373,8 +379,9 @@ fn self_extracting(read: &build::Project, folder: &Path, binary: &str) -> Made {
         version: read.about.version.clone(),
         publisher: read.about.publisher.clone(),
         binary: binary_file(binary),
+        files: 0,
     };
-    match crate::selfextract::pack(&stub, folder, &meta, &setup) {
+    match crate::selfextract::pack(&stub, folder, &setup_pages(project, pages), &meta, &setup) {
         Ok(()) => {
             match crate::package::sign(&setup) {
                 Some(Ok(how)) => made.said(format!("{} ({how})", setup.display())),
@@ -389,6 +396,31 @@ fn self_extracting(read: &build::Project, folder: &Path, binary: &str) -> Made {
     made
 }
 
+/// What the project wrote for its own install and uninstall screens: every file
+/// of `installer/` (pages, styles, images), and the licence as `LICENSE.txt`.
+/// The setup shows its own pages for whatever is missing.
+fn setup_pages(project: &Path, pages: &Pages) -> Vec<(String, PathBuf)> {
+    fn walk(root: &Path, here: &Path, into: &mut Vec<(String, PathBuf)>) {
+        let Ok(entries) = std::fs::read_dir(here) else { return };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(root, &path, into);
+            } else if let Ok(relative) = path.strip_prefix(root) {
+                into.push((relative.to_string_lossy().replace('\\', "/"), path.clone()));
+            }
+        }
+    }
+    let mut found = Vec::new();
+    let root = project.join("installer");
+    walk(&root, &root, &mut found);
+    if let Some(license) = &pages.license {
+        found.push(("LICENSE.txt".to_string(), license.clone()));
+    }
+    found.sort();
+    found
+}
+
 /// The file name of the binary as it sits in the folder.
 fn binary_file(binary: &str) -> String {
     if binary.to_ascii_lowercase().ends_with(".exe") {
@@ -398,12 +430,18 @@ fn binary_file(binary: &str) -> String {
     }
 }
 
-fn windows(read: &build::Project, folder: &Path, binary: &str, pages: &Pages) -> Made {
+fn windows(
+    read: &build::Project,
+    project: &Path,
+    folder: &Path,
+    binary: &str,
+    pages: &Pages,
+) -> Made {
     if std::env::var("RUSTX_INSTALLER")
         .map(|it| it != "inno")
         .unwrap_or(true)
     {
-        return self_extracting(read, folder, binary);
+        return self_extracting(read, project, folder, binary, pages);
     }
     let mut made = Made::default();
     // ISCC reads every relative path in the script as relative to the

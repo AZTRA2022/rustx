@@ -20,6 +20,8 @@ use flate2::read::DeflateDecoder;
 use flate2::write::DeflateEncoder;
 
 const MAGIC: &[u8; 8] = b"RXSETUP1";
+/// The prefix of an installer page in the payload.
+const PAGES: &str = "__installer/";
 
 /// What an installer needs to say and register about the application.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -29,6 +31,9 @@ pub struct Meta {
     pub publisher: String,
     /// The `.exe` inside the payload that the shortcut starts.
     pub binary: String,
+    /// How many application files the payload holds (the installer's pages
+    /// not counted): what a progress bar divides by.
+    pub files: usize,
 }
 
 fn one_line(text: &str) -> String {
@@ -38,11 +43,12 @@ fn one_line(text: &str) -> String {
 impl Meta {
     fn to_text(&self) -> String {
         format!(
-            "name={}\nversion={}\npublisher={}\nbinary={}\n",
+            "name={}\nversion={}\npublisher={}\nbinary={}\nfiles={}\n",
             one_line(&self.name),
             one_line(&self.version),
             one_line(&self.publisher),
-            one_line(&self.binary)
+            one_line(&self.binary),
+            self.files
         )
     }
 
@@ -54,6 +60,7 @@ impl Meta {
                 Some(("version", value)) => meta.version = value.to_string(),
                 Some(("publisher", value)) => meta.publisher = value.to_string(),
                 Some(("binary", value)) => meta.binary = value.to_string(),
+                Some(("files", value)) => meta.files = value.parse().unwrap_or(0),
                 _ => {}
             }
         }
@@ -87,12 +94,25 @@ fn walk(root: &Path, here: &Path, into: &mut Vec<(String, PathBuf)>) -> std::io:
 }
 
 /// `stub` + the folder + the meta, written to `out`.
-pub fn pack(stub: &Path, folder: &Path, meta: &Meta, out: &Path) -> Result<(), String> {
+pub fn pack(
+    stub: &Path,
+    folder: &Path,
+    pages: &[(String, PathBuf)],
+    meta: &Meta,
+    out: &Path,
+) -> Result<(), String> {
+    let mut meta = meta.clone();
     let failed = |what: &str, error: std::io::Error| format!("{what} ({error}).");
     let mut files = Vec::new();
     walk(folder, folder, &mut files)
         .map_err(|error| failed("the folder could not be read", error))?;
     files.sort();
+    meta.files = files.len();
+    // The installer's own pages travel under a prefix of their own, and come
+    // out in another folder than the application.
+    for (name, path) in pages {
+        files.push((format!("{PAGES}{name}"), path.clone()));
+    }
 
     let mut file = std::fs::File::create(out)
         .map_err(|error| failed(&format!("{} could not be made", out.display()), error))?;
@@ -200,7 +220,13 @@ fn safe(name: &str) -> Option<PathBuf> {
 }
 
 /// Write the payload of `exe` under `into`. Returns the files written.
-pub fn unpack(exe: &Path, located: Located, into: &Path) -> Result<usize, String> {
+pub fn unpack(
+    exe: &Path,
+    located: Located,
+    into: Option<&Path>,
+    pages_into: Option<&Path>,
+    progress: &mut dyn FnMut(usize, &str),
+) -> Result<usize, String> {
     use std::io::{Seek, SeekFrom};
     let failed = |what: String, error: std::io::Error| format!("{what} ({error}).");
     let mut file = std::fs::File::open(exe)
@@ -231,7 +257,19 @@ pub fn unpack(exe: &Path, located: Located, into: &Path) -> Result<usize, String
         stream
             .read_exact(&mut size)
             .map_err(|error| failed("the payload is cut short".into(), error))?;
-        let destination = into.join(relative);
+        let (base, page) = match name.strip_prefix(PAGES) {
+            Some(_) => (pages_into, true),
+            None => (into, false),
+        };
+        let destination = match base {
+            Some(base) => base.join(if page { safe(&name[PAGES.len()..]).unwrap_or(relative) } else { relative }),
+            None => {
+                // Not asked for (the pages alone, or the application alone): read past it.
+                std::io::copy(&mut (&mut stream).take(u64::from_le_bytes(size)), &mut std::io::sink())
+                    .map_err(|error| failed("the payload is cut short".into(), error))?;
+                continue;
+            }
+        };
         if let Some(parent) = destination.parent() {
             std::fs::create_dir_all(parent).map_err(|error| {
                 failed(format!("{} could not be made", parent.display()), error)
@@ -252,7 +290,10 @@ pub fn unpack(exe: &Path, located: Located, into: &Path) -> Result<usize, String
         if copied != wanted {
             return Err(format!("{name} is cut short in the payload."));
         }
-        count += 1;
+        if !page {
+            count += 1;
+            progress(count, &name);
+        }
     }
 }
 
@@ -281,16 +322,29 @@ mod tests {
             version: "1.2.3".into(),
             publisher: "me".into(),
             binary: "app.exe".into(),
+            files: 0,
         };
+        std::fs::write(root.join("install.html"), "<p>hi</p>").unwrap();
+        let pages = vec![("install.html".to_string(), root.join("install.html"))];
 
         let setup = root.join("setup.exe");
-        pack(&root.join("stub.exe"), &folder, &meta, &setup).unwrap();
+        pack(&root.join("stub.exe"), &folder, &pages, &meta, &setup).unwrap();
         let (read, located) = locate(&setup).expect("a trailer");
-        assert_eq!(read, meta);
+        assert_eq!(read, Meta { files: 2, ..meta.clone() });
         assert_eq!(located.stub, 4);
 
         let out = root.join("out");
-        assert_eq!(unpack(&setup, located, &out).unwrap(), 2);
+        let kept = root.join("kept");
+        let mut told = Vec::new();
+        let count = unpack(&setup, located, Some(&out), Some(&kept), &mut |n, f| told.push((n, f.to_string()))).unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(told.len(), 2, "one progress call per application file, none for a page");
+        assert_eq!(std::fs::read_to_string(kept.join("install.html")).unwrap(), "<p>hi</p>");
+        assert!(!out.join("__installer").exists() && !out.join("install.html").exists());
+        // The pages alone, without writing the application.
+        let only = root.join("only");
+        unpack(&setup, located, None, Some(&only), &mut |_, _| {}).unwrap();
+        assert!(only.join("install.html").is_file() && !only.join("app.exe").exists());
         assert_eq!(std::fs::read(out.join("app.exe")).unwrap().len(), 100_000);
         assert_eq!(
             std::fs::read_to_string(out.join("assets/index.html")).unwrap(),
@@ -299,7 +353,7 @@ mod tests {
 
         // The installer used as a stub: its payload is not carried along.
         let again = root.join("again.exe");
-        pack(&setup, &folder, &meta, &again).unwrap();
+        pack(&setup, &folder, &pages, &meta, &again).unwrap();
         assert_eq!(locate(&again).unwrap().1.stub, 4);
         assert!(locate(&root.join("stub.exe")).is_none());
         let _ = std::fs::remove_dir_all(root);

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Setup</title>
+<style>
+  :root { color-scheme: light dark; --fg: #16181d; --bg: #ffffff; --muted: #6b7280; --line: #e5e7eb; --accent: #4f46e5; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #f3f4f6; --bg: #14161a; --muted: #9ca3af; --line: #2a2e36; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; height: 100vh; display: flex; flex-direction: column; font: 14px/1.5 "Segoe UI", system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+  main { flex: 1; padding: 32px 36px 0; overflow: auto; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  pre { max-height: 150px; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 8px; white-space: pre-wrap; font: 12px/1.4 ui-monospace, Consolas, monospace; }
+  .path { padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; word-break: break-all; }
+  .bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+  .file { margin-top: 8px; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  footer { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 36px 24px; }
+  button { font: inherit; padding: 8px 18px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <section id="welcome">
+    <h1 id="title"></h1>
+    <p class="sub" id="sub"></p>
+    <label class="sub">Install in</label>
+    <div class="path" id="where"></div>
+    <pre id="license" hidden></pre>
+  </section>
+  <section id="working" hidden>
+    <h1>Installing…</h1>
+    <p class="sub">This takes a moment.</p>
+    <div class="bar"><div id="fill"></div></div>
+    <div class="file" id="file"></div>
+  </section>
+  <section id="finished" hidden>
+    <h1>Ready</h1>
+    <p class="sub" id="ready"></p>
+  </section>
+  <section id="failed" hidden>
+    <h1>The installation failed</h1>
+    <p class="sub" id="why"></p>
+  </section>
+</main>
+<footer>
+  <button id="cancel">Cancel</button>
+  <button id="go" class="primary">Install</button>
+</footer>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const info = setup.info;
+  document.title = info.name + " setup";
+  $("title").textContent = "Install " + info.name;
+  $("sub").textContent = (info.version ? "Version " + info.version : "") + (info.publisher ? " · " + info.publisher : "");
+  $("where").textContent = info.destination;
+  if (info.license) { $("license").textContent = info.license; $("license").hidden = false; $("go").textContent = "Accept and install"; }
+  const show = (id) => { for (const s of ["welcome", "working", "finished", "failed"]) $(s).hidden = s !== id; };
+  $("cancel").onclick = () => setup.cancel();
+  $("go").onclick = () => { show("working"); $("go").disabled = true; setup.install(); };
+  setup.on((e) => {
+    if (e.event === "progress") { $("fill").style.width = (e.total ? (100 * e.done) / e.total : 50) + "%"; $("file").textContent = e.file; }
+    if (e.event === "done") {
+      show("finished"); $("ready").textContent = info.name + " is installed.";
+      $("cancel").textContent = "Close"; $("go").disabled = false; $("go").textContent = "Start " + info.name;
+      $("go").onclick = () => setup.launch();
+    }
+    if (e.event === "error") { show("failed"); $("why").textContent = e.message; $("go").hidden = true; $("cancel").textContent = "Close"; }
+  });
+</script>
+</body>
+</html>
