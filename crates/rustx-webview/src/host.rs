@@ -125,6 +125,94 @@ pub(crate) enum Command {
     Script(String),
     /// The system's print dialog for the page.
     Print,
+    /// Anything at all with the window, on the loop's thread.
+    Do(Box<dyn FnOnce(&tao::window::Window) + Send>),
+}
+
+/// Run `f` on the window, on the loop's thread, from any thread.
+pub(crate) fn with_window(f: Box<dyn FnOnce(&tao::window::Window) + Send>) {
+    let held = proxy()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(proxy) = held.as_ref() {
+        let _ = proxy.send_event(Command::Do(f));
+    }
+}
+
+/// The window has something to show: the first frame of the page is in, or
+/// the wait for it has run out.
+static SHOWN: AtomicBool = AtomicBool::new(false);
+
+fn show_once() {
+    if !SHOWN.swap(true, Ordering::AcqRel) {
+        with_window(Box::new(|w| w.set_visible(true)));
+    }
+}
+
+/// What the window is, for [`crate::window::state`].
+fn snapshot(window: &tao::window::Window) {
+    let (position, size) = (
+        window.outer_position().unwrap_or_default(),
+        window.inner_size(),
+    );
+    crate::window::publish(crate::window::State {
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+        scale: window.scale_factor(),
+        maximized: window.is_maximized(),
+        minimized: window.is_minimized(),
+        fullscreen: window.fullscreen().is_some(),
+        focused: window.is_focused(),
+        visible: window.is_visible(),
+    });
+}
+
+/// Where the size and position the user left are kept.
+const STATE_FILE: &str = "window-state.json";
+
+/// The last place and size the user left (logical pixels), when it still lands
+/// on a screen that exists.
+fn remembered(
+    title: &str,
+    event_loop: &tao::event_loop::EventLoop<Command>,
+) -> Option<(i32, i32, u32, u32, bool)> {
+    let text = rustx_os::data::read_text(title, STATE_FILE).ok()??;
+    let saved: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let (x, y) = (saved["x"].as_i64()? as i32, saved["y"].as_i64()? as i32);
+    let (w, h) = (saved["w"].as_u64()? as u32, saved["h"].as_u64()? as u32);
+    let on_a_screen = event_loop.available_monitors().any(|m| {
+        let (p, s, k) = (m.position(), m.size(), m.scale_factor());
+        let (px, py) = (x as f64 * k, y as f64 * k);
+        px >= p.x as f64
+            && py >= p.y as f64
+            && px < (p.x + s.width as i32) as f64
+            && py < (p.y + s.height as i32) as f64
+    });
+    on_a_screen.then_some((
+        x,
+        y,
+        w.max(200),
+        h.max(150),
+        saved["maximized"].as_bool().unwrap_or(false),
+    ))
+}
+
+fn remember_now(title: &str, window: &tao::window::Window) {
+    if window.is_minimized() || window.fullscreen().is_some() {
+        return;
+    }
+    let scale = window.scale_factor();
+    let (Ok(position), size) = (window.outer_position(), window.inner_size()) else {
+        return;
+    };
+    let saved = serde_json::json!({
+        "x": (position.x as f64 / scale).round() as i64, "y": (position.y as f64 / scale).round() as i64,
+        "w": (size.width as f64 / scale).round() as u64, "h": (size.height as f64 / scale).round() as u64,
+        "maximized": window.is_maximized(),
+    });
+    let _ = rustx_os::data::write_text(title, STATE_FILE, &saved.to_string());
 }
 
 /// Open the system's print dialog for the window's page.
@@ -307,12 +395,60 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
             }
         });
     }
-    let window = WindowBuilder::new()
+    let plan = crate::window::planned();
+    // Built hidden and shown when the page has its first frame: no white
+    // window first.
+    let mut builder = WindowBuilder::new()
         .with_title(&config.title)
         .with_decorations(config.decorations)
-        .with_inner_size(LogicalSize::new(config.size.0, config.size.1))
+        .with_visible(false)
+        .with_resizable(plan.resizable)
+        .with_always_on_top(plan.always_on_top)
+        .with_inner_size(LogicalSize::new(config.size.0, config.size.1));
+    if let Some((w, h)) = plan.min_size {
+        builder = builder.with_min_inner_size(LogicalSize::new(w, h));
+    }
+    if let Some((w, h)) = plan.max_size {
+        builder = builder.with_max_inner_size(LogicalSize::new(w, h));
+    }
+    let mut maximized = false;
+    match (
+        plan.remember
+            .then(|| remembered(&config.title, &event_loop))
+            .flatten(),
+        plan.position,
+    ) {
+        (Some((x, y, w, h, was_maximized)), _) => {
+            builder = builder
+                .with_inner_size(LogicalSize::new(w, h))
+                .with_position(tao::dpi::LogicalPosition::new(x, y));
+            maximized = was_maximized;
+        }
+        (None, Some((x, y))) => {
+            builder = builder.with_position(tao::dpi::LogicalPosition::new(x, y))
+        }
+        (None, None) if plan.centered => {
+            if let Some(monitor) = event_loop.primary_monitor() {
+                let k = monitor.scale_factor();
+                let (m, p) = (monitor.size(), monitor.position());
+                builder = builder.with_position(tao::dpi::LogicalPosition::new(
+                    p.x as f64 / k + (m.width as f64 / k - config.size.0 as f64) / 2.0,
+                    p.y as f64 / k + (m.height as f64 / k - config.size.1 as f64) / 2.0,
+                ));
+            }
+        }
+        _ => {}
+    }
+    let window = builder
         .build(&event_loop)
         .map_err(|error| HostError(format!("could not open the window: {error}")))?;
+    if maximized {
+        window.set_maximized(true);
+    }
+    snapshot(&window);
+    let started = Instant::now();
+    let title_for_state = config.title.clone();
+    let mut unsaved: Option<Instant> = None;
 
     let hooks = Rc::new(hooks);
     let policy = Rc::new(policy);
@@ -436,6 +572,9 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
                         .map(|route| format!("#{route}"))
                         .unwrap_or_default()
                 ));
+            if let Some((r, g, b)) = plan.background {
+                builder = builder.with_background_color((r, g, b, 255));
+            }
             if config.devtools {
                 builder = builder
                     .with_initialization_script("window.__rustx_devtools = true;".to_string());
@@ -527,14 +666,62 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
                 eprintln!("rustx: could not send a frame to the page: {error}");
             }
         };
+        // The first frame of the page is in, or the wait has run out.
+        if !SHOWN.load(Ordering::Acquire) && started.elapsed() > Duration::from_secs(3) {
+            show_once();
+        }
+        // What the user left is written when they have stopped moving it.
+        if plan.remember && unsaved.is_some_and(|at| at.elapsed() > Duration::from_millis(500)) {
+            unsaved = None;
+            remember_now(&title_for_state, &window);
+        }
         match event {
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
+            } => {
+                crate::window::announce(crate::window::Event::CloseRequested);
+                if crate::window::may_close() {
+                    if plan.remember {
+                        remember_now(&title_for_state, &window);
+                    }
+                    shut_down();
+                    *flow = ControlFlow::Exit;
+                }
             }
-            | Event::UserEvent(Command::Exit) => {
+            Event::UserEvent(Command::Exit) => {
                 shut_down();
                 *flow = ControlFlow::Exit;
+            }
+            Event::WindowEvent {
+                event: WindowEvent::Resized(size),
+                ..
+            } => {
+                snapshot(&window);
+                unsaved = Some(Instant::now());
+                crate::window::announce(crate::window::Event::Resized {
+                    width: size.width,
+                    height: size.height,
+                });
+            }
+            Event::WindowEvent {
+                event: WindowEvent::Moved(at),
+                ..
+            } => {
+                snapshot(&window);
+                unsaved = Some(Instant::now());
+                crate::window::announce(crate::window::Event::Moved { x: at.x, y: at.y });
+            }
+            Event::WindowEvent {
+                event: WindowEvent::Focused(on),
+                ..
+            } => {
+                snapshot(&window);
+                crate::window::announce(crate::window::Event::Focused(on));
+            }
+            Event::UserEvent(Command::Do(job)) => {
+                job(&window);
+                snapshot(&window);
             }
             Event::LoopDestroyed => shut_down(),
             Event::UserEvent(Command::Print) => {
@@ -620,6 +807,7 @@ fn handle(body: &str, hooks: &Hooks, control: &Control) {
     use crate::protocol::{FromPage, decode};
     match decode(body) {
         Ok(FromPage::Ready { ids }) => {
+            show_once();
             crate::dom::page_ready(ids);
             // A document that follows one the application had mounted on:
             // a reload. What was mounted goes back.

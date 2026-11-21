@@ -80,12 +80,21 @@ fn a_project_page_drives_the_install_and_the_uninstall() {
     let (local, roam) = (root.join("local"), root.join("roam"));
     std::fs::create_dir_all(&local).unwrap();
     std::fs::create_dir_all(&roam).unwrap();
-    assert!(run(&setup, &[], &local, &roam), "the install page did not finish");
+    assert!(
+        run(&setup, &[], &local, &roam),
+        "the install page did not finish"
+    );
 
     let installed = local.join("Programs").join("Rustx Setup Test");
-    assert!(installed.join("testapp.exe").is_file(), "the application is not there");
+    assert!(
+        installed.join("testapp.exe").is_file(),
+        "the application is not there"
+    );
     assert!(installed.join("uninstall.exe").is_file());
-    assert!(installed.join("installer").join("uninstall.html").is_file(), "the uninstall page is kept");
+    assert!(
+        installed.join("installer").join("uninstall.html").is_file(),
+        "the uninstall page is kept"
+    );
 
     let uninstaller = installed.join("uninstall.exe");
     assert!(

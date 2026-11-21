@@ -91,9 +91,7 @@ pub fn origin_of(url: &str) -> Option<String> {
     {
         return None;
     }
-    let end = rest
-        .find(['/', '\\', '?', '#'])
-        .unwrap_or(rest.len());
+    let end = rest.find(['/', '\\', '?', '#']).unwrap_or(rest.len());
     let authority = &rest[..end];
     let host = authority.rsplit('@').next().unwrap_or(authority);
     if host.is_empty() {

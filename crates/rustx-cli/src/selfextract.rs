@@ -262,11 +262,18 @@ pub fn unpack(
             None => (into, false),
         };
         let destination = match base {
-            Some(base) => base.join(if page { safe(&name[PAGES.len()..]).unwrap_or(relative) } else { relative }),
+            Some(base) => base.join(if page {
+                safe(&name[PAGES.len()..]).unwrap_or(relative)
+            } else {
+                relative
+            }),
             None => {
                 // Not asked for (the pages alone, or the application alone): read past it.
-                std::io::copy(&mut (&mut stream).take(u64::from_le_bytes(size)), &mut std::io::sink())
-                    .map_err(|error| failed("the payload is cut short".into(), error))?;
+                std::io::copy(
+                    &mut (&mut stream).take(u64::from_le_bytes(size)),
+                    &mut std::io::sink(),
+                )
+                .map_err(|error| failed("the payload is cut short".into(), error))?;
                 continue;
             }
         };
@@ -330,16 +337,32 @@ mod tests {
         let setup = root.join("setup.exe");
         pack(&root.join("stub.exe"), &folder, &pages, &meta, &setup).unwrap();
         let (read, located) = locate(&setup).expect("a trailer");
-        assert_eq!(read, Meta { files: 2, ..meta.clone() });
+        assert_eq!(
+            read,
+            Meta {
+                files: 2,
+                ..meta.clone()
+            }
+        );
         assert_eq!(located.stub, 4);
 
         let out = root.join("out");
         let kept = root.join("kept");
         let mut told = Vec::new();
-        let count = unpack(&setup, located, Some(&out), Some(&kept), &mut |n, f| told.push((n, f.to_string()))).unwrap();
+        let count = unpack(&setup, located, Some(&out), Some(&kept), &mut |n, f| {
+            told.push((n, f.to_string()))
+        })
+        .unwrap();
         assert_eq!(count, 2);
-        assert_eq!(told.len(), 2, "one progress call per application file, none for a page");
-        assert_eq!(std::fs::read_to_string(kept.join("install.html")).unwrap(), "<p>hi</p>");
+        assert_eq!(
+            told.len(),
+            2,
+            "one progress call per application file, none for a page"
+        );
+        assert_eq!(
+            std::fs::read_to_string(kept.join("install.html")).unwrap(),
+            "<p>hi</p>"
+        );
         assert!(!out.join("__installer").exists() && !out.join("install.html").exists());
         // The pages alone, without writing the application.
         let only = root.join("only");

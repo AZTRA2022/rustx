@@ -729,3 +729,52 @@ fn an_svg_drawn_by_rust_is_in_the_svg_namespace_and_has_a_size() {
     );
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn the_window_can_be_set_and_read_back_from_rust() {
+    // Logical sizes in, physical sizes out: compare through the scale the
+    // state reports. Hidden and shown again, and a close that is refused.
+    let root = folder(
+        "controls",
+        &page(
+            "const state = async () => {
+               await sleep(700);
+               const t = window.win_state();
+               const m = /^([0-9]+)x([0-9]+) at (-?[0-9]+),(-?[0-9]+) scale=([0-9.]+) visible=([a-z]+)/.exec(t);
+               return { w: +m[1], h: +m[2], x: +m[3], y: +m[4], k: +m[5], visible: m[6] === 'true' };
+             };
+             await sleep(800);
+             window.win('size', 640, 480);
+             let s = await state();
+             say('size=' + (Math.abs(s.w / s.k - 640) <= 2 && Math.abs(s.h / s.k - 480) <= 2));
+             window.win('min', 600, 450);
+             window.win('size', 200, 200);
+             s = await state();
+             say('min_kept=' + (s.w / s.k >= 598 && s.h / s.k >= 448) + ' ' + s.w / s.k + 'x' + s.h / s.k);
+             window.win('hide');
+             s = await state();
+             say('hidden=' + (s.visible === false));
+             window.win('show');
+             s = await state();
+             say('shown=' + (s.visible === true));
+             say('resizes_heard=' + (window.win_resizes() >= 1));
+             order('close');
+             await sleep(1500);
+             say('still_open=yes');",
+        ),
+    );
+    let run = probe(&root, &["--scenario", "controls", "--seconds", "25"], &[]);
+    assert_eq!(
+        run.messages,
+        vec![
+            "size=true",
+            "min_kept=true 600x450",
+            "hidden=true",
+            "shown=true",
+            "resizes_heard=true"
+        ],
+        "{}",
+        run.stderr
+    );
+    let _ = std::fs::remove_dir_all(root);
+}

@@ -401,7 +401,9 @@ fn self_extracting(
 /// The setup shows its own pages for whatever is missing.
 fn setup_pages(project: &Path, pages: &Pages) -> Vec<(String, PathBuf)> {
     fn walk(root: &Path, here: &Path, into: &mut Vec<(String, PathBuf)>) {
-        let Ok(entries) = std::fs::read_dir(here) else { return };
+        let Ok(entries) = std::fs::read_dir(here) else {
+            return;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {

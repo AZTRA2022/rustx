@@ -495,6 +495,49 @@ fn main() {
             },
             _ => Err(NativeError::new("order takes a word")),
         });
+        // The typed window API: a setter by name, and the state it reports.
+        register_native("win", |args| {
+            use rustx_webview::window as w;
+            let number = |at: usize| match args.get(at) {
+                Some(Value::Number(n)) => *n as i32,
+                _ => 0,
+            };
+            match args.first() {
+                Some(Value::String(name)) => match name.as_str() {
+                    "size" => w::set_size(number(1) as u32, number(2) as u32),
+                    "position" => w::set_position(number(1), number(2)),
+                    "min" => w::set_min_size(Some((number(1) as u32, number(2) as u32))),
+                    "resizable" => w::set_resizable(number(1) != 0),
+                    "title" => w::set_title("A new title"),
+                    "hide" => w::hide(),
+                    "show" => w::show(),
+                    "center" => w::center(),
+                    "keep_open" => w::confirm_close(|| false),
+                    _ => return Err(NativeError::new("no such setter")),
+                },
+                _ => return Err(NativeError::new("win takes a name")),
+            }
+            Ok(Value::Null)
+        });
+        register_native("win_state", |_| {
+            let s = rustx_webview::window::state();
+            Ok(Value::String(format!(
+                "{}x{} at {},{} scale={} visible={} focused={}",
+                s.width, s.height, s.x, s.y, s.scale, s.visible, s.focused
+            )))
+        });
+        let moved = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let seen = std::sync::Arc::clone(&moved);
+        rustx_webview::window::on_event(move |event| {
+            if matches!(event, rustx_webview::window::Event::Resized { .. }) {
+                seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        });
+        register_native("win_resizes", move |_| {
+            Ok(Value::Number(
+                moved.load(std::sync::atomic::Ordering::SeqCst) as f64,
+            ))
+        });
         config.scripts = vec![rustx_webview::natives_script()];
     } else if scenario.as_deref() == Some("natives") {
         use rustx_webview::{NativeError, Value, register_native};

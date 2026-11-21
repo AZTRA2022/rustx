@@ -492,6 +492,7 @@ pub struct Config {
     about: crate::rustx_engine::window::About,
     dressing: rustx_os::window::Dressing,
     scrollbars: bool,
+    plan: crate::rustx_engine::window::Plan,
 }
 
 impl Config {
@@ -516,12 +517,64 @@ impl Config {
             },
             dressing: rustx_os::window::Dressing::System,
             scrollbars: true,
+            plan: Default::default(),
         }
     }
 
     pub fn size(mut self, width: u32, height: u32) -> Self {
         self.width = width;
         self.height = height;
+        self
+    }
+
+    /// The window will not shrink below this (logical pixels).
+    pub fn min_size(mut self, width: u32, height: u32) -> Self {
+        self.plan.min_size = Some((width, height));
+        self
+    }
+
+    /// The window will not grow beyond this (logical pixels).
+    pub fn max_size(mut self, width: u32, height: u32) -> Self {
+        self.plan.max_size = Some((width, height));
+        self
+    }
+
+    /// Whether the user can resize the window by its edges. On by default.
+    pub fn resizable(mut self, resizable: bool) -> Self {
+        self.plan.resizable = resizable;
+        self
+    }
+
+    /// Open in the middle of the primary screen.
+    pub fn centered(mut self) -> Self {
+        self.plan.centered = true;
+        self
+    }
+
+    /// Open at this place (logical pixels from the top left of the desktop).
+    pub fn position(mut self, x: i32, y: i32) -> Self {
+        self.plan.position = Some((x, y));
+        self
+    }
+
+    /// Keep the window in front of the others.
+    pub fn always_on_top(mut self) -> Self {
+        self.plan.always_on_top = true;
+        self
+    }
+
+    /// Open where the user left the window: size, position, maximised.
+    /// Written under the application's data folder; ignored if that place
+    /// is no longer on a screen.
+    pub fn remember_window(mut self) -> Self {
+        self.plan.remember = true;
+        self
+    }
+
+    /// The colour behind the page while it loads, so a dark application
+    /// does not open with a white flash.
+    pub fn background(mut self, red: u8, green: u8, blue: u8) -> Self {
+        self.plan.background = Some((red, green, blue));
         self
     }
 
@@ -779,6 +832,7 @@ impl App {
         // The window's own logo and what the application says it is.
         // Declared before the sub-processes leave, because the render
         // process answers `rustx_about()` and it never comes back here.
+        crate::rustx_engine::window::plan(config.plan.clone());
         crate::rustx_engine::window::declare(
             config
                 .icon

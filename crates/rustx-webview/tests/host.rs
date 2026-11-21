@@ -66,6 +66,9 @@ fn a_link_to_another_site_opens_in_the_system_browser_and_the_window_stays() {
         run.opened,
         run.stderr
     );
+    // WebKitGTK refuses a script popup with no user gesture before the host is
+    // asked, so only WebView2 reports it here.
+    #[cfg(windows)]
     assert!(
         run.opened
             .contains(&"https://example.invalid/new".to_string()),
@@ -166,6 +169,8 @@ fn an_allowed_remote_page_loads_in_the_window_and_cannot_call_the_host() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+// The variable that hides the runtime is WebView2's.
+#[cfg(windows)]
 #[test]
 fn a_missing_webview_runtime_is_an_error_and_not_a_crash() {
     let root = folder("noruntime", "<!doctype html><p>x</p>");

@@ -72,7 +72,14 @@ mod windows {
         let script = "Add-Type -AssemblyName PresentationFramework; \
              [void][System.Windows.MessageBox]::Show($env:RX_TEXT,$env:RX_TITLE)";
         let _ = hidden("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                script,
+            ])
             .env("RX_TEXT", text)
             .env("RX_TITLE", title)
             .status();
@@ -131,7 +138,12 @@ mod windows {
         let destination = base("LOCALAPPDATA")?
             .join("Programs")
             .join(folder_name(&meta.name));
-        Ok(Plan { meta, exe, located, destination })
+        Ok(Plan {
+            meta,
+            exe,
+            located,
+            destination,
+        })
     }
 
     pub fn run() -> Result<(), String> {
@@ -140,8 +152,16 @@ mod windows {
             .iter()
             .any(|a| a.eq_ignore_ascii_case("/s") || a == "--silent");
         if arguments.first().map(String::as_str) == Some("--uninstall") {
-            let folder = PathBuf::from(arguments.get(1).ok_or("--uninstall needs the install folder")?);
-            return if silent { remove(&folder) } else { uninstall_window(&folder) };
+            let folder = PathBuf::from(
+                arguments
+                    .get(1)
+                    .ok_or("--uninstall needs the install folder")?,
+            );
+            return if silent {
+                remove(&folder)
+            } else {
+                uninstall_window(&folder)
+            };
         }
         let plan = plan()?;
         if silent {
@@ -153,7 +173,13 @@ mod windows {
     /// Extract, write the uninstaller, register. `progress(done, file)`.
     fn install(plan: &Plan, progress: &mut dyn FnMut(usize, &str)) -> Result<(), String> {
         let kept = plan.destination.join(KEPT);
-        unpack(&plan.exe, plan.located, Some(&plan.destination), Some(&kept), progress)?;
+        unpack(
+            &plan.exe,
+            plan.located,
+            Some(&plan.destination),
+            Some(&kept),
+            progress,
+        )?;
         write_uninstaller(&plan.exe, plan.located.stub, &plan.destination)?;
         register(&plan.meta, &plan.destination)
     }
@@ -177,7 +203,14 @@ mod windows {
             let _ = std::fs::create_dir_all(parent);
         }
         let made = hidden("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                script,
+            ])
             .env("RX_LINK", &link)
             .env("RX_TARGET", &target)
             .env("RX_DIR", destination)
@@ -204,7 +237,10 @@ mod windows {
         for (key, value) in entries {
             registry(&meta.name, &["/v", key, "/t", "REG_SZ", "/d", value]);
         }
-        registry(&meta.name, &["/v", "UninstallString", "/t", "REG_SZ", "/d", &uninstall]);
+        registry(
+            &meta.name,
+            &["/v", "UninstallString", "/t", "REG_SZ", "/d", &uninstall],
+        );
         Ok(())
     }
 
@@ -281,7 +317,14 @@ mod windows {
             "license": license,
         });
         let title = format!("{} setup", plan.meta.name);
-        show(&title, &pages, "/install.html", INSTALL_PAGE, info, Job::Install(plan));
+        show(
+            &title,
+            &pages,
+            "/install.html",
+            INSTALL_PAGE,
+            info,
+            Job::Install(plan),
+        );
         let _ = std::fs::remove_dir_all(&pages);
         Ok(())
     }
@@ -430,7 +473,10 @@ mod windows {
                     let _ = webview.evaluate_script(&code);
                 }
                 Event::UserEvent(Wake::Quit)
-                | Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
+                | Event::WindowEvent {
+                    event: WindowEvent::CloseRequested,
+                    ..
+                } => {
                     *flow = ControlFlow::Exit;
                 }
                 _ => {}
