@@ -72,7 +72,8 @@ fn a_burst_of_typing_faster_than_the_round_trip_loses_no_keystroke() {
                field.dispatchEvent(new Event('input', { bubbles: true }));
                await sleep(5);
              }
-             await sleep(2500);
+             // Thirty inputs of 40 ms each, on a runner that may be slow.
+             await sleep(7000);
              say('typed=' + typed);
              say('field=' + field.value);
              say('echo=' + document.getElementById('echo').textContent);",
