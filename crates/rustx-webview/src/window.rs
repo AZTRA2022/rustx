@@ -208,6 +208,9 @@ pub fn obey(line: &str) {
     let Ok(order) = serde_json::from_str::<serde_json::Value>(line) else {
         return;
     };
+    if std::env::var_os("RUSTX_TRACE").is_some() {
+        eprintln!("rustx: order obeyed: {line}");
+    }
     let pair = |v: &serde_json::Value| Some((v[0].as_i64()?, v[1].as_i64()?));
     match order["order"].as_str() {
         Some("title") => set_title(order["value"].as_str().unwrap_or_default()),
