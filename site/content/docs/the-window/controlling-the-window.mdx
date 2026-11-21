@@ -50,6 +50,36 @@ let now = window::state();           // x, y, width, height, scale, maximized, m
 
 `state()` is kept up to date by the loop and is read from any thread.
 
+## A title per route
+
+A `<title>` anywhere in a page's tree names the window while the page is
+shown, like a Next.js `metadata.title`. A change of `document.title` after the
+page is ready becomes the window's title; the title the page started with does
+not (`Config::new` already says it).
+
+## More than one window
+
+`window::open(What::new("inspector").size(400, 300))` starts a second window as
+its own process, linked by a pipe. The first window orders it:
+
+```rust
+let inspector = window::open(What::new("inspector"))?;
+inspector.set_title("Retitled");
+inspector.set_size(520, 410);
+inspector.set_position(40, 40);
+```
+
+## Redirects and capabilities
+
+```rust
+Config::new("App")
+    .redirect("/old", "/new")                       // /old shows /new, query kept
+    .capabilities(&["clipboard_read", "open_url"])  // a page may call only these natives
+```
+
+A native outside the list is refused with a message; the engine's own `rustx_…`
+natives (the router) are never closed.
+
 ## Everything else
 
 `window::with(|w| …)` runs a closure on the window's tao handle, on the loop's

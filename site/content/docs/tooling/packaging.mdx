@@ -219,7 +219,8 @@ environment variables and no configuration file.
 |---|---|
 | `RUSTX_SIGN_PFX`, `RUSTX_SIGN_PASSWORD` | Windows: a certificate file, signed with `signtool` |
 | `RUSTX_SIGN_SUBJECT` | Windows: a certificate already in the machine's store, by subject name |
-| `RUSTX_SIGN_IDENTITY` | macOS: an identity for `codesign`, applied to the bundle before the `.dmg` |
+| `RUSTX_MAC_IDENTITY` | macOS: an identity for `codesign` (`-` signs ad hoc, with no certificate), applied to the `.app` |
+| `RUSTX_NOTARY_PROFILE` | macOS: a `notarytool` keychain profile; the bundle is submitted, waited for and stapled |
 
 With none of them set, nothing is signed and nothing is said: an
 unsigned build is the normal case for anybody who has not bought a
@@ -231,11 +232,18 @@ Both the binary and the installer are signed on Windows. SmartScreen
 judges the file the user double-clicked, so signing one and not the
 other still gets the warning.
 
-What is **not** done: notarisation. `xcrun notarytool` needs an Apple
-developer account and a round trip to Apple's service, and nothing here
-uploads anything on your behalf.
+The install stamp is written before signing, and the reader stops at the
+Windows certificate table, so a signed single exe still installs itself
+(a unit test fakes the table; the CI job signs ad hoc on macOS and runs
+`codesign --verify`). Notarisation is written and has not been run against
+Apple's service: it needs an account, and CI has none.
 
 ## Updating from a release page
+
+Set `Config::updates("owner/name")` and the default `system/settings.rsx`
+shows *Updates*: check, download with the digest verified, install, restart.
+`RUSTX_UPDATE_API` points the check at another server speaking GitHub's JSON
+(CI serves one over loopback and clicks *Check*; a wrong digest is refused).
 
 ```rust
 match rustx::update::from_github("owner/my-app")? {
@@ -294,17 +302,25 @@ Your own files go in [`rustx::data`](/docs/the-system/app-data), which is
 a different folder on purpose: one the webview may clear and one it may
 not.
 
-## Two things that stop a start
+## A machine without the web view
 
-A Windows machine without the Microsoft Edge WebView2 Runtime exits with
-code 1 and a message naming it: install it from
-developer.microsoft.com/microsoft-edge/webview2. On Linux the
+A Windows machine without the Microsoft Edge WebView2 Runtime is asked, in
+a native box (there is no page yet): download Microsoft's Evergreen
+bootstrapper, run it, and start again. Refusing leaves the error naming the
+runtime. A test downloads and runs a stand-in installer over loopback; the
+real Microsoft download has not been run in CI. On Linux the
 `libwebkit2gtk-4.1` package has to be installed, which the `.deb` declares.
 
 
 ## What is still not written
 
-- **Notarisation and stapling on macOS**, as above.
+- **Notarisation run against Apple**, as above: written, never run.
+- **Sidecar binaries.** The installed copy is the single binary, so a program shipped
+  beside it would not be installed; this needs the installer to carry a folder first.
+- **Window effects** (Mica, acrylic, vibrancy): a platform crate per system, not added.
+- **A hot patch of the running program.** Measured: the linker is about 10% of an
+  edit-to-window rebuild (3.7 s with the default, 3.4 s with `rust-lld`, counter,
+  debug), so the compile is what costs; a native hot patch was not worth its risk.
 - **An `.rpm` or an AppImage.** The `.deb` is written directly because
   its format allows it; these two do not.
 - **An MSI.** The application `.exe` that installs itself is what this writes; an MSI is a
