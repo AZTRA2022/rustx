@@ -493,11 +493,16 @@ fn info_plist(about: &About, binary_name: &str) -> String {
          \x20   <string>APPL</string>\n\
          \x20   <key>NSHumanReadableCopyright</key>\n\
          \x20   <string>{}</string>\n\
+         \x20   <key>RustxInstallable</key>\n\
+         \x20   <true/>\n\
+         \x20   <key>RustxPublisher</key>\n\
+         \x20   <string>{}</string>\n\
          </dict>\n</plist>\n",
         xml_escape(&plist_name(about, binary_name)),
         xml_escape(binary_name),
         xml_escape(version),
         xml_escape(version),
+        xml_escape(&about.publisher),
         xml_escape(&about.publisher),
     )
 }

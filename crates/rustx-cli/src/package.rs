@@ -125,6 +125,20 @@ pub fn run(project: &Path, options: &Options) -> Result<Packaged, String> {
         finish_the_bundle(&into, &read)?;
     }
 
+    // The binary may install itself: stamped before it is signed, because a
+    // signature covers what is in the file. A Mac bundle says it in its
+    // Info.plist instead, which the resources step wrote.
+    if !cfg!(target_os = "macos") {
+        rustx_os::install::write_stamp(
+            &into.join(exe.file_name().unwrap_or_default()),
+            &rustx_os::install::Stamp {
+                name: read.about.name.clone(),
+                version: read.about.version.clone(),
+                publisher: read.about.publisher.clone(),
+            },
+        )
+        .map_err(|error| format!("the install stamp could not be written ({error})."))?;
+    }
     let signed = sign(&into.join(exe.file_name().unwrap_or_default()));
 
     let manifest = manifest_of(&read, &into, &gathered)?;

@@ -369,3 +369,123 @@ mod tests {
         assert_eq!(slug("***"), "app");
     }
 }
+
+// ---------------------------------------------------------------- the stamp
+
+/// What `rustx package` writes into a binary to say it may install itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stamp {
+    pub name: String,
+    pub version: String,
+    pub publisher: String,
+}
+
+const TRAILER: &[u8; 10] = b"RXINSTALL1";
+
+/// Append the stamp to a binary (Windows, Linux). Before signing, never after.
+pub fn write_stamp(binary: &Path, stamp: &Stamp) -> Result<(), OsError> {
+    use std::io::Write;
+    let line = |text: &str| text.replace(['\n', '\r'], " ");
+    let body = format!(
+        "name={}\nversion={}\npublisher={}\n",
+        line(&stamp.name),
+        line(&stamp.version),
+        line(&stamp.publisher)
+    );
+    let mut out = std::fs::OpenOptions::new()
+        .append(true)
+        .open(binary)
+        .map_err(|e| file(e, &binary.display().to_string()))?;
+    out.write_all(body.as_bytes())
+        .and_then(|_| out.write_all(&(body.len() as u32).to_le_bytes()))
+        .and_then(|_| out.write_all(TRAILER))
+        .map_err(|e| file(e, "the install stamp"))
+}
+
+fn stamp_from(text: &str) -> Stamp {
+    let mut stamp = Stamp {
+        name: String::new(),
+        version: String::new(),
+        publisher: String::new(),
+    };
+    for line in text.lines() {
+        match line.split_once('=') {
+            Some(("name", v)) => stamp.name = v.into(),
+            Some(("version", v)) => stamp.version = v.into(),
+            Some(("publisher", v)) => stamp.publisher = v.into(),
+            _ => {}
+        }
+    }
+    stamp
+}
+
+/// The stamp of this running binary, if `rustx package` made it installable.
+pub fn read_stamp() -> Option<Stamp> {
+    let binary = std::env::current_exe().ok()?;
+    read_stamp_of(&binary)
+}
+
+/// The stamp of a given binary.
+pub fn read_stamp_of(binary: &Path) -> Option<Stamp> {
+    use std::io::{Read, Seek, SeekFrom};
+    if cfg!(target_os = "macos") {
+        // A signed Mach-O cannot be appended to: the bundle's Info.plist says it.
+        let plist = binary.parent()?.parent()?.join("Info.plist");
+        let text = std::fs::read_to_string(plist).ok()?;
+        if !text.contains("<key>RustxInstallable</key>") {
+            return None;
+        }
+        let value = |key: &str| {
+            let at = text.find(&format!("<key>{key}</key>"))?;
+            let rest = &text[at..];
+            let open = rest.find("<string>")? + "<string>".len();
+            let close = rest.find("</string>")?;
+            Some(rest[open..close].to_string())
+        };
+        return Some(Stamp {
+            name: value("CFBundleName")?,
+            version: value("CFBundleShortVersionString").unwrap_or_default(),
+            publisher: value("RustxPublisher").unwrap_or_default(),
+        });
+    }
+    let mut file = std::fs::File::open(binary).ok()?;
+    let end = file.seek(SeekFrom::End(0)).ok()?;
+    if end < 14 {
+        return None;
+    }
+    let mut tail = [0_u8; 14];
+    file.seek(SeekFrom::Start(end - 14)).ok()?;
+    file.read_exact(&mut tail).ok()?;
+    if &tail[4..] != TRAILER {
+        return None;
+    }
+    let length = u32::from_le_bytes(tail[..4].try_into().ok()?) as u64;
+    let mut body = vec![0_u8; length as usize];
+    file.seek(SeekFrom::Start(end.checked_sub(14 + length)?))
+        .ok()?;
+    file.read_exact(&mut body).ok()?;
+    Some(stamp_from(&String::from_utf8_lossy(&body)))
+}
+
+#[cfg(test)]
+mod stamp_tests {
+    use super::*;
+
+    #[test]
+    fn a_stamp_is_read_back_from_the_end_of_a_binary_and_a_plain_one_has_none() {
+        if cfg!(target_os = "macos") {
+            return;
+        }
+        let path = std::env::temp_dir().join(format!("rustx-stamp-{}", std::process::id()));
+        std::fs::write(&path, vec![1_u8; 500]).unwrap();
+        assert_eq!(read_stamp_of(&path), None);
+        let stamp = Stamp {
+            name: "My App".into(),
+            version: "1.0.0".into(),
+            publisher: "me".into(),
+        };
+        write_stamp(&path, &stamp).unwrap();
+        assert_eq!(read_stamp_of(&path), Some(stamp));
+        let _ = std::fs::remove_file(path);
+    }
+}

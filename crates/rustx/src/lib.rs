@@ -86,6 +86,8 @@ pub use crate::rustx_engine::{
     render, router, task, window,
 };
 
+pub mod setup;
+
 /// Where this application keeps its own files, and what it writes
 /// there.
 ///
@@ -493,6 +495,7 @@ pub struct Config {
     dressing: rustx_os::window::Dressing,
     scrollbars: bool,
     plan: crate::rustx_engine::window::Plan,
+    portable: bool,
 }
 
 impl Config {
@@ -518,12 +521,21 @@ impl Config {
             dressing: rustx_os::window::Dressing::System,
             scrollbars: true,
             plan: Default::default(),
+            portable: false,
         }
     }
 
     pub fn size(mut self, width: u32, height: u32) -> Self {
         self.width = width;
         self.height = height;
+        self
+    }
+
+    /// The application never installs itself: it runs from wherever it is.
+    /// By default a binary that `rustx package` made installable shows the
+    /// pages of `system/` when it is run outside its install location.
+    pub fn portable(mut self) -> Self {
+        self.portable = true;
         self
     }
 
@@ -737,8 +749,17 @@ impl App {
     pub fn new(config: Config) -> Result<Self, Error> {
         let routes = ROUTES.with(Cell::get);
         let components = COMPONENTS.with(|held| held.borrow().clone());
+        // A binary made installable that is not installed shows its system
+        // pages first; `--install --silent` and `--uninstall --silent` need no window.
+        let mode = crate::setup::detect(config.portable);
+        if let Some(code) = crate::setup::silent() {
+            std::process::exit(code);
+        }
         let host = config.host.clone();
-        let start = config.start.clone();
+        let start = mode
+            .page()
+            .map(str::to_string)
+            .unwrap_or_else(|| config.start.clone());
         // The engine brings both fallback screens; an application that
         // named one replaces that one and keeps the other.
         let screens = router::Screens {
