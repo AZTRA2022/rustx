@@ -5,7 +5,7 @@ description: "What a version number promises before 1.0, how to move a project t
 
 ## What a version says
 
-The workspace is at `0.4.1`, in `[workspace.package]` of the repository's
+The workspace is at `0.5.0`, in `[workspace.package]` of the repository's
 `Cargo.toml`, in one place for all eight packages. A `0.x` version says that
 the API may still move. `1.0.0` will say that it will not. What remains to be
 written (macOS, Linux, media, parts of async) will still touch signatures before
@@ -22,7 +22,7 @@ on, and the editor tools.
 **The library.** Change the version in the project's `Cargo.toml`:
 
 ```toml
-rustx = { package = "rustx-app", version = "0.3" }
+rustx = { package = "rustx-app", version = "0.5" }
 ```
 
 Then build. `rustx new` writes this line; if the number in your project is
@@ -58,9 +58,30 @@ report.
   upgrade does not change the browser the application runs in.
 - Rust 1.88 or later is required.
 
+## From 0.4 to 0.5
+
+0.5 changes the engine and the installer, so read this before you build.
+
+- **The engine is the system's web view.** The Chromium Embedded Framework is
+  gone. Delete anything of yours that named `libcef` or an engine folder beside
+  the executable. What a page can decode or draw is what WebView2, WKWebView or
+  WebKitGTK can: test the media you rely on.
+- **The application installs itself.** `rustx package` no longer writes a
+  separate setup program; the stamped binary shows the install wizard when it
+  is run outside its install folder. Add `Config::portable()` to opt out, and
+  see [packaging](/docs/tooling/packaging) for the `system/` screens you can
+  write.
+- **Every window has Inter and a default theme**, in a CSS layer: a rule of
+  yours wins. If you relied on the browser's default font, say so in your
+  stylesheet. See [fonts and theme](/docs/getting-started/fonts-and-theme).
+- **`Config::version`, `description` and `publisher`** default to `Cargo.toml`.
+- **The not-found text** is now "This page could not be found."
+
 ## The changelog
 
-There is none. No file lists what changed in each release. These are the sources:
+[`CHANGELOG.md`](https://github.com/AZTRA2022/rustx/blob/main/CHANGELOG.md) at the
+root of the repository lists what changed in each release, and the editor
+extension has its own. Besides that:
 
 - the git history of the repository. A commit message says what changed
   and why, at length;

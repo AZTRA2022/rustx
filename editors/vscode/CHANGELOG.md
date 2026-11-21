@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.0
+
+Released with rustx 0.5.0, whose language server this is built against.
+
+- **`system/*.rsx`** (the install, update, uninstall, licence, permissions,
+  about and settings screens) get the same diagnostics, completion and
+  go-to-definition as a page of `app/`: the server maps each to the page the
+  build compiles it as.
+- Two snippets: `rtitle` (a `<title>` that names the window) and `rsystem`
+  (the skeleton of a `system/` page).
+
 ## 0.4.0
 
 - **Snippets**, with the prefixes a React developer already types:
