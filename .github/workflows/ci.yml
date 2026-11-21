@@ -254,6 +254,11 @@ jobs:
             # which is what tells us the `.pkg` is addressable rather
             # than merely present.
             if [ -f dist/*.pkg ]; then pkgutil --payload-files dist/*.pkg | head -20; fi
+            # The project's own screens (apps/counter/installer/*.html) are in the
+            # package's resources: productbuild wrapped the component.
+            pkgutil --expand dist/*.pkg "$RUNNER_TEMP/expanded"
+            ls "$RUNNER_TEMP/expanded/Resources"
+            test -f "$RUNNER_TEMP/expanded/Resources/welcome.html"
             ;;
           esac
 
