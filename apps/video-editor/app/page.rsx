@@ -89,6 +89,19 @@ let mut rendering: bool = false;
 let mut progress: f64 = 0.0;
 let mut output: String = String::new();
 
+// The look of the window and what it remembers: the drawer that holds the layers, the effects
+// and the export, the grid over the picture, the tool in hand, the undo stacks, and the pictures
+// ffmpeg drew of each cut (a filmstrip and a waveform), by the name `picture_name` gives them.
+let mut drawer: bool = false;
+let mut grid: bool = true;
+let mut tool: String = "select".to_string();
+let mut past: Vec<Vec<ffmpeg::Clip>> = Vec::new();
+let mut future: Vec<Vec<ffmpeg::Clip>> = Vec::new();
+let mut last_push: f64 = 0.0;
+let mut strips: Vec<(String, String)> = Vec::new();
+let mut waves: Vec<(String, String)> = Vec::new();
+
+
 fn Page() -> Element {
     // One task: the proxy, the still and the render — the three
     // things that are an ffmpeg process. It belongs to the page, so it
@@ -164,6 +177,36 @@ fn Page() -> Element {
                 }
             }
 
+            // A filmstrip and a waveform for each cut, one picture at a time, the first cut that
+            // has none. An empty address means ffmpeg could not draw it, and is not asked again.
+            if !building {
+                if let Some(clip) = held.iter().find(|c| !strips.iter().any(|(k, _)| *k == ffmpeg::picture_name(c, "strip", "jpg"))) {
+                    let name = ffmpeg::picture_name(clip, "strip", "jpg");
+                    let file = beside(&name);
+                    let frames = ((clip.length() * 2.0) as u32).clamp(4, 24);
+                    let url = match ffmpeg::picture(&tools.ffmpeg, ffmpeg::strip_arguments(clip, frames, &file)).await {
+                        Ok(()) => as_url(&file),
+                        Err(_) => String::new(),
+                    };
+                    let mut all = strips.clone();
+                    all.push((name, url));
+                    strips = all;
+                } else if let Some(clip) = held.iter().find(|c| c.media.audio && !waves.iter().any(|(k, _)| *k == ffmpeg::picture_name(c, "wave", "png"))) {
+                    let name = ffmpeg::picture_name(clip, "wave", "png");
+                    let file = beside(&name);
+                    let url = match ffmpeg::wave_arguments(clip, &file) {
+                        Some(arguments) => match ffmpeg::picture(&tools.ffmpeg, arguments).await {
+                            Ok(()) => as_url(&file),
+                            Err(_) => String::new(),
+                        },
+                        None => String::new(),
+                    };
+                    let mut all = waves.clone();
+                    all.push((name, url));
+                    waves = all;
+                }
+            }
+
             if done_render != want_render {
                 let wanted = want_render;
                 let held = clips.clone();
@@ -199,15 +242,14 @@ fn Page() -> Element {
         }
     };
 
-    return <div className="flex h-screen flex-col overflow-hidden bg-chrome text-text">
+    return <div className="flex h-screen flex-col bg-chrome p-2 text-text">
         {Keys()}
-        {Toolbar()}
-        {Tooling()}
-        <div className="flex min-h-0 flex-1">
-            <div className="flex min-w-0 flex-1 flex-col">
-                {Monitor()}
-                {Sequence()}
-            </div>
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border border-line bg-panel">
+            {Toolbar()}
+            {Tooling()}
+            {Monitor()}
+            {Transport()}
+            {Sequence()}
             {Controls()}
         </div>
         {StatusBar()}
@@ -310,43 +352,170 @@ fn PanelTitle(icon: String, name: String, aside: String) -> Element {
 }
 
 fn Toolbar() -> Element {
-    // A shadcn `Button`, in a suite. The component brings the shape,
-    // the focus ring and the disabled state; the classes bring the
-    // twenty-four pixels of height and the eleven-pixel type that a
-    // dense toolbar is made of. That is the division all the way
-    // down: the components are the material, this file is the look.
-    let button = "h-6 gap-1.5 border-line bg-track px-2 text-[11px] text-text \
-                  hover:border-faint hover:bg-track hover:text-white";
+    let round = "size-9 rounded-full border-0 bg-track text-muted hover:bg-line hover:text-white";
+    let pill = "h-9 gap-2 rounded-full border-0 bg-track px-4 text-[13px] text-text hover:bg-line hover:text-white";
+    let tab = "h-9 gap-2 rounded-full border-0 px-4 text-[13px]";
+    let first = clips.first().map(|c| c.name.clone()).unwrap_or_else(|| "Untitled project".to_string());
+    let selected_on = clip_at(selected).map(|c| c.enabled).unwrap_or(true);
+    let sel_index = selected;
 
-    return <div className="flex h-10 shrink-0 items-center gap-2 border-b border-line bg-panel px-3">
-        <span className="flex items-center gap-2 pr-1 text-white">
-            {Icon("film".to_string())}
-            <span className="text-[12px] font-semibold tracking-tight">Altlassian Raw</span>
-        </span>
-        <Separator orientation="vertical" className="h-4 bg-line" />
-        <Button id="open" variant="outline" size="sm" className={button.to_string()}
-            onClick={move |_| open_files()}>
-            {Icon("folder-open".to_string())}
-            <span>Import media…</span>
+    return <div className="flex shrink-0 flex-col gap-3 px-4 pb-2 pt-3">
+        <div className="flex flex-wrap items-center gap-2">
+            <Button variant="ghost" size="icon" className={round.to_string()} title="Home" aria-label="Home"
+                onClick={move |_| { drawer = false; }}>
+                <lucideReact::House className="size-4" />
+            </Button>
+            <Button id="project-tab" variant="ghost" className={format!("{tab} bg-track text-white")}>
+                <span className="max-w-56 truncate max-sm:max-w-24">{first.clone()}</span>
+                <lucideReact::X className="size-3.5 text-faint" />
+            </Button>
+            <Button id="new-project" variant="ghost" className={format!("{tab} text-muted hover:bg-track hover:text-white")}
+                onClick={move |_| new_project()}>
+                <lucideReact::Plus className="size-3.5" />
+                <span className="max-md:hidden">Create New Project</span>
+            </Button>
+            // The window has no frame: the empty part of this bar moves it, and the three marks do what a frame's did.
+            <div className="h-9 min-w-4 flex-1" onMouseDown={move |_| { rustx::window::drag(); }}></div>
+            <Button id="undo" variant="ghost" size="icon" className={round.to_string()} title="Undo" aria-label="Undo"
+                disabled={past.is_empty()} onClick={move |_| undo()}>
+                <lucideReact::Undo2 className="size-4" />
+            </Button>
+            <Button id="redo" variant="ghost" size="icon" className={round.to_string()} title="Redo" aria-label="Redo"
+                disabled={future.is_empty()} onClick={move |_| redo()}>
+                <lucideReact::Redo2 className="size-4" />
+            </Button>
+            <Button variant="ghost" size="icon" className={round.to_string()} title="Play or pause (space)" aria-label="Preview"
+                onClick={move |_| act("space".to_string())}>
+                {Icon(if paused { "play".to_string() } else { "pause".to_string() })}
+            </Button>
+            <Button variant="ghost" size="icon" className={round.to_string()} title="Export" aria-label="Export"
+                onClick={move |_| { drawer = true; }}>
+                <lucideReact::Share2 className="size-4" />
+            </Button>
+            <Button variant="ghost" size="icon" className={round.to_string()} title="Layers, effects and export" aria-label="More"
+                onClick={move |_| { drawer = !drawer; }}>
+                <lucideReact::Ellipsis className="size-4" />
+            </Button>
+            <span className="ml-1 flex items-center">
+                <Button variant="ghost" size="icon" title="Minimize" aria-label="Minimize" className="size-8 rounded-full border-0 text-faint hover:bg-track hover:text-white"
+                    onClick={move |_| { rustx::window::minimize(); }}><lucideReact::Minus className="size-4" /></Button>
+                <Button variant="ghost" size="icon" title="Maximize" aria-label="Maximize" className="size-8 rounded-full border-0 text-faint hover:bg-track hover:text-white"
+                    onClick={move |_| { rustx::window::toggle_maximize(); }}><lucideReact::Square className="size-3.5" /></Button>
+                <Button variant="ghost" size="icon" title="Close" aria-label="Close" className="size-8 rounded-full border-0 text-faint hover:bg-danger hover:text-white"
+                    onClick={move |_| { rustx::window::shut(); }}><lucideReact::X className="size-4" /></Button>
+            </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+            <Button id="open" variant="ghost" className={pill.to_string()} onClick={move |_| open_files()}>
+                <lucideReact::Plus className="size-4" />
+                <span className="max-sm:hidden">Add Assets</span>
+            </Button>
+            // Pasting a path is the same thing as choosing a file: a field that opens when it has focus.
+            <input id="typed" placeholder="path" aria-label="Paste a file path" value={typed.clone()}
+                onInput={move |event| typed = event.value}
+                className="h-9 w-16 rounded-full border-0 bg-track px-4 text-[13px] text-text outline-none transition-all placeholder:text-faint focus:w-72" />
+            <Button id="add-typed" variant="ghost" className="h-9 rounded-full border-0 bg-track px-3 text-[13px] text-muted hover:bg-line hover:text-white"
+                onClick={move |_| add_typed()}>{"Add"}</Button>
+            <Button id="layers-toggle" variant="ghost" className={pill.to_string()} onClick={move |_| { drawer = !drawer; }}>
+                <lucideReact::Layers className="size-4" />
+                <span className="max-md:hidden">Layers</span>
+            </Button>
+
+            <span className="w-2"></span>
+            {ToolPill()}
+            {Tools()}
+
+            <span className="flex-1"></span>
+            <Button id="grid-toggle" variant="ghost" size="icon" title="Grid guides" aria-label="Grid guides"
+                className={format!("size-9 rounded-full border-0 hover:bg-line hover:text-white {}", if grid { "bg-line text-white" } else { "bg-track text-muted" })}
+                onClick={move |_| { grid = !grid; }}>
+                <lucideReact::Box className="size-4" />
+            </Button>
+            <Button id="hide-clip" variant="ghost" size="icon" title="Show or hide this clip" aria-label="Show or hide this clip"
+                className={format!("size-9 rounded-full border-0 hover:bg-line hover:text-white {}", if selected_on { "bg-track text-muted" } else { "bg-line text-white" })}
+                onClick={move |_| edit(sel_index, |clip| clip.enabled = !clip.enabled)}>
+                {if selected_on { <lucideReact::Eye className="size-4" /> } else { <lucideReact::EyeOff className="size-4" /> }}
+            </Button>
+        </div>
+    </div>;
+}
+
+// The tool in hand: the red pill. Choosing one is a state; the razor and the in and out marks are
+// actions on the playhead.
+fn ToolPill() -> Element {
+    let label = match tool.as_str() {
+        "razor" => "Razor",
+        "trim" => "Trim",
+        _ => "Select",
+    };
+    return <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+            <Button id="tool" variant="ghost" className="h-9 gap-2 rounded-full border-0 bg-danger px-4 text-[13px] font-medium text-white hover:bg-danger/90 hover:text-white">
+                <lucideReact::MousePointer2 className="size-4" />
+                <span className="max-sm:hidden">{label}</span>
+                <lucideReact::ChevronDown className="size-3.5" />
+            </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+            <DropdownMenuItem checked={tool == "select"} onSelect={move |_: rustx::Value| { tool = "select".to_string(); }}>Select</DropdownMenuItem>
+            <DropdownMenuItem checked={tool == "razor"} onSelect={move |_: rustx::Value| { tool = "razor".to_string(); split_here(); }}>Razor: cut at the playhead</DropdownMenuItem>
+            <DropdownMenuItem checked={tool == "trim"} onSelect={move |_: rustx::Value| { tool = "trim".to_string(); }}>Trim: set in and out</DropdownMenuItem>
+        </DropdownMenuContent>
+    </DropdownMenu>;
+}
+
+// The other tools of the row, each a menu of what it does to the selected clip.
+fn Tools() -> Element {
+    let icon = "h-9 gap-1.5 rounded-full border-0 bg-track px-3 text-muted hover:bg-line hover:text-white";
+    let index = selected;
+    return <div className="flex items-center gap-2">
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button id="tool-crop" variant="ghost" className={icon.to_string()} title="Crop" aria-label="Crop">
+                    <lucideReact::Crop className="size-4" /><lucideReact::ChevronDown className="size-3" />
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+                <DropdownMenuItem onSelect={move |_: rustx::Value| act("i".to_string())}>Set in at the playhead (I)</DropdownMenuItem>
+                <DropdownMenuItem onSelect={move |_: rustx::Value| act("o".to_string())}>Set out at the playhead (O)</DropdownMenuItem>
+                <DropdownMenuItem onSelect={move |_: rustx::Value| edit(index, |clip| { clip.start = 0.0; clip.end = clip.media.duration; })}>Reset the cut</DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button id="tool-look" variant="ghost" className={icon.to_string()} title="Look" aria-label="Look">
+                    <lucideReact::Shapes className="size-4" /><lucideReact::ChevronDown className="size-3" />
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+                <DropdownMenuItem onSelect={move |_: rustx::Value| edit(index, |clip| clip.look = "none".to_string())}>No filter</DropdownMenuItem>
+                <DropdownMenuItem onSelect={move |_: rustx::Value| edit(index, |clip| clip.look = "warm".to_string())}>Warm</DropdownMenuItem>
+                <DropdownMenuItem onSelect={move |_: rustx::Value| edit(index, |clip| clip.look = "cool".to_string())}>Cool</DropdownMenuItem>
+                <DropdownMenuItem onSelect={move |_: rustx::Value| edit(index, |clip| clip.look = "bw".to_string())}>Black and white</DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
+        <Button id="tool-text" variant="ghost" className={icon.to_string()} title="Subtitle" aria-label="Subtitle"
+            onClick={move |_| { drawer = true; }}>
+            <lucideReact::Type className="size-4" /><lucideReact::ChevronDown className="size-3" />
         </Button>
-        // A tag the engine mounts, in a row of React ones, and
-        // deliberately: a handler on a component is handed React's own
-        // event through the bridge, and `event.value` — what a page
-        // writes everywhere else — is what the engine's own tags give.
-        // `apps/hybrid` keeps a plain input in its card for the same
-        // reason. shadcn's `Input` is a styled input and nothing more,
-        // so its class list is the whole of what it was for.
-        <input id="typed" placeholder="or paste a file path"
-            value={typed.clone()}
-            onInput={move |event| typed = event.value}
-            className="h-6 w-72 border border-line bg-chrome px-2 text-[11px] text-text placeholder:text-faint focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mark" />
-        <Button id="add-typed" variant="outline" size="sm" className={button.to_string()}
-            onClick={move |_| add_typed()}>
-            {Icon("plus".to_string())}
-            <span>Add</span>
+        <Button id="tool-sound" variant="ghost" className={icon.to_string()} title="Mute (M)" aria-label="Mute"
+            onClick={move |_| act("m".to_string())}>
+            {if muted { <lucideReact::MicOff className="size-4" /> } else { <lucideReact::Mic className="size-4" /> }}
+            <lucideReact::ChevronDown className="size-3" />
         </Button>
-        <span className="flex-1"></span>
-        <span className="text-[10px] uppercase tracking-[0.14em] text-faint">{sequence_label()}</span>
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button id="tool-order" variant="ghost" className={icon.to_string()} title="Arrange" aria-label="Arrange">
+                    <lucideReact::Frame className="size-4" /><lucideReact::ChevronDown className="size-3" />
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+                <DropdownMenuItem onSelect={move |_: rustx::Value| shift(-1)}>Move left</DropdownMenuItem>
+                <DropdownMenuItem onSelect={move |_: rustx::Value| shift(1)}>Move right</DropdownMenuItem>
+                <DropdownMenuItem onSelect={move |_: rustx::Value| remove_clip()}>Remove from the timeline</DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
     </div>;
 }
 
@@ -366,53 +535,62 @@ fn Tooling() -> Element {
 // ---- the monitor ------------------------------------------------------
 
 fn Monitor() -> Element {
-    return <div className="flex min-h-0 flex-1 flex-col bg-panel">
-        {PanelTitle("monitor".to_string(), "Program monitor".to_string(), monitor_clock())}
-        <div className="flex min-h-0 flex-1 items-center justify-center bg-black p-3">
+    return <div className="relative flex min-h-0 flex-1 flex-col px-4">
+        <div className="relative flex min-h-[120px] flex-1 items-center justify-center overflow-hidden rounded-2xl bg-chrome">
             {Picture()}
+            {Scrub()}
         </div>
-        {Scrub()}
-        {Transport()}
     </div>;
 }
 
+// The picture, with the grid guides over exactly the picture and the clock in a pill.
 fn Picture() -> Element {
+    let frame = "relative inline-flex max-h-full max-w-full items-center justify-center";
+    let guides = match grid {
+        true => "pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(243,241,108,0.75)_1px,transparent_1px),linear-gradient(to_bottom,rgba(243,241,108,0.75)_1px,transparent_1px)] bg-[size:25%_25%]",
+        false => "hidden",
+    };
+    let pill = "pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-mark px-2 py-0.5 text-[11px] font-semibold tabular-nums text-primary-foreground";
+
     let Some(clip) = clip_at(selected) else {
-        return <div id="preview" className="max-w-md text-center text-[11px] leading-relaxed text-faint">
-            {"No media. Import a file and it lands on the timeline — the monitor then plays that file, with its sound, off your disk."}
+        return <div id="preview" className="max-w-md text-center text-[13px] leading-relaxed text-faint">
+            {"Add assets: a file lands on the timeline, and the picture is that file playing with its sound, off your disk."}
         </div>;
     };
 
-    // A proxy, once there is one: it stays the source from then on,
-    // because switching back to a file the window refuses would start
-    // the same refusal again on every frame.
     let proxy = beside(&ffmpeg::proxy_name(&clip.media.path));
     if proxy.is_file() {
         let paint = format!("filter: {}{}", css_look(clip.look.clone()), clip.grade_css());
-        return <video id="monitor" src={as_url(&proxy)} data-cmd={command.clone()}
-            preload="auto" className="max-h-full max-w-full object-contain" style={paint}>
-        </video>;
+        return <div className={frame.to_string()}>
+            <video id="monitor" src={as_url(&proxy)} data-cmd={command.clone()}
+                preload="auto" className="max-h-full max-w-full object-contain" style={paint}>
+            </video>
+            <div className={guides.to_string()}></div>
+            <span className={pill.to_string()}>{clock(played)}</span>
+        </div>;
     }
 
-    // Refused, and no proxy yet: a frame ffmpeg drew, and a line
-    // saying what is happening rather than a black rectangle.
     if !decodes {
         return <div className="flex h-full w-full flex-col items-center justify-center gap-2">
             {if still.is_empty() {
-                <span className="text-[11px] text-faint">{"Drawing a frame with ffmpeg…"}</span>
+                <span className="text-[13px] text-faint">{"Drawing a frame with ffmpeg…"}</span>
             } else {
                 <img id="preview" src={still.clone()} className="max-h-full max-w-full object-contain" />
             }}
-            <span className="max-w-md text-center text-[10px] leading-relaxed text-danger">
+            <span className="max-w-md text-center text-[11px] leading-relaxed text-danger">
                 {"This window cannot decode that file — it has no H.264. ffmpeg is making a preview proxy of it; until that is done the monitor is one frame at a time. The render uses the original."}
             </span>
         </div>;
     }
 
     let paint = format!("filter: {}{}", css_look(clip.look.clone()), clip.grade_css());
-    return <video id="monitor" src={as_url(&clip.media.path)} data-cmd={command.clone()}
-        preload="auto" className="max-h-full max-w-full object-contain" style={paint}>
-    </video>;
+    return <div className={frame.to_string()}>
+        <video id="monitor" src={as_url(&clip.media.path)} data-cmd={command.clone()}
+            preload="auto" className="max-h-full max-w-full object-contain" style={paint}>
+        </video>
+        <div className={guides.to_string()}></div>
+        <span className={pill.to_string()}>{clock(played)}</span>
+    </div>;
 }
 
 // The look, where CSS can say the same thing ffmpeg will do. See the
@@ -424,20 +602,17 @@ fn css_look(look: String) -> String {
     }
 }
 
-// Where the playhead is inside the selected clip's cut. Dragging it
-// seeks the file, which is the same thing clicking the ruler does.
+// Where the playhead is inside the selected clip's cut. The timeline below is the visible way to
+// move it; this slider stays for the keyboard and for assistive technology, which is why it is
+// there and not drawn.
 fn Scrub() -> Element {
     let Some(clip) = clip_at(selected) else {
-        return <div className="h-9 shrink-0 border-t border-line"></div>;
+        return <span></span>;
     };
 
-    return <div className="flex h-9 shrink-0 items-center gap-3 border-t border-line px-3">
-        <span className="shrink-0 text-[11px] tabular-nums text-faint">{clock(clip.start)}</span>
-        <input id="playhead" type="range" min={clip.start.to_string()} max={clip.end.to_string()}
-            step="0.01" value={played.clamp(clip.start, clip.end).to_string()}
-            onInput={move |event| seek(event.number().unwrap_or(0.0))} />
-        <span className="shrink-0 text-[11px] tabular-nums text-faint">{clock(clip.end)}</span>
-    </div>;
+    return <input id="playhead" type="range" aria-label="Playhead" min={clip.start.to_string()} max={clip.end.to_string()}
+        step="0.01" value={played.clamp(clip.start, clip.end).to_string()}
+        onInput={move |event| seek(event.number().unwrap_or(0.0))} className="sr-only" />;
 }
 
 fn Transport() -> Element {
@@ -448,31 +623,33 @@ fn Transport() -> Element {
         false => format!("{times:.0}×"),
     };
 
-    return <div className="flex h-10 shrink-0 items-center gap-1 border-t border-line px-3">
-        {Key("skip-back".to_string(), "Go to in point (Home)".to_string(), "to-in".to_string(), has, "home".to_string())}
-        {Key("chevron-left".to_string(), "Previous frame (left arrow)".to_string(), "frame-back".to_string(), has, "left".to_string())}
-        {PlayKey(has)}
-        {Key("chevron-right".to_string(), "Next frame (right arrow)".to_string(), "frame-on".to_string(), has, "right".to_string())}
-        {Key("skip-forward".to_string(), "Go to out point (End)".to_string(), "to-out".to_string(), has, "end".to_string())}
-        {Key("stop".to_string(), "Stop and return to the in point".to_string(), "stop".to_string(), has, "stop".to_string())}
-
-        <span className="w-8 pl-1 text-[10px] tabular-nums text-mark">{speed}</span>
-        <span className="flex-1"></span>
-
-        <span className="text-[11px] tabular-nums text-white">{clock(played)}</span>
-        <span className="pl-1 text-[11px] tabular-nums text-faint">{format!("/ {}", clock(out_of(selected)))}</span>
-
-        <Separator orientation="vertical" className="mx-2 h-4 bg-line" />
-        {Key(
-            if muted { "muted".to_string() } else { "volume".to_string() },
-            "Mute (M)".to_string(),
-            "mute".to_string(),
-            has,
-            "m".to_string(),
-        )}
-        <input id="volume" type="range" min="0" max="1" step="0.05" value={volume.to_string()}
-            onInput={move |event| set_volume(event.number().unwrap_or(1.0))}
-            className="w-20" />
+    return <div className="flex shrink-0 items-center gap-1 px-4 py-3">
+        <span className="flex w-1/4 items-center gap-2 text-[12px] tabular-nums text-faint max-md:hidden">
+            <lucideReact::Clock className="size-3.5" />
+            <span className="text-white">{clock(played)}</span>
+            <span>{format!("/ {}", clock(out_of(selected)))}</span>
+            <span className="w-8 text-mark">{speed}</span>
+        </span>
+        <span className="flex flex-1 items-center justify-center gap-1">
+            {Key("skip-back".to_string(), "Go to in point (Home)".to_string(), "to-in".to_string(), has, "home".to_string())}
+            {Key("chevron-left".to_string(), "Previous frame (left arrow)".to_string(), "frame-back".to_string(), has, "left".to_string())}
+            {PlayKey(has)}
+            {Key("chevron-right".to_string(), "Next frame (right arrow)".to_string(), "frame-on".to_string(), has, "right".to_string())}
+            {Key("skip-forward".to_string(), "Go to out point (End)".to_string(), "to-out".to_string(), has, "end".to_string())}
+            {Key("stop".to_string(), "Stop and return to the in point".to_string(), "stop".to_string(), has, "stop".to_string())}
+        </span>
+        <span className="flex w-1/4 items-center justify-end gap-1 max-md:hidden">
+            {Key(
+                if muted { "muted".to_string() } else { "volume".to_string() },
+                "Mute (M)".to_string(),
+                "mute".to_string(),
+                has,
+                "m".to_string(),
+            )}
+            <input id="volume" type="range" min="0" max="1" step="0.05" value={volume.to_string()}
+                onInput={move |event| set_volume(event.number().unwrap_or(1.0))}
+                className="w-24" />
+        </span>
     </div>;
 }
 
@@ -480,8 +657,8 @@ fn Transport() -> Element {
 // every one of them carries its name for a screen reader and for the
 // tooltip — which is also where the keyboard shortcut is written.
 fn Key(icon: String, name: String, id: String, enabled: bool, does: String) -> Element {
-    return <Button id={id} variant="outline" size="icon"
-        className="h-7 w-8 border-line bg-track text-text hover:border-faint hover:bg-track hover:text-white"
+    return <Button id={id} variant="ghost" size="icon"
+        className="size-9 rounded-full border-0 bg-transparent text-muted hover:bg-track hover:text-white"
         title={name.clone()} aria-label={name} disabled={!enabled}
         onClick={move |_| act(does.clone())}>
         {Icon(icon)}
@@ -490,21 +667,14 @@ fn Key(icon: String, name: String, id: String, enabled: bool, does: String) -> E
 
 // Play and pause are one button, because they are one thing.
 fn PlayKey(enabled: bool) -> Element {
-    // The one place the accent is allowed on a control: the button
-    // that starts the thing the window is for.
-    let style = format!(
-        "h-7 w-10 border text-white {}",
-        match paused {
-            true => "border-mark bg-mark hover:bg-mark",
-            false => "border-mark bg-mark-soft hover:bg-mark-soft",
-        }
-    );
+    // The one place the accent fills a control: the button that starts the thing the window is for.
     let name = match paused {
         true => "Play (space)".to_string(),
         false => "Pause (space)".to_string(),
     };
 
-    return <Button id="play" size="icon" className={style} title={name.clone()} aria-label={name}
+    return <Button id="play" size="icon" className="mx-1 size-11 rounded-full border-0 bg-mark text-primary-foreground hover:bg-mark/90"
+        title={name.clone()} aria-label={name}
         disabled={!enabled} onClick={move |_| act("space".to_string())}>
         {Icon(if paused { "play".to_string() } else { "pause".to_string() })}
     </Button>;
@@ -513,46 +683,40 @@ fn PlayKey(enabled: bool) -> Element {
 // ---- the timeline -----------------------------------------------------
 
 fn Sequence() -> Element {
-    return <div className="flex h-[186px] shrink-0 flex-col border-t border-line bg-panel">
-        {PanelTitle("film".to_string(), "Timeline".to_string(), sequence_label())}
-        <div className="min-h-0 flex-1 overflow-hidden px-3 pb-3">
-            {Ruler()}
-            {Track()}
-        </div>
+    return <div className="flex h-[250px] shrink-0 flex-col px-4 pb-4 max-md:h-[220px]">
+        {Ruler()}
+        {Track()}
     </div>;
 }
 
-// Eleven marks across the sequence, labelled in timecode, and each one
-// seeks when it is clicked. Computed from the real total rather than
-// drawn as a decoration: the numbers under the clips are where those
-// clips are.
+// Eleven marks across the sequence, labelled in timecode, and each one seeks when it is clicked.
 fn Ruler() -> Element {
     let total = sequence_seconds();
     let marks: Vec<Element> = (0..11)
         .map(|step| {
             let at = total * f64::from(step) / 10.0;
-            Mark(step, clock(at), at)
+            Mark(step, clock(at).chars().skip(3).take(7).collect::<String>(), at)
         })
         .collect();
 
-    return <div className="flex h-5 items-end border-b border-line">{marks}</div>;
+    return <div className="flex h-8 items-end pb-1">{marks}</div>;
 }
 
 fn Mark(step: i32, label: String, at: f64) -> Element {
     let last = step == 10;
     let place = match last {
-        true => "flex-1 pr-0 text-right",
-        false => "flex-1 border-l border-line pl-1",
+        true => "flex-1 text-right",
+        false => "flex-1 pl-1",
     };
-    let style = format!("{place} cursor-pointer text-[9px] tabular-nums text-faint hover:text-text");
+    let style = format!("{place} cursor-pointer text-[11px] tabular-nums text-faint hover:text-text");
 
     return <div key={step.to_string()} className={style} onClick={move |_| seek_sequence(at)}>{label}</div>;
 }
 
 fn Track() -> Element {
     if clips.is_empty() {
-        return <div className="mt-2 flex h-20 items-center justify-center border border-dashed border-line bg-track text-[11px] text-faint">
-            {"V1 — empty. Imported files land here in the order they arrive."}
+        return <div className="mt-1 flex h-24 items-center justify-center rounded-2xl border border-dashed border-line bg-track text-[13px] text-faint">
+            {"Empty. Added assets land here in the order they arrive."}
         </div>;
     }
 
@@ -562,11 +726,16 @@ fn Track() -> Element {
         .enumerate()
         .map(|(index, clip)| ClipBlock(index, clip.clone(), total))
         .collect();
+    let sounds: Vec<Element> = clips
+        .iter()
+        .enumerate()
+        .map(|(index, clip)| SoundBlock(index, clip.clone(), total))
+        .collect();
 
-    // The pointer's place in the track and the track's width both come with
-    // the event, so a click maps to a time with no read of the layout.
-    return <div id="track-scroll" className="mt-2 overflow-x-auto">
-        <div id="track" className="relative flex h-20 gap-px bg-track" style={format!("width: {:.0}%", zoom * 100.0)}
+    // The pointer's place in the track and the track's width both come with the event, so a click
+    // maps to a time with no read of the layout.
+    return <div id="track-scroll" className="relative min-h-0 flex-1 overflow-x-auto overflow-y-hidden pt-5">
+        <div id="track" className="relative flex flex-col gap-2" style={format!("width: {:.0}%", zoom * 100.0)}
             onMouseDown={move |event| {
                 if event.button == 0 {
                     scrubbing = true;
@@ -586,7 +755,8 @@ fn Track() -> Element {
                     zoom = (zoom * step).clamp(1.0, 8.0);
                 }
             }}>
-            {blocks}
+            <div className="flex gap-1">{blocks}</div>
+            <div className="flex gap-1">{sounds}</div>
             {Playhead()}
         </div>
     </div>;
@@ -600,31 +770,27 @@ fn scrub(local_x: f64, width: f64) {
     seek_sequence((local_x / width).clamp(0.0, 1.0) * sequence_seconds());
 }
 
+fn picture_of(list: Vec<(String, String)>, clip: &ffmpeg::Clip, kind: &str, extension: &str) -> String {
+    let name = ffmpeg::picture_name(clip, kind, extension);
+    list.iter().find(|(k, _)| *k == name).map(|(_, url)| url.clone()).unwrap_or_default()
+}
+
+// A cut, as its filmstrip under its name. The selected one has the yellow frame.
 fn ClipBlock(index: usize, clip: ffmpeg::Clip, total: f64) -> Element {
     let active = selected == index;
-    // A clip's width is its real trimmed share of the sequence, so the
-    // declaration is computed rather than written as a class.
+    // A clip's width is its real trimmed share of the sequence, so the declaration is computed.
     let box_style = format!(
         "width: {:.3}%; opacity: {}",
         (clip.length() / total) * 100.0,
         if clip.enabled { 1.0 } else { 0.35 }
     );
     let skin = match active {
-        true => "border border-mark bg-mark-soft",
-        false => "border border-line bg-[#1d1c24] hover:border-faint",
+        true => "border-2 border-mark",
+        false => "border-2 border-transparent hover:border-faint",
     };
-    let frame_style = format!(
-        "relative flex min-w-[46px] cursor-pointer flex-col justify-between overflow-hidden px-2 py-1.5 {skin}"
-    );
-    // The left accent is the clip's colour filter, which is the one
-    // thing about a clip you want to read at a glance on a track.
-    let accent = format!("absolute left-0 top-0 h-full w-[3px] {}", match clip.look.as_str() {
-        "warm" => "bg-[#e0a46c]",
-        "cool" => "bg-[#6ca8e0]",
-        "bw" => "bg-[#9aa0ab]",
-        _ => "bg-[#3a3844]",
-    });
+    let frame_style = format!("min-w-[46px] cursor-pointer {skin} flex flex-col gap-1 rounded-xl");
     let start = clip.start;
+    let strip = picture_of(strips.clone(), &clip, "strip", "jpg");
 
     return <div key={index.to_string()} className={frame_style} style={box_style}
         onClick={move |_| {
@@ -633,26 +799,51 @@ fn ClipBlock(index: usize, clip: ffmpeg::Clip, total: f64) -> Element {
             want_still += 1;
             tell(format!("seek:{start:.3}"));
         }}>
-        <span className={accent}></span>
-        <span className="truncate pl-2 text-[11px] text-text">{clip.name.clone()}</span>
-        <span className="truncate pl-2 text-[10px] tabular-nums text-faint">
-            {format!("{} – {}", clock(clip.start), clock(clip.end))}
-        </span>
+        <span className={format!("truncate px-1 text-[11px] {}", if active { "text-mark" } else { "text-faint" })}>{clip.name.clone()}</span>
+        <div className="relative h-[72px] overflow-hidden rounded-lg bg-track">
+            {if strip.is_empty() {
+                <span className="absolute inset-0 flex items-center justify-center text-[11px] text-faint">{clock(clip.length())}</span>
+            } else {
+                <img src={strip} className="absolute inset-0 h-full w-full object-cover" />
+            }}
+        </div>
     </div>;
 }
 
-// Where the playhead is across the whole sequence: the cuts before the
-// selected clip, plus how far into it we are.
+// Its sound under it: the waveform of the same cut, the same width.
+fn SoundBlock(index: usize, clip: ffmpeg::Clip, total: f64) -> Element {
+    let box_style = format!("width: {:.3}%", (clip.length() / total) * 100.0);
+    let wave = picture_of(waves.clone(), &clip, "wave", "png");
+
+    return <div key={index.to_string()} className="relative h-12 min-w-[46px] overflow-hidden rounded-xl bg-track" style={box_style}>
+        <lucideReact::Music2 className="absolute left-2 top-2 size-3.5 text-faint" />
+        {if wave.is_empty() {
+            <span></span>
+        } else {
+            <img src={wave} className="absolute inset-0 h-full w-full object-fill opacity-70 mix-blend-screen" />
+        }}
+    </div>;
+}
+
+// Where the playhead is across the whole sequence: a line, with its time in a yellow pill.
 fn Playhead() -> Element {
     let at = (sequence_position() / sequence_seconds() * 100.0).clamp(0.0, 100.0);
 
-    return <span className="pointer-events-none absolute top-0 h-full w-px bg-mark" style={format!("left: {at:.3}%")}></span>;
+    return <span className="pointer-events-none absolute inset-y-0 w-px bg-mark" style={format!("left: {at:.3}%")}>
+        <span className="absolute -top-1 left-1/2 -translate-x-1/2 -translate-y-full rounded-full bg-mark px-2 py-0.5 text-[11px] font-semibold tabular-nums text-primary-foreground">
+            {clock(sequence_position())}
+        </span>
+    </span>;
 }
 
-// ---- the right-hand column --------------------------------------------
+// ---- the drawer -------------------------------------------------------
 
 fn Controls() -> Element {
-    return <div className="flex w-[300px] shrink-0 flex-col border-l border-line bg-panel">
+    let place = match drawer {
+        true => "translate-x-0",
+        false => "translate-x-[110%]",
+    };
+    return <div id="drawer" className={format!("absolute bottom-3 right-3 top-14 z-20 flex w-[min(320px,calc(100%-1.5rem))] flex-col overflow-y-auto rounded-2xl border border-line bg-panel shadow-2xl transition-transform {place}")}>
         {Layers()}
         {Effects()}
         {Export()}
@@ -1083,6 +1274,7 @@ fn add(path: &std::path::Path) {
     match ffmpeg::probe(&tools.ffprobe, path) {
         Err(why) => status = why,
         Ok(media) => {
+            remember(true);
             let mut held = clips.clone();
             held.push(ffmpeg::Clip::new(media));
             selected = held.len() - 1;
@@ -1095,8 +1287,92 @@ fn add(path: &std::path::Path) {
     }
 }
 
+// ---- undo, redo, and the cuts made at the playhead ---------------------
+
+// What to go back to. `force` for a change that is one step on its own (an import, a move, a
+// cut); a slider's drag is one step per half second.
+fn remember(force: bool) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+    if !force && now - last_push < 0.5 {
+        return;
+    }
+    last_push = now;
+    let mut all = past.clone();
+    all.push(clips.clone());
+    if all.len() > 60 {
+        all.remove(0);
+    }
+    past = all;
+    future = Vec::new();
+}
+
+fn undo() {
+    let mut all = past.clone();
+    let Some(before) = all.pop() else {
+        return;
+    };
+    let mut ahead = future.clone();
+    ahead.push(clips.clone());
+    future = ahead;
+    past = all;
+    selected = selected.min(before.len().saturating_sub(1));
+    clips = before;
+    want_still += 1;
+}
+
+fn redo() {
+    let mut ahead = future.clone();
+    let Some(after) = ahead.pop() else {
+        return;
+    };
+    let mut all = past.clone();
+    all.push(clips.clone());
+    past = all;
+    future = ahead;
+    selected = selected.min(after.len().saturating_sub(1));
+    clips = after;
+    want_still += 1;
+}
+
+// Cut the selected clip in two where the playhead is.
+fn split_here() {
+    let Some(clip) = clip_at(selected) else {
+        return;
+    };
+    if played <= clip.start + 0.1 || played >= clip.end - 0.1 {
+        status = "The razor needs the playhead inside the clip, not at its edge.".to_string();
+        return;
+    }
+    remember(true);
+    let mut held = clips.clone();
+    let mut second = clip.clone();
+    second.start = played;
+    held[selected].end = played;
+    held.insert(selected + 1, second);
+    selected += 1;
+    clips = held;
+    status = String::new();
+}
+
+// A new, empty project: the timeline is cleared, and can be brought back with Undo.
+fn new_project() {
+    if clips.is_empty() {
+        return;
+    }
+    remember(true);
+    clips = Vec::new();
+    selected = 0;
+    played = 0.0;
+    output = String::new();
+    status = String::new();
+}
+
 // Change a clip in place.
 fn edit(index: usize, change: impl FnOnce(&mut ffmpeg::Clip)) {
+    remember(false);
     let mut held = clips.clone();
     let Some(clip) = held.get_mut(index) else {
         return;
@@ -1118,6 +1394,7 @@ fn set_subtitle(index: usize, text: String) {
 }
 
 fn shift(by: i64) {
+    remember(true);
     let mut held = clips.clone();
     let from = selected.min(held.len().saturating_sub(1));
     let to = from as i64 + by;
@@ -1131,6 +1408,7 @@ fn shift(by: i64) {
 }
 
 fn remove_clip() {
+    remember(true);
     let mut held = clips.clone();
     if held.is_empty() {
         return;

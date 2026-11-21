@@ -31,6 +31,8 @@ fn main() -> Result<(), rustx::Error> {
     let app = App::new(
         Config::new("Altlassian Raw")
             .size(1180, 720)
+            .min_size(560, 480)
+            .frameless()
             .description("A small video editor: real files, real playback, real ffmpeg renders.")
             .publisher("rustx")
             .on_context_created(transport),

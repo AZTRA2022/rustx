@@ -64,3 +64,10 @@ export function toBase64(blob: Blob): Promise<string> {
     reader.readAsDataURL(blob)
   })
 }
+
+// A press on the bar moves the window, and the three marks do what a frame's did. Without the
+// Rust side (a plain browser) there is no window to order and nothing happens.
+export function windowOrder(order: "drag" | "minimize" | "maximize" | "close") {
+  const f = native("nemo_window")
+  if (f) f(order)
+}

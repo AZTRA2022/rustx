@@ -74,7 +74,14 @@ export default function NodeCanvas({ project, snap, onChange, onPickImage, arran
     setView({ k, x: (frame.w - (x1 - x0) * k) / 2 - x0 * k, y: (frame.h - (y1 - y0) * k) / 2 - y0 * k })
   }, [frame, sizes, project.nodes, arrangeKey])
 
-  const pos = (n: GraphNode) => live[n.id] ?? { x: n.x, y: n.y }
+  // The AI MODELS card never sits on the SETTINGS card, however many rows that one has grown.
+  const pos = (n: GraphNode) => {
+    const p = live[n.id] ?? { x: n.x, y: n.y }
+    if (n.id !== "models") return p
+    const s = project.nodes.find((x) => x.id === "settings")
+    const sp = s ? (live.settings ?? { x: s.x, y: s.y }) : null
+    return sp && sizes.settings ? { x: p.x, y: Math.max(p.y, sp.y + sizes.settings + 56) } : p
+  }
   const node = (id: NodeKind) => project.nodes.find((n) => n.id === id)!
   const outPort = (id: NodeKind) => {
     const p = pos(node(id))

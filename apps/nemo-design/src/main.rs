@@ -23,7 +23,8 @@ fn main() -> Result<(), rustx::Error> {
     let app = App::new(
         Config::new("Nemo Design")
             .size(1280, 720)
-            .min_size(1000, 640)
+            .min_size(720, 520)
+            .frameless()
             .remember_window()
             .description("Cards, a 3D viewport and a timeline: design a character and export it.")
             .publisher("rustx")
@@ -34,6 +35,21 @@ fn main() -> Result<(), rustx::Error> {
 }
 
 fn natives() {
+    // The window has no frame: the page draws a bar and three marks, and these are what they do.
+    register_native("nemo_window", |args| {
+        match args.first() {
+            Some(Value::String(order)) => match order.as_str() {
+                "drag" => rustx::window::drag(),
+                "minimize" => rustx::window::minimize(),
+                "maximize" => rustx::window::toggle_maximize(),
+                "close" => rustx::window::shut(),
+                other => return Err(NativeError::new(format!("no window order `{other}`"))),
+            },
+            _ => return Err(NativeError::new("nemo_window takes an order")),
+        }
+        Ok(Value::Null)
+    });
+
     register_native("nemo_pick_image", |_| {
         let ask =
             Ask::new("Choose an image").filter("Images", ["png", "jpg", "jpeg", "webp", "gif"]);

@@ -7,7 +7,7 @@
 import * as React from "react"
 import {
   ArrowLeft, ArrowRight, ChevronDown, Code2, Grid3x3, Layers, Lightbulb, Link2, Moon, Mouse, MousePointer2, Orbit, PanelLeft, Paperclip, Pause, Play, Plus, Share2,
-  ShoppingBag, Star, Sun, Timer, Type, X,
+  ShoppingBag, Star, Sun, Timer, Type, X, Minus, Square,
 } from "lucide-react"
 import NodeCanvas from "./nemo/NodeCanvas"
 import Timeline from "./nemo/Timeline"
@@ -17,7 +17,7 @@ import { Transport } from "./nemo/transport"
 import { renderMusic, peaks as peaksOf, SAMPLE_RATE } from "./nemo/audio"
 import { LIBRARY, modelFor } from "./nemo/library"
 import { DURATIONS, freshProject, starterProjects, clamp, type Project, type Workspace } from "./nemo/model"
-import { copyText, openText, pickImage, saveBase64, toBase64 } from "./nemo/natives"
+import { copyText, openText, pickImage, saveBase64, toBase64, windowOrder } from "./nemo/natives"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -29,8 +29,12 @@ const { Component, useCallback, useEffect, useMemo, useRef, useState } = React
 
 const KEY = "nemo-design-workspace-v1"
 
+// A driven run (CI, `--scenario=…`) starts from the starter projects and leaves no trace.
+const driven = typeof (window as unknown as { rustx_scenario?: () => string }).rustx_scenario === "function" && !!(window as unknown as { rustx_scenario: () => string }).rustx_scenario()
+
 function load(): Workspace {
   try {
+    if (driven) throw new Error("driven")
     const raw = localStorage.getItem(KEY)
     if (raw) {
       const w = JSON.parse(raw) as Workspace
@@ -77,7 +81,7 @@ function Tip({ label, children }: { label: string; children: React.ReactElement 
   )
 }
 
-const square = "size-[50px] rounded-2xl border border-line bg-card text-muted hover:bg-accent hover:text-white"
+const square = "size-11 shrink-0 rounded-2xl md:size-[50px] border border-line bg-card text-muted hover:bg-accent hover:text-white"
 
 function Editor() {
   const [ws, setWs] = useState<Workspace>(load)
@@ -155,6 +159,7 @@ function Editor() {
 
   // ---- persistence, and the theme: one class on the root
   useEffect(() => {
+    if (driven) return
     try {
       localStorage.setItem(KEY, JSON.stringify(ws))
     } catch {}
@@ -374,7 +379,7 @@ function Editor() {
   return (
     <div className="fixed inset-0 flex flex-col bg-stage font-sans text-text">
       {/* ---------------------------------------------------------------- top bar */}
-      <div className="flex flex-none items-center gap-2.5 px-2.5 py-2">
+      <div className="flex flex-none items-center gap-2 px-2.5 py-2 max-md:flex-wrap md:gap-2.5">
         <Tip label="Show or hide the side panels">
           <Button aria-label="Show or hide the side panels" variant="ghost" size="icon" onClick={() => setPanelOpen(!panelOpen)} className={cn(square, panelOpen && "text-white")}>
             <PanelLeft className="size-5" />
@@ -383,7 +388,7 @@ function Editor() {
         <svg width="26" height="26" viewBox="0 0 22 22" aria-hidden="true" className="mx-1 flex-none">
           {[0, 1, 2, 3].map((r) => [0, 1, 2, 3].map((c) => <circle key={`${r}${c}`} cx={4 + c * 4.6} cy={4 + r * 4.6} r="1.6" className={["fill-red-400", "fill-amber-400", "fill-green-400", "fill-blue-400"][(r + c) % 4]} />))}
         </svg>
-        <Tabs value={ws.active} onValueChange={(v) => setWs({ ...ws, active: v })} className="min-w-0">
+        <Tabs value={ws.active} onValueChange={(v) => setWs({ ...ws, active: v })} className="min-w-0 overflow-hidden">
           <TabsList className="h-[50px] gap-2 overflow-x-auto bg-transparent p-0">
             {ws.projects.map((p) => (
               <TabsTrigger
@@ -435,7 +440,7 @@ function Editor() {
             <Plus className="size-5" />
           </Button>
         </Tip>
-        <div className="flex-1" />
+        <div className="h-11 min-w-4 flex-1 md:h-[50px]" onPointerDown={() => windowOrder("drag")} onDoubleClick={() => windowOrder("maximize")} />
         <Tip label="Undo (Ctrl+Z)">
           <Button aria-label="Undo" variant="ghost" size="icon" disabled={!h.past.length} onClick={undo} className={square}>
             <ArrowLeft />
@@ -449,7 +454,7 @@ function Editor() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button aria-label="Duration" variant="ghost" className={cn(square, "w-auto gap-2.5 px-4 text-[15px] text-text")}>
-              <Timer className="size-[22px]" /> {project.duration}s <ChevronDown className="size-3.5 text-faint" />
+              <Timer className="size-[22px]" /> {project.duration}s <ChevronDown className="size-3.5 text-faint max-sm:hidden" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -476,12 +481,23 @@ function Editor() {
         <Button aria-label="Export" onClick={exportVideo} disabled={exporting !== null} className="h-[50px] min-w-[104px] rounded-2xl px-[22px] text-base font-semibold shadow-none">
           {exporting === null ? "Export" : `${exporting}%`}
         </Button>
+        <div className="ml-1 flex items-center">
+          <Button aria-label="Minimize" variant="ghost" size="icon" onClick={() => windowOrder("minimize")} className="size-9 rounded-full text-faint hover:bg-accent hover:text-white">
+            <Minus className="size-4" />
+          </Button>
+          <Button aria-label="Maximize" variant="ghost" size="icon" onClick={() => windowOrder("maximize")} className="size-9 rounded-full text-faint hover:bg-accent hover:text-white">
+            <Square className="size-3.5" />
+          </Button>
+          <Button aria-label="Close" variant="ghost" size="icon" onClick={() => windowOrder("close")} className="size-9 rounded-full text-faint hover:bg-red-500 hover:text-white">
+            <X className="size-4" />
+          </Button>
+        </div>
       </div>
 
       {/* ------------------------------------------------------------------ body */}
-      <div className="relative flex min-h-0 flex-1 gap-2 px-2 pb-2">
+      <div className="relative flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2 lg:flex-row lg:overflow-hidden">
         {panelOpen && (
-          <div className="flex w-[58px] flex-none flex-col items-center gap-1.5 pt-2">
+          <div className="flex flex-none items-center gap-1.5 pt-2 max-lg:overflow-x-auto max-lg:pb-1 lg:w-[58px] lg:flex-col">
             {rail("Write in the ideas", <Type className="size-5" />, () => (document.querySelector("[data-node=ideas] textarea") as HTMLTextAreaElement | null)?.focus())}
             {rail("Arrange the cards", <Layers className="size-5" />, () => { update({ nodes: freshProject("").nodes }, true); setArrange((n) => n + 1) })}
             {rail("Restore the wires", <Link2 className="size-5" />, () => update({ links: freshProject("").links }, true))}
@@ -499,15 +515,15 @@ function Editor() {
             </DropdownMenu>
             {rail("Snap to the grid", <Grid3x3 className="size-5" />, () => setSnap(!snap), snap)}
             {rail("Attach an image", <Paperclip className="size-5" />, attach)}
-            <div className="flex-1" />
+            <div className="flex-1 max-lg:min-w-2" />
             {rail(light ? "Dark theme" : "Light theme", light ? <Moon className="size-5" /> : <Sun className="size-5" />, () => setLight(!light))}
-            <Button aria-label="New project" size="icon" onClick={add} className="my-2 size-[52px] rounded-full shadow-[0_0_24px_rgba(58,75,255,0.45)]">
+            <Button aria-label="New project" size="icon" onClick={add} className="my-2 size-[52px] shrink-0 rounded-full shadow-[0_0_24px_rgba(58,75,255,0.45)]">
               <Plus className="size-6" />
             </Button>
           </div>
         )}
 
-        <div className="flex min-w-0 flex-[1_1_52%] flex-col gap-2">
+        <div className="flex min-h-[520px] min-w-0 flex-[1_1_52%] flex-col gap-2 lg:min-h-0">
           <div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-line">
             <NodeCanvas project={project} snap={snap} onChange={update} onPickImage={attach} arrangeKey={arrange} />
           </div>
@@ -518,7 +534,7 @@ function Editor() {
           )}
         </div>
 
-        <div className="flex min-w-0 flex-[1_1_48%] flex-col gap-2">
+        <div className="flex min-h-[460px] min-w-0 flex-[1_1_48%] flex-col gap-2 lg:min-h-0">
           <div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-line bg-black">
             <Viewport
               ref={viewport}

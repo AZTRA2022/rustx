@@ -368,6 +368,90 @@ pub fn frame_arguments(clip: &Clip, at: f64, out: &Path) -> Vec<String> {
     arguments
 }
 
+/// What a clip's cut looks like along the track: `frames` pictures of it side by side in one
+/// JPEG, 72 pixels high. `fps` is chosen so that exactly that many frames fall in the cut, and
+/// `tile` puts them in a row.
+pub fn strip_arguments(clip: &Clip, frames: u32, out: &Path) -> Vec<String> {
+    let frames = frames.max(1);
+    let length = clip.length().max(0.04);
+    vec![
+        "-hide_banner".to_string(),
+        "-nostdin".to_string(),
+        "-y".to_string(),
+        "-ss".to_string(),
+        format!("{:.3}", clip.start),
+        "-t".to_string(),
+        format!("{length:.3}"),
+        "-i".to_string(),
+        clip.media.path.display().to_string(),
+        "-vf".to_string(),
+        format!(
+            "fps={:.5},scale=-2:72,tile={frames}x1",
+            f64::from(frames) / length
+        ),
+        "-frames:v".to_string(),
+        "1".to_string(),
+        "-q:v".to_string(),
+        "5".to_string(),
+        out.display().to_string(),
+    ]
+}
+
+/// The waveform of a clip's cut as a picture: white on black, which the page blends onto its
+/// own background. `None` for a clip with no sound.
+pub fn wave_arguments(clip: &Clip, out: &Path) -> Option<Vec<String>> {
+    if !clip.media.audio {
+        return None;
+    }
+    Some(vec![
+        "-hide_banner".to_string(),
+        "-nostdin".to_string(),
+        "-y".to_string(),
+        "-ss".to_string(),
+        format!("{:.3}", clip.start),
+        "-t".to_string(),
+        format!("{:.3}", clip.length().max(0.04)),
+        "-i".to_string(),
+        clip.media.path.display().to_string(),
+        "-filter_complex".to_string(),
+        "aformat=channel_layouts=mono,showwavespic=s=1200x96:colors=white".to_string(),
+        "-frames:v".to_string(),
+        "1".to_string(),
+        out.display().to_string(),
+    ])
+}
+
+/// What a picture of a cut is called: the path and the cut, hashed, so a trim makes a new one and
+/// the same cut finds its picture again.
+pub fn picture_name(clip: &Clip, kind: &str, extension: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let key = format!(
+        "{}|{:.2}|{:.2}",
+        clip.media.path.display(),
+        clip.start,
+        clip.end
+    );
+    for byte in key.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{kind}-{hash:016x}.{extension}")
+}
+
+/// Make a picture with ffmpeg.
+pub async fn picture(ffmpeg: &Path, arguments: Vec<String>) -> Result<(), String> {
+    let output = quiet_async(rustx::tokio::process::Command::new(ffmpeg))
+        .args(arguments)
+        .stdin(Stdio::null())
+        .output()
+        .await
+        .map_err(|error| format!("`{}` could not be run ({error}).", ffmpeg.display()))?;
+    match output.status.success() {
+        true => Ok(()),
+        false => Err(format!("ffmpeg drew nothing: {}", tail(&output.stderr))),
+    }
+}
+
 /// A preview proxy, as a command line.
 ///
 /// A web view may not decode what a camera wrote (the old CEF build had no
@@ -788,6 +872,44 @@ pub async fn run(ffmpeg: &Path, plan: &Plan, mut report: impl FnMut(f64)) -> Res
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_strip_puts_as_many_frames_in_a_row_as_were_asked_for() {
+        let clip = Clip::new(Media {
+            path: "a.mp4".into(),
+            duration: 10.0,
+            width: 640,
+            height: 360,
+            fps: 25.0,
+            audio: true,
+        });
+        let arguments = strip_arguments(&clip, 8, Path::new("out.jpg"));
+        let filter = arguments
+            .iter()
+            .find(|a| a.contains("tile="))
+            .expect("a filter");
+        assert!(
+            filter.contains("tile=8x1") && filter.contains("fps=0.80000"),
+            "{filter}"
+        );
+        assert_eq!(arguments.last().unwrap(), "out.jpg");
+    }
+
+    #[test]
+    fn a_clip_without_sound_has_no_waveform_and_a_cut_has_its_own_picture_name() {
+        let mut clip = Clip::new(Media {
+            path: "a.mp4".into(),
+            duration: 4.0,
+            width: 64,
+            height: 36,
+            fps: 25.0,
+            audio: false,
+        });
+        assert!(wave_arguments(&clip, Path::new("w.png")).is_none());
+        let before = picture_name(&clip, "strip", "jpg");
+        clip.end = 2.0;
+        assert_ne!(before, picture_name(&clip, "strip", "jpg"));
+    }
+
     use super::*;
 
     /// Two streams and a container, as `ffprobe` really prints them.

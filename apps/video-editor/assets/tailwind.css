@@ -46,21 +46,21 @@
      them is pulled a little towards the violet below rather than being
      a neutral grey — which is most of why a suite's chrome looks
      chosen instead of left at the default. */
-  --chrome: #0a0a0e;
-  --panel: #121117;
-  --track: #18171f;
-  --line: #292733;
+  --chrome: #0e0d0f;
+  --panel: #1a191b;
+  --track: #232225;
+  --line: #302e33;
 
-  --text: #d7d6de;
-  --muted: #8b8996;
-  --faint: #5e5c6b;
+  --text: #ebeaed;
+  --muted: #a3a1a9;
+  --faint: #6c6a73;
 
   /* One accent, and it means "this one, now": the selection, the
      playhead, the render button. The two below are not accents — they
      are what a state is, and they are used nowhere else. */
-  --mark: #6f5bf5;
-  --mark-soft: #231e45;
-  --danger: #e06c75;
+  --mark: #f3f16c;
+  --mark-soft: #3b3a1c;
+  --danger: #f4524d;
   --good: #7fd49a;
 
   /* What shadcn's own classes name. Nothing new is invented here: each
@@ -72,7 +72,7 @@
   --popover: var(--panel);
   --popover-foreground: var(--text);
   --primary: var(--mark);
-  --primary-foreground: #ffffff;
+  --primary-foreground: #1a1905;
   --secondary: var(--track);
   --secondary-foreground: var(--text);
   --muted-surface: var(--track);
@@ -121,10 +121,11 @@
   /* A suite has no rounded cards and no drop shadows. shadcn asks for
      `rounded-md` and `shadow-sm` by name, so the answer is given once,
      here, instead of `rounded-none shadow-none` on every tag. */
-  --radius-sm: 0px;
-  --radius-md: 0px;
-  --radius-lg: 0px;
-  --radius-xl: 0px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
   --shadow-sm: none;
   --shadow-md: none;
   --shadow-lg: none;
@@ -145,7 +146,7 @@ body {
   background-color: var(--chrome);
   color: var(--text);
   font-family: "Inter", "Segoe UI", system-ui, sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   /* An editing suite is one screen and not a document: the panels
      scroll, the window does not. */
   overflow: hidden;
@@ -192,4 +193,10 @@ input[type="range"]:hover::-webkit-slider-thumb {
 :focus-visible {
   outline: 1px solid var(--mark);
   outline-offset: 1px;
+}
+
+/* The scrollbars of the window are its own: thin, dark, round. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
 }

@@ -130,6 +130,40 @@
       report("states_after_toggle", names().map((name, at) => name + "=" + document.querySelectorAll("#layers button[role=switch]")[at].getAttribute("data-state")).join(","));
     },
 
+    // The editing of a cut: its pictures, the razor, undo and redo, a new project.
+    async edit(path) {
+      await importClip(path);
+      const cuts = () => document.querySelectorAll("#track > div:first-child > div").length;
+      const pictures = (selector) => [...document.querySelectorAll(selector)].filter((img) => img.complete && img.naturalWidth > 0).length;
+      // ffmpeg draws the filmstrip and the waveform of the cut, one picture at a time.
+      for (let i = 0; i < 200 && (pictures("#track img") < 2); i++) await sleep(100);
+      report("filmstrip_and_wave", pictures("#track img"));
+      report("cuts_before", cuts());
+      // The razor cuts where the playhead is.
+      const slider = await wait("#playhead");
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+      set.call(slider, String(slider.max / 2));
+      slider.dispatchEvent(new Event("input", { bubbles: true }));
+      await sleep(500);
+      const menu = async (trigger, label) => {
+        (await wait(trigger)).dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerType: "mouse" }));
+        await sleep(300);
+        const item = [...document.querySelectorAll('[role="menuitem"]')].find((e) => e.textContent.includes(label));
+        item.click();
+        await sleep(500);
+      };
+      await menu("#tool", "Razor");
+      report("cuts_after_razor", cuts());
+      await press("#undo");
+      report("cuts_after_undo", cuts());
+      await press("#redo");
+      report("cuts_after_redo", cuts());
+      await press("#new-project");
+      report("cuts_after_new_project", cuts());
+      await press("#undo");
+      report("cuts_after_undoing_it", cuts());
+    },
+
     // Import a file by its path, and play it.
     async import(path) {
       const video = await importClip(path);

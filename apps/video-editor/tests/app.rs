@@ -125,3 +125,22 @@ fn a_burst_of_slider_steps_is_not_collapsed_by_the_round_trip() {
     assert_eq!(report.get("burst_brightness"), "0.20", "{}", report.raw());
     let _ = std::fs::remove_dir_all(file.parent().expect("a folder"));
 }
+
+#[test]
+fn a_cut_has_its_pictures_and_can_be_razored_undone_redone_and_cleared() {
+    let Some(file) = clip("edit.mp4") else {
+        eprintln!("ffmpeg is not installed: skipped");
+        return;
+    };
+    let report = scenario(&format!("edit:{}", file.display()));
+    let number = |key: &str| report.get(key).parse::<u32>().unwrap_or(999);
+    // A filmstrip and a waveform, both drawn by ffmpeg.
+    assert!(number("filmstrip_and_wave") >= 2, "{}", report.raw());
+    assert_eq!(number("cuts_before"), 1, "{}", report.raw());
+    assert_eq!(number("cuts_after_razor"), 2, "{}", report.raw());
+    assert_eq!(number("cuts_after_undo"), 1, "{}", report.raw());
+    assert_eq!(number("cuts_after_redo"), 2, "{}", report.raw());
+    assert_eq!(number("cuts_after_new_project"), 0, "{}", report.raw());
+    assert_eq!(number("cuts_after_undoing_it"), 2, "{}", report.raw());
+    let _ = std::fs::remove_dir_all(file.parent().expect("a folder"));
+}
