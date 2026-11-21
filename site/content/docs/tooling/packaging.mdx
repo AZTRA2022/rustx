@@ -3,6 +3,110 @@ title: "Packaging"
 description: "`rustx package`: the folder that ships, the archive, the installer, the signature, and updating an application from its release page."
 ---
 
+## From source to a release
+
+Do these in order, once per release. Each step says where to write the thing and
+what you see when it is right.
+
+### 1. Be able to build on the machine you package for
+
+`rustx package` packages for the machine it runs on: a Windows release is built on Windows,
+a Linux one on Linux, a macOS one on a Mac.
+
+| | you need |
+|---|---|
+| Windows | Rust with the MSVC toolchain (Visual Studio Build Tools). Running it needs the WebView2 Runtime, which Windows 11 and current Windows 10 already have |
+| Linux | `libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libxdo-dev`, and `desktop-file-utils` if you want the `.deb` checked |
+| macOS | the Xcode command line tools (`xcode-select --install`) |
+
+Node is only needed if the project has a `package.json`.
+
+### 2. Say who the application is
+
+Write each fact once, where it already lives:
+
+```toml
+# Cargo.toml
+[package]
+name = "my-app"
+version = "1.4.0"                       # the release number, and the updater's comparison
+description = "What it does, in a line" # the file description
+authors = ["Ada <ada@example.com>"]     # the first one is the publisher
+```
+
+```rust
+// src/main.rs
+Config::new("My App")                   // the name users see, the Start-menu entry, the data folder
+```
+
+Choose the title now: the user's data folder is named from it, so changing it later
+moves their data.
+
+### 3. Give it a logo
+
+Put the files in `assets/` and name the one your system uses in `Config`:
+
+| file | used for | how it is found |
+|---|---|---|
+| `assets/icon.ico` | Windows: the window, the taskbar, the `.exe` in the explorer, the Start-menu shortcut | found by its name, or `.icon("assets/icon.ico")` |
+| `assets/icon.png` (256x256) | Linux: the `.deb`, and the desktop entry of the self-installed copy | found by its name |
+| `assets/icon.icns` | macOS: the `.app`, the Dock, the installer | **named**: `.icon("assets/icon.icns")` (the name lookup is for `icon.ico` only) |
+
+A file with the wrong extension is refused with a sentence, not shipped: a `.png` renamed
+`.ico` is detected. `rustx package` does not convert between formats. To make a Windows
+icon from a PNG: `magick icon.png -define icon:auto-resize=16,32,48,256 icon.ico`. If a
+logo is missing, `rustx package` says so once and the system icon is used.
+
+### 4. Add what users click through (all optional)
+
+| | |
+|---|---|
+| `LICENSE`, `LICENSE.txt` or `LICENSE.md` beside `Cargo.toml` | the licence step of the installer. It is read at package time and carried inside the binary, so the single `.exe` shows it |
+| `system/*.rsx` | your own install, update, uninstall, licence, permissions, about and settings screens. Without the file the framework's default is used. See [The app is its own installer](#the-app-is-its-own-installer) |
+| `Config::permissions(&["camera"])` | what the permissions screen lists (and the macOS usage descriptions) |
+| `Config::updates("owner/name")` | the GitHub repository where you publish releases: the settings screen then checks for updates, and downloads and installs them. See [Updating from a release page](#updating-from-a-release-page) |
+| `Config::portable()` | the application never installs itself and runs from where it is |
+
+### 5. Build and package
+
+```sh
+cd my-app
+rustx package
+```
+
+It builds in release, stamps the binary (name, version, icon, and "I can install myself"),
+signs it if you set a signing variable (see [Signing](#signing)), and writes, in `dist/`:
+
+| on | you get |
+|---|---|
+| Windows | `dist/my-app-1.4.0-windows/my-app.exe` (the program, which is its own installer) and `dist/my-app-1.4.0-windows.zip` |
+| Linux | `dist/my-app-1.4.0-linux/` (the program, `install.sh`, `uninstall.sh`), `dist/my-app-1.4.0-linux.deb` beside it, and `dist/my-app-1.4.0-linux.zip` |
+| macOS | `dist/my-app-1.4.0-macos/My App.app`, `dist/my-app-1.4.0-macos.pkg` and `.dmg` beside it, and `dist/my-app-1.4.0-macos.zip` |
+
+It prints the path of the `.zip` (or of the folder with `--no-zip`) and, on the error
+stream, a summary of what it made and anything it could not do: a missing logo, a signature it
+was asked for and could not make. Read that summary: a package can be produced and still lack
+its icon. Options: `--debug`, `--no-zip`, `--out <dir>`. It exits `0` when it worked and `1`
+when it did not.
+
+### 6. Try it as a user would
+
+1. Copy the `.zip` to another folder or machine and unpack it (it must not need your project).
+2. Run the program. Outside its install location it shows the install wizard: Install,
+   then it starts the installed copy. Windows: `%LOCALAPPDATA%\Programs\My App`.
+3. Look at the other screens without installing: `RUSTX_START=/__system/about` (also
+   `settings`, `permissions`, `license`, `install`, `update`, `uninstall`), and
+   `RUSTX_THEME=light` or `dark`.
+4. Remove it: `my-app --uninstall` (or from Apps & features on Windows).
+
+### 7. Publish
+
+Attach the `.zip` to a GitHub release of the repository you gave `Config::updates`. Use the
+same tag as the version in `Cargo.toml` (`v1.4.0` or `1.4.0`), so that the copy of the
+version before this one finds it. See [Updating from a release page](#updating-from-a-release-page).
+
+## What `rustx package` does
+
 ```sh
 rustx package
 ```
@@ -349,16 +453,17 @@ run yet. On Linux the
 
 ## A release checklist
 
-1. `Cargo.toml` has the version and the `authors` you want users to see.
+1. `Cargo.toml` has the version, the description and the `authors` you want users to see.
 2. `Config::new("…")` holds the final title. The engine's profile folder
    and `rustx::data` are both named from it, so changing it later moves
    the user's data.
-3. `assets/icon.ico` exists, and is a real `.ico`.
-4. `rustx package` finishes without a message about the logo or the
-   signature.
-5. The folder runs from a place where the project does not exist — copy
+3. The logo for each system you ship exists and is the real format (`assets/icon.ico`,
+   `assets/icon.png`, `assets/icon.icns`).
+4. `LICENSE` is there if the installer should show one.
+5. `rustx package` finishes without a message about the logo or the signature.
+6. The folder runs from a place where the project does not exist: copy
    it to another machine, or another folder, and start it.
-6. It runs as an ordinary user.
+7. It installs, starts and uninstalls as an ordinary user, with no administrator.
 8. Attach the `.zip` to the release, with the same tag as the version in
    `Cargo.toml`, so that the updater of the version before this one
    finds it.
