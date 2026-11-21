@@ -74,7 +74,7 @@ inspector.set_position(40, 40);
 ```rust
 Config::new("App")
     .redirect("/old", "/new")                       // /old shows /new, query kept
-    .capabilities(&["clipboard_read", "open_url"])  // a page may call only these natives
+    .capabilities(&["save_note", "read_note"])  // a page may call only the natives you registered under these names
 ```
 
 A native outside the list is refused with a message; the engine's own `rustx_…`
