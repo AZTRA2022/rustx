@@ -205,7 +205,7 @@ pub struct Plan {
     /// Where to put it, in logical pixels, when it is not centred.
     pub position: Option<(i32, i32)>,
     pub always_on_top: bool,
-    /// Size and position come back as the user left them: see [`remember`].
+    /// Size and position come back as the user left them: see `Config::remember_window`.
     pub remember: bool,
     /// The colour behind the page, so a dark application does not flash white.
     pub background: Option<(u8, u8, u8)>,

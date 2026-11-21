@@ -6,7 +6,7 @@
 //! and the children as JSON. A function in them — a library's `on…` prop,
 //! or the handler of a tag written inside a component — crosses as
 //! `{"__rustx_cb": id}`; the page turns it back into a function that
-//! reports its call, and [`called`] runs the closure it stands for.
+//! reports its call, and `called` runs the closure it stands for.
 //!
 //! The page's half is `window.__rustx_react = { mount, unmount }`, the
 //! framework's own `runtime.js`. `mount` is called again whenever the

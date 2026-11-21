@@ -192,7 +192,7 @@ $Gates = @(
     Run  = {
       $crates = @(
         'rustx-dom', 'rustx-compiler', 'rustx-os', 'rustx-macros',
-        'rustx-engine', 'rustx', 'rustx-cli', 'rustx-lsp'
+        'rustx-webview', 'rustx', 'rustx-cli', 'rustx-lsp'
       )
       $missing = @()
       foreach ($crate in $crates) {

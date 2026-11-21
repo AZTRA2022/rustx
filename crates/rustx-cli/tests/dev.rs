@@ -46,6 +46,8 @@ fn a_saved_page_is_rebuilt() {
         "nothing has been touched since it started looking"
     );
 
+    // A file system's clock ticks in milliseconds: not in the same tick as the census.
+    std::thread::sleep(std::time::Duration::from_millis(60));
     fs::write(
         project.join("app/page.rsx"),
         "fn Page() -> Element {\n    return <main>deux</main>;\n}\n",

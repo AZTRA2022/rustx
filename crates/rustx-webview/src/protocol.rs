@@ -27,7 +27,7 @@ pub enum WireError {
     UnknownTag(String),
     /// NaN and infinity: JSON has no way to write them.
     NotANumber,
-    /// Nested deeper than [`MAX_DEPTH`].
+    /// Nested deeper than `MAX_DEPTH`.
     TooDeep,
 }
 

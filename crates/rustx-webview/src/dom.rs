@@ -3,7 +3,7 @@
 //! The application's Rust code and the page no longer share a process, so
 //! a write cannot be a call. It is a command, appended here and sent with
 //! all the others the frame wrote, in order, as one message
-//! ([`take_ops`]). A [`Node`] is an id the host made up; the page keeps the
+//! (`take_ops`). A [`Node`] is an id the host made up; the page keeps the
 //! table from ids to real nodes. An id is never reused, so a handle that
 //! outlives its node can only be refused, never aimed at a stranger.
 //!
