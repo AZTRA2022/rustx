@@ -41,7 +41,7 @@ Every page of `site/content/docs`, the READMEs and the video-editor comments tha
 - **Seven apps smoke-run** (agent-manager, data-intel, ops-monitor, utility-hub, vault-storage, multitask-hub, nemo-design): all start. Found and fixed: an app with no `assets/` failed to start; two apps read the network state and the secret store on the drawing thread. Open: a click handler cannot start a `task` (ledger row 22).
 - **Setup without Inno Setup**: `rustx-setup.exe` stub plus appended payload, 1.3 MB for counter; silent install, launch and uninstall run on Windows with the profile redirected to a temp folder. `RUSTX_INSTALLER=inno` keeps the old route.
 - **Debug build**: `debug = "line-tables-only"`; counter from clean, 195 s and 0.84 GB for `target/debug` (before, the whole workspace's debug folder was 22 GB).
-- **Bundle**: libraries no page names are not imported whole; video-editor 7.2 MB to 1.6 MB.
+- **Bundle**: `"rustxNoTags": [...]` in package.json keeps a library out of the page's tags (a first version that guessed from the pages' text broke zoo, whose pages write bare tags like `<Markdown>`; CI found it); video-editor 7.2 MB to 1.6 MB with Phosphor listed.
 - **Fast refresh, partial**: a saved asset reloads the page in place (Rust state kept); a `.rsx` edit still rebuilds and relaunches with named state carried.
 - **Context menu**: the system menu is kept for text; the page cancels it elsewhere. Hand check owed: right-click on text and Ctrl+C/V/X/A in a release build.
 - **CI**: `.github/workflows/ci.yml` rewritten for the webview (WebKitGTK packages, Xvfb tests on Linux, silent install check on Windows). Written, not pushed, not run on a runner.

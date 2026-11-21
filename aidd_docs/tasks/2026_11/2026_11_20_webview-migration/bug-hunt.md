@@ -38,7 +38,7 @@ Evidence column: **auto** = an automated test fails without the fix and passes w
 | P6 | Animation | `AnimatePresence` exit animation | `fu` runs before the node leaves |
 | P7 | Async | import A then B quickly; cancel on route change | races |
 | P8 | Web | `getUserMedia`, CORS `fetch` from the custom origin | devices |
-| P9 | Size | ~~`rustx-bundle.js` is 7.2 MB with Phosphor imported as a namespace~~ done: a library no page names is not imported (1.6 MB) | size and start time |
+| P9 | Size | ~~`rustx-bundle.js` is 7.2 MB with Phosphor imported as a namespace~~ done: `rustxNoTags` in package.json (1.6 MB) | size and start time |
 | P10 | DnD | HTML5 drag to reorder clips with wry's drop handler on | needs a real drag |
 | P11 | AE | about fifty After Effects-style features | app-only unless they hit SVG, canvas, contenteditable/IME or high-frequency playback |
 | W | Build | row 13: watch for a recurrence of an empty bundle | |

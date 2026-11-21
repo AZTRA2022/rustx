@@ -150,6 +150,24 @@
       childList: true,
       subtree: true,
     });
+    // And before the load starts: `img.src = "file://…"` begins a load that the
+    // origin refuses before the observer above has run, and WebKitGTK does not
+    // retry it. The property is rewritten where it is set.
+    for (const [type, name] of [
+      ["HTMLImageElement", "src"], ["HTMLMediaElement", "src"], ["HTMLSourceElement", "src"],
+      ["HTMLScriptElement", "src"], ["HTMLIFrameElement", "src"], ["HTMLEmbedElement", "src"],
+      ["HTMLVideoElement", "poster"], ["HTMLObjectElement", "data"], ["HTMLLinkElement", "href"],
+    ]) {
+      const proto = window[type] && window[type].prototype;
+      const descriptor = proto && Object.getOwnPropertyDescriptor(proto, name);
+      if (!descriptor || !descriptor.set) continue;
+      Object.defineProperty(proto, name, {
+        ...descriptor,
+        set(value) {
+          descriptor.set.call(this, localUrl(String(value)));
+        },
+      });
+    }
     // A form that submits replaces the document, and with it every node the
     // host holds an id for. The handlers still run; the navigation does not.
     // Rust cannot cancel it (its handler runs after a round trip), so it is

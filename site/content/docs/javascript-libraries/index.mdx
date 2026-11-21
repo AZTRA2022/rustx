@@ -79,3 +79,14 @@ What that changes for the code is read in
 
 An application that writes no capitalized tag has neither React, nor
 esbuild, nor `node_modules`: there is no package by default.
+
+## Keeping a library out of the tags
+
+Every declared library is a source of tags, imported whole into the page's bundle,
+because a page may write any export of any of them. A library your own components
+import (a 7 MB icon set, say) can be left out of the tags, and only what those
+components use is bundled:
+
+```json
+{ "rustxNoTags": ["@phosphor-icons/react"], "dependencies": { … } }
+```

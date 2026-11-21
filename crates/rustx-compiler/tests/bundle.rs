@@ -420,17 +420,20 @@ fn two_libraries_that_come_to_one_name_are_refused() {
 }
 
 #[test]
-fn a_library_no_page_names_is_not_imported_whole() {
-    let project = somewhere("unused-library");
-    std::fs::create_dir_all(project.join("app")).unwrap();
+fn a_library_the_manifest_says_is_not_a_tag_is_not_imported_whole() {
+    let project = somewhere("no-tags");
     std::fs::write(
-        project.join("app/page.rsx"),
-        "fn Page() -> Element { return <recharts::Line /> }",
+        project.join("package.json"),
+        "{ \"dependencies\": { \"recharts\": \"1\", \"@phosphor-icons/react\": \"2\" }, \"rustxNoTags\": [\"@phosphor-icons/react\"] }",
     )
     .unwrap();
     let declared = ["recharts".to_string(), "@phosphor-icons/react".to_string()];
     let entry = rustx_compiler::bundle::entry_for_in(&declared, &project);
     assert!(entry.contains("import * as recharts"), "{entry}");
     assert!(!entry.contains("phosphor"), "{entry}");
+    // Without the line, every library is a tag, as before.
+    std::fs::write(project.join("package.json"), "{}").unwrap();
+    let entry = rustx_compiler::bundle::entry_for_in(&declared, &project);
+    assert!(entry.contains("phosphor"), "{entry}");
     let _ = std::fs::remove_dir_all(project);
 }

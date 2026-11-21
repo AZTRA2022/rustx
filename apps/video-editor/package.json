@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "What this editor is made of: shadcn/ui on Tailwind v4 for the panels and the controls, lucide-react for the icons. rustx writes the entry point and builds the bundle; the editor itself is .rsx and Rust.",
+  "rustxNoTags": ["@phosphor-icons/react"],
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
     "@radix-ui/react-dialog": "^1.3.1",

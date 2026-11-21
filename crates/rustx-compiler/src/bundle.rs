@@ -403,38 +403,38 @@ pub fn entry_for(dependencies: &[String]) -> String {
 /// The same, for an application whose own components are to be imported
 /// when it has any.
 pub fn entry_for_in(dependencies: &[String], app: &Path) -> String {
-    // A library no page or source file names can never be written as a tag,
-    // and a namespace import keeps all of it (Phosphor is 7 MB): leave it
-    // out. The application's own components import what they use themselves.
-    let mut text = String::new();
-    for folder in ["app", "src"] {
-        read_sources(&app.join(folder), &mut text);
-    }
+    // A page may write any export of any library as a tag, so every library is
+    // imported whole by default. An application that knows better says so:
+    // `"rustxNoTags": ["@phosphor-icons/react"]` in package.json leaves a
+    // library out of the tags (its own components still import it), which is
+    // what keeps a 7 MB icon set out of the page's bundle.
+    let manifest = std::fs::read_to_string(app.join("package.json")).unwrap_or_default();
+    let skipped = no_tags_in(&manifest);
     let named: Vec<String> = dependencies
         .iter()
-        .filter(|package| name_for(package).is_empty() || text.contains(&name_for(package)))
+        .filter(|package| !skipped.contains(package))
         .cloned()
         .collect();
     entry_for_with(&named, index_for(app).is_some())
 }
 
-/// Every `.rsx` and `.rs` under `folder`, appended to `into`.
-fn read_sources(folder: &Path, into: &mut String) {
-    let Ok(entries) = std::fs::read_dir(folder) else {
-        return;
+/// The libraries package.json says are not tags of the page.
+pub fn no_tags_in(manifest: &str) -> Vec<String> {
+    let Some(at) = manifest.find("\"rustxNoTags\"") else {
+        return Vec::new();
     };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            read_sources(&path, into);
-        } else if matches!(
-            path.extension().and_then(|e| e.to_str()),
-            Some("rsx" | "rs")
-        ) && let Ok(source) = std::fs::read_to_string(&path)
-        {
-            into.push_str(&source);
-        }
-    }
+    let Some(open) = manifest[at..].find('[') else {
+        return Vec::new();
+    };
+    let open = at + open;
+    let Some(close) = manifest[open..].find(']') else {
+        return Vec::new();
+    };
+    manifest[open + 1..open + close]
+        .split(',')
+        .map(|name| name.trim().trim_matches('"').to_string())
+        .filter(|name| !name.is_empty())
+        .collect()
 }
 
 fn entry_for_with(dependencies: &[String], own: bool) -> String {
