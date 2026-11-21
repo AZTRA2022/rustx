@@ -220,6 +220,7 @@ jobs:
       # tick over an empty folder.
       - name: The installer is there
         shell: bash
+        timeout-minutes: 10
         run: |
           set -eu
           ls -la dist/
@@ -228,7 +229,8 @@ jobs:
             ls dist/*-setup.exe
             # The setup extracts itself: install it silently, check the
             # application and the uninstaller are there, remove it.
-            ./dist/*-setup.exe /S
+            # `--silent`, not `/S`: Git Bash turns `/S` into a path of its own.
+            ./dist/*-setup.exe --silent
             test -f "$LOCALAPPDATA/Programs/Counter/counter.exe"
             test -f "$LOCALAPPDATA/Programs/Counter/uninstall.exe"
             ;;

@@ -481,7 +481,14 @@ mod tests {
     /// files: a `components/ui/button.tsx` the way `shadcn add button`
     /// writes it, and a manifest.
     fn an_application_with_a_button() -> std::path::PathBuf {
-        let root = std::env::temp_dir().join("rustx-lsp-props-test");
+        // One folder per call: two tests write this fixture at once, and
+        // a shared one was read half-written.
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "rustx-lsp-props-test-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        ));
         let ui = root.join("components").join("ui");
         std::fs::create_dir_all(&ui).expect("a place to put the fixture");
         std::fs::write(

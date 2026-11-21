@@ -670,7 +670,7 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
             }
         };
         // The first frame of the page is in, or the wait has run out.
-        if !SHOWN.load(Ordering::Acquire) && started.elapsed() > Duration::from_secs(3) {
+        if !SHOWN.load(Ordering::Acquire) && started.elapsed() > Duration::from_millis(1200) {
             show_once();
         }
         // What the user left is written when they have stopped moving it.
