@@ -499,6 +499,7 @@ pub struct Config {
     permissions: Vec<String>,
     updates: Option<String>,
     redirects: Vec<(String, String)>,
+    capabilities: Option<Vec<String>>,
 }
 
 impl Config {
@@ -528,6 +529,7 @@ impl Config {
             permissions: Vec::new(),
             updates: None,
             redirects: Vec::new(),
+            capabilities: None,
         }
     }
 
@@ -542,6 +544,13 @@ impl Config {
     /// pages of `system/` when it is run outside its install location.
     pub fn portable(mut self) -> Self {
         self.portable = true;
+        self
+    }
+
+    /// The only functions the page may call (a Tauri capability file): any other
+    /// native, however it was registered, is refused with a message.
+    pub fn capabilities(mut self, natives: &[&str]) -> Self {
+        self.capabilities = Some(natives.iter().map(|n| n.to_string()).collect());
         self
     }
 
@@ -780,6 +789,10 @@ impl App {
         // pages first; `--install --silent` and `--uninstall --silent` need no window.
         crate::setup::declare_permissions(config.permissions.clone());
         crate::setup::declare_updates(config.updates.clone());
+        if let Some(allowed) = &config.capabilities {
+            let names: Vec<&str> = allowed.iter().map(String::as_str).collect();
+            crate::rustx_engine::restrict_natives(&names);
+        }
         for (from, to) in &config.redirects {
             router::redirect(from, to);
         }

@@ -31,6 +31,26 @@ thread_local! {
     static ASYNC_NATIVES: RefCell<HashMap<String, Rc<AsyncNativeFn>>> = RefCell::new(HashMap::new());
     static SCRIPTS: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
     static RAN: Cell<bool> = const { Cell::new(false) };
+    /// When set, the only natives a page may call (besides the engine's own).
+    static CAPABILITIES: RefCell<Option<Vec<String>>> = const { RefCell::new(None) };
+}
+
+/// Limit the page to these natives, like a Tauri capability file: a native
+/// not named here is refused even if the application registered it. The
+/// engine's own (`rustx_…`) always work, because the router needs them.
+pub fn restrict_natives(allowed: &[&str]) {
+    CAPABILITIES.with(|held| {
+        *held.borrow_mut() = Some(allowed.iter().map(|name| name.to_string()).collect());
+    });
+}
+
+fn refused(name: &str) -> Option<String> {
+    CAPABILITIES.with(|held| match held.borrow().as_ref() {
+        Some(allowed) if !name.starts_with("rustx_") && !allowed.iter().any(|a| a == name) => Some(
+            format!("`{name}` is not in this application's capabilities"),
+        ),
+        _ => None,
+    })
 }
 
 /// Put `source` in every page, before the page's own scripts run. A name
@@ -99,6 +119,9 @@ where
 /// Start the asynchronous native `name` for call `id`: the answer is sent to
 /// the page as a script once the future is done.
 pub(crate) fn call_async(id: u64, name: &str, args: &[Value]) {
+    if let Some(why) = refused(name) {
+        return settle(id, Err(why));
+    }
     let started = ASYNC_NATIVES
         .with(|natives| natives.borrow().get(name).cloned())
         .ok_or_else(|| {
@@ -252,6 +275,9 @@ pub fn natives_script() -> String {
 /// Call the native `name`. A panic is an error the page can read, not a
 /// dead window.
 pub(crate) fn call(name: &str, args: &[Value]) -> Result<Value, String> {
+    if let Some(why) = refused(name) {
+        return Err(why);
+    }
     let Some(native) = NATIVES.with(|natives| natives.borrow().get(name).cloned()) else {
         return Err(format!(
             "`{name}` is not a function the application registered"
@@ -262,4 +288,25 @@ pub(crate) fn call(name: &str, args: &[Value]) -> Result<Value, String> {
         outcome = native(args).map_err(|error| error.message);
     });
     outcome
+}
+
+#[cfg(test)]
+mod capability_tests {
+    use super::*;
+
+    #[test]
+    fn a_native_outside_the_capabilities_is_refused_and_the_engines_own_still_work() {
+        register_native("allowed_one", |_| Ok(Value::Null));
+        register_native("forbidden_one", |_| Ok(Value::Null));
+        assert!(call("forbidden_one", &[]).is_ok(), "no limit by default");
+        restrict_natives(&["allowed_one"]);
+        assert!(call("allowed_one", &[]).is_ok());
+        let why = call("forbidden_one", &[]).unwrap_err();
+        assert!(
+            why.contains("not in this application's capabilities"),
+            "{why}"
+        );
+        // The router's own door is never closed.
+        assert_eq!(refused("rustx_component"), None);
+    }
 }

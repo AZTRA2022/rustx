@@ -37,6 +37,6 @@ pub use frame::{PostError, Poster, on_frame, poster};
 pub use mount::{mount, mount_at_id};
 pub use renderer::{
     NativeFuture, inject, natives_script, on_context_created, register_async_native,
-    register_native,
+    register_native, restrict_natives,
 };
 pub use value::{NativeError, Value};
