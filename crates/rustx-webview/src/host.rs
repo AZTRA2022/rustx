@@ -143,8 +143,21 @@ pub(crate) fn with_window(f: Box<dyn FnOnce(&tao::window::Window) + Send>) {
 /// the wait for it has run out.
 static SHOWN: AtomicBool = AtomicBool::new(false);
 
-fn show_once() {
+/// Where the process started, for the trace below.
+fn since_start() -> std::time::Duration {
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed()
+}
+
+fn show_once(because: &str) {
     if !SHOWN.swap(true, Ordering::AcqRel) {
+        // `RUSTX_TRACE=1`: which came first, the page or the wait.
+        if std::env::var_os("RUSTX_TRACE").is_some() {
+            eprintln!(
+                "rustx: window shown after {} ms ({because})",
+                since_start().as_millis()
+            );
+        }
         with_window(Box::new(|w| w.set_visible(true)));
     }
 }
@@ -395,6 +408,7 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
             }
         });
     }
+    since_start();
     let plan = crate::window::planned();
     // Built hidden and shown when the page has its first frame: no white
     // window first.
@@ -444,6 +458,11 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
         .map_err(|error| HostError(format!("could not open the window: {error}")))?;
     if maximized {
         window.set_maximized(true);
+    }
+    // `RUSTX_SHOW_NOW=1`: no waiting for the page, to compare the two starts.
+    if std::env::var_os("RUSTX_SHOW_NOW").is_some() {
+        SHOWN.store(true, Ordering::Release);
+        window.set_visible(true);
     }
     snapshot(&window);
     let started = Instant::now();
@@ -671,7 +690,7 @@ pub fn run(config: Config, hooks: Hooks) -> Result<Infallible, HostError> {
         };
         // The first frame of the page is in, or the wait has run out.
         if !SHOWN.load(Ordering::Acquire) && started.elapsed() > Duration::from_millis(1200) {
-            show_once();
+            show_once("the page was too slow");
         }
         // What the user left is written when they have stopped moving it.
         if plan.remember && unsaved.is_some_and(|at| at.elapsed() > Duration::from_millis(500)) {
@@ -821,7 +840,13 @@ fn handle(body: &str, hooks: &Hooks, control: &Control) {
     use crate::protocol::{FromPage, decode};
     match decode(body) {
         Ok(FromPage::Ready { ids }) => {
-            show_once();
+            if std::env::var_os("RUSTX_TRACE").is_some() {
+                eprintln!(
+                    "rustx: the page is ready after {} ms",
+                    since_start().as_millis()
+                );
+            }
+            show_once("the page is ready");
             crate::dom::page_ready(ids);
             // A document that follows one the application had mounted on:
             // a reload. What was mounted goes back.

@@ -77,7 +77,7 @@ case to. Draw that bar in the page.
 | | |
 |---|---|
 | **Windows** | written. `TrackPopupMenu` with `TPM_RETURNCMD`, which returns the chosen line from the call instead of posting a message to a window we do not own |
-| **macOS** | written; compiled and tested on a CI Mac, not driven on a desktop. `NSMenu`, with one registered Objective-C class as the target of every line |
+| **macOS** | written; compiled on a CI Mac, not driven on a desktop. `NSMenu`, with one registered Objective-C class as the target of every line |
 | **Linux** | **refused, and the refusal is the answer.** There is no menu in X11 and none in Wayland: a popup there is a window a toolkit draws, decorates and keeps the keyboard for. Linking GTK to draw one grey rectangle would add the whole of GTK, a second event loop beside the window's, and a look that matches neither the page nor a KDE desktop. Draw it in the page |
 
 `menu::supported()` says which of those you are on without a `cfg`. See

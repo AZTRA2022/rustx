@@ -192,8 +192,8 @@ says that.
 | | |
 |---|---|
 | **Windows** | written and run. `system` goes through `GetUserDefaultLocaleName`, `GetSystemPowerStatus` and the registry's `AppsUseLightTheme`; `net` through the Network List Manager, the same thing Windows consults for its own crossed-out-globe icon |
-| **Linux** | written; compiled and tested on a CI Linux runner, not driven on a desktop |
-| **macOS** | written; compiled and tested on a CI Mac, not driven on a desktop |
+| **Linux** | written; compiled on a CI Linux runner, not driven on a desktop |
+| **macOS** | written; compiled on a CI Mac, not driven on a desktop |
 
 The tests for both modules pin no values — the machine running them is
 whoever's machine it is — and instead assert that every answer is either
