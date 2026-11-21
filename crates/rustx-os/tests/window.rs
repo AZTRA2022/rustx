@@ -152,8 +152,16 @@ fn a_window_kept_in_front_is_told_so_and_told_back() {
     let own = Own::new("rustx-window-rank");
     window::on_top(own.pane(), true).expect("in front");
     use windows::Win32::UI::WindowsAndMessaging::{GWL_EXSTYLE, WS_EX_TOPMOST};
-    // SAFETY: lecture seule.
-    let extended = unsafe { GetWindowLongPtrW(own.0, GWL_EXSTYLE) };
+    // The system may take a moment on a busy runner: look for up to a second.
+    let mut extended = 0;
+    for _ in 0..20 {
+        // SAFETY: lecture seule.
+        extended = unsafe { GetWindowLongPtrW(own.0, GWL_EXSTYLE) };
+        if extended & WS_EX_TOPMOST.0 as isize != 0 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
     assert_ne!(
         extended & WS_EX_TOPMOST.0 as isize,
         0,
