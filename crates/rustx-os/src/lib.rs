@@ -81,6 +81,7 @@ pub mod devices;
 pub mod dialog;
 pub mod digest;
 pub mod error;
+pub mod install;
 pub mod instance;
 pub mod menu;
 pub mod net;
