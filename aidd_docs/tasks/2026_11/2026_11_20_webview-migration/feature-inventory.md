@@ -35,16 +35,16 @@ exercised: Windows by hand and by tests; macOS and Linux on GitHub runners (rust
 |---|---|---|---|
 | 1 | File-system routing, layouts, nested routes | Present | `app/page.rsx`, `layout.rsx`, `[name]` segments |
 | 2 | Client-side navigation, `router::navigate`, route state | Present | `router` |
-| 3 | Error / not-found screens | Present | `router.rs` tests (error screen wins) |
+| 3 | Error / not-found screens | Present | the defaults are Next.js's (404, Application error, 401, 403), light and dark, with Inter; `router.rs` tests |
 | 4 | Component state, effects, tasks | Present | `let mut`, `effect`, `task(async …)`; a handler cannot start a task (ledger row 22) |
 | 5 | React ecosystem (shadcn, Radix, Recharts…) | Present | `foreign.rs` boundary; bundle holds only the libraries a page names |
 | 6 | Tailwind | Present | `bundle.rs` runs Tailwind over `app/**/*.rsx` |
-| 7 | Fast refresh | Partial | asset edits reload the page in place with Rust state kept; a `.rsx` edit rebuilds and relaunches with named state carried; no in-place hot patch of native code |
+| 7 | Fast refresh | Partial | asset edits reload the page in place with Rust state kept; a `.rsx` edit rebuilds and relaunches with named state carried. Measured: the linker is about 10% of the rebuild (3.7 s default, 3.4 s with `rust-lld`, counter, debug), so a native hot patch was not pursued |
 | 8 | Static assets, fonts, images | Present | `assets/` (carried in the binary, live folder in `rustx dev`) |
 | 9 | Server components / SSR / API routes | Missing | not applicable: there is no server; natives play the role of API routes |
 | 10 | Image optimisation, `next/font`, `next/link` prefetch | Missing | |
-| 11 | Metadata / head management per route | Partial | window title from `Config`; no per-route `<head>` |
-| 12 | Middleware, redirects, rewrites | Missing | |
+| 11 | Metadata / head management per route | Partial | a `<title>` in a page names the window (test in `tests/host.rs`); no other `<head>` tags |
+| 12 | Middleware, redirects, rewrites | Partial | `Config::redirect(from, to)` (query kept, loops end after eight hops); no middleware, no rewrites |
 | 13 | Streaming / suspense | Missing | async natives settle promises; no suspense boundary |
 
 ## What this changes in the plan

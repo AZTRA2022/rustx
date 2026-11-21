@@ -21,6 +21,27 @@ drawn in**, so there is nothing to name.
 | `window::frameless()` / `window::framed()` | remove or restore the frame |
 | `window::shut()` | close it |
 
+## Without the frame
+
+`Config::frameless()` removes the frame, and then the page has to give back what
+it did. A bar that moves the window and the three marks, as the counter's home
+page draws them:
+
+```rust
+<div style={{ flex: "1", height: "32px" }} onMouseDown={move |_| { rustx::window::drag(); }}></div>
+<button aria-label="Minimize" onClick={move |_| { rustx::window::minimize(); }}>-</button>
+<button aria-label="Maximize" onClick={move |_| { rustx::window::toggle_maximize(); }}>□</button>
+<button aria-label="Close"    onClick={move |_| { rustx::window::shut(); }}>x</button>
+```
+
+Put the bar and the marks in their own element, beside the drag area and not inside it: a
+press on a button inside the drag area would start a drag and swallow the click.
+
+`rustx::window::is_frameless()` says whether to draw them. The screens the framework draws
+itself (the seven of `system/`, not-found, error) do, so a frameless application is never
+left with a window it cannot move or close. Dragging is tried by hand; the marks are
+exercised by a CI scenario (`--scenario=chrome`) that maximizes and then closes.
+
 ## The toggles
 
 A title bar does not have one button to maximize and another to

@@ -1,11 +1,22 @@
 ---
 objective: "Everything still open after the self-installing app: fix what just shipped, add the bootstrapper and auto-updater, prove the screens visually, then the remaining BUG.md items."
-status: pending
+status: implemented
 ---
 
 # Plan: What remains
 
 Source: the advisor's plan of 2026-11-21 after the self-installing app (CI run 44907756511 green, branch webview-migration, draft PR 7) and BUG.md.
+
+## Outcome (2026-11-21)
+
+| Phase | Done | Checked where | Not done |
+| ----- | ---- | ------------- | -------- |
+| 1 | stamp survives a signed exe; `main(pages)` apps stay normal; licence carried in the exe; `rustx dev` watches `system/`; Linux icon and macOS usage keys; update over a running copy | unit and integration tests on Windows; CI on 3 OS for the install scenario | signing with a real certificate; macOS usage keys read by a real Mac |
+| 2 | bootstrapper for a missing WebView2 runtime (offered once); update check and install in `settings` (`Config::updates`); permission state from the Windows consent store | loopback tests; CI settings scenario on 3 OS; CI Windows step for the runtime | the real Microsoft download is exercised only by the CI Windows step; no consent state on macOS or Linux |
+| 3 | pictures of the 7 screens per OS uploaded by CI; language server shadows `system/*.rsx` | CI artifacts; `rustx-lsp` test | nobody has compared the macOS and Linux pictures with the Windows ones yet |
+| 4 | fast refresh measured (not pursued); second window ordered over the pipe; per-route `<title>`; redirects; capability list for natives; macOS signing and notarisation written; editor audit | tests on Windows; CI for the rest | sidecars, window effects, cross-compilation (dropped, see packaging); notarisation never run; rename and code actions in the language server (need a column map) |
+
+Added after the plan, on review: the default theme (Next.js's, Inter, CSS variables in a layer), the frameless window's controls on every framework screen, a compiler fix for writes inside a handler nested in conditional JSX.
 
 ## Phases
 

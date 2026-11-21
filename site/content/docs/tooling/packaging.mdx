@@ -185,7 +185,7 @@ system/uninstall.rsx   the uninstall page
 system/license.rsx     the licence
 system/permissions.rsx what the app uses, said before the system asks
 system/about.rsx       name, version, publisher, licence
-system/settings.rsx    start with the session
+system/settings.rsx    start with the session, check for updates
 ```
 
 The last four are opened by the application whenever it wants:
@@ -209,6 +209,13 @@ rustx::setup::quit();
 ```
 
 Any other name in `system/` is refused with the list of the locked ones.
+
+The defaults are drawn with the framework's theme (`--rx-bg`, `--rx-fg`, `--rx-muted`, `--rx-border`, in
+light or dark by the system's preference, with Inter) and fill the whole window, whatever the
+application's own stylesheet does. In a frameless window they draw a bar to drag and the three marks
+(see [commanding the window](/docs/the-window/commanding-the-window)). To see one, run the
+application with `RUSTX_START=/__system/<name>` (add `RUSTX_THEME=light` or `dark`); the pictures CI
+takes of all seven on each system are the `screens-*` artifacts of a run.
 
 ## Signing
 
@@ -307,8 +314,12 @@ not.
 A Windows machine without the Microsoft Edge WebView2 Runtime is asked, in
 a native box (there is no page yet): download Microsoft's Evergreen
 bootstrapper, run it, and start again. Refusing leaves the error naming the
-runtime. A test downloads and runs a stand-in installer over loopback; the
-real Microsoft download has not been run in CI. On Linux the
+runtime. It is offered once: the copy it starts afterwards carries `RUSTX_BOOTSTRAPPED`
+and never offers again, so a failed install ends with the error and not in a loop. A test
+downloads and runs a stand-in installer over loopback, and a CI step on a Windows runner points
+`WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` at an empty folder and runs the packaged application
+with `RUSTX_BOOTSTRAP=auto`, which downloads Microsoft's real bootstrapper. That step has not
+run yet. On Linux the
 `libwebkit2gtk-4.1` package has to be installed, which the `.deb` declares.
 
 
