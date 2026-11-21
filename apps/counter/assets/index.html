@@ -41,6 +41,33 @@
       // underneath it was working perfectly. The framework drives its
       // own frames from a timer when that happens; so does this.
       const rustx_soon = (then) => setTimeout(then, 16);
+      // The install wizard (system/install.rsx, here the framework's default),
+      // driven the way a person would: click Install, wait for Ready.
+      if (rustx_scenario() === "install") {
+        const button = (text) => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === text);
+        let left = 600;
+        const look = () => {
+          const go = button("Install");
+          if (go && !go.disabled && !window.__clicked) {
+            rustx_report("welcome", document.querySelector("h1").textContent);
+            window.__clicked = true;
+            go.click();
+          }
+          const h1 = document.querySelector("h1");
+          if (h1 && h1.textContent === "Ready") {
+            rustx_report("finished", h1.textContent);
+            rustx_report("done", "yes");
+            return;
+          }
+          if (left-- <= 0) {
+            rustx_report("gave_up_on", document.body.textContent.slice(0, 120));
+            rustx_report("done", "no");
+            return;
+          }
+          rustx_soon(look);
+        };
+        look();
+      }
       if (rustx_scenario() === "page") {
         // The effective font of the document, read before anything
         // else touches the page: `body { font-family: system-ui,

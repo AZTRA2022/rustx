@@ -192,7 +192,10 @@ pub fn table_for(from: &Path) -> Result<String, CompileError> {
                     .parent()
                     .unwrap_or(Path::new(""))
                     .to_path_buf();
-                directory.starts_with(&layout_directory)
+                // The system pages (install, update, ...) are the framework's
+                // contract with the OS, not screens of the application: its
+                // layouts never wrap them.
+                directory.starts_with(&layout_directory) && !directory.starts_with("__system")
             })
             .map(|(at, _)| at)
             .collect();
