@@ -7,6 +7,7 @@ let mut done: bool = false;
 let mut failed: String = String::new();
 
 fn Page() -> Element {
+    let bar = format!("{}%", percent);
     let info = rustx::setup::info();
     let was = info.installed_version.clone().unwrap_or_default();
     let button = "padding:8px 18px;border-radius:8px;border:1px solid #3a3f4a;background:transparent;color:#f3f4f6;cursor:pointer;font-size:14px;";
@@ -25,7 +26,7 @@ fn Page() -> Element {
             <h1 style={{ fontSize: "22px", margin: "0 0 4px" }}>{title}</h1>
             <p style={{ color: "#9ca3af", margin: "0 0 20px" }}>{line}</p>
             <div style={{ height: "8px", borderRadius: "4px", background: "#2a2e36", overflow: "hidden" }}>
-                <div style={{ height: "100%", width: format!("{}%", percent), background: "#6366f1" }}></div>
+                <div style={{ height: "100%", width: bar, background: "#6366f1" }}></div>
             </div>
         </main>
         <footer style={{ display: "flex", justifyContent: "flex-end", gap: "8px", padding: "16px 36px 24px" }}>

@@ -31,10 +31,11 @@ fn Licence() -> Element {
 }
 
 fn Progress() -> Element {
+    let bar = format!("{}%", percent);
     return <div>
         {Heading("Installing…".to_string(), "This takes a moment.".to_string())}
         <div style={{ height: "8px", borderRadius: "4px", background: "#2a2e36", overflow: "hidden" }}>
-            <div style={{ height: "100%", width: format!("{}%", percent), background: "#6366f1" }}></div>
+            <div style={{ height: "100%", width: bar, background: "#6366f1" }}></div>
         </div>
     </div>;
 }

@@ -305,6 +305,56 @@ jobs:
             ;;
           esac
 
+      # The packaged binary is its own installer: it shows the install wizard
+      # (system/install.rsx, the framework's default here), a scenario clicks
+      # Install, and the installed copy starts, then removes itself.
+      - name: The app installs itself
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          set -eu
+          home="$RUNNER_TEMP/selfinstall"
+          mkdir -p "$home/local" "$home/roam" "$home/home"
+          report="$home/report.txt"
+          case "${{ runner.os }}" in
+          Windows)
+            export LOCALAPPDATA="$(cygpath -w "$home/local")" APPDATA="$(cygpath -w "$home/roam")"
+            exe=$(ls dist/counter-*-windows/counter.exe)
+            installed="$LOCALAPPDATA/Programs/Counter/counter.exe"
+            runner=""
+            ;;
+          Linux)
+            export HOME="$home/home"
+            exe=$(ls dist/counter-*-linux/counter)
+            installed="$HOME/.local/share/counter/counter"
+            runner="xvfb-run -a"
+            ;;
+          macOS)
+            export HOME="$home/home"
+            exe=$(ls -d dist/counter-*-macos/Counter.app)/Contents/MacOS/counter
+            installed="$HOME/Applications/Counter.app/Contents/MacOS/counter"
+            runner=""
+            ;;
+          esac
+          $runner "$exe" --scenario=install --report="$report" &
+          pid=$!
+          for i in $(seq 1 90); do grep -q "done=" "$report" 2>/dev/null && break; sleep 1; done
+          kill $pid || true
+          cat "$report"
+          grep -q "done=yes" "$report"
+          test -f "$installed"
+          # The installed copy starts and stays up.
+          $runner "$installed" &
+          pid=$!
+          sleep 8
+          kill -0 $pid
+          kill $pid || true
+          sleep 2
+          # And removes itself.
+          "$installed" --uninstall --silent
+          for i in $(seq 1 30); do [ -e "$installed" ] || break; sleep 1; done
+          test ! -e "$installed"
+
       - uses: actions/upload-artifact@v4
         with:
           name: installer-${{ matrix.os }}
