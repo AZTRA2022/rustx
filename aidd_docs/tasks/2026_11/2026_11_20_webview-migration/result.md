@@ -49,15 +49,15 @@ Every page of `site/content/docs`, the READMEs and the video-editor comments tha
 
 ## Still open
 
-Click-to-paint number; edit-to-screen number for a `.rsx` edit; macOS and Linux only on CI runners (never a real desktop); native hot patch (true fast refresh); window state persistence; multi-window as threads; the context-menu hand check; the parked probes P2 to P11 in `bug-hunt.md`.
+Click-to-paint number; edit-to-screen number for a `.rsx` edit; macOS and Linux only on CI runners (never a real desktop; the Mac runner's window sizing numbers are in this file); native hot patch (true fast refresh); window state persistence; multi-window as threads; the context-menu hand check; the parked probes P2 to P11 in `bug-hunt.md`.
 
 ## GitHub CI (2026-11-21, draft PR 7)
 
-Run 44879046615 (latest; the first fully green one was 44874892110): all eight jobs green. What that means:
+Run 44887010399 (the latest; the first fully green one was 44874892110): all eight jobs green. What that means:
 
 - **Windows**: fmt, clippy, the whole workspace's tests (1,180+), docs, packaging; the counter app is packaged, the setup is installed silently and checked, then the CI step ends.
 - **Linux**: `rustx-os` tests; the whole `rustx-webview` suite (page, natives, files, window API) under Xvfb with WebKitGTK; a `.deb` that `dpkg` installs and `desktop-file-validate` accepts.
-- **macOS**: `rustx-os` tests, the webview host compiles, the `.pkg` (with the project's screens through `productbuild`) and `.dmg`.
+- **macOS**: `rustx-os` tests, the whole webview suite on a hosted Mac, the `.pkg` (with the project's screens through `productbuild`) and `.dmg`, installed and started.
 
 What CI found that a Windows-only loop never would: WebKitGTK gives a custom protocol no request body (natives now carry small arguments in the address); `img.src = "file://…"` starts a load the origin refuses before the observer runs (the property is now rewritten where it is set); a Linux runner's Xvfb has no window manager (fullscreen untestable there); Git Bash rewrites `/S` into a path (the setup also takes `--silent`).
 
@@ -67,7 +67,7 @@ Limit to know: a synchronous native with arguments over 200 KB sends them in the
 
 macOS webview (CI, hosted Mac): the size set from Rust was applied (the page saw 777x555, the outer size followed, a Resized event arrived) but tao's `inner_size()` kept returning the old one, so `window::state()` was stale there. When only the outer size moved, the published inner size moves with it (a correction in the host's snapshot); the two tests that had been skipped on macOS run there again.
 
-Since then CI also proves that the installed application **starts and stays up for eight seconds** on all three systems (Windows `counter.exe`, Linux under Xvfb, macOS `Counter.app` after `installer -pkg`), that the Windows silent uninstaller removes the folder, and the macOS job runs the webview suite (18 of 20 tests; two window-size tests skipped there, see above).
+Since then CI also proves that the installed application **starts and stays up for eight seconds** on all three systems (Windows `counter.exe`, Linux under Xvfb, macOS `Counter.app` after `installer -pkg`), that the Windows silent uninstaller removes the folder, and the macOS job runs the whole webview suite (22 tests, none skipped) and the installed `Counter.app` is started from `/Applications` (the `.pkg` is made non-relocatable, otherwise the installer updated a copy found in `dist/`).
 
 ## Measures (Windows, debug build, this machine)
 
