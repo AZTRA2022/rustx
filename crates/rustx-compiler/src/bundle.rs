@@ -589,23 +589,72 @@ pub fn build(app: &Path) -> Result<Built, String> {
     let _alone = BuildLock::take(&out);
     // The index of the application's own components, first: the entry
     // imports it, and esbuild reads what is on disk.
+    // Written only when it differs, so that "nothing changed" is something the
+    // files can say: see `current` below.
+    let mut inputs_changed = false;
+    let mut write_if_different = |path: &Path, text: String| -> Result<(), String> {
+        if std::fs::read_to_string(path).ok().as_deref() != Some(text.as_str()) {
+            inputs_changed = true;
+            std::fs::write(path, text)
+                .map_err(|error| format!("rustx could not write {}: {error}", path.display()))?;
+        }
+        Ok(())
+    };
     if let Some(index) = index_for(app) {
-        let beside = out.join("ui.ts");
-        std::fs::write(&beside, index)
-            .map_err(|error| format!("rustx could not write {}: {error}", beside.display()))?;
+        write_if_different(&out.join("ui.ts"), index)?;
     }
 
     let entry = out.join("entry.js");
-    std::fs::write(&entry, entry_for_in(&dependencies, app))
-        .map_err(|error| format!("rustx could not write {}: {error}", entry.display()))?;
+    write_if_different(&entry, entry_for_in(&dependencies, app))?;
 
     let bundle = out.join("bundle.js");
+    // esbuild is a second of a save's time on a large application, and most
+    // saves are a page: the bundle is kept when its entry is the same and
+    // nothing it is built from (the manifest, the lock file, the application's
+    // own components) is newer than it.
+    let current = !inputs_changed && bundle_is_current(app, &bundle);
     // The stylesheet esbuild writes beside the bundle when a library
     // imports its own: a stale one from the last build must not outlive
     // the library that wrote it.
-    let _ = std::fs::remove_file(out.join("bundle.css"));
-    let finished = std::process::Command::new(&esbuild)
-        .arg(&entry)
+    if !current {
+        let _ = std::fs::remove_file(out.join("bundle.css"));
+        run_esbuild(&esbuild, &entry, &bundle, app)?;
+    }
+    finish(app, &out, &bundle, stylesheet)
+}
+
+/// Is the bundle on disk newer than everything it is built from?
+fn bundle_is_current(app: &Path, bundle: &Path) -> bool {
+    let Some(built) = std::fs::metadata(bundle)
+        .and_then(|about| about.modified())
+        .ok()
+    else {
+        return false;
+    };
+    fn newest(path: &Path, into: &mut Option<std::time::SystemTime>) {
+        let Ok(about) = std::fs::metadata(path) else {
+            return;
+        };
+        if about.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(path) {
+                for entry in entries.flatten() {
+                    newest(&entry.path(), into);
+                }
+            }
+        } else if let Ok(when) = about.modified() {
+            *into = Some(into.map_or(when, |seen| seen.max(when)));
+        }
+    }
+    let mut latest = None;
+    for input in ["package.json", "package-lock.json", "components", "lib"] {
+        newest(&app.join(input), &mut latest);
+    }
+    latest.is_none_or(|input| input <= built)
+}
+
+fn run_esbuild(esbuild: &Path, entry: &Path, bundle: &Path, app: &Path) -> Result<(), String> {
+    let finished = std::process::Command::new(esbuild)
+        .arg(entry)
         .arg("--bundle")
         .arg("--format=iife")
         .arg("--target=chrome120")
@@ -638,7 +687,16 @@ pub fn build(app: &Path) -> Result<Built, String> {
             String::from_utf8_lossy(&finished.stderr).trim()
         ));
     }
+    Ok(())
+}
 
+/// What follows the bundle: where the document reaches it, and the stylesheet.
+fn finish(
+    app: &Path,
+    out: &Path,
+    bundle: &Path,
+    stylesheet: Option<PathBuf>,
+) -> Result<Built, String> {
     // Beside the document, under a name nobody would write by hand.
     //
     // A bundle is a megabyte of JavaScript, and a megabyte handed to
@@ -653,12 +711,12 @@ pub fn build(app: &Path) -> Result<Built, String> {
         std::fs::create_dir_all(assets)
             .map_err(|error| format!("rustx could not write {}: {error}", assets.display()))?;
     }
-    crate::build::copy_if_changed(&bundle, &beside)
+    crate::build::copy_if_changed(bundle, &beside)
         .map_err(|error| format!("rustx could not write {}: {error}", beside.display()))?;
 
     Ok(Built {
         bundle: Some(beside),
-        stylesheet: with_the_libraries_css(&out, stylesheet)?,
+        stylesheet: with_the_libraries_css(out, stylesheet)?,
     })
 }
 

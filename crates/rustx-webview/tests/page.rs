@@ -734,10 +734,6 @@ fn an_svg_drawn_by_rust_is_in_the_svg_namespace_and_has_a_size() {
     let _ = std::fs::remove_dir_all(root);
 }
 
-// On the hosted Mac the size set from Rust did not take (the window stayed
-// 900x640): not understood yet, to look at on a real Mac. Everything else in
-// the suite passes there.
-#[cfg(not(target_os = "macos"))]
 #[test]
 fn the_window_can_be_set_and_read_back_from_rust() {
     // Logical sizes in, physical sizes out: compare through the scale the
@@ -787,10 +783,6 @@ fn the_window_can_be_set_and_read_back_from_rust() {
     let _ = std::fs::remove_dir_all(root);
 }
 
-// On the hosted Mac the size set from Rust did not take (the window stayed
-// 900x640): not understood yet, to look at on a real Mac. Everything else in
-// the suite passes there.
-#[cfg(not(target_os = "macos"))]
 #[test]
 fn a_window_that_remembers_comes_back_where_and_as_big_as_it_was_left() {
     let title = format!("probe-remember-{}", std::process::id());

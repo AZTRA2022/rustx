@@ -65,7 +65,7 @@ Not covered by CI: a real desktop on either system (tray, dialogs answered by a 
 
 Limit to know: a synchronous native with arguments over 200 KB sends them in the body, which WebKitGTK drops; use an asynchronous native for big payloads.
 
-macOS webview (CI, hosted Mac): 18 of the 20 page tests pass, and the `.pkg` installs and the installed app stays up for eight seconds. Two tests do not: a size set from Rust (`window::set_size`, and so `remember_window`) did not take on the runner (the window stayed 900x640). Those two are skipped on macOS in the code, with the reason; the cause is not known (a hosted Mac's display, or tao's NSWindow path) and needs a real Mac.
+macOS webview (CI, hosted Mac): the size set from Rust was applied (the page saw 777x555, the outer size followed, a Resized event arrived) but tao's `inner_size()` kept returning the old one, so `window::state()` was stale there. The page area is now what the page itself reports (`resize` events through the interpreter), which is right on every system; the two tests that had been skipped on macOS run there again.
 
 Since then CI also proves that the installed application **starts and stays up for eight seconds** on all three systems (Windows `counter.exe`, Linux under Xvfb, macOS `Counter.app` after `installer -pkg`), that the Windows silent uninstaller removes the folder, and the macOS job runs the webview suite (18 of 20 tests; two window-size tests skipped there, see above).
 

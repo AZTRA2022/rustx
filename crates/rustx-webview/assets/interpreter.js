@@ -360,7 +360,17 @@
     post({ t: "error", message: "unhandled rejection: " + String(event.reason) })
   );
 
+  // The size of the page area is what the page sees: some systems give the
+  // host a stale inner size of the window right after it is resized.
+  let viewportTimer = 0;
+  const viewport = () => post({ t: "viewport", w: window.innerWidth, h: window.innerHeight });
+  window.addEventListener("resize", () => {
+    clearTimeout(viewportTimer);
+    viewportTimer = setTimeout(viewport, 40);
+  });
+
   function ready() {
+    viewport();
     const ids = Array.from(document.querySelectorAll("[id]"), (element) => element.id);
     post({ t: "ready", ids });
   }

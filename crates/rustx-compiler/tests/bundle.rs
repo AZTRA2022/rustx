@@ -463,3 +463,37 @@ fn a_manifest_with_awkward_values_still_gives_its_dependencies_and_nothing_else(
     assert!(rustx_compiler::bundle::dependencies_in("{}").is_empty());
     assert!(rustx_compiler::bundle::dependencies_in("not json at all {").is_empty());
 }
+
+#[test]
+fn a_package_whose_only_entry_is_a_conditional_exports_map_is_importable() {
+    let app = somewhere("conditional-exports");
+    write_package(
+        &app,
+        "{\"dependencies\": {\"dotted\": \"1.0.0\", \"flat\": \"1.0.0\", \"nested\": \"1.0.0\"}}",
+    );
+    // The root written as a dot with conditions.
+    install(
+        &app,
+        "dotted",
+        "{\"name\": \"dotted\", \"exports\": {\".\": {\"import\": \"./i.mjs\", \"require\": \"./i.cjs\"}, \"./extra\": \"./extra.js\"}}",
+    );
+    // Conditions straight under `exports`, no dot at all.
+    install(
+        &app,
+        "flat",
+        "{\"name\": \"flat\", \"exports\": {\"import\": \"./i.mjs\", \"default\": \"./i.cjs\"}}",
+    );
+    // A root nested inside conditions, with a string value containing a brace.
+    install(
+        &app,
+        "nested",
+        "{\"name\": \"nested\", \"description\": \"a } brace\", \"exports\": {\".\": {\"node\": {\"import\": \"./n.mjs\"}, \"default\": \"./d.js\"}}}",
+    );
+    for package in ["dotted", "flat", "nested"] {
+        assert_eq!(
+            rustx_compiler::bundle::installed(&app, package),
+            rustx_compiler::bundle::Installed::Importable,
+            "{package}"
+        );
+    }
+}

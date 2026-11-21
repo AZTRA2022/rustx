@@ -588,12 +588,47 @@ fn macos(read: &build::Project, project: &Path, folder: &Path, pages: &Pages) ->
     } else {
         pkg.clone()
     };
+    // A bundle a package installs is "relocatable" by default: the installer then
+    // updates a copy of it it finds elsewhere on the disk (the one in `dist/`)
+    // instead of writing /Applications. So the package is made from a root that
+    // holds only the bundle, with a component plist that says it is not.
+    let staging = beside.join(format!("{base}-pkgroot"));
+    let _ = std::fs::remove_dir_all(&staging);
+    let staged = std::fs::create_dir_all(&staging).is_ok()
+        && Command::new("cp")
+            .arg("-R")
+            .arg(&bundle)
+            .arg(&staging)
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+    let plist = beside.join(format!("{base}-component.plist"));
+    let bundle_name = bundle
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let _ = std::fs::write(
+        &plist,
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
+<plist version=\"1.0\"><array><dict><key>RootRelativeBundlePath</key><string>{}</string><key>BundleIsRelocatable</key><false/><key>BundleIsVersionChecked</key><false/><key>BundleOverwriteAction</key><string>upgrade</string></dict></array></plist>
+",
+            xml(&bundle_name)
+        ),
+    );
     let mut build_pkg = Command::new("pkgbuild");
+    build_pkg.arg("--install-location").arg("/Applications");
+    if staged {
+        build_pkg
+            .arg("--root")
+            .arg(&staging)
+            .arg("--component-plist")
+            .arg(&plist);
+    } else {
+        build_pkg.arg("--component").arg(&bundle);
+    }
     build_pkg
-        .arg("--install-location")
-        .arg("/Applications")
-        .arg("--component")
-        .arg(&bundle)
         .arg("--identifier")
         .arg(format!("dev.rustx.{slug}"))
         .arg("--version")

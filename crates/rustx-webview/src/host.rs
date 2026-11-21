@@ -164,11 +164,23 @@ fn show_once(because: &str) {
 }
 
 /// What the window is, for [`crate::window::state`].
+/// The page area as the page last said it (CSS pixels): the truth about the
+/// window's content, which tao's `inner_size` is not on every system (a hosted
+/// Mac kept the old one after a resize).
+static VIEWPORT: Mutex<Option<(f64, f64)>> = Mutex::new(None);
+
 fn snapshot(window: &tao::window::Window) {
-    let (position, size) = (
+    let (position, mut size) = (
         window.outer_position().unwrap_or_default(),
         window.inner_size(),
     );
+    if let Some((width, height)) = *VIEWPORT.lock().unwrap_or_else(|p| p.into_inner()) {
+        let scale = window.scale_factor();
+        size = tao::dpi::PhysicalSize::new(
+            (width * scale).round() as u32,
+            (height * scale).round() as u32,
+        );
+    }
     crate::window::publish(crate::window::State {
         x: position.x,
         y: position.y,
@@ -864,6 +876,9 @@ fn handle(body: &str, hooks: &Hooks, control: &Control) {
         }) => {
             crate::mount::dispatch(node, &name, &event, seq);
             wake();
+        }
+        Ok(FromPage::Viewport { width, height }) => {
+            *VIEWPORT.lock().unwrap_or_else(|p| p.into_inner()) = Some((width, height));
         }
         Ok(FromPage::Error { message }) => {
             eprintln!("rustx: the page could not run a command: {message}")
