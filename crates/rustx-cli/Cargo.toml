@@ -21,14 +21,14 @@ name = "rustx_cli"
 path = "src/lib.rs"
 
 [dependencies]
-rustx-compiler = { path = "../rustx-compiler", version = "0.5.1" }
+rustx-compiler = { path = "../rustx-compiler", version = "0.5.2" }
 # For `rustx package`: the digest a release manifest carries and the
 # updater checks, which has to be the same function in both programs.
-rustx-os = { path = "../rustx-os", version = "0.5.1" }
+rustx-os = { path = "../rustx-os", version = "0.5.2" }
 # And the archive. Deflate only -- the zip itself is written here,
 # because a release page holds a .zip and nothing else in this crate
 # needs an archive library.
 flate2 = "1"
 
 [dev-dependencies]
-rustx-dom = { path = "../rustx-dom", version = "0.5.1" }
+rustx-dom = { path = "../rustx-dom", version = "0.5.2" }
