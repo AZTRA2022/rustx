@@ -1374,3 +1374,27 @@ fn a_method_that_takes_mut_self_is_called_through_the_cell_not_on_a_copy() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// BUG.md: `store.open = !store.open` read `store` inside the write borrow of `update`: a panic ("already borrowed"), on a click.
+#[test]
+fn an_assignment_that_reads_the_value_it_writes_reads_a_snapshot_taken_before() {
+    let rust = rewrite_one(
+        "#[derive(Clone)]\nstruct S { open: bool }\nlet mut s: S = S { open: false };\n\nfn Page() -> Element {\n    return <button onClick={move |_| s.open = !s.open}>go</button>;\n}\n",
+    );
+    assert!(
+        rust.contains("let __r = s . get ()") || rust.contains("let __r = s.get()"),
+        "{rust}"
+    );
+    assert!(
+        !rust.contains("update (| __v | { __v . open = ! s . get ()")
+            && !rust.contains("update(|__v| { __v.open = !s.get()"),
+        "the read is still inside the write borrow: {rust}"
+    );
+    let compound = rewrite_one(
+        "fn Page() -> Element {\n    let mut n = 1;\n    return <button onClick={move |_| n += n}>{n}</button>;\n}\n",
+    );
+    assert!(
+        compound.contains("let __a0 = ") && compound.contains("__a0"),
+        "{compound}"
+    );
+}

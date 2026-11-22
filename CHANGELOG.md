@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.2 (2026-11-22)
+
+### Fixed
+
+- **A click that writes a value from itself panicked.** `store.open = !store.open` (and `n += n`) read the page value inside the write borrow of `update`, so the first click ended in "already borrowed" and the window went. The right-hand side is now read before the write: from a snapshot taken just before (`let __r = store.get(); store.update(|__v| { __v.open = !__r.open; })`), or, for a compound assignment, evaluated into a binding first.
+
 ## 0.5.1 (2026-11-22)
 
 Found by building a large application (a 144-level simulation, a dozen pages, a shared state of forty fields) on 0.5.0.

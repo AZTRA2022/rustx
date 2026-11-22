@@ -1101,6 +1101,11 @@ enum Owning {
     Moved,
 }
 
+/// Does the text read the page value `name` (as the rewrite writes a read: `name.get()`)?
+fn reads_it(text: &str, name: &str) -> bool {
+    text.contains(&format!("{name}.get()"))
+}
+
 fn rewrite_mutation_for(
     source: &str,
     name: &str,
@@ -1133,6 +1138,14 @@ fn rewrite_mutation_for(
                     end: value.end,
                 },
                 text: match owning {
+                    // The right-hand side first when it reads this very value: inside `update` the
+                    // cell is borrowed for writing, and a `get()` in there panics ("already borrowed").
+                    Owning::Borrowed if reads_it(&read_patched(source, value, reads), name) => {
+                        format!(
+                            "{{ let __a0 = {}; {name}.update(|__v| *__v {operator} __a0) }}",
+                            read_patched(source, value, reads)
+                        )
+                    }
                     Owning::Borrowed => format!(
                         "{name}.update(|__v| *__v {operator} {})",
                         read_patched(source, value, reads)
@@ -1156,6 +1169,12 @@ fn rewrite_mutation_for(
                 text: {
                     let patched = read_patched(source, call, reads);
                     match owning {
+                        // `store.open = !store.open`: the read of `store` inside `update` would panic
+                        // ("already borrowed"), so it reads a snapshot taken just before.
+                        Owning::Borrowed if reads_it(&patched, name) => format!(
+                            "{{ let __r = {name}.get(); {name}.update(|__v| {{ __v{}; }}) }}",
+                            patched.replace(&format!("{name}.get()"), "__r")
+                        ),
                         Owning::Borrowed => format!("{name}.update(|__v| {{ __v{patched}; }})"),
                         Owning::Moved => moved_method(name, &patched).unwrap_or_else(|| {
                             // Not a call this can take apart — then the
