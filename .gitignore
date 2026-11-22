@@ -19,3 +19,4 @@ dist/
 **/target
 **/rustx-framework*
 **/clean**
+aidd_docs/
