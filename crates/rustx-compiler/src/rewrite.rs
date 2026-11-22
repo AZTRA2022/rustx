@@ -309,16 +309,7 @@ fn edits_for(source: &str, component: &Component) -> Vec<Edit> {
     // `hoisted`. Decided here, after the writes have taken theirs, so no
     // binding is left behind for a read that no longer exists.
     for (name, read) in reads {
-        match hoisted(source, name, read.span) {
-            Some((hoist, bound)) => {
-                edits.push(hoist);
-                edits.push(Edit {
-                    span: read.span,
-                    text: bound,
-                });
-            }
-            None => edits.push(read),
-        }
+        edits.extend(final_read(source, name, read));
     }
 
     edits
@@ -831,16 +822,7 @@ fn rewrite_handler(source: &str, component: &Component, handler: Span) -> Option
     // borrows out of a page value needs the clone bound first, exactly
     // as it does out in the function — see `hoisted`.
     for (name, read) in reads {
-        match hoisted(source, name, read.span) {
-            Some((hoist, bound)) => {
-                inner_edits.push(hoist);
-                inner_edits.push(Edit {
-                    span: read.span,
-                    text: bound,
-                });
-            }
-            None => inner_edits.push(read),
-        }
+        inner_edits.extend(final_read(source, name, read));
     }
 
     // And the captures of a format string written inside the handler,
@@ -884,6 +866,127 @@ fn rewrite_handler(source: &str, component: &Component, handler: Span) -> Option
     })
 }
 
+/// The end of the field path that follows a read: `store.cmd.len()` reads the field
+/// `.cmd` of `store` and then calls `len` on it, so the path is `.cmd`.
+///
+/// A name followed by `(` is a method, and so is one followed by `::` (a turbofish):
+/// the path stops before it. A tuple field (`.0`) is a field.
+fn field_path_end(source: &str, read: Span) -> usize {
+    let bytes = source.as_bytes();
+    let word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let mut end = read.end;
+    while bytes.get(end) == Some(&b'.') {
+        let mut at = end + 1;
+        while bytes.get(at).is_some_and(|b| word(*b)) {
+            at += 1;
+        }
+        if at == end + 1 || bytes.get(at) == Some(&b'(') || source[at..].starts_with("::") {
+            break;
+        }
+        end = at;
+    }
+    end
+}
+
+/// Names of methods that take `&mut self`, found in the application's own source (see
+/// `build::mutating_methods`). A page value's method is called through the cell when it is
+/// one of these: `let outcome = store.exec(line)` cannot be a call on a copy, because the
+/// change would land on the copy and be lost.
+static MUTATING: std::sync::Mutex<std::collections::BTreeSet<String>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+/// Tell the rewrite which methods mutate. Names only ever accumulate.
+pub fn declare_mutating(names: impl IntoIterator<Item = String>) {
+    if let Ok(mut held) = MUTATING.lock() {
+        held.extend(names);
+    }
+}
+
+fn is_mutating(name: &str) -> bool {
+    MUTATING.lock().is_ok_and(|held| held.contains(name))
+}
+
+/// `.method(` right after a read, and the end of that call's closing parenthesis.
+fn mutating_call(source: &str, read: Span) -> Option<usize> {
+    let bytes = source.as_bytes();
+    if bytes.get(read.end) != Some(&b'.') {
+        return None;
+    }
+    let mut at = read.end + 1;
+    while bytes
+        .get(at)
+        .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_')
+    {
+        at += 1;
+    }
+    if at == read.end + 1 || bytes.get(at) != Some(&b'(') || !is_mutating(&source[read.end + 1..at])
+    {
+        return None;
+    }
+    let mut depth = 0_i32;
+    let mut index = at;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' => {
+                index = crate::scan::skip_string(source, index).unwrap_or(index + 1);
+                continue;
+            }
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index + 1);
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
+/// A read of a page value as it is finally written: the whole value when the read is
+/// the value, and only the field when it is `value.field`.
+///
+/// `store.wlevel` used to become `store.get().wlevel`, which copies the whole struct to
+/// read one number: a page that reads a field 150 times copied the state 150 times.
+/// `store.with(|__s| __s.wlevel.clone())` copies the field. A state that is a struct is
+/// `Clone` (it had to be, for `get`), so all its fields are.
+fn final_read(source: &str, name: &str, read: Edit) -> Vec<Edit> {
+    if let Some(call_end) = mutating_call(source, read.span) {
+        return vec![
+            Edit {
+                span: read.span,
+                text: format!("{name}.update_with(|__v| __v"),
+            },
+            Edit {
+                span: Span {
+                    start: call_end,
+                    end: call_end,
+                },
+                text: ")".into(),
+            },
+        ];
+    }
+    let end = field_path_end(source, read.span);
+    let span = Span {
+        start: read.span.start,
+        end,
+    };
+    let value = if end > read.span.end {
+        format!(
+            "{name}.with(|__s| __s{}.clone())",
+            &source[read.span.end..end]
+        )
+    } else {
+        read.text.clone()
+    };
+    match hoisted(source, &value, span) {
+        Some((hoist, bound)) => vec![hoist, Edit { span, text: bound }],
+        None => vec![Edit { span, text: value }],
+    }
+}
+
 /// What a read becomes when it opens a `let`, and what has to be bound
 /// before that `let` for it to compile.
 ///
@@ -905,7 +1008,7 @@ fn rewrite_handler(source: &str, component: &Component, handler: Span) -> Option
 /// has always been fine; and opening the initializer is what makes
 /// hoisting it change nothing — the expression was going to be evaluated
 /// first in any case.
-fn hoisted(source: &str, name: &str, read: Span) -> Option<(Edit, String)> {
+fn hoisted(source: &str, value: &str, read: Span) -> Option<(Edit, String)> {
     let bytes = source.as_bytes();
     // Something is called on the value, or read out of it. A read with
     // nothing after it is the value itself and needs no binding.
@@ -952,7 +1055,7 @@ fn hoisted(source: &str, name: &str, read: Span) -> Option<(Edit, String)> {
     Some((
         Edit {
             span: Span { start: at, end: at },
-            text: format!("let {bound} = {name}.get(); "),
+            text: format!("let {bound} = {value}; "),
         },
         bound,
     ))
