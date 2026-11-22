@@ -16,6 +16,7 @@ use crate::transpile::transpile;
 /// Returns the generated files, in a stable order, so that a build script
 /// can print `rerun-if-changed` for each.
 pub fn compile_directory(from: &Path, to: &Path) -> Result<Vec<PathBuf>, CompileError> {
+    crate::rewrite::declare_mutating(mutating_methods(from));
     let mut sources = Vec::new();
     collect(from, &mut sources)?;
     sources.sort();
@@ -39,6 +40,70 @@ pub fn compile_directory(from: &Path, to: &Path) -> Result<Vec<PathBuf>, Compile
         written.push(target);
     }
     Ok(written)
+}
+
+/// The names of the methods in the application's own source that take `&mut self` and are not
+/// also written with `&self`: the `.rs` of its `src/` and the `.rsx` of its pages.
+///
+/// A page value that is a struct is called through its cell when one of these is called on it
+/// (see `rewrite::declare_mutating`). A name written both ways is left out, because then the
+/// text cannot say which one a call is.
+pub fn mutating_methods(pages: &Path) -> Vec<String> {
+    fn walk(directory: &Path, text: &mut String) {
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, text);
+            } else if path.extension().is_some_and(|e| e == "rs" || e == "rsx")
+                && let Ok(body) = std::fs::read_to_string(&path)
+            {
+                text.push_str(&body);
+                text.push('\n');
+            }
+        }
+    }
+    let mut text = String::new();
+    walk(pages, &mut text);
+    if let Some(root) = pages.parent() {
+        walk(&root.join("src"), &mut text);
+    }
+    // The pages may have been copied somewhere before they were compiled (`rustx-tree-…`): the
+    // crate being built is then the one cargo says, not the one beside the pages.
+    if let Some(manifest) = std::env::var_os("CARGO_MANIFEST_DIR") {
+        let manifest = std::path::PathBuf::from(manifest);
+        if pages.parent() != Some(manifest.as_path()) {
+            walk(&manifest.join("src"), &mut text);
+            walk(&manifest.join("app"), &mut text);
+        }
+    }
+    let mut mutating = std::collections::BTreeSet::new();
+    let mut shared = std::collections::BTreeSet::new();
+    for piece in text.split("fn ").skip(1) {
+        let name: String = piece
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
+        let rest = piece[name.len()..].trim_start();
+        let rest = rest.strip_prefix('<').map_or(rest, |_| {
+            rest.split_once('>')
+                .map_or(rest, |(_, after)| after.trim_start())
+        });
+        if let Some(parameters) = rest.strip_prefix('(') {
+            let first = parameters.trim_start();
+            if first.starts_with("&mut self") {
+                mutating.insert(name);
+            } else if first.starts_with("&self")
+                || first.starts_with("self")
+                || first.starts_with("mut self")
+            {
+                shared.insert(name);
+            }
+        }
+    }
+    mutating.difference(&shared).cloned().collect()
 }
 
 /// The same, plus the route table — for an application whose screens

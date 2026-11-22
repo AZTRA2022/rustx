@@ -1307,3 +1307,70 @@ fn Page() -> Element {
         "a write became a read:\n{rust}"
     );
 }
+
+// BUG.md: `store.field` copied the whole `store` to read one field.
+const FIELDS: &str = "#[derive(Clone)]\nstruct Store { level: i32, name: String }\nlet mut store: Store = Store { level: 1, name: String::new() };\n\nfn Page() -> Element {\n    let n = store.level;\n    let shown = store.name.len();\n    return <div onClick={move |_| store.level = 2}>{n}{shown}{store.name.clone()}</div>;\n}\n";
+
+#[test]
+fn reading_a_field_of_a_page_value_copies_the_field_and_not_the_whole_value() {
+    let rust = rewrite_one(FIELDS);
+    assert!(
+        rust.contains("with (| __s | __s . level . clone ())")
+            || rust.contains("with(|__s| __s.level.clone())"),
+        "{rust}"
+    );
+    assert!(
+        rust.contains("__s . name . clone ()") || rust.contains("__s.name.clone()"),
+        "{rust}"
+    );
+    assert!(
+        !rust.contains("store . get () . level") && !rust.contains("store.get().level"),
+        "the whole value was still copied: {rust}"
+    );
+}
+
+#[test]
+fn a_method_called_on_a_page_value_still_reads_the_whole_value() {
+    let rust = rewrite_one(
+        "#[derive(Clone)]\nstruct S { a: i32 }\nimpl S { fn double(&self) -> i32 { self.a * 2 } }\nlet mut s: S = S { a: 1 };\n\nfn Page() -> Element {\n    let d = s.double();\n    return <div>{d}</div>;\n}\n",
+    );
+    assert!(rust.contains("get ()") || rust.contains("get()"), "{rust}");
+    assert!(
+        !rust.contains("__s . double") && !rust.contains("__s.double"),
+        "a method is not a field: {rust}"
+    );
+}
+
+// BUG.md: `let outcome = store.exec(line)` where `exec` takes `&mut self` was E0596.
+#[test]
+fn a_method_that_takes_mut_self_is_called_through_the_cell_not_on_a_copy() {
+    let dir = std::env::temp_dir().join(format!("rustx-mutating-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::create_dir_all(dir.join("app")).unwrap();
+    std::fs::write(
+        dir.join("src").join("store.rs"),
+        "impl Store {\n    pub fn bump_and_report(&mut self, by: i32) -> String { self.level += by; format!(\"{}\", self.level) }\n    pub fn peek_level(&self) -> i32 { self.level }\n}\n",
+    )
+    .unwrap();
+    let found = rustx_compiler::build::mutating_methods(&dir.join("app"));
+    assert!(
+        found.contains(&"bump_and_report".to_string()),
+        "the `&mut self` method is found"
+    );
+    assert!(
+        !found.contains(&"peek_level".to_string()),
+        "a `&self` method is not"
+    );
+    rustx_compiler::rewrite::declare_mutating(found);
+    let rust = rewrite_one(
+        "#[derive(Clone)]\nstruct Store { level: i32 }\nlet mut store: Store = Store { level: 1 };\n\nfn Page() -> Element {\n    return <button onClick={move |_| { let said = store.bump_and_report(2); drop(said); }}>go</button>;\n}\n",
+    );
+    assert!(rust.contains("update_with"), "{rust}");
+    assert!(
+        !rust.contains("store.get().bump_and_report")
+            && !rust.contains("store . get () . bump_and_report"),
+        "{rust}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

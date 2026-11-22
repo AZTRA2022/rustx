@@ -300,6 +300,15 @@ impl<T> State<T> {
         read(&self.value.borrow())
     }
 
+    /// Change the value in place and give back what the change computed: `store.exec(line)`
+    /// where `exec` takes `&mut self` and returns something. Not for a render, which would
+    /// mark its own component for the next frame, every frame.
+    pub fn update_with<R>(&self, change: impl FnOnce(&mut T) -> R) -> R {
+        let result = change(&mut self.value.borrow_mut());
+        self.soil();
+        result
+    }
+
     /// Mutating does not draw. It says "this one, next frame".
     fn soil(&self) {
         mark_dirty(self.owner);

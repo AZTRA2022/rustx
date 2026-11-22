@@ -52,8 +52,8 @@ pub use tokio::time;
 
 pub use rustx_dom::value::{ToValue, record};
 pub use rustx_dom::{
-    AttributeValue, Element, Handler, IntoElement, Key, TagElement, Value, into_element, route,
-    state, store, value,
+    AttributeValue, Element, Event, Handler, IntoElement, Key, TagElement, Value, into_element,
+    route, state, store, value,
 };
 pub use rustx_os::OsError;
 /// What touches the machine rather than the page: the clipboard, file

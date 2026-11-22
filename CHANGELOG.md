@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.1 (2026-11-22)
+
+Found by building a large application (a 144-level simulation, a dozen pages, a shared state of forty fields) on 0.5.0.
+
+### Fixed
+
+- **A handler of several parameters that writes a page value got only the first argument.** The state rewrite wraps such a closure in a block (`{ let store = store.clone(); move |a, b| … }`) and the emitter, reading from the front, counted one parameter and saw no type annotation. It now starts from the closure itself.
+- **`<Input onInput={move |event| …}>` was `type annotations needed`.** A prop of a component whose name is a DOM event (`onInput`, `onClick`, `onKeyDown`, …) is read as an `Event`, as it already was on a lowercase tag. A type written on the first parameter (`|v: rustx::Value|`) still wins, and a prop that is not a DOM event (`onValueChange`) is still a `Value`. `rustx::Event` is exported at the root.
+- **Reading one field copied the whole page value.** `store.level` was `store.get().level`; it is now `store.with(|__s| __s.level.clone())`, and `let x = store.name.as_str()` binds the cloned field rather than the whole value.
+- **`let outcome = store.exec()` with `exec(&mut self)` was `E0596`, or silently ran on a copy.** The methods that take `&mut self` are found in the application's own source, and calling one on a page value goes through the cell (`update_with`), where the change lands. New: `State::update_with` and `Shared::update_with`, which return what the change computed.
+- **Editing a script under `components/` or `lib/` did not rebuild the application.** Nothing named those files, so the old bundle stayed in the binary. They are named now.
+
+### Known
+
+- A mutating method is recognised by name, from the application's own source: a name written both with `&self` and `&mut self` is left as a read, and a name that mutates on one type and is a plain read on another is not told apart. Calling such a method inside a render (not a handler) marks the component for the next frame, every frame.
+
 ## 0.5.0 (2026-11-21)
 
 The workspace, the editor extension and the language server are all at 0.5.0.

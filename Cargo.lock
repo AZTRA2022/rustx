@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "agent-manager"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "rustx-app",
 ]
@@ -128,14 +128,14 @@ dependencies = [
 
 [[package]]
 name = "capture"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "rustx-app",
 ]
 
 [[package]]
 name = "catalogue"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "rustx-app",
 ]
@@ -234,7 +234,7 @@ dependencies = [
 
 [[package]]
 name = "counter"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "rustx-app",
 ]
@@ -307,7 +307,7 @@ dependencies = [
 
 [[package]]
 name = "data-intel"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "rustx-app",
 ]
@@ -924,7 +924,7 @@ dependencies = [
 
 [[package]]
 name = "hybrid"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "rustx-app",
 ]
@@ -1216,14 +1216,14 @@ dependencies = [
 
 [[package]]
 name = "monitor"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "rustx-app",
 ]
 
 [[package]]
 name = "multitask-hub"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "rustx-app",
 ]
@@ -1260,7 +1260,7 @@ dependencies = [
 
 [[package]]
 name = "nemo-design"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "rustx-app",
 ]
@@ -1531,7 +1531,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "ops-monitor"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "rustx-app",
  "sysinfo",
@@ -1815,7 +1815,7 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
 name = "rustx-app"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "rustx-compiler",
  "rustx-dom",
@@ -1828,7 +1828,7 @@ dependencies = [
 
 [[package]]
 name = "rustx-cli"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "flate2",
  "rustx-compiler",
@@ -1838,7 +1838,7 @@ dependencies = [
 
 [[package]]
 name = "rustx-compiler"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1847,11 +1847,11 @@ dependencies = [
 
 [[package]]
 name = "rustx-dom"
-version = "0.5.0"
+version = "0.5.1"
 
 [[package]]
 name = "rustx-lsp"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "rustx-compiler",
  "syn 2.0.119",
@@ -1859,7 +1859,7 @@ dependencies = [
 
 [[package]]
 name = "rustx-macro"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1868,7 +1868,7 @@ dependencies = [
 
 [[package]]
 name = "rustx-os"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "flate2",
  "objc2",
@@ -1878,7 +1878,7 @@ dependencies = [
 
 [[package]]
 name = "rustx-webview"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "rustx-dom",
  "rustx-os",
@@ -2461,14 +2461,14 @@ checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 
 [[package]]
 name = "utility-hub"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "rustx-app",
 ]
 
 [[package]]
 name = "vault-storage"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "rustx-app",
 ]
@@ -2487,7 +2487,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "video-editor"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "rustx-app",
 ]
@@ -3019,7 +3019,7 @@ checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 
 [[package]]
 name = "zoo"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "rustx-app",
 ]

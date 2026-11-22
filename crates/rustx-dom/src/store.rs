@@ -392,6 +392,15 @@ impl<T: 'static> Shared<T> {
         }
     }
 
+    /// Change the value in place and give back what the change computed (see `State::update_with`).
+    pub fn update_with<R>(&self, change: impl FnOnce(&mut T) -> R) -> R {
+        let mut result = None;
+        self.held.write(|value| result = Some(change(value)));
+        soil(&self.held);
+        crate::carried::keep();
+        result.expect("the write ran the change")
+    }
+
     /// Change the value in place.
     pub fn update(&self, change: impl FnOnce(&mut T)) {
         self.held.write(change);

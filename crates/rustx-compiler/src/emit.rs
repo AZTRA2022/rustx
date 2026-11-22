@@ -523,7 +523,7 @@ fn foreign_node(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, Com
     /// what a library almost always passes and what this did for
     /// everything before.
     fn taken(code: &str) -> usize {
-        let written = code.trim();
+        let written = closure_head(code);
         let written = written.strip_prefix("move").unwrap_or(written).trim_start();
         let Some(rest) = written.strip_prefix('|') else {
             return 1;
@@ -554,11 +554,32 @@ fn foreign_node(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, Com
     /// component is: `onClick={move |event: rustx_dom::Event| …}` on a
     /// library's `Textarea` was handed a `Value` and rustc refused it.
     fn annotated_event(code: &str) -> bool {
+        first_parameter_type(code).is_some_and(|ty| ty.trim().rsplit("::").next() == Some("Event"))
+    }
+
+    /// The closure itself, from its `move` or its first pipe.
+    ///
+    /// A handler that writes a page value reaches the emitter as `{ let store =
+    /// store.clone(); move |a, b| store.update(…) }`, because the state rewrite binds
+    /// its handles in a block first. Read from the front, that is not a closure at
+    /// all, so it was counted as taking one argument and never annotated: a closure of
+    /// two parameters that wrote state was handed only the first, and one typed
+    /// `|e: rustx::Event|` was handed a `Value`.
+    fn closure_head(code: &str) -> &str {
         let written = code.trim();
+        if written.starts_with('{')
+            && let Some(at) = written.find("move |").or_else(|| written.find("move ||"))
+        {
+            return written[at..].trim();
+        }
+        written
+    }
+
+    /// The type written on the closure's first parameter, if one is.
+    fn first_parameter_type(code: &str) -> Option<String> {
+        let written = closure_head(code);
         let written = written.strip_prefix("move").unwrap_or(written).trim_start();
-        let Some(rest) = written.strip_prefix('|') else {
-            return false;
-        };
+        let rest = written.strip_prefix('|')?;
         let mut depth = 0usize;
         let mut first = String::new();
         for letter in rest.chars() {
@@ -570,9 +591,7 @@ fn foreign_node(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, Com
             }
             first.push(letter);
         }
-        first
-            .split_once(':')
-            .is_some_and(|(_, ty)| ty.trim().rsplit("::").next() == Some("Event"))
+        first.split_once(':').map(|(_, ty)| ty.trim().to_string())
     }
 
     let mut props = Vec::new();
@@ -611,13 +630,20 @@ fn foreign_node(tag: &TagNode, context: &Context<'_>) -> Result<TokenStream, Com
             // facons selon un ancetre -- et du cote React la closure
             // recevait `null`.
             //
-            // Une prop d'un composant, elle, reste une valeur : ce
-            // qu'une bibliothèque passe a `onValueChange` est ce
-            // qu'elle veut, et seul le DOM garantit un evenement.
+            // Une prop d'un composant dont le nom est celui d'un
+            // evenement du DOM (`onInput`, `onClick`, `onKeyDown`) est
+            // lue de la meme facon : `<Input onInput={move |event|
+            // event.value}>` est ce que tout le monde ecrit, et
+            // `Event::from_value` ne refuse rien -- une chaine, un
+            // nombre ou un booleen deviennent `value`. Une prop qui
+            // n'est pas un evenement du DOM (`onValueChange`) reste une
+            // valeur : ce qu'une bibliothèque y passe est ce qu'elle
+            // veut. Et un type ecrit sur le premier parametre
+            // (`|v: rustx::Value|`) l'emporte toujours sur le nom.
             let annotated = annotated_event(code);
-            let an_event = annotated
-                || (!crate::tags::looks_like_a_component(export)
-                    && crate::attributes::is_event(&attribute.name));
+            let other_type = first_parameter_type(code).is_some() && !annotated;
+            let an_event =
+                annotated || (!other_type && crate::attributes::is_event(&attribute.name));
             let given: Vec<proc_macro2::TokenStream> = (0..taken(code))
                 .map(|at| {
                     let at = Literal::usize_suffixed(at);

@@ -125,6 +125,10 @@ pub fn main(attribute: TokenStream, item: TokenStream) -> TokenStream {
         // file is part of me" that both cargo and `rustc` follow.
         let mut named = sources(&app);
         named.extend(sources(&manifest.join("system")));
+        // The JavaScript the bundler reads is part of the application too: an edited
+        // `components/Foo.tsx` used to leave the old bundle in the binary, silently,
+        // because nothing named it, so nothing re-ran this expansion.
+        named.extend(bundle_inputs(&manifest));
         let watched: Vec<TokenStream2> = named
             .iter()
             .map(|source| {
@@ -592,6 +596,35 @@ fn rust_files(directory: &Path) -> Vec<PathBuf> {
 fn sources(app: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();
     collect(app, &mut found);
+    found.sort();
+    found
+}
+
+/// The files the bundler reads: everything script or style under `components/` and `lib/`.
+fn bundle_inputs(manifest: &Path) -> Vec<PathBuf> {
+    fn walk(directory: &Path, into: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|name| name != "node_modules") {
+                    walk(&path, into);
+                }
+            } else if path.extension().is_some_and(|extension| {
+                ["ts", "tsx", "js", "jsx", "mjs", "css"]
+                    .iter()
+                    .any(|known| extension == *known)
+            }) {
+                into.push(path);
+            }
+        }
+    }
+    let mut found = Vec::new();
+    for directory in ["components", "lib"] {
+        walk(&manifest.join(directory), &mut found);
+    }
     found.sort();
     found
 }

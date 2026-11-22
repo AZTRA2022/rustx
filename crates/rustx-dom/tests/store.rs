@@ -172,3 +172,25 @@ fn a_store_and_a_name_are_two_different_filings() {
         "a name is not a type"
     );
 }
+
+#[test]
+fn update_with_changes_the_value_in_place_and_gives_back_what_the_change_computed() {
+    #[derive(Clone)]
+    struct Counter {
+        n: i32,
+    }
+    impl Counter {
+        fn bump(&mut self, by: i32) -> i32 {
+            self.n += by;
+            self.n
+        }
+    }
+    let counter = rustx_dom::store::shared("update_with_counter", || Counter { n: 1 });
+    let said = counter.update_with(|c| c.bump(4));
+    assert_eq!(said, 5, "the result of the change comes back");
+    assert_eq!(
+        counter.get().n,
+        5,
+        "and the change landed in the cell, not on a copy"
+    );
+}

@@ -293,15 +293,55 @@ fn a_component_prop_annotated_with_event_is_handed_an_event() {
 }
 
 #[test]
-fn an_unannotated_component_prop_stays_a_value() {
-    for closure in [
-        "move |value| drop(value)",
-        "move |a, b| drop((a, b))",
-        "move || ()",
-    ] {
+fn a_component_prop_with_a_dom_event_name_is_an_event_unless_it_says_otherwise() {
+    // BUG.md: `<Input onInput={move |event| store.q = event.value}>` was `type annotations needed`.
+    for closure in ["move |event| drop(event)", "move |a, b| drop((a, b))"] {
         let rust = rewrite_one(&format!(
-            "fn P() -> Element {{\n    return <Textarea onClick={{{closure}}} />;\n}}"
+            "fn P() -> Element {{\n    return <Input onInput={{{closure}}} />;\n}}"
+        ));
+        assert!(rust.contains("Event :: from_value"), "{closure}: {rust}");
+    }
+    // A type written on the parameter wins over the name, and `rustx::Event` is an event.
+    let kept = rewrite_one(
+        "fn P() -> Element {\n    return <Input onInput={move |v: rustx::Value| drop(v)} />;\n}",
+    );
+    assert!(!kept.contains("Event :: from_value"), "{kept}");
+    let said = rewrite_one(
+        "fn P() -> Element {\n    return <Input onInput={move |e: rustx::Event| drop(e)} />;\n}",
+    );
+    assert!(said.contains("Event :: from_value"), "{said}");
+}
+
+#[test]
+fn a_prop_that_is_no_dom_event_stays_a_value_even_unannotated() {
+    for closure in ["move |value| drop(value)", "move || ()"] {
+        let rust = rewrite_one(&format!(
+            "fn P() -> Element {{\n    return <Select onValueChange={{{closure}}} />;\n}}"
         ));
         assert!(!rust.contains("Event :: from_value"), "{closure}: {rust}");
     }
+}
+
+#[test]
+fn a_handler_that_writes_state_still_gets_all_its_arguments_and_its_event() {
+    // BUG.md: the state rewrite wraps such a closure in a block, and the emitter,
+    // reading from the front, counted one argument and saw no annotation.
+    let two = rewrite_one(
+        "fn P() -> Element {\n    let mut n = 0;\n    return <Chart onAction={move |kind, id| { n = 1; drop((kind, id)); }} />;\n}",
+    );
+    assert!(
+        two.contains("nth (__arguments , 1usize)") || two.contains("nth(__arguments, 1usize)"),
+        "{two}"
+    );
+    let typed = rewrite_one(
+        "fn P() -> Element {\n    let mut n = 0;\n    return <Input onInput={move |e: rustx::Event| { n = e.value.len(); }} />;\n}",
+    );
+    assert!(typed.contains("Event :: from_value"), "{typed}");
+    let value = rewrite_one(
+        "fn P() -> Element {\n    let mut n = 0;\n    return <Chart onSelect={move |v: rustx::Value| { n = 1; drop(v); }} />;\n}",
+    );
+    assert!(
+        !value.contains("Event :: from_value"),
+        "a written Value type wins over the name: {value}"
+    );
 }
