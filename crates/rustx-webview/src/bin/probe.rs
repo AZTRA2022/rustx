@@ -18,6 +18,15 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+/// One line on stderr, written in one piece. `eprintln!` writes the text, the arguments and the newline as separate
+/// system calls, so two processes sharing a stderr (the two windows of `twowindows`, whose parent and child are the
+/// same binary) split each other's lines: `PARENT sent=` then the other's line, then `true`. The test reads these
+/// lines by their start, so a split line failed it on a busy runner.
+fn say(line: String) {
+    use std::io::Write;
+    let _ = std::io::stderr().write_all(format!("{line}\n").as_bytes());
+}
+
 use rustx_dom::state::{Slot, State, cell};
 use rustx_dom::{AttributeValue, Element, Handler};
 use rustx_webview::host::{Config, Hooks, run};
@@ -589,7 +598,7 @@ fn main() {
             // The second window: it says what the first one ordered.
             rustx_webview::window::on_event(|event| {
                 if let rustx_webview::window::Event::Resized { width, height } = event {
-                    eprintln!("CHILD resized {width}x{height}");
+                    say(format!("CHILD resized {width}x{height}"));
                 }
             });
             // Its own size, long after the orders: a second window may start slowly, so there is
@@ -600,7 +609,7 @@ fn main() {
                 if !said.get() && born.elapsed() > Duration::from_millis(9500) {
                     said.set(true);
                     let size = rustx_webview::window::state();
-                    eprintln!("CHILD size after {}x{}", size.width, size.height);
+                    say(format!("CHILD size after {}x{}", size.width, size.height));
                 }
             });
         } else {
@@ -618,7 +627,7 @@ fn main() {
                 {
                     ordered.set(true);
                     let sent = child.set_size(520, 410) && child.set_title("Retitled");
-                    eprintln!("PARENT sent={sent}");
+                    say(format!("PARENT sent={sent}"));
                 }
             });
         }
